@@ -161,7 +161,7 @@ int __fastcall TryOnAttach(void *model, const void *record, uint32_t bodySlot,
     const int lane = Outfit::LaneIndex(bodySlot);
     s.weapons.display[lane] = record;
     s.weapons.visual[lane] = Outfit::EnchantVisual(record, g_tryOnEnchant);
-    s.worn[(lane == 1 ? Offsets::INVSLOT_OFFHAND : Offsets::INVSLOT_MAINHAND) - 1] = {
+    s.worn[Outfit::InvSlotOfLane(lane) - 1] = {
         g_tryOnItem, s.weapons.visual[lane] != 0 ? g_tryOnEnchant : 0};
     if (s.sheathSet) {
         if (s.hideWeapons)
@@ -182,7 +182,7 @@ void __fastcall TryOnEvict(void *model, uint32_t bodySlot, uint32_t sheatheType,
         const int lane = Outfit::LaneIndex(bodySlot);
         s.weapons.display[lane] = nullptr;
         s.weapons.visual[lane] = 0;
-        s.worn[(lane == 1 ? Offsets::INVSLOT_OFFHAND : Offsets::INVSLOT_MAINHAND) - 1] = {};
+        s.worn[Outfit::InvSlotOfLane(lane) - 1] = {};
     }
     reinterpret_cast<DetachHeldItem_t>(Offsets::FUN_DETACH_HELD_ITEM_SLOT)(model, bodySlot,
                                                                          sheatheType, shield);

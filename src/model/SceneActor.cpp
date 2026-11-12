@@ -448,8 +448,13 @@ Actor::~Actor() {
     World::FreeAmbience(ambience);
 }
 
-void Actor::SetModel(void *newModel, const char *path, const uint8_t *newDressRecord) {
+void Actor::Vacate() {
     ClearModel();
+    ReleaseModel(*this);
+}
+
+void Actor::SetModel(void *newModel, const char *path, const uint8_t *newDressRecord) {
+    Vacate();
     if (newModel == nullptr)
         return;
     model = newModel;
@@ -459,18 +464,20 @@ void Actor::SetModel(void *newModel, const char *path, const uint8_t *newDressRe
     M2::SetAnimDoneCallback(model, reinterpret_cast<const void *>(&OnAnimDone), user, 0);
     M2::SetEventCallback(model, reinterpret_cast<const void *>(&Events::OnModelEvent), user, 0);
     M2::SetRenderCallback(model, reinterpret_cast<const void *>(&OnModelLighting), this);
+    Model::DisplayInfo::LightChildren(SceneFrame(), model);
     ApplyAlpha();
     ApplyHighlight();
     // The new model sizes the name again.
     nameDirty = true;
     InstallName(*this);
     PlayAnimation();
+    // Last: the script may clear or replace the model.
     RunScript(S_ONMODELLOADING, 0);
 }
 
 bool Actor::SetUnitModel(uint64_t guid) {
     using CloseHand_t = void(__fastcall *)(void *model, uint32_t hand);
-    ClearModel();
+    Vacate();
     void *unit = guid != 0 ? ::Object::ByGuid(Offsets::TYPEMASK_UNIT, guid) : nullptr;
     void *source = unit != nullptr ? Game::Read<void *>(unit, Offsets::OFF_CGOBJECT_MODEL) : nullptr;
     if (source == nullptr)
@@ -505,10 +512,9 @@ bool Actor::SetUnitModel(uint64_t guid) {
         rangedDisplay = nullptr;
         worn[Offsets::INVSLOT_RANGED - 1] = Outfit::Appearance{};
     }
+    displayID = Game::Read<uint32_t>(descriptor, Offsets::OFF_UNIT_FIELD_DISPLAYID);
     // SetModel keeps the unit fields: there is no model to clear.
     SetModel(copy, nullptr, nullptr);
-    displayID = Game::Read<uint32_t>(descriptor, Offsets::OFF_UNIT_FIELD_DISPLAYID);
-    Model::DisplayInfo::LightChildren(SceneFrame(), copy);
     return true;
 }
 
@@ -649,7 +655,7 @@ void PutOn(Actor &actor, const TryOn::Request &request, const uint8_t *record) {
     slot.item = TryOn::WornItem(request.itemID);
     slot.enchant = 0;
     if (invSlot == Offsets::INVSLOT_MAINHAND || invSlot == Offsets::INVSLOT_OFFHAND) {
-        const int lane = invSlot == Offsets::INVSLOT_OFFHAND ? 1 : 0;
+        const int lane = Outfit::LaneOfInvSlot(invSlot);
         if (actor.weapons.visual[lane] != 0)
             slot.enchant = request.enchant;
         actor.TookLane(actor.model, lane);
@@ -667,8 +673,15 @@ void PutOnWaiting(Actor &actor) {
     auto &waiting = actor.pendingTryOns;
     for (size_t i = 0; i < waiting.size();) {
         const TryOn::Request request = waiting[i];
-        const uint8_t *record = Item::PeekRecord(TryOn::WornItem(request.itemID));
+        const uint32_t worn = TryOn::WornItem(request.itemID);
+        const uint8_t *record = Item::PeekRecord(worn);
         if (record == nullptr) {
+            // A recipe that has arrived names the item it makes: wait for
+            // that one now.
+            if (worn != request.itemID) {
+                waiting[i].itemID = worn;
+                Item::Data::WarmCache(worn);
+            }
             ++i;
             continue;
         }
@@ -682,10 +695,15 @@ void PutOnWaiting(Actor &actor) {
 int Actor::TryOnItem(const Model::TryOn::Request &request) {
     if (model == nullptr)
         return TryOn::kNotEquippable;
-    const uint8_t *record = Item::PeekRecord(TryOn::WornItem(request.itemID));
+    const uint32_t worn = TryOn::WornItem(request.itemID);
+    const uint8_t *record = Item::PeekRecord(worn);
     if (record == nullptr) {
-        Item::Data::WarmCache(request.itemID);
-        pendingTryOns.push_back(request);
+        // An uncached recipe waits for itself, then for the item it makes
+        // (PutOnWaiting); a cached one waits for that item now.
+        Item::Data::WarmCache(worn);
+        TryOn::Request waiting = request;
+        waiting.itemID = worn;
+        pendingTryOns.push_back(waiting);
         return TryOn::kDataPending;
     }
     if (loaded) {
@@ -1301,9 +1319,9 @@ Actor *Self(void *L) { return static_cast<Actor *>(Animation::Resolve(L, 1, Acto
 // Shows a creature display, dressed by its CreatureDisplayInfoExtra record.
 bool ShowCreatureDisplay(Actor &actor, uint32_t displayID) {
     const char *path = nullptr;
+    actor.Vacate();
     void *model = Model::DisplayInfo::CreateDisplayModel(Model::Pane::Scene(actor.SceneFrame()),
                                                          displayID, &path);
-    actor.SetModel(model, path, Model::DisplayInfo::DressRecord(displayID));
     if (model == nullptr)
         return false;
     actor.displayID = displayID;
@@ -1311,6 +1329,8 @@ bool ShowCreatureDisplay(Actor &actor, uint32_t displayID) {
         DBC::Record(Offsets::VAR_CREATUREDISPLAYINFO_RECORDS,
                     Offsets::VAR_CREATUREDISPLAYINFO_COUNT, displayID),
         Offsets::OFF_CREATUREDISPLAYINFO_SCALE);
+    // SetModel keeps these fields: there is no model to clear.
+    actor.SetModel(model, path, Model::DisplayInfo::DressRecord(displayID));
     return true;
 }
 
@@ -1385,12 +1405,15 @@ int __fastcall Script_SetModelBySpellArea(void *L) {
                           Game::Read<uint32_t>(visual, Offsets::OFF_SPELLVISUAL_IMPACT_MODEL))
             : nullptr;
     const char *path = effect != nullptr ? Game::Read<const char *>(effect, Offsets::OFF_SPELLVISUALEFFECTNAME_FILE) : nullptr;
+    const float radius = FloatArg(L, 3);
+    actor->Vacate();
     void *model = path != nullptr && *path != '\0' ? M2::CreateModel(Model::Pane::Scene(actor->SceneFrame()), path) : nullptr;
-    actor->SetModel(model, path, nullptr);
     if (model != nullptr) {
         actor->areaEffect = effect;
-        actor->areaRadius = FloatArg(L, 3);
+        actor->areaRadius = radius;
         actor->areaVisual = visual;
+        // SetModel keeps these fields: there is no model to clear.
+        actor->SetModel(model, path, nullptr);
     }
     Game::Lua::PushBool(L, model != nullptr);
     return 1;
@@ -1488,7 +1511,7 @@ int __fastcall Script_DressPlayerSlot(void *L) {
     if (actor->model == nullptr || unit == nullptr)
         return 0;
     if (invSlot == Offsets::INVSLOT_MAINHAND || invSlot == Offsets::INVSLOT_OFFHAND) {
-        actor->TookLane(actor->model, invSlot == Offsets::INVSLOT_OFFHAND ? 1 : 0);
+        actor->TookLane(actor->model, Outfit::LaneOfInvSlot(invSlot));
         if (actor->rangedDrawn)
             HangRanged(*actor, false);
     }
@@ -1599,7 +1622,7 @@ int __fastcall Script_SetSheathedCategory(void *L) {
     const int invSlot = static_cast<int>(Game::Lua::ToNumber(L, 2));
     if (invSlot != Offsets::INVSLOT_MAINHAND && invSlot != Offsets::INVSLOT_OFFHAND)
         return 0;
-    const int lane = invSlot == Offsets::INVSLOT_OFFHAND ? 1 : 0;
+    const int lane = Outfit::LaneOfInvSlot(invSlot);
     actor->sheatheCategory[lane] = static_cast<uint32_t>(Game::Lua::ToNumber(L, 3));
     if (actor->model != nullptr) {
         actor->ApplySheatheCategory(actor->model, lane);

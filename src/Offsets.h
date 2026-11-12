@@ -14683,6 +14683,10 @@ enum Offsets {
     // 0x007A5EB0), so the engine's is (FMOD z, -FMOD x, FMOD y)
     // (GetListenerPosition 0x007A5F50).
     FUN_FSOUND_LISTENER_GET_ATTRIBUTES = 0x007FDB50,
+    // CVar* of SoundListenerAtCharacter: the world frame's constructor stores
+    // it (0x00481BBA), its OnRender reads it to place the listener
+    // (0x00483118). Ghidra: those are its only two references.
+    VAR_CVAR_SOUND_LISTENER_AT_CHARACTER = 0x00B4B2B4,
 
     // `__fastcall(model)`: drops one instance reference (HandleClose2).
     FUN_MODEL_INSTANCE_RELEASE = 0x007103A0,
@@ -14738,6 +14742,9 @@ enum Offsets {
     // 0x00607840): `tag` the four characters ('$CSR' = 0x52534324), `point`
     // the event's position in the scene (GetEventPosition's).
     FUN_M2MODEL_SET_EVENT_CALLBACK = 0x007133A0,
+    // '$SND' as an event callback's `tag`: play the event's sound. The
+    // dynamic object compares it at 0x005D58E1, the area loop at 0x006EBE42.
+    M2_EVENT_TAG_SND = 0x444E5324,
     // CM2Model::HasEvent — `__thiscall(model, tag)`, ret 4 (0x007130E0).
     // GetEventPosition — `__thiscall(model, float out[3], tag)`, ret 8,
     // returns `out` (0x007131B0): the event's offset through its bone and

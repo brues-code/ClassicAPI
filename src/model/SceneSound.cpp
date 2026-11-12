@@ -98,7 +98,7 @@ Frame3 ListenerFrame() {
 Frame3 Ear(void *sceneFrame) {
     const Actor *actor = SoundListener(sceneFrame);
     if (actor != nullptr &&
-        CVar::Factory::GetInt(CVar::Factory::Find("SoundListenerAtCharacter"), 0) != 0) {
+        CVar::Factory::GetInt(Game::Read<void *>(Offsets::VAR_CVAR_SOUND_LISTENER_AT_CHARACTER), 0) != 0) {
         float height = 0.0f;
         if (actor->model != nullptr && M2::IsLoaded(actor->model, 0, 0)) {
             float box[6];

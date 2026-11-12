@@ -91,9 +91,8 @@ constexpr uint32_t kWNG = Tag('$', 'W', 'N', 'G');
 constexpr uint32_t kWGG = Tag('$', 'W', 'G', 'G');
 constexpr uint32_t kCSD = Tag('$', 'C', 'S', 'D');
 constexpr uint32_t kTRD = Tag('$', 'T', 'R', 'D');
-constexpr uint32_t kSND = Tag('$', 'S', 'N', 'D');
 constexpr uint32_t kSHK = Tag('$', 'S', 'H', 'K');
-static_assert(kSND == 0x444E5324, "$SND as the dynamic object compares it (0x005D58E1)");
+static_assert(Offsets::M2_EVENT_TAG_SND == Tag('$', 'S', 'N', 'D'), "$SND as the engine compares it");
 static_assert(kSHK == 0x4B485324, "$SHK as the dynamic object compares it (0x005D58E9)");
 static_assert(kCSR == 0x52534324 && kWNG == 0x474E5724, "tags compare as the engine's dwords");
 
@@ -260,7 +259,7 @@ void __stdcall OnModelEvent(uint32_t tag, uint32_t data, const float *point, uin
     // adds the three shakes of the SpellEffectCameraShakes row its payload
     // names at the event's point (0x005D5920 to 0x005D592B).
     if (actor->areaEffect != nullptr) {
-        if (tag == kSND) {
+        if (tag == Offsets::M2_EVENT_TAG_SND) {
             Play(*actor, static_cast<int32_t>(data));
         } else if (tag == kSHK && point != nullptr) {
             const float at[3] = {point[0], point[1], point[2]};

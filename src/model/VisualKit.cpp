@@ -210,7 +210,7 @@ void *Hang(void *frame, void *model, const uint8_t *effect, uint32_t attachment,
     else
         M2::SetAnimDoneCallback(child, reinterpret_cast<const void *>(&OnEffectLoop), 0, 0);
     M2::Attach(child, model, attachment);
-    Model::DisplayInfo::LightChildren(frame, model);
+    Model::DisplayInfo::LightChild(frame, model, child);
     return child;
 }
 

@@ -206,6 +206,9 @@ class Actor : public Animation::Object {
     void ApplyAlpha();
 
     // Shows `model` (one reference, which the actor takes over), or nothing.
+    // Clears the model (OnModelCleared), then releases any model that script
+    // set: the caller's new model wins.
+    void Vacate();
     void SetModel(void *model, const char *path, const uint8_t *dressRecord);
     // Shows a copy of the unit's model, dressed and armed per autoDress,
     // sheathed and hideWeapons; false (and no model) when it has none.

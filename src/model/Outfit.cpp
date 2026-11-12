@@ -361,7 +361,7 @@ void DressSlot(void *model, void *component, bool armorReady, Lanes &lanes, Weap
     if (model == nullptr || unit == nullptr)
         return;
     if (invSlot == Offsets::INVSLOT_MAINHAND || invSlot == Offsets::INVSLOT_OFFHAND) {
-        const int i = invSlot == Offsets::INVSLOT_OFFHAND ? 1 : 0;
+        const int i = LaneOfInvSlot(invSlot);
         Lanes worn;
         Weapons wornWeapons;
         ReadLanes(unit, worn);

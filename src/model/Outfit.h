@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include "Offsets.h"
+
 #include <cstdint>
 
 // What a copy of a unit's character model wears, apart from its own model:
@@ -62,6 +64,11 @@ struct Weapons {
 
 // The lane (0 or 1) of a held body slot.
 inline int LaneIndex(uint32_t bodySlot) { return bodySlot == kBodySlotOffHand ? 1 : 0; }
+
+// The inventory slot of a lane (INVSLOT_MAINHAND or INVSLOT_OFFHAND), and the
+// lane of a held inventory slot.
+inline int InvSlotOfLane(int lane) { return lane == 1 ? Offsets::INVSLOT_OFFHAND : Offsets::INVSLOT_MAINHAND; }
+inline int LaneOfInvSlot(int invSlot) { return invSlot == Offsets::INVSLOT_OFFHAND ? 1 : 0; }
 
 // DressUpModel SetModelInstance's lane copy (0x00504350): the unit's two
 // held-item lanes, zero where a hand is empty.

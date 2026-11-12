@@ -57,7 +57,6 @@ namespace Model::Scene::Areas {
 namespace {
 
 constexpr float kLoopStopFadeSec = 3.0f; // 0x005D56DD: Sound::Stop2's fade
-constexpr uint32_t kSND = 0x444E5324;      // $SND, as 0x006EBE42 compares it
 uint32_t g_shardEvents = 0;                // the shards' event count (the world's 0x00CEE944)
 
 float FromBits(uint32_t bits) {
@@ -106,7 +105,7 @@ float DetailRate(float rate) {
 void __stdcall OnShardEvent(uint32_t tag, uint32_t data, const float *point, uint32_t /*unknown*/,
                             uint32_t userLow, uint32_t /*userHigh*/) {
     ++g_shardEvents;
-    if ((g_shardEvents & 3u) != 0 || tag != kSND)
+    if ((g_shardEvents & 3u) != 0 || tag != Offsets::M2_EVENT_TAG_SND)
         return;
     auto *shard = reinterpret_cast<AreaShard *>(static_cast<uintptr_t>(userLow));
     const float *at = point != nullptr ? point : shard->position;

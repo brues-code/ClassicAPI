@@ -559,13 +559,12 @@ void LeaveImpactModel(Actor &caster, const SpellCast &cast) {
 // event's sound at the event's point, $HIT the wound animation of the
 // effect's unit (the caster of a planted effect, the actor a hard-coded
 // effect hangs on).
-constexpr uint32_t kSND = 0x444E5324;
 constexpr uint32_t kHIT = 0x54494824;
 
 void __stdcall OnEffectEvent(uint32_t tag, uint32_t data, const float *point, uint32_t /*unknown*/,
                              uint32_t userLow, uint32_t /*userHigh*/) {
     auto *caster = reinterpret_cast<Actor *>(static_cast<uintptr_t>(userLow));
-    if (tag == kSND && point != nullptr) {
+    if (tag == Offsets::M2_EVENT_TAG_SND && point != nullptr) {
         const float where[3] = {point[0], point[1], point[2]};
         Sounds::Play(caster->SceneFrame(), static_cast<int32_t>(data), where);
     } else if (tag == kHIT && caster->model != nullptr) {

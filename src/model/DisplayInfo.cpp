@@ -367,17 +367,35 @@ void *CreateDresser(void *instance, const uint8_t *extraRec) {
 // SetModelInstance registers), so attached children would render unlit, pure
 // black. Each child gets the frame's own light/fog callback; it reads the
 // frame's live light struct, so later SetLight calls reach them too.
-void LightChildren(void *frame, void *instance) {
-    const void *callback = Game::Read<const void *>(instance, Offsets::OFF_MODEL_INSTANCE_RENDER_CB);
-    void *user = Game::Read<void *>(instance, Offsets::OFF_MODEL_INSTANCE_RENDER_CB_USER);
+namespace {
+
+// The light and fog callback `instance` passes to its children.
+void ChildLight(void *frame, void *instance, const void *&callback, void *&user) {
+    callback = Game::Read<const void *>(instance, Offsets::OFF_MODEL_INSTANCE_RENDER_CB);
+    user = Game::Read<void *>(instance, Offsets::OFF_MODEL_INSTANCE_RENDER_CB_USER);
     if (callback == nullptr) {
         callback = reinterpret_cast<const void *>(Offsets::FUN_SIMPLEMODELFFX_LIGHT_FOG_CB);
         user = frame;
     }
+}
+
+} // namespace
+
+void LightChildren(void *frame, void *instance) {
+    const void *callback;
+    void *user;
+    ChildLight(frame, instance, callback, user);
     for (auto *child = Game::Read<uint8_t *>(instance, Offsets::OFF_MODEL_INSTANCE_CHILD_HEAD);
          child != nullptr;
          child = Game::Read<uint8_t *>(child, Offsets::OFF_MODEL_INSTANCE_CHILD_NEXT))
         M2::SetRenderCallback(child, callback, user);
+}
+
+void LightChild(void *frame, void *instance, void *child) {
+    const void *callback;
+    void *user;
+    ChildLight(frame, instance, callback, user);
+    M2::SetRenderCallback(child, callback, user);
 }
 
 bool PumpDresser(void *dresser, bool force) {

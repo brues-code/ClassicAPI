@@ -50,5 +50,7 @@ void SetDresserItem(void *dresser, uint32_t slot, uint32_t displayID);
 // `instance` itself, else the one `frame` gives its own model, so the
 // children are lit like it.
 void LightChildren(void *frame, void *instance);
+// The same for one `child` just attached to `instance`.
+void LightChild(void *frame, void *instance, void *child);
 
 } // namespace Model::DisplayInfo
