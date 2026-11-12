@@ -46,19 +46,20 @@ end
 
 ------------------------------------------------------------------------------
 -- The hero is struck: `act.hit` seconds of the striker's bite, softened as a
--- bite is (Demoralizing Shout's weakness, Devotion). It goes with the bites
--- of the step (through a shield, and not at all in the grace).
+-- bite is (Demoralizing Shout's weakness, Devotion), of the act's school
+-- (Core.lua's HurtHero).
 
 local function Strike(e, act)
 	local devotion = 1 - PASSIVES.devotion.per * (BW.run.passives.devotion or 0) / 100;
-	BW.run.pendingHurt = BW.run.pendingHurt + e.dps * act.hit * BiteShare(e) * devotion;
+	BW.HurtHero(e.dps * act.hit * BiteShare(e) * devotion, act.school, act.kind == "breath");
 end
 
 -- Throws the hero, as a knockback spell does (not in the grace after the
--- cards). The hero stops when it lands, so Steer's next move is sent again
--- (a move given in the air takes effect on landing).
+-- cards, nor while a Limited Invulnerability Potion lasts). The hero stops
+-- when it lands, so Steer's next move is sent again (a move given in the air
+-- takes effect on landing).
 local function KnockHero(fromX, fromY, knock)
-	if BW.run.graceUntil then
+	if BW.run.graceUntil or BW.run.invulnUntil then
 		return;
 	end
 	if BW.hero:KnockBack(fromX, fromY, knock[1], knock[2]) then

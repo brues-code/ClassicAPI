@@ -80,28 +80,31 @@ local function ReleaseDrop(i)
 	table.remove(drops, i);
 end
 
--- A grenade lands on the thickest pack: the reticle marks it while it flies.
-local function ThrowGrenade(item)
-	local x, y, z, target = PackCenter(24, TUNING.GRENADE_RADIUS);
+-- A thrown item (a grenade, dynamite) lands on the thickest pack: the
+-- reticle marks it while it flies.
+local function Throw(item)
+	local x, y, z, target = PackCenter(24, item.radius);
 	if not target then
 		return;
 	end
 	local marker = table.remove(markerPool) or { actor = BW.scene:AcquireActor() };
 	marker.actor:SetPosition(x, y, FloorAt(x, y, z));
-	marker.actor:SetGroundReticle(TUNING.GRENADE_RADIUS);
+	marker.actor:SetGroundReticle(item.radius);
 	marker.actor:Show();
-	local damage = TUNING.GRENADE_DAMAGE * RunGrowth();
+	local damage = item.damage * RunGrowth();
 	local function Explode(entry)
 		ReleaseMarker(marker);
 		local ex, ey = entry.target.actor:GetPosition();
-		local r2 = TUNING.GRENADE_RADIUS * TUNING.GRENADE_RADIUS;
+		local r2 = item.radius * item.radius;
 		for _, o in ipairs(enemies) do
 			if o.alive then
 				local ox, oy = o.actor:GetPosition();
 				if Dist2(ox, oy, ex, ey) <= r2 then
-					Hold(o, TUNING.GRENADE_STUN, item.stunAura);
+					if item.stun then
+						Hold(o, item.stun, item.stunAura);
+					end
 					Damage(o, damage, TUNING.ITEM_COLOR);
-					Blast(o, ex, ey, TUNING.GRENADE_KNOCK);
+					Blast(o, ex, ey, item.knock);
 				end
 			end
 		end
@@ -152,6 +155,70 @@ local function SummonChicken(item, hx, hy, hz)
 	chicken.actor:SetMovementEnabled(true);
 	chicken.actor:SetMovementSpeed("run", TUNING.CHICKEN_SPEED);
 	tinsert(chickens, chicken);
+end
+
+-- Goblin Bomb Dispenser: BOMB_COUNT walking bombs, each after the brood
+-- nearest to it; one goes off within BOMB_TRIGGER of its prey (the land
+-- mine's blast), or where it stands when its time runs out.
+local bombs = {}
+local bombPool = {}
+
+local function DropBombs(hx, hy, hz)
+	for k = 1, TUNING.BOMB_COUNT do
+		local bomb = table.remove(bombPool);
+		if not bomb then
+			bomb = { actor = BW.scene:AcquireActor() };
+			bomb.actor:SetModelByCreatureDisplayID(TUNING.BOMB_DISPLAY);
+		end
+		local a = k * 2 * math.pi / TUNING.BOMB_COUNT;
+		bomb.life = TUNING.BOMB_LIFE;
+		bomb.move = 0;
+		bomb.actor:SetPosition(hx + 1.5 * math.cos(a), hy + 1.5 * math.sin(a), hz + 0.5);
+		bomb.actor:Show();
+		bomb.actor:SetMovementEnabled(true);
+		bomb.actor:SetMovementSpeed("run", TUNING.BOMB_SPEED);
+		tinsert(bombs, bomb);
+	end
+end
+
+local function NotAlive(e)
+	return not e.alive;
+end
+
+local function UpdateBombs(dt)
+	local trigger2 = TUNING.BOMB_TRIGGER * TUNING.BOMB_TRIGGER;
+	for i = table.getn(bombs), 1, -1 do
+		local bomb = bombs[i];
+		bomb.life = bomb.life - dt;
+		bomb.move = bomb.move - dt;
+		local x, y, z = bomb.actor:GetPosition();
+		local prey = BW.Nearest(x, y, 40, NotAlive);
+		local px, py, pz;
+		if prey then
+			px, py, pz = prey.actor:GetPosition();
+		end
+		if bomb.life <= 0 or (prey and Dist2(px, py, x, y) <= trigger2) then
+			bomb.actor:PlaySpellVisualAtPoint(TUNING.BOMB_SPELL, x, y, z, 0);
+			local r2 = TUNING.BOMB_RADIUS * TUNING.BOMB_RADIUS;
+			local damage = TUNING.BOMB_DAMAGE * RunGrowth();
+			for _, e in ipairs(enemies) do
+				if e.alive then
+					local ex, ey = e.actor:GetPosition();
+					if Dist2(ex, ey, x, y) <= r2 then
+						Damage(e, damage, TUNING.ITEM_COLOR);
+						Blast(e, x, y, TUNING.BOMB_KNOCK);
+					end
+				end
+			end
+			bomb.actor:SetMovementEnabled(false);
+			bomb.actor:Hide();
+			tinsert(bombPool, bomb);
+			table.remove(bombs, i);
+		elseif prey and bomb.move <= 0 then
+			bomb.move = 0.25;
+			bomb.actor:MoveTo(px, py, pz);
+		end
+	end
 end
 
 -- The chicken's prey: the whelp nearest to it among those at the edge of
@@ -251,8 +318,19 @@ local function UseItem(item, hx, hy, hz)
 		local heal = math.floor(MaxHp() * TUNING.POTION_HEAL + 0.5);
 		BW.run.hp = math.min(MaxHp(), BW.run.hp + heal);
 		UpdateHealth();
-	elseif item.key == "grenade" then
-		ThrowGrenade(item);
+	elseif item.key == "grenade" or item.key == "dynamite" then
+		Throw(item);
+	elseif item.key == "fireward" then
+		BW.hero:PlaySpellVisual(item.spell, BW.hero, 0);
+		BW.run.fireWard = MaxHp() * TUNING.FIREWARD_SHARE;
+		BW.run.fireWardUntil = BW.run.time + TUNING.FIREWARD_SECONDS;
+		UpdateHealth();
+	elseif item.key == "invulnerable" then
+		BW.hero:PlaySpellVisual(item.spell, BW.hero, 0);
+		BW.run.invulnUntil = BW.run.time + TUNING.INVULNERABLE_SECONDS;
+		UpdateHealth();
+	elseif item.key == "bombs" then
+		DropBombs(hx, hy, hz);
 	elseif item.key == "swift" then
 		BW.hero:PlaySpellVisual(item.spell, BW.hero, 0);
 		BW.run.swiftUntil = BW.run.time + TUNING.SWIFTNESS_SECONDS;
@@ -300,6 +378,7 @@ local function UpdateItems(dt, hx, hy, hz)
 		end
 	end
 	UpdateChickens(dt, hx, hy, hz);
+	UpdateBombs(dt);
 end
 
 local function ClearItems()
@@ -313,6 +392,12 @@ local function ClearItems()
 		chickens[i].actor:Hide();
 		tinsert(chickenPool, chickens[i]);
 		chickens[i] = nil;
+	end
+	for i = table.getn(bombs), 1, -1 do
+		bombs[i].actor:SetMovementEnabled(false);
+		bombs[i].actor:Hide();
+		tinsert(bombPool, bombs[i]);
+		bombs[i] = nil;
 	end
 end
 

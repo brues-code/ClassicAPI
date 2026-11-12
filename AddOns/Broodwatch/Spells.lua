@@ -824,7 +824,7 @@ local function HellfireTick(key, def, channel)
 	if Mastered(key) then
 		BW.run.pendingHeal = BW.run.pendingHeal + def.mastery.heal;
 	else
-		BW.run.pendingHurt = BW.run.pendingHurt + Stat(def, "selfBurn", channel.level);
+		BW.HurtHero(Stat(def, "selfBurn", channel.level), "Fire");
 	end
 end
 

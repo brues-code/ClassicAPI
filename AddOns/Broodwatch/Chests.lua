@@ -78,6 +78,10 @@ local function UpdateChests(dt, hx, hy)
 					chest.left = TUNING.CHEST_LINGER;
 					chest.actor:SetAnimation(ANIM_OPENED);
 					BW.run.chestTitle = chest.kind.title;
+					-- A golden chest's first pick is a weapon, while you hold none.
+					if chest.kind == CHESTS.golden and not BW.run.weapon then
+						BW.run.weaponPick = true;
+					end
 					BW.run.chestPicks = BW.run.chestPicks + chest.kind.picks;
 					ShowCards();
 				elseif chest.state == "open" then

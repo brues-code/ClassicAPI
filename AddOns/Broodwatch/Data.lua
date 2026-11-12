@@ -39,19 +39,19 @@ local KINDS = {
 	-- Red whelps breathe fire: Flame Breath 16396, whose flame hangs where a
 	-- whelp's own fireball leaves (its cast kit's sixth slot).
 	{ key = "red", display = 956, hp = 30, dps = 6, xp = 2, reach = 1.4, speed = 4.4, from = 120,
-		act = { kind = "breath", spell = 16396, every = 7, range = 4.5, near = 2, cast = 0.9, recover = 0.5,
+		act = { kind = "breath", spell = 16396, school = "Fire", every = 7, range = 4.5, near = 2, cast = 0.9, recover = 0.5,
 			length = 6, arc = math.pi / 3, hit = 1.5 } },
 	{ key = "green", display = 694, hp = 70, dps = 9, xp = 3, reach = 1.4, speed = 2.4, from = 240 },
 	-- Onyxian Warders (creature 12129's display) keep their distance and
 	-- throw Fireball (133) at where you stand.
 	{ key = "warder", display = 8711, hp = 120, dps = 8, xp = 8, reach = 2.6, speed = 3.2, from = 180, max = 5,
 		keep = 13, gemScale = 0.5, knockShare = 0.6,
-		act = { kind = "bolt", spell = 133, every = 5, range = 20, cast = 1.2, recover = 0.6, radius = 2.5, hit = 2 } },
+		act = { kind = "bolt", spell = 133, school = "Fire", every = 5, range = 20, cast = 1.2, recover = 0.6, radius = 2.5, hit = 2 } },
 	-- Onyxian Drakes (creature 12260's display) charge along a line through
 	-- you, with Charge's trail (100).
 	{ key = "drake", display = 6369, hp = 260, dps = 12, xp = 12, reach = 3, speed = 4.0, from = 300, max = 3,
 		gemScale = 0.6, holdShare = 0.5, knockShare = 0.3,
-		act = { kind = "charge", spell = 100, every = 8, range = 18, near = 4, cast = 1.2, recover = 1.2,
+		act = { kind = "charge", spell = 100, school = "Physical", every = 8, range = 18, near = 4, cast = 1.2, recover = 1.2,
 			speed = 24, past = 6, width = 1.6, hit = 2.5, knock = { 9, 6 } } },
 }
 -- `speed` is the run speed in yards a second (the hero runs at 7): black
@@ -69,7 +69,7 @@ local KINDS = {
 --   seconds while you are within `range` (and no closer than `near`): it
 --   stands for `cast` seconds with the floor marked where it will strike,
 --   strikes, then stands for `recover`. A strike that lands on you hurts for
---   `hit` seconds of its bite. `kind`: "bolt" (`spell` thrown at your spot,
+--   `hit` seconds of its bite, of `school`. `kind`: "bolt" (`spell` thrown at your spot,
 --   `radius` wide), "breath" (a cone `length` long and `arc` wide) or
 --   "charge" (a run at `speed` along a line `past` yards beyond you, `width`
 --   wide; it throws you by `knock`).
@@ -688,9 +688,18 @@ local TUNING = {
 	MARKER_ICON_SIZE = 26,     -- pixels
 	MARKER_MARGIN = 36,        -- pixels from the scene's edge to the arrow's centre
 	POTION_HEAL = 0.3,         -- of the maximum health
-	GRENADE_RADIUS = 5,
-	GRENADE_DAMAGE = 45,       -- grows with the run as the brood's health does
-	GRENADE_STUN = 2,          -- seconds
+	FIREWARD_SHARE = 0.6,      -- of the maximum health: the fire a Fire Protection Potion soaks
+	FIREWARD_SECONDS = 60,
+	INVULNERABLE_SECONDS = 6,  -- a Limited Invulnerability Potion: no bites, no charges
+	BOMB_COUNT = 3,            -- Goblin Bomb Dispenser: walking bombs (Pet Bomb's display)
+	BOMB_DISPLAY = 8189,
+	BOMB_SPEED = 8,
+	BOMB_LIFE = 12,            -- seconds; a bomb with no prey goes off where it stands
+	BOMB_TRIGGER = 1.5,        -- yards from its prey
+	BOMB_RADIUS = 4,
+	BOMB_DAMAGE = 50,          -- grows with the run
+	BOMB_SPELL = 13241,        -- the land mine's blast
+	BOMB_KNOCK = { 10, 7 },
 	SAPPER_RADIUS = 10,
 	SAPPER_SELF = 0.15,        -- of the maximum health; it never kills you
 	SAPPER_ELITE = 0.25,       -- of an elite's maximum health
@@ -706,7 +715,6 @@ local TUNING = {
 	CHICKEN_TAUNT_RADIUS = 3,  -- yards around the chicken that a peck taunts
 	CHICKEN_ROAM = 6,          -- yards around the hero that it roams with no prey
 	-- Knockbacks (actor:KnockBack): yards a second out and up.
-	GRENADE_KNOCK = { 10, 7 },
 	SOULSTONE_KNOCK = { 16, 10 },
 	FEAR_STEP = 6,             -- yards a fleeing enemy runs before its next MoveTo
 	IMP_SPEED = 8.5,
@@ -730,7 +738,16 @@ local ITEMS = {
 	-- The grenade stuns with War Stomp's silent StunSwirl (20549): its own
 	-- stun kit (19769's 780) plays Gouge on every whelp it holds, with no
 	-- duplicate guard, a roar over a whole pack.
-	{ key = "grenade", itemID = 15993, spell = 19769, stunAura = 20549, weight = 25 },
+	-- A thrown item lands on the thickest pack: `radius`, `damage` (grown with
+	-- the run as the brood's health is), a `stun` and a `knock`.
+	{ key = "grenade", itemID = 15993, spell = 19769, stunAura = 20549, weight = 25,
+		radius = 5, damage = 45, stun = 2, knock = { 10, 7 } },
+	-- Dense Dynamite (its throw, 23063): wider and harder, with no stun.
+	{ key = "dynamite", itemID = 18641, spell = 23063, weight = 12, radius = 7, damage = 75, knock = { 14, 9 } },
+	-- The potions' drink (their spells' cast kit 704, a vial in hand).
+	{ key = "fireward", itemID = 13457, spell = 17543, weight = 8 },
+	{ key = "invulnerable", itemID = 3387, spell = 3169, weight = 6 },
+	{ key = "bombs", itemID = 10587, weight = 8 },
 	{ key = "swift", itemID = 2459, spell = 2379, weight = 15 },
 	{ key = "hearth", itemID = 6948, spell = 8690, weight = 10 },
 	{ key = "sapper", itemID = 10646, spell = 13241, weight = 10 },
@@ -770,15 +787,69 @@ local VENTS = {
 	{ -15.67, -196.47, -89.10, 1.047, 1.00, true },
 	{ -0.40, -189.26, -87.35, -1.396, 0.82, true },
 }
--- Each item's name and icon are the client's (the Item mixin), once its data
--- has come from the server.
-for _, item in ipairs(ITEMS) do
-	local data = Item:CreateFromItemID(item.itemID);
+-- Gear: kept for the run. Chests offer it (Hud.lua's BuildOffers): a golden
+-- chest's first pick, while you hold no weapon, is three of the weapons; any
+-- other chest pick may offer one piece of worn gear while you wear fewer
+-- than MAX_WORN. `slot`: "weapon" (one, in your hands: actor:TryOn) or
+-- "worn". `text`: what it does. The numbers of an effect that hurts grow
+-- with the run, as the brood's health does.
+local MAX_WORN = 3
+local GEAR = {
+	-- Thunderfury's proc (21992, the item's chance-on-hit spell): its bolt
+	-- leaps from enemy to enemy as Chain Lightning's does. `chance` a spell
+	-- hit, at most once in `every` seconds.
+	thunderfury = { itemID = 19019, slot = "weapon", spell = 21992, school = "Nature", chance = 0.2, every = 1.5,
+		damage = 30, jumps = 4, hop = 8, slow = 0.6, slowSeconds = 3,
+		text = "Your spell hits may loose a bolt of lightning that leaps to 4 more of the brood and slows them." },
+	-- Sulfuras's proc (21162, a Fireball).
+	sulfuras = { itemID = 17182, slot = "weapon", spell = 21162, school = "Fire", chance = 0.15, every = 2,
+		damage = 40, radius = 5, burn = 8, burnSeconds = 4, knock = { 6, 5 },
+		text = "Your spell hits may hurl a fireball that bursts and sets the brood around it burning." },
+	-- Benediction and Anathema (18609) are one staff that turns, with their
+	-- Call Anathema (23041) and Call Benediction (23042).
+	benediction = { itemID = 18608, other = 18609, slot = "weapon", toAnathema = 23041, toBenediction = 23042,
+		every = 20, bonus = 0.6, renew = 2,
+		text = "Every 20 s the staff turns. Benediction: Holy spells hit 60% harder, and you heal 2 a second. "
+			.. "Anathema: Shadow spells hit 60% harder." },
+	-- Rhok'delar shoots Auto Shot (75); the bow shows in your hands as it does.
+	rhokdelar = { itemID = 18713, slot = "weapon", spell = 75, school = "Physical", every = 0.8, range = 30, damage = 18,
+		text = "Shoots the nearest of the brood within 30 yd every 0.8 s." },
+	drakefire = { itemID = 16309, slot = "worn", share = 0.5,
+		text = "Fire hurts you half as much: lava, fireballs, breath, your own Hellfire." },
+	onyxiacloak = { itemID = 15138, slot = "worn", text = "A dragon's breath does you no harm." },
+	hoj = { itemID = 11815, slot = "worn", chance = 0.1, text = "Each spell you cast has a 10% chance to recharge at once." },
+	-- The on-use trinkets go off by themselves when the brood is within
+	-- `near`, with their use spells' visuals.
+	tep = { itemID = 18820, slot = "worn", spell = 23271, every = 90, seconds = 15, bonus = 0.4, near = 20,
+		text = "Every 90 s, with the brood near, your spells hit 40% harder for 15 s." },
+	zhc = { itemID = 19950, slot = "worn", spell = 24658, every = 120, seconds = 20, bonus = 0.8, fade = 0.05, near = 20,
+		text = "Every 2 min, with the brood near, your spells hit 80% harder for 20 s, 5% less with each cast." },
+	-- The talisman's dodge: the brood's blows (bites, charges) miss a share.
+	drakefang = { itemID = 19406, slot = "worn", share = 0.1, text = "You dodge a tenth of the brood's blows: bites and charges hurt 10% less." },
+}
+local GEAR_ORDER = { "thunderfury", "sulfuras", "benediction", "rhokdelar", "drakefire", "onyxiacloak", "hoj", "tep", "zhc",
+	"drakefang" }
+
+-- Each item's name, icon and quality colour are the client's (the Item
+-- mixin), once its data has come from the server.
+local function LoadItem(entry)
+	local data = Item:CreateFromItemID(entry.itemID);
 	data:ContinueOnItemLoad(function()
-		item.name = data:GetItemName();
-		item.icon = data:GetItemIcon();
+		entry.name = data:GetItemName();
+		entry.icon = data:GetItemIcon();
+		local r, g, b = data:GetItemQualityColorRGB();
+		entry.quality = { r, g, b };
 	end);
 end
+for _, item in ipairs(ITEMS) do
+	LoadItem(item);
+end
+for _, gear in pairs(GEAR) do
+	LoadItem(gear);
+end
+-- The staff's other face, for its slot while it is Anathema.
+GEAR.benediction.anathema = { itemID = GEAR.benediction.other }
+LoadItem(GEAR.benediction.anathema)
 
 -- For the files that load after this one.
 BW.LAIR_MAP = LAIR_MAP
@@ -829,6 +900,9 @@ BW.EASE = EASE
 BW.AT_ONCE = AT_ONCE
 BW.TUNING = TUNING
 BW.ITEMS = ITEMS
+BW.GEAR = GEAR
+BW.GEAR_ORDER = GEAR_ORDER
+BW.MAX_WORN = MAX_WORN
 BW.CHEST_SOUND = CHEST_SOUND
 BW.GOLDEN_EVERY = GOLDEN_EVERY
 BW.CHESTS = CHESTS

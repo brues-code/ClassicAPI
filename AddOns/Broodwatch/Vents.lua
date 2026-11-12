@@ -83,7 +83,7 @@ local function Erupt(vent, hx, hy, sound)
 	end
 	local r2 = vent.radius * vent.radius;
 	if Dist2(hx, hy, vent.x, vent.y) <= r2 then
-		BW.run.pendingHurt = BW.run.pendingHurt + MaxHp() * TUNING.VENT_HERO;
+		BW.HurtHero(MaxHp() * TUNING.VENT_HERO, "Fire");
 	end
 	local damage = TUNING.VENT_DAMAGE * RunGrowth();
 	for _, e in ipairs(enemies) do

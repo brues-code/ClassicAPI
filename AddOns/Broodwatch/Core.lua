@@ -9,6 +9,7 @@ local _, BW = ...
 local GEM_PATH = BW.GEM_PATH
 local MAX_GEMS = BW.MAX_GEMS
 local MAX_LEVEL = BW.MAX_LEVEL
+local GEAR = BW.GEAR
 
 -- Whether the hero has the spell at rank V (its mastery).
 local function Mastered(key)
@@ -104,6 +105,44 @@ local function Drive(fwd, side, facing)
 end
 
 ------------------------------------------------------------------------------
+-- The hero is hurt by `amount` of `school` ("Physical" for the brood's bites
+-- and charges). The step takes it from your health: a shield soaks it, the
+-- grace after the cards drops it. `breath`: a dragon's breath. What you wear
+-- and drink softens it first: Onyxia Scale Cloak stops breath, a Limited
+-- Invulnerability Potion stops blows, Drake Fang Talisman dodges a share of
+-- them, Drakefire Amulet halves fire, and a Fire Protection Potion's ward
+-- soaks fire.
+
+local function HurtHero(amount, school, breath)
+	local run = BW.run;
+	if breath and run.gear.onyxiacloak then
+		return;
+	end
+	if school == "Physical" then
+		if run.invulnUntil then
+			return;
+		end
+		if run.gear.drakefang then
+			amount = amount * (1 - GEAR.drakefang.share);
+		end
+	elseif school == "Fire" then
+		if run.gear.drakefire then
+			amount = amount * (1 - GEAR.drakefire.share);
+		end
+		if run.fireWard then
+			local soak = math.min(run.fireWard, amount);
+			run.fireWard = run.fireWard - soak;
+			amount = amount - soak;
+			if run.fireWard <= 0 then
+				run.fireWard = nil;
+			end
+			BW.UpdateHealth();
+		end
+	end
+	run.pendingHurt = run.pendingHurt + amount;
+end
+
+------------------------------------------------------------------------------
 -- Gems
 
 local function DropGem(x, y, z, xp, scale)
@@ -146,6 +185,7 @@ BW.Dist2 = Dist2
 BW.Clock = Clock
 BW.Shuffle = Shuffle
 BW.Drive = Drive
+BW.HurtHero = HurtHero
 BW.RunGrowth = RunGrowth
 BW.DropGem = DropGem
 BW.ClearGems = ClearGems

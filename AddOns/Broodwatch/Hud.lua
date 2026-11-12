@@ -20,11 +20,22 @@ local offers = BW.offers
 local Shuffle = BW.Shuffle
 local Stat = BW.Stat
 local TUNING = BW.TUNING
+local GEAR = BW.GEAR
+local GEAR_ORDER = BW.GEAR_ORDER
 
 ------------------------------------------------------------------------------
 -- Level-up offers
 
 local function BuildOffers()
+	-- A golden chest's weapon pick: three of the weapons.
+	if BW.run.picking == "chest" and BW.run.weaponPick then
+		local weapons = BW.GearOffers(true);
+		Shuffle(weapons);
+		for i = 1, 3 do
+			offers[i] = weapons[i] and { kind = "gear", key = weapons[i] } or { kind = "heal" };
+		end
+		return;
+	end
 	local all = {};
 	local owned = 0;
 	for _ in pairs(BW.run.spells) do
@@ -76,6 +87,13 @@ local function BuildOffers()
 			tinsert(all, 3, fresh[1]);
 		end
 	end
+	-- A chest's pick may offer a piece of worn gear.
+	if BW.run.picking == "chest" then
+		local worn = BW.GearOffers(false);
+		if worn[1] then
+			tinsert(all, 1, { kind = "gear", key = worn[math.random(table.getn(worn))] });
+		end
+	end
 	-- An evolution ready (its spell at rank V, its passive owned) always
 	-- takes the first card.
 	for _, key in ipairs(SPELL_ORDER) do
@@ -108,7 +126,13 @@ local CARD_COLORS = {
 	heal = { 1, 0.45, 0.45 },
 	evolve = { 0.85, 0.5, 1 },
 	fuse = { 1, 0.55, 0.15 },
+	gear = { 0.64, 0.21, 0.93 }, -- epic, until the item's own quality colour loads
 }
+
+-- A piece of gear's colour: its item quality's.
+local function GearColor(gear)
+	return gear.quality or CARD_COLORS.gear;
+end
 local STAT_LABELS = {
 	damage = "Damage", count = "Targets", jumps = "Jumps", totems = "Totems", spread = "Spreads to",
 	heal = "Heal per hit", radius = "Radius", slow = "Enemy speed", duration = "Lasts", cooldown = "Every",
@@ -216,6 +240,10 @@ local function OfferLines(o)
 				tinsert(lines, STAT_LABELS[field] .. " " .. StatText(field, v));
 			end
 		end
+	elseif o.kind == "gear" then
+		tinsert(lines, GEAR[o.key].text);
+		tinsert(lines, "");
+		tinsert(lines, "|cff888888Kept for the run.|r");
 	elseif o.kind == "passive" then
 		local p = PASSIVES[o.key];
 		tinsert(lines, p.text);
@@ -259,10 +287,14 @@ local function FillCard(i, o)
 	elseif o.kind == "fuse" then
 		local def = SPELLS[o.key];
 		icon, title, tag, colorKey = Icon(def.spell), def.name, "Fusion", "fuse";
+	elseif o.kind == "gear" then
+		local gear = GEAR[o.key];
+		icon, title = gear.icon or UNKNOWN_ICON, gear.name or "";
+		tag = gear.slot == "weapon" and "Weapon" or "Worn";
 	else
 		icon, title, tag, colorKey = Icon(HEAL_ICON), "Second Wind", "Everything is at rank V", "heal";
 	end
-	local color = CARD_COLORS[colorKey];
+	local color = o.kind == "gear" and GearColor(GEAR[o.key]) or CARD_COLORS[colorKey];
 	card.color = color;
 	card:SetBackdropColor(0.04, 0.04, 0.06, 0.95);
 	card:SetBackdropBorderColor(color[1], color[2], color[3]);
@@ -282,7 +314,7 @@ local function FillCard(i, o)
 	local maxRank = o.kind == "passive" and PASSIVES[o.key].max or MAX_LEVEL;
 	for r = 1, MAX_LEVEL do
 		local pip = getglobal(name .. "Pip" .. r);
-		if o.kind == "heal" or o.kind == "evolve" or o.kind == "fuse" or r > maxRank then
+		if o.kind == "heal" or o.kind == "evolve" or o.kind == "fuse" or o.kind == "gear" or r > maxRank then
 			pip:Hide();
 		else
 			pip:Show();
@@ -299,11 +331,19 @@ local function FillCard(i, o)
 end
 
 -- A build slot's tooltip: what the spell or passive does at the rank you
--- have.
+-- have, or what the gear does.
 local function ShowSlotTip(slot)
 	local tip = GameTooltip;
 	tip:SetOwner(slot, "ANCHOR_RIGHT");
-	if slot.spellKey then
+	if slot.gearKey then
+		local gear = GEAR[slot.gearKey];
+		local color = GearColor(gear);
+		tip:SetText(gear.name or "", color[1], color[2], color[3]);
+		if slot.gearKey == "benediction" and not BW.run.blessed then
+			tip:AddLine(gear.anathema.name or "", 0.6, 0.6, 0.6);
+		end
+		tip:AddLine(gear.text, 1, 1, 1, 1);
+	elseif slot.spellKey then
 		local def = SPELLS[slot.spellKey];
 		local level = BW.run.spells[slot.spellKey].level;
 		local color = def.fused and CARD_COLORS.fuse or def.evolved and CARD_COLORS.evolve or CARD_COLORS.spell;
@@ -447,7 +487,7 @@ local function UpdateBuild()
 			-- A new spell can move the others along the bar: each slot shows
 			-- its own spell's recharge again.
 			state.slot = AddBuildSlot(Icon(SPELLS[key].spell), state.level, x, 0, BUILD_SLOT);
-			state.slot.spellKey, state.slot.passiveKey = key, nil;
+			state.slot.spellKey, state.slot.passiveKey, state.slot.gearKey = key, nil, nil;
 			if SPELLS[key].evolved then
 				state.slot.rank:SetText("|cffd980ffE|r");
 			end
@@ -460,9 +500,33 @@ local function UpdateBuild()
 		local level = BW.run.passives[key];
 		if level then
 			local slot = AddBuildSlot(Icon(PASSIVES[key].icon), level, x, BUILD_SLOT + 6, PASSIVE_SLOT);
-			slot.spellKey, slot.passiveKey = nil, key;
+			slot.spellKey, slot.passiveKey, slot.gearKey = nil, key, nil;
 			slot.cd:Clear();
 			slot.icon:SetDesaturated(key == "soulstone" and BW.run.soulstoneUsed and true or false);
+			x = x + PASSIVE_SLOT + 3;
+		end
+	end
+	-- The gear, above the passives: the weapon first. An on-use trinket shows
+	-- its recharge.
+	x = 0;
+	local gearY = BUILD_SLOT + 6 + PASSIVE_SLOT + 6;
+	for _, key in ipairs(GEAR_ORDER) do
+		if BW.run.weapon == key or BW.run.gear[key] then
+			local gear = GEAR[key];
+			local icon = gear.icon;
+			if key == "benediction" and not BW.run.blessed then
+				icon = gear.anathema.icon or icon;
+			end
+			local slot = AddBuildSlot(icon or UNKNOWN_ICON, 1, x, gearY, PASSIVE_SLOT);
+			slot.spellKey, slot.passiveKey, slot.gearKey = nil, nil, key;
+			slot.rank:SetText("");
+			BW.run.gearSlots[key] = slot;
+			local ready = BW.run.gearReady[key];
+			if ready then
+				ShowRecharge(slot, ready - BW.run.time, gear.every);
+			else
+				slot.cd:Clear();
+			end
 			x = x + PASSIVE_SLOT + 3;
 		end
 	end
@@ -553,6 +617,11 @@ function Broodwatch_PickCard(i)
 		else
 			BW.run.spells[o.key] = { level = 1, cooldown = 0, pending = 0 };
 		end
+	elseif o.kind == "gear" then
+		BW.Equip(o.key);
+		if GEAR[o.key].slot == "weapon" then
+			BW.run.weaponPick = nil;
+		end
 	elseif o.kind == "passive" then
 		BW.run.passives[o.key] = o.level;
 		if o.key == "might" then
@@ -602,6 +671,12 @@ local function UpdateHealth(mode)
 		text = text .. "  (immune)";
 	elseif BW.run.shield then
 		text = text .. string.format("  (+%d)", math.ceil(BW.run.shield));
+	end
+	if BW.run.invulnUntil then -- a Limited Invulnerability Potion
+		text = text .. "  (invulnerable)";
+	end
+	if BW.run.fireWard then -- a Fire Protection Potion
+		text = text .. string.format("  (+%d fire)", math.ceil(BW.run.fireWard));
 	end
 	BW.healthText:SetText(text);
 end

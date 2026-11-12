@@ -181,6 +181,7 @@ local function StartRun()
 		spawnGap = 0, nextElite = ELITE_EVERY, retargetCarry = 0, retargetCursor = 1,
 		shownSecond = -1, perfFrames = 0, perfLua = 0, perfClock = 0, hurtGlow = 0,
 		spreads = {}, pendingHeal = 0, pendingHurt = 0, leech = 0, landings = {},
+		gear = {}, gearReady = {}, gearSlots = {}, procReady = 0, shotLeft = 0,
 	};
 	SetPaused(false);
 	BW.held = {};
@@ -191,6 +192,7 @@ local function StartRun()
 	BW.hero:SetYaw(CAMERA_YAW);
 	BW.hero:Show();
 	BW.hero:SetAlpha(1); -- a grace may have faded it
+	BW.ResetGear(); -- your own weapons again
 	BW.hero:SetMovementEnabled(true);
 	BW.run.heroRun = BW.hero:GetMovementSpeed("run");
 	BW.LayMines(); -- away from the hero, so after it stands at the centre
@@ -376,6 +378,7 @@ local function Step(dt)
 	UpdateItems(dt, hx, hy, hz);
 	UpdateChests(dt, hx, hy);
 	UpdateWards(dt);
+	BW.UpdateGear(dt, hx, hy);
 	UpdatePet(dt, hx, hy, hz);
 	UpdateChannels(dt);
 	UpdateInfernals(dt);
@@ -387,7 +390,10 @@ local function Step(dt)
 
 	-- Power Word: Shield soaks the bites first, and the hurt of your own
 	-- spells (Hellfire's fire).
-	local taken = hurt * dt + BW.run.pendingHurt;
+	if hurt > 0 then
+		BW.HurtHero(hurt * dt, "Physical");
+	end
+	local taken = BW.run.pendingHurt;
 	BW.run.pendingHurt = 0;
 	if BW.run.graceUntil then -- the grace after the cards (Hud.lua)
 		if BW.run.time < BW.run.graceUntil then
@@ -514,7 +520,7 @@ local function Step(dt)
 	for key, state in pairs(BW.run.spells) do
 		state.cooldown = state.cooldown - dt;
 		if state.cooldown <= 0 and state.pending == 0 and Fire(key, state) then
-			state.cooldown = Stat(SPELLS[key], "cooldown", state.level) * haste;
+			state.cooldown = BW.AfterCast(Stat(SPELLS[key], "cooldown", state.level) * haste); -- Gear.lua
 			state.cdFull = state.cooldown;
 			if state.slot then
 				state.slot.cd:SetCooldown(GetTime(), state.cooldown);
@@ -679,8 +685,9 @@ SLASH_BROODWATCH1 = "/broodwatch";
 -- them: `/broodwatch charge 5 whirlwind 5` makes Intercept the next pick.
 -- `/broodwatch chest` (or `golden`) starts the run with a chest close by,
 -- `/broodwatch eggs` with a clutch of eggs, `/broodwatch vents` with the
--- lava vents erupting from the start, and `/broodwatch <kind>` (a key of
--- KINDS, or `elite`) with three of that kind.
+-- lava vents erupting from the start, `/broodwatch <kind>` (a key of
+-- KINDS, or `elite`) with three of that kind, and `/broodwatch <gear> ...`
+-- (keys of GEAR) wearing that gear.
 SlashCmdList["BROODWATCH"] = function(msg)
 	BW.frame:Show();
 	if not BW.hero then
@@ -708,6 +715,15 @@ SlashCmdList["BROODWATCH"] = function(msg)
 		BW.LayClutch();
 	elseif key == "vents" then
 		BW.run.nextVents = 0;
+	elseif key and BW.GEAR[key] then
+		for gear in string.gfind(msg, "(%a+)") do
+			if BW.GEAR[gear] then
+				BW.Equip(gear);
+			else
+				print("Broodwatch: no gear \"" .. gear .. "\"");
+			end
+		end
+		BW.UpdateBuild();
 	elseif key and BW.KindByKey(key) then
 		for _ = 1, 3 do
 			Spawn(BW.KindByKey(key));

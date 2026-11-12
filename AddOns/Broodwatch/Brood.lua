@@ -466,6 +466,7 @@ local function SpellDamage(e, amount, def)
 		return;
 	end
 	local school = def.school;
+	amount = amount * BW.GearScale(def); -- Gear.lua
 	local combo, detonated, steamed;
 	if school ~= "Frost" and e.frozenUntil and BW.run.time < e.frozenUntil then
 		amount = amount * TUNING.SHATTER;
@@ -494,6 +495,7 @@ local function SpellDamage(e, amount, def)
 	if steamed and e.alive then
 		Hold(e, TUNING.STEAM_STUN, TUNING.STUN_AURA);
 	end
+	BW.OnSpellHit(e, def); -- a weapon's proc (Gear.lua)
 	if detonated then
 		local r2 = TUNING.DETONATE_RADIUS * TUNING.DETONATE_RADIUS;
 		for _, o in ipairs(enemies) do
