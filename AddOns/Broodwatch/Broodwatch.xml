@@ -60,7 +60,9 @@
 				</Texture>
 			</Layer>
 			<Layer level="OVERLAY">
-				<FontString name="$parentName" inherits="GameFontNormalLarge">
+				<!-- As wide as the description: a long name wraps (Hud.lua's FillCard measures it). -->
+				<FontString name="$parentName" inherits="GameFontNormalLarge" justifyH="CENTER" justifyV="TOP">
+					<Size x="184" y="20"/>
 					<Anchors>
 						<Anchor point="TOP" relativeTo="$parentIcon" relativePoint="BOTTOM" x="0" y="-10"/>
 					</Anchors>

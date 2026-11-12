@@ -255,10 +255,11 @@ local function OfferLines(o)
 	return table.concat(lines, "\n");
 end
 
--- A card grows to its text: the parts above the description (the icon at
--- 20 from the top, 64 tall, the name 10 below it, the tag 4 below that, the
--- description 14 below that) and below it (12 above the pips, which sit 40
--- from the bottom, 6 tall), as Broodwatch.xml lays them out.
+-- A card grows to its text (a long name wraps too): the parts above the
+-- description (the icon at 20 from the top, 64 tall, the name 10 below it,
+-- the tag 4 below that, the description 14 below that) and below it (12
+-- above the pips, which sit 40 from the bottom, 6 tall), as Broodwatch.xml
+-- lays them out.
 local CARD_ABOVE = 20 + 64 + 10 + 4 + 14
 local CARD_BELOW = 12 + 6 + 40
 local CARD_MIN_HEIGHT = 280
@@ -300,7 +301,9 @@ local function FillCard(i, o)
 	card:SetBackdropBorderColor(color[1], color[2], color[3]);
 	getglobal(name .. "Icon"):SetTexture(icon);
 	local nameText = getglobal(name .. "Name");
+	nameText:SetHeight(CARD_DESC_ROOM);
 	nameText:SetText(title);
+	nameText:SetHeight(nameText:GetStringHeight());
 	nameText:SetTextColor(color[1], color[2], color[3]);
 	local tagText = getglobal(name .. "Tag");
 	tagText:SetText(tag);
