@@ -133,6 +133,17 @@ target_include_directories(
 
 set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "ClassicAPI")
 
+# Compile every source file as its own parallel job (MSBuild's MultiToolTask).
+# Offsets.h and Game.h reach nearly every file, so an edit to either rebuilds
+# the whole target. Without this, MSBuild compiles a project's files serially.
+# /MP alone does not fix it here: /MP works only inside one batch of files with
+# identical settings, and CMake gives each .cpp whose name repeats in another
+# directory (21 Info.cpp, 6 Tooltip.cpp, ...) its own object path, so ~130
+# files fell into one-file batches that ran one after another. Measured on a
+# 24-core machine: a full rebuild went from 81 s (serial) to 38 s (/MP) to
+# 12 s (MultiToolTask).
+set_target_properties(${PROJECT_NAME} PROPERTIES VS_GLOBAL_UseMultiToolTask true)
+
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MT")
 # /O1 optimizes for size: the code is mostly short glue around engine calls,
 # and /O1 made the DLL 280 KB smaller than /O2 /Ob2 (link-time code generation,
