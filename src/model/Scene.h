@@ -705,7 +705,27 @@ void DrawDecalOnPlane(const float (&box)[6], uint32_t argb, const float (&m)[16]
 // The scene's fog on the device, for a decal at `point` that the world draws
 // in its own fog: the WMO's, or the frame's without one. Inside a state push.
 void CommitDecalFog(const Backdrop *backdrop, void *frame, const float (&point)[3], const float (&eye)[3]);
+// The scene's view volume in scene space (the device's view moved by -eye
+// and its projection), as the world's camera builds its own.
+void ViewVolume(uint8_t (&volume)[Offsets::FRUSTUM_VOLUME_SIZE], const float (&eye)[3]);
+// The fog half of the frame's light callback: the scene's fog on a lighting
+// record, nothing when the scene has none.
+void FrameFog(void *record, void *frame);
 } // namespace World
+
+// The scene's terrain (SetWorldTerrain; model/SceneTerrain.cpp).
+namespace Terrain {
+struct Land;
+// The chunks of map `mapID`'s ADT tiles within `radius` of (x, y), in map
+// coordinates; null when the map has no directory or no chunk in reach
+// opens and reads.
+Land *Load(uint32_t mapID, float x, float y, float radius);
+void Free(Land *land);
+// From the paint, after the animate pass and before the WMO: the chunks the
+// scene's view shows, as the world's chunk pass draws them. `farClip` is the
+// scene's, the fog end of a scene without fog.
+void Draw(Land &land, void *frame, const float (&eye)[3], float farClip);
+} // namespace Terrain
 
 // The scene's WMO, or null.
 World::Backdrop *WorldOf(void *sceneFrame);

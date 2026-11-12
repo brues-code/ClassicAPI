@@ -837,6 +837,12 @@ void ReleaseDoodad(Doodad &d) {
 
 } // namespace
 
+void ViewVolume(uint8_t (&volume)[Offsets::FRUSTUM_VOLUME_SIZE], const float (&eye)[3]) {
+    BuildViewVolume(volume, eye);
+}
+
+void FrameFog(void *record, void *frame) { SceneFog(record, frame); }
+
 bool IsWmoPath(const char *path) { return path != nullptr && HasWmoSuffix(path); }
 
 Backdrop *Load(const char *path, const float (&placement)[16], uint32_t doodadSet, uint32_t mapID) {

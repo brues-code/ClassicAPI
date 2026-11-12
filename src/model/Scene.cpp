@@ -107,7 +107,9 @@
 // SetWorldModelByMapID / ClearWorldModel: a WMO drawn by the world's own map
 // object draw after the animate pass, with its doodads as models of the
 // scene; Set/GetPlayWorldModelSounds: the doodads' sounds
-// (model/SceneWorld.cpp).
+// (model/SceneWorld.cpp). SetWorldTerrain / ClearWorldTerrain: a map's ADT
+// chunks around a point, built and drawn by the world's own chunk functions
+// before the WMO (model/SceneTerrain.cpp).
 
 #include "model/Scene.h"
 
@@ -169,6 +171,7 @@ struct Fields {
     int32_t groundTerrain; // SetGroundTerrain: a TerrainType id, or -1
     Actor *hovered; // the actor OnActorEnter last ran for, or null
     World::Backdrop *world; // SetWorldModel, owned, or null
+    Terrain::Land *terrain; // SetWorldTerrain, owned, or null
     bool playWorldModelSounds; // SetPlayWorldModelSounds
     Actor *listener; // SetSoundListenerActor, or null; the frame owns its actors
     // GetSceneTime: the seconds the M2 scene's clock has advanced since the
@@ -736,6 +739,9 @@ void __fastcall Paint(void *frame) {
         PlaceActors(frame);
         void *scene = Model::Pane::Scene(frame);
         M2::AnimateScene(scene, eye);
+        // The world's frame draws its chunks before its map objects.
+        if (Terrain::Land *terrain = CameraOf(frame) != nullptr ? F(frame).terrain : nullptr)
+            Terrain::Draw(*terrain, frame, eye, F(frame).farClip);
         if (world != nullptr)
             World::Draw(*world, frame, eye);
         DrawGroundDecals(frame, eye);
@@ -976,6 +982,8 @@ void Destroy(void *frame) {
     f.actors = nullptr;
     World::Free(f.world);
     f.world = nullptr;
+    Terrain::Free(f.terrain);
+    f.terrain = nullptr;
     Time::Timer::CancelOwned(frame);
 }
 
@@ -1153,6 +1161,7 @@ void *__fastcall CreateModelScene(void *parent) {
     f.groundTerrain = -1;
     f.hovered = nullptr;
     f.world = nullptr;
+    f.terrain = nullptr;
     f.playWorldModelSounds = false;
     f.listener = nullptr;
     f.clock = 0.0;
@@ -1588,6 +1597,39 @@ int __fastcall Script_ClearWorldModel(void *L) {
     return 0;
 }
 
+// The scene's terrain (a ClassicAPI extension, model/SceneTerrain.cpp). A
+// set that fails clears it, as SetWorldModel does.
+void SetTerrain(void *frame, Terrain::Land *terrain) {
+    Terrain::Free(F(frame).terrain);
+    F(frame).terrain = terrain;
+}
+
+constexpr char kUsageSetWorldTerrain[] = "SetWorldTerrain(mapID, x, y [, radius])";
+
+int __fastcall Script_SetWorldTerrain(void *L) {
+    void *frame = Self(L);
+    if (frame == nullptr)
+        return 0;
+    const char *owner = Game::Lua::ObjectDisplayName(frame);
+    if (!NumberArgs(L, 2, 3, owner, kUsageSetWorldTerrain))
+        return 0;
+    const bool hasRadius = Game::Lua::Type(L, 5) > Game::Lua::TYPE_NIL;
+    if (hasRadius && !NumberArgs(L, 5, 1, owner, kUsageSetWorldTerrain))
+        return 0;
+    // One tile's width by default, the world's own unit of terrain.
+    const float radius = hasRadius ? FloatArg(L, 5) : Game::Read<float>(Offsets::VAR_TILE_SIZE);
+    SetTerrain(frame, Terrain::Load(static_cast<uint32_t>(Game::Lua::ToNumber(L, 2)), FloatArg(L, 3),
+                                    FloatArg(L, 4), radius));
+    Game::Lua::PushBool(L, F(frame).terrain != nullptr);
+    return 1;
+}
+
+int __fastcall Script_ClearWorldTerrain(void *L) {
+    if (void *frame = Self(L))
+        SetTerrain(frame, nullptr);
+    return 0;
+}
+
 // The WMO's nearest face on a segment (a ClassicAPI extension): the hit
 // point, the face's normal toward the start, and the fraction. Nothing on a
 // miss or without a WMO.
@@ -1876,6 +1918,8 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"SetWorldModel", &Script_SetWorldModel},
     {"SetWorldModelByMapID", &Script_SetWorldModelByMapID},
     {"ClearWorldModel", &Script_ClearWorldModel},
+    {"SetWorldTerrain", &Script_SetWorldTerrain},
+    {"ClearWorldTerrain", &Script_ClearWorldTerrain},
     {"TraceSegment", &Script_TraceSegment},
     {"GetLiquidAtPoint", &Script_GetLiquidAtPoint},
     {"SweepCollider", &Script_SweepCollider},
@@ -2071,6 +2115,18 @@ const Game::Doc::Function kSetWorldModelByMapID{
     "map's positions. Returns false, and shows no WMO, for any other map.",
     kWorldModelMapArg, kWorldModelRet, nullptr, true};
 const Game::Doc::Function kClearWorldModel{"Removes the scene's WMO.", {}, {}, nullptr, true};
+const Game::Doc::Field kWorldTerrainArgs[] = {
+    Req("mapID", "number", "A Map.dbc row with terrain, for example 0 (Eastern Kingdoms)."),
+    Req("x", "number", "The map's x, as the map places its terrain."),
+    Req("y", "number"),
+    Opt("radius", "number", "533.33331", "Chunks within this distance of (x, y) are shown: one map tile by default."),
+};
+const Game::Doc::Function kSetWorldTerrain{
+    "Shows the map's ground around a point the way the world draws it, with its textures, shadows and "
+    "level of detail, in map coordinates. The scene's light stands in for the sun, and its fog for the "
+    "zone's. Returns false, and shows no terrain, when no ground lies within the radius.",
+    kWorldTerrainArgs, kWorldModelRet, nullptr, true};
+const Game::Doc::Function kClearWorldTerrain{"Removes the scene's terrain.", {}, {}, nullptr, true};
 const Game::Doc::Field kTraceSegmentArgs[] = {
     Req("startX", "number"), Req("startY", "number"), Req("startZ", "number"),
     Req("endX", "number"),   Req("endY", "number"),   Req("endZ", "number"),
@@ -2260,6 +2316,8 @@ const Game::Doc::Method g_methodDocs[] = {
     {"SetWorldModel", &kSetWorldModel},
     {"SetWorldModelByMapID", &kSetWorldModelByMapID},
     {"ClearWorldModel", &kClearWorldModel},
+    {"SetWorldTerrain", &kSetWorldTerrain},
+    {"ClearWorldTerrain", &kClearWorldTerrain},
     {"TraceSegment", &kTraceSegment},
     {"GetLiquidAtPoint", &kGetLiquidAtPoint},
     {"SweepCollider", &kSweepCollider},

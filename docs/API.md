@@ -847,6 +847,8 @@ build instructions.
   - [`scene:SetWorldModel(path [, x, y, z [, yaw [, doodadSet [, mapID]]]])`](#scenesetworldmodelpath--x-y-z--yaw--doodadset--mapid)
   - [`scene:SetWorldModelByMapID(mapID)`](#scenesetworldmodelbymapidmapid)
   - [`scene:ClearWorldModel()`](#sceneclearworldmodel)
+  - [`scene:SetWorldTerrain(mapID, x, y [, radius])`](#scenesetworldterrainmapid-x-y--radius)
+  - [`scene:ClearWorldTerrain()`](#sceneclearworldterrain)
   - [`scene:SetPlayWorldModelSounds(enabled)` / `scene:GetPlayWorldModelSounds()`](#scenesetplayworldmodelsoundsenabled--scenegetplayworldmodelsounds)
   - [`scene:TraceSegment(startX, startY, startZ, endX, endY, endZ [, camera])`](#scenetracesegmentstartx-starty-startz-endx-endy-endz--camera)
   - [`scene:GetLiquidAtPoint(x, y, z)`](#scenegetliquidatpointx-y-z)
@@ -19532,6 +19534,39 @@ onyxia:SetPosition(0.7, -211.97, -86.08) -- her place in the lair
 ### `scene:ClearWorldModel()`
 
 Removes the WMO of the scene and its props. This is a ClassicAPI extension.
+
+### `scene:SetWorldTerrain(mapID, x, y [, radius])`
+
+Shows the ground of a map around a point and returns `true`. `mapID` is a
+row of `Map.dbc`, for example `0` for Eastern Kingdoms. `x` and `y` are a
+position on that map, so the positions in the scene are the positions on
+the map. The scene shows each part of the ground that is less than
+`radius` yards from the point. The default radius is 533.33 yards, the
+width of one map tile.
+
+The ground looks as it does in the world: the same textures, the same
+shadows and the same level of detail. The light of the scene stands in for
+the sun, and the fog of the scene stands in for the fog of the zone. A
+WMO from
+[`scene:SetWorldModel`](#scenesetworldmodelpath--x-y-z--yaw--doodadset--mapid)
+stands on the ground when you give it its position on the same map.
+
+The function returns `false` and shows no ground when the map has no
+ground within the radius. A new call replaces the ground of the scene.
+Actors do not stand on the ground yet, and the trees, grass and water of
+the map are not shown. This is a ClassicAPI extension.
+
+```lua
+-- The Gurubashi Arena: the arena WMO where the map puts it, on its ground.
+scene:SetWorldModel("World\\wmo\\Azeroth\\Collidable Doodads\\Stranglethorn\\StranglethornArena\\StrangleGladiatorArena.wmo",
+    -13205.914, 271.832, 20.280, math.rad(64) + math.pi, 0, 0)
+scene:SetWorldTerrain(0, -13205.914, 271.832, 250)
+scene:SetCameraFarClip(500)
+```
+
+### `scene:ClearWorldTerrain()`
+
+Removes the ground of the scene. This is a ClassicAPI extension.
 
 ### `scene:SetPlayWorldModelSounds(enabled)` / `scene:GetPlayWorldModelSounds()`
 

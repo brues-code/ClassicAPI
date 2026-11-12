@@ -16203,4 +16203,184 @@ enum Offsets {
     //   q[3], const float dir[3])`, ret 4: from p to the line through q
     //   along the unit dir.
     FUN_POINT_TO_LINE_DISTANCE_SQ = 0x00634F40,
+
+    // ---- ADT terrain (Model::Scene::Terrain; benilla terrain/chunk, render,
+    // lod, cull, files; Ghidra decompiles 2026-11-11) ---------------------------
+    // A tile's chunks built and drawn by the world's own chunk functions on
+    // chunks the scene owns. CMapChunk::Load (0x006AF5F0) also links the
+    // global area table, the world's doodad hashes and map lights; the scene
+    // runs only its self-contained steps, in Load's order.
+    //   CMapChunk::CMapChunk `__thiscall(chunk)` (0x006AF1D0; base 0x006C3020
+    //   touches only the object) and ~CMapChunk `__thiscall(chunk)`
+    //   (0x006AF460, its own lists only); UnloadChunk `__thiscall(chunk)`
+    //   (0x006A6B10): layers, neighbour back-links, textures, liquids, lists;
+    //   a buffer not from the world's pool it nulls without freeing
+    //   (ReleaseChunkBuffers 0x006AE9A0). The world's chunk list (0x00CA7D48,
+    //   AllocChunk 0x006A06E0) is walked only by ReleaseAllChunkBuffers,
+    //   before the world's pool is rebuilt (far clip, map unload).
+    FUN_CMAPCHUNK_CTOR = 0x006AF1D0,
+    FUN_CMAPCHUNK_DTOR = 0x006AF460,
+    FUN_UNLOAD_CHUNK = 0x006A6B10,
+    //   FixupRecordPointers `__thiscall(chunk, record)` reads +0x168;
+    //   BuildVertices / LoadNormals / CreateCombinedTexture `__thiscall(chunk)`;
+    //   AddLayer `__thiscall(chunk, area, mcly entry, mcal data)`, ret 0xC;
+    //   CreateShadowTexture `__thiscall(chunk, mcsh data)`; SelectMesh
+    //   `__thiscall(chunk, uint draw)`: mesh, buffers, DrawLayers 0x006BEF30.
+    FUN_CMAPCHUNK_FIXUP_RECORD = 0x006AF970,
+    FUN_CMAPCHUNK_BUILD_VERTICES = 0x006B0E50,
+    FUN_CMAPCHUNK_LOAD_NORMALS = 0x006AFF10,
+    FUN_CMAPCHUNK_ADD_LAYER = 0x006AFF80,
+    FUN_CMAPCHUNK_CREATE_SHADOW = 0x006B0030,
+    FUN_CMAPCHUNK_CREATE_COMBINED = 0x006B00A0,
+    FUN_CMAPCHUNK_SELECT_MESH = 0x006BEB50,
+    //   LoadAreaTextures `__thiscall(area, const char *names, uint size)`,
+    //   ret 8: a LoadMapTexture handle per MTEX name at area +0xEC, count
+    //   +0xE8, no bound; it touches only +0x9C, +0xE8 and the array, which
+    //   ends at +0x26C (96 slots). UnloadArea (0x006A6A10) closes each with
+    //   FUN_HANDLE_RELEASE. AddLayer reads only the area's slot.
+    FUN_LOAD_AREA_TEXTURES = 0x006C20E0,
+    CMAPAREA_SIZE = 0x6A8,
+    OFF_CMAPAREA_TEXTURE_COUNT = 0xE8,
+    OFF_CMAPAREA_TEXTURES = 0xEC,
+    CMAPAREA_TEXTURE_SLOTS = 96,
+    //   A static buffer pool and its sub-buffers, as CreateChunkBufferPool
+    //   (0x006AE640) makes CMapChunk_vtx / _idx: CreatePool `void
+    //   *__fastcall(kind, usage, size, uint, const char *name)`, ret 0xC
+    //   (kind 0 vertex, 1 index; usage 1; 3); PoolBuffer `void *__fastcall(
+    //   pool, itemSize, count, offset)`, ret 8; FreeBuffer `__fastcall(buf)`
+    //   (0x0058A040); GxBufferRelease `__fastcall(pool)`. SelectMesh takes the
+    //   world's pool only for a buffer whose pool has usage 2 (pool +0x0C;
+    //   the device's shared dynamic buffer, GxBufCreate 0x0058A140).
+    FUN_GX_CREATE_POOL = 0x0058A160,
+    FUN_GX_POOL_BUFFER = 0x00589F80,
+    FUN_GX_FREE_BUFFER = 0x0058A040,
+    FUN_GX_BUFFER_RELEASE = 0x0058A1A0,
+    GX_POOL_KIND_VERTEX = 0,
+    GX_POOL_KIND_INDEX = 1,
+    GX_POOL_USAGE_STATIC = 1,
+    GX_POOL_ARG = 3,
+    CHUNK_VERTEX_SIZE = 0x18,
+    CHUNK_INDEX_SIZE = 2,
+    //   Per level, 8 bytes each: the count, the list (0x0086C290 vertices,
+    //   0x0086C2B0 indices; level 3 = 145 / 768 in the image). The pool's
+    //   buffers hold the full level (AcquireChunkBuffers 0x006AE8A0).
+    VAR_CHUNK_LEVEL_VERTEX_LISTS = 0x0086C290,
+    VAR_CHUNK_LEVEL_INDEX_LISTS = 0x0086C2B0,
+    CHUNK_LEVEL_LIST_SIZE = 8,
+    CHUNK_LEVEL_FULL = 3,
+    //   The chunk level (0x006AFAD0): maxLOD, or the far level when world
+    //   flag 4 is on and the view depth is above lodDist (strictly).
+    VAR_CHUNK_LOD_DIST = 0x00867960,
+    VAR_CHUNK_MAX_LOD = 0x00867964,
+    VAR_CHUNK_FAR_LOD = 0x00867968,
+    //   IsBoxCulled `uint __thiscall(const float box[6])`: nonzero when the
+    //   top of the frustum stack rejects the box (0x00683C3C).
+    FUN_FRUSTUM_IS_BOX_CULLED = 0x00682F40,
+    // The world flags (benilla terrain/world.md): 2 chunks drawn, 4 lod,
+    // 0x40 map shadows, the sign anisotropic: the chunk pass then sets the
+    // mip bias of stages 0-3 (states 0x27-0x2A) to the immediate pushed at
+    // 0x00684527 (0.25).
+    VAR_WORLD_FLAGS = 0x00C7B2A4,
+    WORLD_FLAG_CHUNKS = 0x2,
+    WORLD_FLAG_LOD = 0x4,
+    WORLD_FLAG_MAP_SHADOWS = 0x40,
+    WORLD_FLAG_ANISOTROPIC = 0x80000000,
+    GXRS_MIP_BIAS_STAGE0 = 0x27,
+    MIP_BIAS_STAGES = 4,
+    VAR_CHUNK_MIP_BIAS_IMMEDIATE = 0x00684528,
+    // DrawLayers reads both: the camera (texgen matrices are camera-relative)
+    // and the fog end (beyond it, less the radius, a chunk draws flat; the
+    // light slot needs the depth less twice the radius under it, 0x006C0CC0).
+    VAR_CAMERA_POSITION = 0x00C7CF20,
+    VAR_FOG_END = 0x00C62964,
+    // The shader paths (0x006BEF30): the pixel-program flag (`_s` textures,
+    // 0x006C2104) and the second; shadowLevel (alpha size, 0x006AFFE2). A
+    // chunk's textures are made for the values it was built with.
+    VAR_TERRAIN_SHADER_FLAG = 0x00C9A31C,
+    VAR_TERRAIN_SHADER_FLAG_B = 0x00C89F44,
+    VAR_SHADOW_LEVEL = 0x00C63284,
+    // CMapChunk (0xF34 bytes, benilla terrain/chunk.md).
+    CMAPCHUNK_SIZE = 0xF34,
+    OFF_CMAPCHUNK_FLAGS = 0x0C,     // word: 0x40 impassable, 1 lights, 0x80 filed
+    OFF_CMAPCHUNK_CENTRE = 0x5C,    // 3 floats, then the radius
+    OFF_CMAPCHUNK_RADIUS = 0x68,
+    OFF_CMAPCHUNK_POSITION = 0x6C,  // from MCNK +0x68
+    OFF_CMAPCHUNK_VIEW_DEPTH = 0x78,
+    OFF_CMAPCHUNK_COLUMN = 0x7C,
+    OFF_CMAPCHUNK_ROW = 0x80,
+    OFF_CMAPCHUNK_COLUMN8 = 0x84,
+    OFF_CMAPCHUNK_ROW8 = 0x88,
+    OFF_CMAPCHUNK_GLOBAL_COLUMN = 0x8C,
+    OFF_CMAPCHUNK_GLOBAL_ROW = 0x90,
+    OFF_CMAPCHUNK_BOX = 0x94,       // 6 floats, the culling copy
+    OFF_CMAPCHUNK_INDEX = 0xB4,
+    OFF_CMAPCHUNK_LEVEL = 0xB8,
+    OFF_CMAPCHUNK_NEIGHBOURS = 0xC4, // row - 1, column + 1, row + 1, column - 1
+    OFF_CMAPCHUNK_VERTEX_BUFFER = 0x14C,
+    OFF_CMAPCHUNK_INDEX_BUFFER = 0x150,
+    OFF_CMAPCHUNK_RECORD = 0x168,
+    OFF_CMAPCHUNK_AREA_ID = 0x16C,
+    OFF_CMAPCHUNK_HEADER = 0xF08,
+    OFF_CMAPCHUNK_LOW_TEXTURES = 0xF0C,
+    OFF_CMAPCHUNK_DOODAD_MAP = 0xF10,
+    OFF_CMAPCHUNK_MCSH = 0xF1C,
+    OFF_CMAPCHUNK_MCLY = 0xF20,
+    OFF_CMAPCHUNK_MCAL = 0xF24,
+    // CMapChunk::Load 0x006AF6E5: with a shadow, +0x148 takes MCNK +0x30 and
+    // CreateShadowTexture keeps the map at +0x144; else both are zeroed.
+    OFF_CMAPCHUNK_SHADOW_MAP = 0x144,
+    OFF_CMAPCHUNK_SHADOW_WORD = 0x148,
+    CMAPCHUNK_FLAG_IMPASSABLE = 0x40,
+    CMAPCHUNK_FLAG_LIGHTS = 0x1,
+    CMAPCHUNK_FLAG_FILED = 0x80,
+    // An ADT as ParseAreaFile (0x006C2010) reads it: MHDR data at buffer +
+    // 0x10 + the MVER size (+0x04); its +0x04 MCIN and +0x08 MTEX offsets
+    // point 8 bytes before the data, the size the dword before it. MCIN:
+    // 256 x 16 bytes, +0 the MCNK record's file offset. MCNK header (record
+    // + 8): +0x00 flags (1 shadow, 2 impassable), +0x0C layers, +0x14 MCVT,
+    // +0x18 MCNR, +0x1C MCLY, +0x24 MCAL, +0x2C MCSH, +0x34 area, +0x3C holes,
+    // +0x40 / +0x50 maps, +0x68 position; each sub-record offset is from the
+    // record and lands 8 bytes before its data (FixupRecordPointers). MCLY
+    // entries are 16 bytes: +0 texture index, +4 flags (0x100 alpha map), +8
+    // MCAL offset.
+    OFF_ADT_MVER_SIZE = 0x04,
+    ADT_MHDR_BASE = 0x10,
+    OFF_MHDR_MCIN = 0x04,
+    OFF_MHDR_MTEX = 0x08,
+    ADT_CHUNKS = 256,
+    MCIN_ENTRY_SIZE = 0x10,
+    MCNK_RECORD_HEADER = 8,
+    OFF_MCNK_FLAGS = 0x00,
+    OFF_MCNK_LAYER_COUNT = 0x0C,
+    OFF_MCNK_MCVT = 0x14,
+    OFF_MCNK_MCNR = 0x18,
+    OFF_MCNK_MCLY = 0x1C,
+    OFF_MCNK_MCAL = 0x24,
+    OFF_MCNK_MCSH = 0x2C,
+    OFF_MCNK_SHADOW_WORD = 0x30,
+    OFF_MCNK_AREA_ID = 0x34,
+    OFF_MCNK_HOLES = 0x3C,
+    OFF_MCNK_LOW_TEXTURES = 0x40,
+    OFF_MCNK_DOODAD_MAP = 0x50,
+    OFF_MCNK_POSITION = 0x68,
+    MCNK_HEADER_SIZE = 0x80,
+    MCNK_FLAG_SHADOW = 0x1,
+    MCNK_FLAG_IMPASSABLE = 0x2,
+    MCNK_HOLES_ALL = 0xFFFF,
+    MCNK_MAX_LAYERS = 4,
+    MCLY_ENTRY_SIZE = 0x10,
+    OFF_MCLY_FLAGS = 0x04,
+    OFF_MCLY_ALPHA = 0x08,
+    MCLY_FLAG_ALPHA = 0x100,
+    MCVT_SIZE = 145 * 4,
+    MCNR_SIZE = 145 * 3,
+    MCAL_MAP_SIZE = 0x800,
+    MCSH_SIZE = 0x200,
+    // Tiles fall from the map origin (17066.666, 0x007FFAB4) in steps of
+    // 533.33331 (0x0080654C): the row from x, the column from y; a tile is
+    // <dir>\<dir>_<column>_<row>.adt (0x006C274D) of 16 x 16 chunks.
+    VAR_MAP_ORIGIN = 0x007FFAB4,
+    VAR_TILE_SIZE = 0x0080654C,
+    MAP_TILES = 64,
+    TILE_CHUNKS = 16,
 };
