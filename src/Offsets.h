@@ -16454,4 +16454,21 @@ enum Offsets {
     CELL_CENTRE_VERTEX = 9,
     FUN_INTERSECT_RAY_TRIANGLE = 0x007C2C40,
     VAR_TRACE_SLACK_IMMEDIATE = 0x0069CB96,
+    // The decal's world box test (TestWorldBox 0x006AD2C0): map objects under
+    // 0xF00F0, then the terrain under 0xF0F00 (TestTerrainBox 0x006AD4E0,
+    // `__fastcall(box, mask, out)`). Its cells: the first from the unrounded
+    // origin - min.y, the rest from the stored floats, each fistp(float(0.24 x
+    // d) - 0.5) (0x00810B44, 0x0086AAC4); rows from the max-x cell >> 3 to the
+    // min-x cell >> 3, columns likewise from y; no bounds test. Per chunk
+    // (TestChunkBox 0x006AD610) the box less the chunk position and the
+    // rectangle clipped to {0, 0, 7, 7} (IntersectCellRects 0x006ADBF0), then,
+    // under 0x100, TestChunkTriangles `uint8 __fastcall(chunk, const int32
+    // rect[4], const float box[6], uint32 unused)` ret 8 (0x006AD7E0): the
+    // cells' kept triangles into one batch of the triangle batches, its matrix
+    // the chunk's translation, its vertices +0x83C. It reads only the chunk.
+    DECAL_MASK_TERRAIN = 0xF0F00,
+    CHUNK_TRIANGLE_CLASS = 0x100,
+    VAR_DECAL_CELLS_PER_YARD = 0x00810B44,
+    VAR_DECAL_HALF_CELL = 0x0086AAC4,
+    FUN_TEST_CHUNK_TRIANGLES = 0x006AD7E0,
 };

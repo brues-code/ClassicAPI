@@ -19768,8 +19768,10 @@ Shows the click-to-move marker at a point, in scene coordinates. It is the
 same pulsing yellow mark that the world shows where you click to move. The
 scene shows one marker. A new call moves it to the new point.
 
-- In a scene with a WMO, the marker lies on the faces of the WMO near the
-  point. In a scene with no WMO, it lies flat at the height of the point.
+- In a scene with a WMO or ground
+  ([`scene:SetWorldTerrain`](#scenesetworldterrainmapid-x-y--radius)), the
+  marker lies on their faces near the point. In a scene with neither, it
+  lies flat at the height of the point.
 - The marker pulses between 0.5 and 0.75 yards in size, two times each
   second. It stops while the scene is paused.
 - The marker stays until you call `ClearMoveMarker`. It does not go away
@@ -20340,13 +20342,14 @@ Shows or hides a blob shadow under the model. It is the same dark blob that
 units have on the ground in the world. The default is off.
 
 - In a scene with a WMO
-  ([`scene:SetWorldModel`](#scenesetworldmodelpath--x-y-z--yaw--doodadset--mapid)),
-  the shadow lies on the floor of the WMO under the actor, as on the ground
-  in the world. It follows slopes and steps, and it fades with the height of
-  the actor above the floor. An actor with no floor of the WMO under it shows
-  no shadow.
-- In a scene with no WMO, the shadow lies flat on the plane of the actor's
-  position, below its feet.
+  ([`scene:SetWorldModel`](#scenesetworldmodelpath--x-y-z--yaw--doodadset--mapid))
+  or ground
+  ([`scene:SetWorldTerrain`](#scenesetworldterrainmapid-x-y--radius)), the
+  shadow lies on the floor under the actor, as on the ground in the world.
+  It follows slopes and steps, and it fades with the height of the actor
+  above the floor. An actor with no floor under it shows no shadow.
+- In a scene with no WMO and no ground, the shadow lies flat on the plane of
+  the actor's position, below its feet.
 - The size of the shadow comes from the bounds of the model and from the
   scale of the actor. The shadow turns with the yaw of the actor.
 - The shadow darkens what is behind it. It fades with the alpha of the
@@ -20390,8 +20393,8 @@ Shows a selection circle under the feet of the actor. It is the same circle
 that the world shows under your target. The colour values are from 0 to 1,
 and `a` is 1 by default. An actor has no circle by default.
 
-- In a scene with a WMO, the circle lies on the floor of the WMO under the
-  actor. In a scene with no WMO, it lies flat at the height of the actor's
+- In a scene with a WMO or ground, the circle lies on the floor under the
+  actor. In a scene with neither, it lies flat at the height of the actor's
   position.
 - The size of the circle comes from the bounds of the model and from the
   scale of the actor, as for a unit in the world.
@@ -20438,8 +20441,8 @@ yards. With `valid` set to `false`, it shows the reticle that the world
 shows out of range. `valid` is `true` by default. An actor has no reticle
 by default.
 
-- In a scene with a WMO, the reticle lies on the floor of the WMO, up to 2
-  yards above or below the position of the actor. In a scene with no WMO,
+- In a scene with a WMO or ground, the reticle lies on the floor, up to 2
+  yards above or below the position of the actor. In a scene with neither,
   it lies flat at the height of the actor's position.
 - An actor with no model shows its reticle too, so an empty actor can mark
   a point on the ground.

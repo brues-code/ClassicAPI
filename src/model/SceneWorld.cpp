@@ -1815,11 +1815,16 @@ void DrawFacetBatches(uint32_t color, int lighting, const float (&eye)[3]) {
     Gx::PopTransform(kWorldStack);
 }
 
-// DrawDecalBatches (0x006D7480) over the WMO's facets, the eye for the
-// world camera.
-void DrawBatches(const Backdrop &b, const float (&box)[6], uint32_t argb, uint32_t mask, const float (&eye)[3]) {
+// DrawDecalBatches (0x006D7480) over the facets of the WMO and the terrain,
+// as TestWorldBox (0x006AD2C0) collects map objects then terrain, the eye for
+// the world camera.
+void DrawBatches(const Backdrop *b, const Terrain::Land *terrain, const float (&box)[6], uint32_t argb,
+                 uint32_t mask, const float (&eye)[3]) {
     ResetFacets();
-    if (!CollectBox(b, box, mask))
+    bool any = b != nullptr && CollectBox(*b, box, mask);
+    if (terrain != nullptr && (mask & Offsets::DECAL_MASK_TERRAIN) != 0)
+        any = Terrain::CollectDecalBatches(*terrain, box, mask) || any;
+    if (!any)
         return;
     WithDecalStates(argb, [&](uint32_t color, int lighting) { DrawFacetBatches(color, lighting, eye); });
 }
@@ -1846,12 +1851,14 @@ void WithDecalTransforms(const float (&box)[6], const float (&m)[16], float fade
 
 } // namespace
 
-// DrawDecal (0x006D7330) onto the WMO.
-void DrawDecal(const Backdrop &b, const float (&box)[6], uint32_t argb, const float (&m)[16], float fade,
-               uint32_t mask, const float (&eye)[3]) {
-    if (Game::Read<uint8_t>(b.object, Offsets::OFF_CMAPOBJ_LOADED) == 0)
+// DrawDecal (0x006D7330) onto the WMO and the terrain.
+void DrawDecal(const Backdrop *b, const Terrain::Land *terrain, const float (&box)[6], uint32_t argb,
+               const float (&m)[16], float fade, uint32_t mask, const float (&eye)[3]) {
+    if (b != nullptr && Game::Read<uint8_t>(b->object, Offsets::OFF_CMAPOBJ_LOADED) == 0)
+        b = nullptr;
+    if (b == nullptr && terrain == nullptr)
         return;
-    WithDecalTransforms(box, m, fade, eye, [&] { DrawBatches(b, box, argb, mask, eye); });
+    WithDecalTransforms(box, m, fade, eye, [&] { DrawBatches(b, terrain, box, argb, mask, eye); });
 }
 
 // The flat ground stands in for the world's faces: one quad over the box at

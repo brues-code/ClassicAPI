@@ -611,6 +611,10 @@ void __stdcall OnModelEvent(uint32_t tag, uint32_t data, const float *point, uin
                             uint32_t userLow, uint32_t userHigh);
 } // namespace Events
 
+namespace Terrain {
+struct Land;
+} // namespace Terrain
+
 // The scene's WMO (SetWorldModel; model/SceneWorld.cpp).
 namespace World {
 struct Backdrop;
@@ -686,10 +690,12 @@ bool QueryFacets(void *backdrop, const float (&box)[6], std::vector<Contact::Fac
 // water and ocean surfaces of the WMO's liquid groups in a box (scene space),
 // as their tiles' triangles. False without a WMO or before it has loaded.
 bool QueryLiquidFacets(void *backdrop, const float (&box)[6], std::vector<Contact::Facet> &out);
-// From the paint, after Draw: a texture laid over the WMO's faces in `box`
-// (scene space), as the world lays a decal on its ground.
-void DrawDecal(const Backdrop &backdrop, const float (&box)[6], uint32_t argb, const float (&m)[16], float fade,
-               uint32_t mask, const float (&eye)[3]);
+// From the paint, after Draw: a texture laid over the faces of the WMO
+// and of the terrain in `box` (scene space), as the world lays a decal on
+// its ground (DrawDecal 0x006D7330, TestWorldBox 0x006AD2C0: map objects,
+// then terrain). Either may be null.
+void DrawDecal(const Backdrop *backdrop, const Terrain::Land *terrain, const float (&box)[6], uint32_t argb,
+               const float (&m)[16], float fade, uint32_t mask, const float (&eye)[3]);
 // The same decal in a scene without a WMO: laid on the flat ground at
 // height `z`, one quad over the box.
 void DrawDecalOnPlane(const float (&box)[6], uint32_t argb, const float (&m)[16], float fade, float z,
@@ -717,6 +723,11 @@ void Free(Land *land);
 // scene's view shows, as the world's chunk pass draws them. `farClip` is the
 // scene's, the fog end of a scene without fog.
 void Draw(Land &land, void *frame, const float (&eye)[3], float farClip);
+// The world box test's terrain leg for a decal (TestTerrainBox 0x006AD4E0):
+// the triangles of the chunks' cells in `box` (scene space) into the
+// client's triangle batches, one per chunk (TestChunkTriangles 0x006AD7E0).
+// True when it added any.
+bool CollectDecalBatches(const Land &land, const float (&box)[6], uint32_t mask);
 // The world's box query's terrain leg (0x006AA8B0, GatherChunkFacets
 // 0x006AADC0): the triangles of the chunks' cells in a box (scene space) and
 // an impassable chunk's walls, appended to `out`. A box outside the map

@@ -810,6 +810,47 @@ bool QueryFacets(const Land &land, const float (&box)[6], std::vector<Contact::F
     return true;
 }
 
+bool CollectDecalBatches(const Land &land, const float (&box)[6], uint32_t mask) {
+    // TestTerrainBox (0x006AD4E0): the cells, the first from the unrounded
+    // distance (0x006AD525 multiplies before it stores).
+    const float origin = Game::Read<float>(Offsets::VAR_MAP_ORIGIN);
+    const float perYard = Game::Read<float>(Offsets::VAR_DECAL_CELLS_PER_YARD);
+    const float half = Game::Read<float>(Offsets::VAR_DECAL_HALF_CELL);
+    const float fromMaxX = static_cast<float>(-(D(box[3]) - origin));
+    const float fromMaxY = static_cast<float>(-(D(box[4]) - origin));
+    const float fromMinX = static_cast<float>(-(D(box[0]) - origin));
+    const double fromMinY = -(D(box[1]) - origin);
+    const int32_t minY = static_cast<int32_t>(std::lrint(D(static_cast<float>(D(perYard) * fromMinY)) - half));
+    const int32_t cells[4] = {Cell(perYard, half, fromMaxX), Cell(perYard, half, fromMaxY),
+                              Cell(perYard, half, fromMinX), minY};
+    using Triangles_t = uint8_t(__fastcall *)(void *chunk, const int32_t *rect, const float *box, uint32_t unused);
+    const int32_t last = Offsets::CHUNK_CELLS - 1;
+    bool any = false;
+    for (int32_t row = cells[0] >> 3; row <= cells[2] >> 3; ++row) {
+        for (int32_t column = cells[1] >> 3; column <= cells[3] >> 3; ++column) {
+            void *chunk = ChunkAt(land, row, column);
+            if (chunk == nullptr || (mask & Offsets::CHUNK_TRIANGLE_CLASS) == 0)
+                continue;
+            // TestChunkBox (0x006AD610): the box less the chunk position, the
+            // rectangle clipped to the chunk's cells.
+            const float *position = Game::Ptr<float>(chunk, Offsets::OFF_CMAPCHUNK_POSITION);
+            float local[6];
+            for (int i = 0; i < 3; ++i) {
+                const float shift = -position[i];
+                local[i] = static_cast<float>(D(box[i]) + shift);
+                local[i + 3] = static_cast<float>(D(box[i + 3]) + shift);
+            }
+            const int32_t rect[4] = {(std::max)(cells[0] - row * Offsets::CHUNK_CELLS, 0),
+                                     (std::max)(cells[1] - column * Offsets::CHUNK_CELLS, 0),
+                                     (std::min)(cells[2] - row * Offsets::CHUNK_CELLS, last),
+                                     (std::min)(cells[3] - column * Offsets::CHUNK_CELLS, last)};
+            if (reinterpret_cast<Triangles_t>(Offsets::FUN_TEST_CHUNK_TRIANGLES)(chunk, rect, local, 0) != 0)
+                any = true;
+        }
+    }
+    return any;
+}
+
 namespace {
 
 struct Ray {

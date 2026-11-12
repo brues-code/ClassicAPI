@@ -383,8 +383,9 @@ void CameraTransforms(void *frame, void *camera, const float (&rect)[4]) {
 // it onto its ground with a decal (DrawDecal 0x006D7330): the faces in a box
 // from below the feet to above them, the texture placed on them by texgen,
 // faded with height by the ramp on stage 1. In a scene with a WMO the decal
-// is laid the same way on the WMO's faces (World::DrawDecal). A scene without
-// one has no ground, so the turned box itself is drawn, flat on the plane of
+// is laid the same way on the WMO's and the terrain's faces (World::DrawDecal).
+// A scene without either has no ground, so the turned box itself is drawn,
+// flat on the plane of
 // the base translation (the model's origin, its feet), culling off as for the
 // engine's other single quads (the lightning bolt, 0x007AFCB0), with no
 // height fade and no depth function (the quad is its own geometry). A model
@@ -490,8 +491,21 @@ void DrawQuad(const Blob &blob, const float (&eye)[3]) {
                                                                   kStrip);
 }
 
+// The ground the paint lays decals on: the WMO and the terrain it draws.
+struct Ground {
+    World::Backdrop *world = nullptr;
+    Terrain::Land *terrain = nullptr;
+    bool Any() const { return world != nullptr || terrain != nullptr; }
+};
+
+Ground GroundOf(void *frame) {
+    if (CameraOf(frame) == nullptr)
+        return {};
+    return {F(frame).world, F(frame).terrain};
+}
+
 // Draws one actor's shadow; the blob states are set.
-void DrawShadow(Actor &actor, World::Backdrop *world, const float (&eye)[3]) {
+void DrawShadow(Actor &actor, const Ground &ground, const float (&eye)[3]) {
     void *model = actor.model;
     if (!actor.shadowShown || !actor.shown || model == nullptr || M2::Parent(model) != nullptr ||
         !M2::IsReady(model, 0, 0))
@@ -499,18 +513,19 @@ void DrawShadow(Actor &actor, World::Backdrop *world, const float (&eye)[3]) {
     Blob blob;
     if (!MakeBlob(model, blob))
         return;
-    if (world == nullptr) {
+    if (!ground.Any()) {
         DrawQuad(blob, eye);
         return;
     }
     const uint32_t fadeBits = Offsets::DECAL_SHADOW_FADE;
     float fade;
     std::memcpy(&fade, &fadeBits, sizeof fade);
-    World::DrawDecal(*world, blob.box, blob.color, blob.matrix, fade, Offsets::SHADOW_DECAL_MASK, eye);
+    World::DrawDecal(ground.world, ground.terrain, blob.box, blob.color, blob.matrix, fade,
+                     Offsets::SHADOW_DECAL_MASK, eye);
 }
 
 // Draws one actor's shadow with the blob states (while shadowLOD is 1).
-void DrawShadowWithStates(Actor &actor, World::Backdrop *world, const float (&eye)[3]) {
+void DrawShadowWithStates(Actor &actor, const Ground &ground, const float (&eye)[3]) {
     void *texture = Game::Read<void *>(Offsets::VAR_SHADOW_BLOB_TEXTURE);
     if (!actor.shadowShown || Game::Read<int>(Offsets::VAR_SHADOW_LOD) != 1 || texture == nullptr)
         return;
@@ -522,11 +537,11 @@ void DrawShadowWithStates(Actor &actor, World::Backdrop *world, const float (&ey
     Gx::SetState(Offsets::GXRS_TEXTURE0, Texture::DeviceTexture(texture));
     Gx::SetStateWord(Offsets::GXRS_FOG_COLOR, 0xFFFFFFFFu);
     Gx::SetState(Offsets::GXRS_COMBINER0, Offsets::GXRS_COMBINE_BLEND_DIFFUSE_ALPHA);
-    if (world == nullptr)
+    if (!ground.Any())
         Gx::SetState(Offsets::GXRS_CULL, 0);
     else if (Game::Read<float>(Offsets::VAR_SHADOW_BIAS) == 0.0f)
         Gx::SetState(Offsets::GXRS_DEPTH_FUNC, Offsets::GXRS_DEPTH_FUNC_DECAL);
-    DrawShadow(actor, world, eye);
+    DrawShadow(actor, ground, eye);
     Gx::PopStates();
 }
 
@@ -539,9 +554,9 @@ void DrawShadowWithStates(Actor &actor, World::Backdrop *world, const float (&ey
 // state push, in the scene's fog for the world's (World::CommitDecalFog),
 // the circle's state (FUN_SELECTION_CIRCLE_STATE: blend 3, which
 // adds by source alpha, UnitSelectTexture.blp and its ramp) and the decal at
-// fade 0.5, flags 0x200122. In a scene with a WMO the decal lands on its
-// faces (World::DrawDecal), as the shadows do; without one, on the flat
-// ground at the feet (World::DrawDecalOnPlane).
+// fade 0.5, flags 0x200122. In a scene with a WMO or terrain the decal lands
+// on their faces (World::DrawDecal), as the shadows do; without either, on
+// the flat ground at the feet (World::DrawDecalOnPlane).
 //
 // The circle: the box about the feet, half size r across and 2r up and
 // down, r = the radius the unit takes when its model loads (0x0060AEE0,
@@ -557,7 +572,7 @@ bool SelectionDecalReady() {
            Game::Read<void *>(Offsets::VAR_SELECTION_CIRCLE_RAMP) != nullptr;
 }
 
-void DrawSelectionDecal(void *frame, World::Backdrop *world, const float (&box)[6], uint32_t argb,
+void DrawSelectionDecal(void *frame, const Ground &ground, const float (&box)[6], uint32_t argb,
                         const float (&point)[3], float groundZ, const float (&eye)[3]) {
     using Heading_t = float(__fastcall *)(const float *from, const float *to);
     using CircleState_t = void(__thiscall *)(void *obj);
@@ -569,10 +584,10 @@ void DrawSelectionDecal(void *frame, World::Backdrop *world, const float (&box)[
     float fade;
     std::memcpy(&fade, &fadeBits, sizeof fade);
     Gx::PushStates();
-    World::CommitDecalFog(world, frame, point, eye);
+    World::CommitDecalFog(ground.world, frame, point, eye);
     reinterpret_cast<CircleState_t>(Offsets::FUN_SELECTION_CIRCLE_STATE)(nullptr);
-    if (world != nullptr)
-        World::DrawDecal(*world, box, argb, m, fade, Offsets::DECAL_SELECTION_FLAGS, eye);
+    if (ground.Any())
+        World::DrawDecal(ground.world, ground.terrain, box, argb, m, fade, Offsets::DECAL_SELECTION_FLAGS, eye);
     else
         World::DrawDecalOnPlane(box, argb, m, fade, groundZ, eye);
     Gx::PopStates();
@@ -596,7 +611,7 @@ float SelectionRadius(void *model) {
     return std::sqrt(std::sqrt(dx * dx + dy * dy) * Game::Read<float>(Offsets::VAR_HALF));
 }
 
-void DrawSelectionCircle(void *frame, Actor &actor, World::Backdrop *world, const float (&eye)[3]) {
+void DrawSelectionCircle(void *frame, Actor &actor, const Ground &ground, const float (&eye)[3]) {
     void *model = actor.model;
     if (!actor.selectionCircleShown || !actor.shown || model == nullptr || M2::Parent(model) != nullptr ||
         !M2::IsReady(model, 0, 0))
@@ -608,10 +623,10 @@ void DrawSelectionCircle(void *frame, Actor &actor, World::Backdrop *world, cons
     const float feet[3] = {m[12], m[13], m[14]};
     const float box[6] = {feet[0] - r, feet[1] - r, feet[2] - 2.0f * r,
                           feet[0] + r, feet[1] + r, feet[2] + 2.0f * r};
-    DrawSelectionDecal(frame, world, box, actor.selectionCircle, feet, feet[2], eye);
+    DrawSelectionDecal(frame, ground, box, actor.selectionCircle, feet, feet[2], eye);
 }
 
-void DrawMoveMarker(void *frame, World::Backdrop *world, const float (&eye)[3]) {
+void DrawMoveMarker(void *frame, const Ground &ground, const float (&eye)[3]) {
     const Fields &f = F(frame);
     if (!f.moveMarkerShown)
         return;
@@ -626,7 +641,7 @@ void DrawMoveMarker(void *frame, World::Backdrop *world, const float (&eye)[3]) 
     const float s = wave * (high - low) + low;
     const float(&p)[3] = f.moveMarker;
     const float box[6] = {p[0] - s, p[1] - s, p[2] - s, p[0] + s, p[1] + s, p[2] + s};
-    DrawSelectionDecal(frame, world, box, Offsets::AUTOMOVE_MARKER_COLOR, p, p[2], eye);
+    DrawSelectionDecal(frame, ground, box, Offsets::AUTOMOVE_MARKER_COLOR, p, p[2], eye);
 }
 
 // ---- the ground-target reticle (SetGroundReticle) ----------------------------------
@@ -641,11 +656,11 @@ void DrawMoveMarker(void *frame, World::Backdrop *world, const float (&eye)[3]) 
 // selection circle does) and fade 0.5, onto terrain and buildings. It is
 // drawn after the opaque models and before the water and the translucent
 // models (0x004836B0), in the world's fog, so here in the scene's
-// (World::CommitDecalFog). Without a WMO it lies on the flat ground at the
-// actor's height. The textures exist once the world frame is built, so at
+// (World::CommitDecalFog). Without a WMO or terrain it lies on the flat
+// ground at the actor's height. The textures exist once the world frame is built, so at
 // the login and character screens no reticle shows.
 
-void DrawGroundReticle(void *frame, const Actor &actor, World::Backdrop *world, const float (&eye)[3]) {
+void DrawGroundReticle(void *frame, const Actor &actor, const Ground &ground, const float (&eye)[3]) {
     if (!actor.groundReticleShown || !actor.shown)
         return;
     void *texture = Game::Read<void *>(actor.groundReticleValid ? Offsets::VAR_RETICLE_TEXTURE_ACCEPTABLE
@@ -662,37 +677,38 @@ void DrawGroundReticle(void *frame, const Actor &actor, World::Backdrop *world, 
     float fade;
     std::memcpy(&fade, &fadeBits, sizeof fade);
     Gx::PushStates();
-    World::CommitDecalFog(world, frame, p, eye);
+    World::CommitDecalFog(ground.world, frame, p, eye);
     Gx::SetState(Offsets::GXRS_LIGHTING, 0);
     Gx::SetState(Offsets::GXRS_DEPTH_WRITE, 0);
     Gx::SetState(Offsets::GXRS_BLEND, Offsets::RETICLE_BLEND);
     Gx::SetState(Offsets::GXRS_TEXTURE0, Texture::DeviceTexture(texture));
-    if (world != nullptr)
-        World::DrawDecal(*world, box, Offsets::RETICLE_COLOR, m, fade, Offsets::DECAL_SELECTION_FLAGS, eye);
+    if (ground.Any())
+        World::DrawDecal(ground.world, ground.terrain, box, Offsets::RETICLE_COLOR, m, fade,
+                         Offsets::DECAL_SELECTION_FLAGS, eye);
     else
         World::DrawDecalOnPlane(box, Offsets::RETICLE_COLOR, m, fade, p[2], eye);
     Gx::PopStates();
 }
 
 void DrawGroundReticles(void *frame, const float (&eye)[3]) {
-    World::Backdrop *world = CameraOf(frame) != nullptr ? F(frame).world : nullptr;
+    const Ground ground = GroundOf(frame);
     for (const Actor *actor : *F(frame).actors)
-        DrawGroundReticle(frame, *actor, world, eye);
+        DrawGroundReticle(frame, *actor, ground, eye);
 }
 
 // What the world lays on the ground under its entities, for the actors.
 void DrawGroundDecals(void *frame, const float (&eye)[3]) {
-    World::Backdrop *world = CameraOf(frame) != nullptr ? F(frame).world : nullptr;
+    const Ground ground = GroundOf(frame);
     const bool decals = SelectionDecalReady();
     void *cvar = Game::Read<void *>(Offsets::VAR_CVAR_OBJECT_SELECTION_CIRCLE);
     const bool circles = decals && cvar != nullptr && CVar::Factory::GetInt(cvar) != 0;
     for (Actor *actor : *F(frame).actors) {
         if (circles)
-            DrawSelectionCircle(frame, *actor, world, eye);
-        DrawShadowWithStates(*actor, world, eye);
+            DrawSelectionCircle(frame, *actor, ground, eye);
+        DrawShadowWithStates(*actor, ground, eye);
     }
     if (decals)
-        DrawMoveMarker(frame, world, eye);
+        DrawMoveMarker(frame, ground, eye);
 }
 
 void __fastcall Paint(void *frame) {
