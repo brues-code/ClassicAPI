@@ -520,6 +520,13 @@ local FUSIONS = {
 }
 local MAX_SPELLS = 6
 local EARLY_SPELLS = 3 -- until you have this many spells, each level offers a new one
+-- The first spell of a run, by class (UnitClass's English name). The start
+-- offers your class's and two others' (Hud.lua's BuildOffers); a class with
+-- none here (a rogue) gets three others.
+local STARTERS = {
+	MAGE = "frostbolt", WARLOCK = "shadowbolt", SHAMAN = "lightning", PRIEST = "holynova", DRUID = "moonfire",
+	PALADIN = "consecration", WARRIOR = "thunder", HUNTER = "explosivetrap",
+}
 
 -- `icon` is the spell whose icon the passive shows; `total` is what all its
 -- ranks give together.
@@ -885,6 +892,7 @@ BW.EVOLUTIONS = EVOLUTIONS
 BW.FUSIONS = FUSIONS
 BW.MAX_SPELLS = MAX_SPELLS
 BW.EARLY_SPELLS = EARLY_SPELLS
+BW.STARTERS = STARTERS
 BW.PASSIVES = PASSIVES
 BW.SchoolColor = SchoolColor
 BW.HEAL_ICON = HEAL_ICON

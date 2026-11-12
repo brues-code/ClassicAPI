@@ -27,6 +27,25 @@ local GEAR_ORDER = BW.GEAR_ORDER
 -- Level-up offers
 
 local function BuildOffers()
+	-- The start: your class's first spell, then two of the other classes'.
+	if BW.run.picking == "start" then
+		local _, class = UnitClass("player");
+		local own = BW.STARTERS[class];
+		local others = {};
+		for _, key in pairs(BW.STARTERS) do
+			if key ~= own then
+				tinsert(others, key);
+			end
+		end
+		Shuffle(others);
+		if own then
+			tinsert(others, 1, own);
+		end
+		for i = 1, 3 do
+			offers[i] = { kind = "spell", key = others[i], level = 1 };
+		end
+		return;
+	end
 	-- A golden chest's weapon pick: three of the weapons.
 	if BW.run.picking == "chest" and BW.run.weaponPick then
 		local weapons = BW.GearOffers(true);
@@ -549,14 +568,17 @@ local function SetPaused(on)
 	end
 end
 
--- Shows the next waiting pick, a chest's before a level's. The game stays
+-- Shows the next waiting pick: the start's, then a chest's, then a level's. The game stays
 -- paused until the last pick is made.
 local function ShowCards()
 	if BW.cards:IsShown() then
 		return;
 	end
 	local title;
-	if BW.run.chestPicks > 0 then
+	if BW.run.startPick then
+		BW.run.picking = "start";
+		title = "Choose your first spell";
+	elseif BW.run.chestPicks > 0 then
 		BW.run.picking = "chest";
 		title = BW.run.chestTitle;
 	elseif BW.run.pendingLevels > 0 then
@@ -640,7 +662,9 @@ function Broodwatch_PickCard(i)
 	BW.cards:Hide();
 	UpdateBuild();
 	BW.UpdateHealth(); -- Vigor's larger bar and heal, Second Wind's heal (defined below)
-	if BW.run.picking == "chest" then
+	if BW.run.picking == "start" then
+		BW.run.startPick = nil;
+	elseif BW.run.picking == "chest" then
 		BW.run.chestPicks = BW.run.chestPicks - 1;
 	else
 		BW.run.pendingLevels = BW.run.pendingLevels - 1;

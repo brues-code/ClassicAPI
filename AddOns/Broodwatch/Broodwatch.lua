@@ -140,9 +140,11 @@ local function EndRun(won)
 	BW.run.hurtGlow = 0;
 	BW.hurtTexture:SetAlpha(0);
 	if won then
-		BW.bannerText:SetText("The lair holds!");
+		BW.bannerText:SetText("Victory! You held the lair for " .. Clock(RUN_SECONDS));
+		BW.bannerText:SetTextColor(0.25, 1, 0.25);
 	else
 		BW.bannerText:SetText("You fell at " .. Clock(BW.run.time));
+		BW.bannerText:SetTextColor(1, 0.25, 0.25);
 	end
 	BW.hintText:SetText(string.format("Level %d, %d kills.  R: try again.  Escape: leave.", BW.run.level, BW.run.kills));
 end
@@ -150,7 +152,9 @@ end
 BW.heroNumber = {}             -- ShowNumber's stand-in record for the hero
 local HEAL_COLOR = { 0.3, 1, 0.3 }
 
-local function StartRun()
+-- A new run. It opens on the pick of its first spell, unless `spells` (a
+-- test's, from the slash command) gives its spells.
+local function StartRun(spells)
 	if BW.run then
 		ClearEnemies();
 		ClearGems();
@@ -175,7 +179,7 @@ local function StartRun()
 		time = 0, kills = 0, alive = 0, kindAlive = {}, level = 1, xp = 0, pendingLevels = 0, chests = 0, chestPicks = 0,
 		nextClutch = TUNING.EGG_FIRST,
 		hp = HERO_HP, damageScale = 1, heroYaw = 0,
-		spells = { frostbolt = { level = 1, cooldown = 0, pending = 0 } },
+		spells = spells or {}, startPick = not spells,
 		passives = {},
 		castQueue = {}, castGap = 0, inFlight = {},
 		spawnGap = 0, nextElite = ELITE_EVERY, retargetCarry = 0, retargetCursor = 1,
@@ -205,6 +209,7 @@ local function StartRun()
 	UpdateBuild();
 	BW.camera:SetZoomDistance(CAMERA_ZOOM);
 	BW.camera:SnapAllInterpolatedValues();
+	BW.ShowCards(); -- the first spell's pick
 end
 
 local function IsCorrupted(e)
@@ -597,6 +602,7 @@ local function OnKeyDown()
 	if key == "P" then
 		SetPaused(not BW.paused);
 		BW.bannerText:SetText(BW.paused and "Paused" or "");
+		BW.bannerText:SetTextColor(NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b);
 		BW.hintText:SetText(BW.paused and "P: resume." or "");
 		return;
 	end
@@ -693,18 +699,22 @@ SlashCmdList["BROODWATCH"] = function(msg)
 	if not BW.hero then
 		Build();
 	end
-	StartRun();
 	local _, _, key = string.find(msg or "", "^%s*(%w+)");
 	if key and SPELLS[key] then
-		BW.run.spells = {};
+		local spells = {};
 		for spell, rank in string.gfind(msg, "(%a+)%s*(%d*)") do
 			if SPELLS[spell] then
-				BW.run.spells[spell] = { level = math.min(tonumber(rank) or 1, MAX_LEVEL), cooldown = 0, pending = 0 };
+				spells[spell] = { level = math.min(tonumber(rank) or 1, MAX_LEVEL), cooldown = 0, pending = 0 };
 			else
 				print("Broodwatch: no spell \"" .. spell .. "\"");
 			end
 		end
-		BW.UpdateBuild();
+		StartRun(spells);
+		return;
+	end
+	StartRun();
+	if not key then
+		return;
 	elseif key == "chest" or key == "golden" then
 		if key == "golden" then
 			BW.run.chests = BW.GOLDEN_EVERY - 1;
