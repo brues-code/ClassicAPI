@@ -2067,13 +2067,14 @@ enum Offsets {
     // CGUnit_C::GetNamePlateScreenPos — `bool __fastcall(unit, worldFrame,
     // float screen[2])`, ret 4: the unit's name position (GetNamePosition
     // 0x608640: head attachment 18, 29 mounted, else 1.25 × scale × box
-    // height above the feet) raised by VAR_NAMEPLATE_LIFT, projected with
+    // height above the feet) raised by VAR_TWO_THIRDS, projected with
     // FUN_WORLDFRAME_GET_SCREEN_COORDS — where a nameplate is seated.
     FUN_UNIT_GET_NAMEPLATE_SCREEN_POS = 0x0060F7F0,
     // GetNamePosition's no-attachment factor (1.25) and the plate lift (2/3
-    // yard), both floats.
+    // yard), both floats; the 2/3 is also the wet footstep's depth below a
+    // liquid surface (0x0060A7BF).
     VAR_NAME_HEIGHT_FACTOR = 0x0080C5D0,
-    VAR_NAMEPLATE_LIFT = 0x0080ABFC,
+    VAR_TWO_THIRDS = 0x0080ABFC,
     // GetNamePosition's attachments (0x00608640): PlayerName on the unit's
     // model, PlayerNameMounted when the unit is mounted (its model is then
     // the mount's).
@@ -7003,6 +7004,10 @@ enum Offsets {
     // builder (0x004799A0) reads it at 0x00479A21 for
     // `Item\ObjectComponents\Head\<name>_<prefix><sex letter>.mdx`.
     OFF_CHRRACES_CLIENT_PREFIX = 0x18,
+    // The race's splash (SoundEntries id): PostInit (0x005FB880) stores it
+    // for the unit's race byte (UNIT_FIELD_BYTES_0) at +0xB18, and the swim
+    // decision plays it (CGUnit_C::PlaySplash 0x006237C0).
+    OFF_CHRRACES_SPLASH_SOUND = 0x34,
     // The helm builder's sex letters, `const char *[3]` = "M", "F", "U",
     // indexed by the sex byte (0x00479A1A).
     VAR_SEX_LETTERS = 0x00838AB4,
@@ -7088,6 +7093,25 @@ enum Offsets {
     // 0x00458450): the FootstepTerrainLookup sound for the TerrainType row's
     // +0x10, dry or wet, or 0 for an unknown terrain or footstep id.
     FUN_GET_FOOTSTEP_SOUND = 0x00458450,
+    // The footstep's wet flag (CGUnit_C::PlayFootstep 0x00623390 through
+    // IsPointAtLiquidSurface 0x0060A740): the entity's liquid, as
+    // UpdateMapEntityEnvironment (0x0069E280) stores it outdoors from
+    // GetLiquidStatus at the entity's position (bit 0x20 of +0x90, the height
+    // +0x98, the type +0xF0), and bit 0x80, bit 1 of the flags (+0x8) of the
+    // LiquidType row FUN_LIQUIDTYPE_FOR_AREA `__fastcall(int areaID, uint
+    // type)` (0x007CCF40) returns: the area's override at AreaTable +0x54 +
+    // 4 x (type & 3), else its parent's, else row (type & 3) + 1; null for
+    // type 0xF. The area is the entity's (CWorld::GetEntityAreaId
+    // 0x006703A0): a map object's whole-WMO WMOAreaTable row (its name set,
+    // group -1), else the terrain's (0x0069B120: the chunk at k = 0.03
+    // 0x00810740, (17066.666 - x) stored, then times k and stored; y's
+    // product stored once; each less 0.5 and rounded; the chunk's +0x16C, 0
+    // without one). Wet: the event point's z under the height plus 0.01
+    // (VAR_ONE_HUNDREDTH) and the height less z under 2/3 (VAR_TWO_THIRDS).
+    FUN_LIQUIDTYPE_FOR_AREA = 0x007CCF40,
+    OFF_LIQUIDTYPE_FLAGS = 0x08,
+    LIQUIDTYPE_FLAG_SPLASH = 0x2,
+    VAR_AREA_CHUNKS_PER_YARD = 0x00810740,
     // The death thud table: five size classes of {?, count, pairs *}, 12
     // bytes each, the pair {dry, wet} indexed by TerrainTypeSounds id and
     // bounded by count (PlayDeathThud 0x006236E0: `cmp ecx,[eax+0xC4E0F8]`,
@@ -14047,6 +14071,8 @@ enum Offsets {
     GXRS_FOG = 0x0F,
     GXRS_DEPTH_WRITE = 0x12,
     GXRS_CULL = 0x14,
+    GXRS_BLEND_ALPHA = 2,             // SRC_ALPHA / INV_SRC_ALPHA, with the alpha test
+    GXRS_BLEND_ADD = 3,               // SRC_ALPHA / ONE (the ripple draw, 0x0068FCC1)
     GXRS_BLEND_MODULATE = 4,          // DST_COLOR / ZERO
     GXRS_COMBINE_BLEND_DIFFUSE_ALPHA = 5, // stage: texture to the vertex colour by its alpha
     // Topology for FUN_GX_PRIM_INDEXED: 4 is a triangle strip (the lightning
@@ -14273,6 +14299,15 @@ enum Offsets {
     // immediate.
     VAR_NO_LIGHT_FOG_END = 0x006D2301,
     LIGHT_RECORD_SIZE = 0x90,
+    // The water fields of a light record (the light state's +0xE0 to +0xEC
+    // and +0x114 to +0x120 less 0xAC): the swatch fill 0x0068A830 reads ocean
+    // shallow, ocean deep, river shallow, river deep, then river shallow and
+    // deep alpha, ocean shallow and deep alpha.
+    OFF_LIGHT_RECORD_SHALLOW_OCEAN = 0x34,
+    OFF_LIGHT_RECORD_DEEP_OCEAN = 0x38,
+    OFF_LIGHT_RECORD_SHALLOW_RIVER = 0x3C,
+    OFF_LIGHT_RECORD_OCEAN_ALPHA_SHALLOW = 0x70,
+    OFF_LIGHT_RECORD_OCEAN_ALPHA_DEEP = 0x74,
     OFF_LIGHT_RECORD_DEEP_RIVER = 0x40,
     OFF_LIGHT_RECORD_RIVER_ALPHA_SHALLOW = 0x68,
     OFF_LIGHT_RECORD_RIVER_ALPHA_DEEP = 0x6C,
@@ -14341,6 +14376,14 @@ enum Offsets {
     OFF_SKY_DISC_COLOUR = 0x0C,
     SKY_DISCS_LIT = 2, // the sun disc and the white moon take band 9
     OFF_LIGHT_RECORD_SUN = 0x20,
+    // The scene fog BuildSceneFog (0x006CEE30) takes from the light table:
+    // end = scalar band 0 (+0x44), the far clip when that is no less or NaN;
+    // start = scalar band 1 (+0x48) x end; colour band 7 (+0x1C). The world
+    // builds its table with the camera's liquid (underwater, magma or slime
+    // params), so this is its fog under a liquid.
+    OFF_LIGHT_RECORD_FOG_END = 0x44,
+    OFF_LIGHT_RECORD_FOG_START_SCALE = 0x48,
+    OFF_LIGHT_RECORD_FOG_COLOR = 0x1C,
     OFF_LIGHT_RECORD_SKYBOXES = 0x78, // {LightSkybox id, float weight} x 2
     // The portal walk (benilla terrain/portals.md) decides the sky from
     // inside. WalkPortals `__thiscall(obj, group, from, const float
@@ -14390,6 +14433,10 @@ enum Offsets {
     FUN_FRUSTUM_BOX_CULLED = 0x00682F60,
     FUN_GX_GET_VIEW_PROJECTION = 0x0058B0C0,
     FUN_GX_XFORM_GET = 0x0058B280,
+    // The world transform stack (unit 8): the world's passes set each object's
+    // matrix here (GxXformSetIdentity(8) and the translate 0x0058B250 in the
+    // liquid passes, 0x00685144); its view-space passes leave it identity.
+    GX_XFORM_WORLD = 8,
     FUN_SET_SKYBOX_SLOT = 0x006D4810,
     VAR_MAPOBJ_PASS = 0x00CA8014,
     VAR_PORTAL_INSIDE_LEG = 0x00CDE5AC,
@@ -16118,6 +16165,7 @@ enum Offsets {
     // are .rdata except the three noted.
     VAR_HALF = 0x007FFA24,                     // float 0.5
     VAR_THREE_QUARTERS = 0x008012CC,           // float 0.75; a swimmer's height share, the aim height
+    VAR_TWO_FIFTHS = 0x0080C5C0,               // float 0.4; the splash depth's height share (0x00603150)
     VAR_ONE_HUNDREDTH = 0x008029D0,            // float 0.01
     VAR_ONE_THIRTY_SIXTH = 0x007FF9D0,         // float 1/36
     VAR_MINUS_ONE_THIRTY_SIXTH = 0x007FF9C8,   // float -1/36
@@ -16203,4 +16251,553 @@ enum Offsets {
     //   q[3], const float dir[3])`, ret 4: from p to the line through q
     //   along the unit dir.
     FUN_POINT_TO_LINE_DISTANCE_SQ = 0x00634F40,
+
+    // ---- ADT terrain (Model::Scene::Terrain; benilla terrain/chunk, render,
+    // lod, cull, files; Ghidra decompiles 2026-11-11) ---------------------------
+    // A tile's chunks built and drawn by the world's own chunk functions on
+    // chunks the scene owns. CMapChunk::Load (0x006AF5F0) also links the
+    // global area table, the world's doodad hashes and map lights; the scene
+    // runs only its self-contained steps, in Load's order.
+    //   CMapChunk::CMapChunk `__thiscall(chunk)` (0x006AF1D0; base 0x006C3020
+    //   touches only the object) and ~CMapChunk `__thiscall(chunk)`
+    //   (0x006AF460, its own lists only); UnloadChunk `__thiscall(chunk)`
+    //   (0x006A6B10): layers, neighbour back-links, textures, liquids, lists;
+    //   a buffer not from the world's pool it nulls without freeing
+    //   (ReleaseChunkBuffers 0x006AE9A0). The world's chunk list (0x00CA7D48,
+    //   AllocChunk 0x006A06E0) is walked only by ReleaseAllChunkBuffers,
+    //   before the world's pool is rebuilt (far clip, map unload).
+    FUN_CMAPCHUNK_CTOR = 0x006AF1D0,
+    FUN_CMAPCHUNK_DTOR = 0x006AF460,
+    FUN_UNLOAD_CHUNK = 0x006A6B10,
+    //   FixupRecordPointers `__thiscall(chunk, record)` reads +0x168;
+    //   BuildVertices / LoadNormals / CreateCombinedTexture `__thiscall(chunk)`;
+    //   AddLayer `__thiscall(chunk, area, mcly entry, mcal data)`, ret 0xC;
+    //   CreateShadowTexture `__thiscall(chunk, mcsh data)`; SelectMesh
+    //   `__thiscall(chunk, uint draw)`: mesh, buffers, DrawLayers 0x006BEF30.
+    FUN_CMAPCHUNK_FIXUP_RECORD = 0x006AF970,
+    FUN_CMAPCHUNK_BUILD_VERTICES = 0x006B0E50,
+    FUN_CMAPCHUNK_LOAD_NORMALS = 0x006AFF10,
+    FUN_CMAPCHUNK_ADD_LAYER = 0x006AFF80,
+    FUN_CMAPCHUNK_CREATE_SHADOW = 0x006B0030,
+    FUN_CMAPCHUNK_CREATE_COMBINED = 0x006B00A0,
+    FUN_CMAPCHUNK_SELECT_MESH = 0x006BEB50,
+    //   LoadAreaTextures `__thiscall(area, const char *names, uint size)`,
+    //   ret 8: a LoadMapTexture handle per MTEX name at area +0xEC, count
+    //   +0xE8, no bound; it touches only +0x9C, +0xE8 and the array, which
+    //   ends at +0x26C (96 slots). UnloadArea (0x006A6A10) closes each with
+    //   FUN_HANDLE_RELEASE. AddLayer reads only the area's slot.
+    FUN_LOAD_AREA_TEXTURES = 0x006C20E0,
+    CMAPAREA_SIZE = 0x6A8,
+    OFF_CMAPAREA_TEXTURE_COUNT = 0xE8,
+    OFF_CMAPAREA_TEXTURES = 0xEC,
+    CMAPAREA_TEXTURE_SLOTS = 96,
+    //   A static buffer pool and its sub-buffers, as CreateChunkBufferPool
+    //   (0x006AE640) makes CMapChunk_vtx / _idx: CreatePool `void
+    //   *__fastcall(kind, usage, size, uint, const char *name)`, ret 0xC
+    //   (kind 0 vertex, 1 index; usage 1; 3); PoolBuffer `void *__fastcall(
+    //   pool, itemSize, count, offset)`, ret 8; FreeBuffer `__fastcall(buf)`
+    //   (0x0058A040); GxBufferRelease `__fastcall(pool)`. SelectMesh takes the
+    //   world's pool only for a buffer whose pool has usage 2 (pool +0x0C;
+    //   the device's shared dynamic buffer, GxBufCreate 0x0058A140).
+    FUN_GX_CREATE_POOL = 0x0058A160,
+    FUN_GX_POOL_BUFFER = 0x00589F80,
+    FUN_GX_FREE_BUFFER = 0x0058A040,
+    FUN_GX_BUFFER_RELEASE = 0x0058A1A0,
+    GX_POOL_KIND_VERTEX = 0,
+    GX_POOL_KIND_INDEX = 1,
+    GX_POOL_USAGE_STATIC = 1,
+    GX_POOL_ARG = 3,
+    CHUNK_VERTEX_SIZE = 0x18,
+    CHUNK_INDEX_SIZE = 2,
+    //   Per level, 8 bytes each: the count, the list (0x0086C290 vertices,
+    //   0x0086C2B0 indices; level 3 = 145 / 768 in the image). The pool's
+    //   buffers hold the full level (AcquireChunkBuffers 0x006AE8A0).
+    VAR_CHUNK_LEVEL_VERTEX_LISTS = 0x0086C290,
+    VAR_CHUNK_LEVEL_INDEX_LISTS = 0x0086C2B0,
+    CHUNK_LEVEL_LIST_SIZE = 8,
+    CHUNK_LEVEL_FULL = 3,
+    //   The chunk level (0x006AFAD0): maxLOD, or the far level when world
+    //   flag 4 is on and the view depth is above lodDist (strictly).
+    VAR_CHUNK_LOD_DIST = 0x00867960,
+    VAR_CHUNK_MAX_LOD = 0x00867964,
+    VAR_CHUNK_FAR_LOD = 0x00867968,
+    //   IsBoxCulled `uint __thiscall(const float box[6])`: nonzero when the
+    //   top of the frustum stack rejects the box (0x00683C3C).
+    FUN_FRUSTUM_IS_BOX_CULLED = 0x00682F40,
+    // The world flags (benilla terrain/world.md): 2 chunks drawn, 4 lod,
+    // 0x40 map shadows, the sign anisotropic: the chunk pass then sets the
+    // mip bias of stages 0-3 (states 0x27-0x2A) to the immediate pushed at
+    // 0x00684527 (0.25).
+    VAR_WORLD_FLAGS = 0x00C7B2A4,
+    WORLD_FLAG_CHUNKS = 0x2,
+    WORLD_FLAG_LOD = 0x4,
+    WORLD_FLAG_MAP_SHADOWS = 0x40,
+    WORLD_FLAG_ANISOTROPIC = 0x80000000,
+    GXRS_MIP_BIAS_STAGE0 = 0x27,
+    MIP_BIAS_STAGES = 4,
+    VAR_CHUNK_MIP_BIAS_IMMEDIATE = 0x00684528,
+    // DrawLayers reads both: the camera (texgen matrices are camera-relative)
+    // and the fog end (beyond it, less the radius, a chunk draws flat; the
+    // light slot needs the depth less twice the radius under it, 0x006C0CC0).
+    VAR_CAMERA_POSITION = 0x00C7CF20,
+    VAR_FOG_END = 0x00C62964,
+    // The shader paths (0x006BEF30): the pixel-program flag (`_s` textures,
+    // 0x006C2104) and the second; shadowLevel (alpha size, 0x006AFFE2). A
+    // chunk's textures are made for the values it was built with.
+    VAR_TERRAIN_SHADER_FLAG = 0x00C9A31C,
+    VAR_TERRAIN_SHADER_FLAG_B = 0x00C89F44,
+    VAR_SHADOW_LEVEL = 0x00C63284,
+    // CMapChunk (0xF34 bytes, benilla terrain/chunk.md).
+    CMAPCHUNK_SIZE = 0xF34,
+    OFF_CMAPCHUNK_FLAGS = 0x0C,     // word: 0x40 impassable, 1 lights, 0x80 filed
+    OFF_CMAPCHUNK_CENTRE = 0x5C,    // 3 floats, then the radius
+    OFF_CMAPCHUNK_RADIUS = 0x68,
+    OFF_CMAPCHUNK_POSITION = 0x6C,  // from MCNK +0x68
+    OFF_CMAPCHUNK_VIEW_DEPTH = 0x78,
+    OFF_CMAPCHUNK_COLUMN = 0x7C,
+    OFF_CMAPCHUNK_ROW = 0x80,
+    OFF_CMAPCHUNK_COLUMN8 = 0x84,
+    OFF_CMAPCHUNK_ROW8 = 0x88,
+    OFF_CMAPCHUNK_GLOBAL_COLUMN = 0x8C,
+    OFF_CMAPCHUNK_GLOBAL_ROW = 0x90,
+    OFF_CMAPCHUNK_BOX = 0x94,       // 6 floats, the culling copy
+    OFF_CMAPCHUNK_INDEX = 0xB4,
+    OFF_CMAPCHUNK_LEVEL = 0xB8,
+    OFF_CMAPCHUNK_NEIGHBOURS = 0xC4, // row - 1, column + 1, row + 1, column - 1
+    OFF_CMAPCHUNK_VERTEX_BUFFER = 0x14C,
+    OFF_CMAPCHUNK_INDEX_BUFFER = 0x150,
+    OFF_CMAPCHUNK_RECORD = 0x168,
+    OFF_CMAPCHUNK_AREA_ID = 0x16C,
+    OFF_CMAPCHUNK_HEADER = 0xF08,
+    OFF_CMAPCHUNK_LOW_TEXTURES = 0xF0C,
+    OFF_CMAPCHUNK_DOODAD_MAP = 0xF10,
+    OFF_CMAPCHUNK_MCSH = 0xF1C,
+    OFF_CMAPCHUNK_MCLY = 0xF20,
+    OFF_CMAPCHUNK_MCAL = 0xF24,
+    // CMapChunk::Load 0x006AF6E5: with a shadow, +0x148 takes MCNK +0x30 and
+    // CreateShadowTexture keeps the map at +0x144; else both are zeroed.
+    OFF_CMAPCHUNK_SHADOW_MAP = 0x144,
+    OFF_CMAPCHUNK_SHADOW_WORD = 0x148,
+    CMAPCHUNK_FLAG_IMPASSABLE = 0x40,
+    CMAPCHUNK_FLAG_LIGHTS = 0x1,
+    CMAPCHUNK_FLAG_FILED = 0x80,
+    // An ADT as ParseAreaFile (0x006C2010) reads it: MHDR data at buffer +
+    // 0x10 + the MVER size (+0x04); its +0x04 MCIN and +0x08 MTEX offsets
+    // point 8 bytes before the data, the size the dword before it. MCIN:
+    // 256 x 16 bytes, +0 the MCNK record's file offset. MCNK header (record
+    // + 8): +0x00 flags (1 shadow, 2 impassable), +0x0C layers, +0x14 MCVT,
+    // +0x18 MCNR, +0x1C MCLY, +0x24 MCAL, +0x2C MCSH, +0x34 area, +0x3C holes,
+    // +0x40 / +0x50 maps, +0x68 position; each sub-record offset is from the
+    // record and lands 8 bytes before its data (FixupRecordPointers). MCLY
+    // entries are 16 bytes: +0 texture index, +4 flags (0x100 alpha map), +8
+    // MCAL offset.
+    OFF_ADT_MVER_SIZE = 0x04,
+    ADT_MHDR_BASE = 0x10,
+    OFF_MHDR_MCIN = 0x04,
+    OFF_MHDR_MTEX = 0x08,
+    // ParseAreaFile's model tables: MMDX names +0x0C, MMID name offsets +0x10,
+    // MDDF placements +0x1C (36 bytes each, the count size / 36).
+    OFF_MHDR_MMDX = 0x0C,
+    OFF_MHDR_MMID = 0x10,
+    OFF_MHDR_MDDF = 0x1C,
+    // An MDDF entry as PlaceDoodadDef (0x00694BC0) reads it: +0x00 the MMID
+    // index, +0x04 the unique id (one def per id, the hash 0x00CA7DDC), +0x08
+    // position (x = origin - +0x10, y = origin - +0x08, z = +0x0C), +0x14 /
+    // +0x18 / +0x1C the y / z / x angles in degrees (z + pi), +0x20 the scale
+    // word x 1/1024 (0x008090D8). The matrix: TranslateMatrix, RotateMatrix
+    // about z, y, x (0x007BDD60), ScaleMatrix (0x007BDD00); then
+    // CreateDoodadModel (0x00695100) as for a WMO's doodads. LoadReferences
+    // (0x006B00F0) gives a chunk's doodads flag 4 (outdoors, the sun) and
+    // intensity 1.0; their map lights come only from WMO group owners, so a
+    // chunk's doodads have none.
+    MDDF_SIZE = 36,
+    OFF_MDDF_NAME_INDEX = 0x00,
+    OFF_MDDF_UNIQUE_ID = 0x04,
+    OFF_MDDF_POSITION = 0x08,
+    OFF_MDDF_ROTATION = 0x14,
+    OFF_MDDF_SCALE = 0x20,
+    VAR_ONE_OVER_1024 = 0x008090D8,
+    // Detail doodads (benilla terrain/detail.md; Ghidra 2026-11-11). In the
+    // chunk pass (0x006847C9), with world flag 0x100000, a drawn chunk whose
+    // view depth +0x78 is below the horizon (0x00867958, read live: 300.0 in
+    // both the stock and the Octo image) scatters its batch once
+    // (CMapChunk::CreateDetailDoodads `__thiscall(chunk)` 0x006BFC10: it reads
+    // the chunk, the models table, the layers' GroundEffectTexture rows and
+    // 512 bytes at the MCSH pointer +0xF1C, flag or not); any other drawn
+    // chunk leaves the list. The pass (0x006813D0) sets stage 0's mip bias to
+    // the immediate at 0x006813EA (0.25), then for each listed chunk with a
+    // batch +0xC0: the world transform at the chunk, the chunk's lighting
+    // record, CMapChunk::DrawDetailDoodads `__thiscall(chunk, float)`
+    // (0x006C02D0; nonzero draws, the pass passes the bits 1). The batches'
+    // slot buffers come from the world's detail pools, which
+    // PrepareDetailDoodadBuffers `__cdecl` (0x006B1D30) frees and rebuilds
+    // while the flag 0x00CB0034 is set (frillDensity), after freeing only the
+    // listed chunks' batches (FreeAllDetailDoodads 0x006924F0); each rebuild
+    // adds 0x80 to 0x00CB003C, which nothing else writes. A slot's release
+    // (ReleaseDetailDoodadSlot 0x006B21D0) reads its buffer's pool, so a scene
+    // batch gives its buffers back after each draw (the world's idle release
+    // ReleaseDetailDoodadBatchBuffers `__thiscall(batch)` 0x006B28E0) and is
+    // freed (FreeDetailDoodadBatch `__thiscall(batch)` 0x006B2030) when the
+    // stamp moves. The models load into the world's model manager 0x00C7B298.
+    WORLD_FLAG_DETAIL_DOODADS = 0x100000,
+    VAR_DETAIL_DOODAD_HORIZON = 0x00867958,
+    VAR_DETAIL_MIP_BIAS_IMMEDIATE = 0x006813EA,
+    VAR_DETAIL_DOODAD_REBUILD = 0x00CB0034,
+    VAR_DETAIL_DOODAD_STAMP = 0x00CB003C,
+    VAR_WORLD_MODEL_MANAGER = 0x00C7B298,
+    FUN_PREPARE_DETAIL_DOODAD_BUFFERS = 0x006B1D30,
+    FUN_CMAPCHUNK_CREATE_DETAIL_DOODADS = 0x006BFC10,
+    FUN_CMAPCHUNK_DRAW_DETAIL_DOODADS = 0x006C02D0,
+    FUN_RELEASE_DETAIL_BATCH_BUFFERS = 0x006B28E0,
+    FUN_FREE_DETAIL_DOODAD_BATCH = 0x006B2030,
+    OFF_CMAPCHUNK_DETAIL_BATCH = 0xC0,
+    // Terrain liquid (benilla terrain/liquid, liquidpass, watershade; Ghidra
+    // 2026-11-11). CMapChunk::LoadLiquids `__thiscall(chunk, uint first)`
+    // (0x006AF760, Load's third step): one 0x324-byte MCLQ block (MCNK +0x60)
+    // per set flag bit 0x4 / 0x8 / 0x10 / 0x20, in order, into slots 0-3 (+0x118)
+    // of the growable WCHUNKLIQUID pool (AllocChunkLiquid 0x006A0EE0; its list
+    // 0x00CA7D7C is walked only at exit). A slot: +0x04 / +0x08 the low and
+    // high heights, +0x1C its chunk, +0x400 / +0x404 its buffers (81 x 0x28,
+    // 192 x 2). The world's liquid buffer pool is rebuilt in DrawWorldScene
+    // (CreateLiquidBufferPool 0x0068CA50), and ReleaseLiquidBuffers (0x0068CD50)
+    // only nulls a buffer of another pool; CChunkLiquid::Draw `__thiscall(slot,
+    // uint pass)` (0x0068DE40) acquires only for no buffer or a usage 2 pool.
+    // A slot draws in the pass of its index (CMapChunk::Update 0x006AFAD0
+    // buckets slot i in layer i): 0 river, 1 ocean, 2 magma; slime (3) is
+    // never drawn. Its box: the chunk's (+0x44) with z the slot's heights
+    // (0x0068DF40).
+    FUN_CMAPCHUNK_LOAD_LIQUIDS = 0x006AF760,
+    FUN_CHUNKLIQUID_DRAW = 0x0068DE40,
+    OFF_MCNK_MCLQ = 0x60,
+    MCLQ_SIZE = 0x324,
+    MCNK_FLAG_LIQUID_FIRST = 0x4,
+    CHUNK_LIQUID_SLOTS = 4,
+    OFF_CMAPCHUNK_LIQUIDS = 0x118,
+    OFF_CHUNKLIQUID_LOW = 0x04,
+    OFF_CHUNKLIQUID_HIGH = 0x08,
+    OFF_CHUNKLIQUID_CHUNK = 0x1C,
+    OFF_CHUNKLIQUID_VERTEX_BUFFER = 0x400,
+    OFF_CHUNKLIQUID_INDEX_BUFFER = 0x404,
+    // GetLiquidStatus (0x0069B6D0) after the map objects' liquid: the cells
+    // from u = (17066.666 - y) x 0.24 (VAR_POINT_CELLS_PER_YARD) and v from
+    // x, each stored as a float, less 0.5 (VAR_POINT_HALF_CELL) and rounded;
+    // the chunk is the cells >> 3, the tile (v & 7, u & 7) and the fractions
+    // the products less their cells. Each slot's tile byte ([slot + 0x10] +
+    // 8 x row + column; low nibble 0xF none) answers type & 3: ocean (1) at
+    // height 0 when z is under 0.01 (VAR_ONE_HUNDREDTH), else the MCLQ
+    // heights ([slot + 0x0C], 8-byte records, the height at +4) bilinear (a = (h01 - h00) x fu + h00 along
+    // u, then b - a times fv), stored as a float, when z is under it plus
+    // 0.01. The camera's probe outside a map object group asks the same
+    // (0x006723D0 from CameraEnvironment 0x006809C0).
+    OFF_CHUNKLIQUID_MCLQ_VERTICES = 0x0C,
+    OFF_CHUNKLIQUID_TILES = 0x10,
+    MCLQ_VERTEX_SIZE = 8,
+    OFF_MCLQ_VERTEX_HEIGHT = 4,
+    LIQUID_TILE_ROW = 8,
+    LIQUID_VERTEX_ROW = 9,
+    LIQUID_TILE_TYPE_MASK = 0xF,
+    LIQUID_TILE_NONE = 0xF,
+    LIQUID_TYPE_MASK = 3,
+    LIQUID_OCEAN = 1,
+    // GatherChunkFacets' liquid leg (0x006AB3F7): each slot whose bit
+    // (0x10000 << slot) the class has goes to GatherLiquidFacets
+    // (0x006AB4E0), which resets the facet batches (the five words
+    // ResetFacetBatches clears), runs GatherLiquidCellFacets `__thiscall
+    // (slot, void *unused, const float *box, const int *cells)` (0x0068CEC0,
+    // ret 0xC, AL = any batch) with the chunk-relative box and the clipped
+    // cell rectangle {row first, column first, row last, column last}, and
+    // emits the batches on a hit (0x00671CC0). The batch is the slot's 81
+    // vertices (+0x34) at the chunk's position. The walls of an impassable
+    // chunk ignore the class; the doodad leg takes no def for 0x30000.
+    FUN_CHUNKLIQUID_GATHER_CELL_FACETS = 0x0068CEC0,
+    LIQUID_CLASS_FIRST_BIT = 16,
+    LIQUID_VERTEX_SIZE = 0x28,
+    LIQUID_VERTEX_COUNT = 0x51,
+    LIQUID_INDEX_COUNT = 0xC0,
+    LIQUID_PASS_RIVER = 0,
+    LIQUID_PASS_OCEAN = 1,
+    LIQUID_PASS_MAGMA = 2,
+    // The passes: magma (0x006855A0) in DrawWorldScene after the map objects;
+    // ocean (0x00685010) then river (0x006851B0) in RenderLiquid before the
+    // group liquids. Each pushes the state and turns culling off. Ocean and
+    // river bind their swatch (0x00C81B90, 0x00C89D68) on stage 0; with the
+    // fancy-water byte (0x00C9A324) the water program (0x00C81B7C), specular
+    // white, shininess 6.0 (0x008102E8), blend 2 and no depth write, else no
+    // program and stage 1 preset 3 (add); the river's third-stage leg tests
+    // a program 0x00C800EC that nothing writes. Magma: lighting and blending
+    // off. Per slot, with world flag 0x1000000: the world transform at the
+    // chunk less the camera, GatherSlotLights (0x0068DF70: a record at the
+    // chunk's x, y and the middle of the slot's heights, (high - low) x 0.5 +
+    // low, radius 23.570166 the immediate at 0x0068DFAF; the zone fog; the
+    // sun and the chunk's lights when the depth less twice the radius is
+    // inside the fog end), then the draw. Each swatch refills from the light
+    // state on the first slot drawn after its fresh flag (0x00C8117C river,
+    // 0x00C81B70 ocean) is cleared, which the world does once a frame
+    // (0x006809C0).
+    WORLD_FLAG_LIQUIDS = 0x1000000,
+    // The drift cloud (model/SceneWater.cpp): 0xFA40 bytes, 4000 motes of 16
+    // bytes (a camera-relative position, the quad size at +0xC), built by
+    // CreateDriftCloud `__thiscall(cloud, sizeBase bits, edge bits, path)`
+    // with the immediates the world pushes (0x0066F99E: 1/36, 30.0, the path
+    // at 0x00867A34); its texture is closed by 0x0068E640. The camera's
+    // liquid change (0x00680AEE) calls the scatter `__thiscall(cloud, mode)`
+    // with the new liquid, then the size base (1/36 for water and ocean,
+    // 1/9 for magma, 0x00680B57) and sets the enable byte +0xFA14; slime
+    // clears it. The advect `__thiscall(cloud)` reads the camera position
+    // (VAR_CAMERA_POSITION) and the frame seconds (0x00C62510); the draw
+    // `__thiscall(cloud)` the device view. Both run with world flag 0x2000000
+    // (the waterParticulates setting) and the camera in a liquid.
+    WORLD_FLAG_PARTICULATES = 0x2000000,
+    DRIFT_CLOUD_SIZE = 0xFA40,
+    FUN_CREATE_DRIFT_CLOUD = 0x0068E5A0,
+    FUN_FREE_DRIFT_CLOUD_TEXTURE = 0x0068E640,
+    FUN_SET_DRIFT_CLOUD_SIZE_BASE = 0x0068E670,
+    FUN_SCATTER_DRIFT_CLOUD = 0x0068E720,
+    FUN_ADVECT_DRIFT_CLOUD = 0x0068E930,
+    FUN_DRAW_DRIFT_CLOUD = 0x0068EFE0,
+    OFF_DRIFT_CLOUD_ENABLED = 0xFA14,
+    VAR_DRIFT_TEXTURE_PATH = 0x00867A34,
+    DRIFT_EDGE = 0x41F00000,            // 30.0
+    DRIFT_SIZE_BASE_WATER = 0x3CE38E39, // 1/36
+    DRIFT_SIZE_BASE_MAGMA = 0x3DE38E39, // 1/9
+    VAR_FRAME_SECONDS = 0x00C62510,
+    // The foam rings and wakes of units in shallow liquid (model/SceneWater.cpp).
+    // CGUnit_C::EmitWaterRipple `__thiscall(unit, u32 kind)` (0x005FA760)
+    // runs each unit update (0x0060802E, kind 0) and after the swim
+    // decision's splash (0x0060319F, kind 0xC9): with the unit's liquid
+    // (UpdateMapEntityEnvironment: bit 0x20, the height +0x98) and bit 0x40
+    // (flag 0x1 of the area's LiquidType), the depth under twice the
+    // collision height (at least 1.0) and its next time (+0xC78, OS ms)
+    // reached, it emits at its position on the surface. The ripple kind:
+    // 3 for 0xC9, else 2 moving (move flags 0xF), 1 turning (0x30), 0 still;
+    // the byte table VAR_RIPPLE_KIND_WAKE {0, 0, 1, 0} makes kind 2 a wake
+    // (category 1, along the motion) and the rest rings (category 0, a random
+    // heading). AddSplash (0x0068BDA0) emits nothing while the waterRipples
+    // word is 0 and only in mode 0 (VAR_RIPPLE_MODE); AddRipple (0x0068F9F0)
+    // takes the next of 128 records of 0x50, 0 to 31 for the active mover and
+    // 32 to 127 for the rest; EmitRipple (0x0068F5C0) writes it and copies
+    // the liquid triangles TestWorldBox (class 0xF0000) finds in its box.
+    // UpdateRipples (0x0068FAE0, the tail of RenderLiquid) ages and draws
+    // them: blend 3, fog, depth write, culling and lighting off, the depth
+    // bias footstepBias (CVar 0x00C7F300) x 1/1024, the world stack at
+    // Translate(-camera), per category its texture (VAR_RIPPLE_TEXTURES,
+    // XTextures\splash\splash.blp and wake.blp, loaded by InitRipples
+    // 0x0068F8B0) over the polygon in format 4 (position, normal (0, 0, 1),
+    // colour, uv; 0x24 bytes), the uv the polygon through the texture matrix
+    // BuildDecalTransforms makes of the ripple's box turned by its heading.
+    VAR_WATER_RIPPLES = 0x0086A03C,
+    VAR_RIPPLE_MODE = 0x00C89DB8,
+    VAR_RIPPLE_TEXTURES = 0x00C800E4,
+    VAR_RIPPLE_KIND_WAKE = 0x00860A4C,
+    VAR_RIPPLE_RISE_SHARES = 0x00810348, // float[2] 0.4, the rise's share of the life
+    VAR_FOOTSTEP_BIAS_CVAR = 0x00C7F300,
+    VAR_RIPPLE_BIAS_SCALE = 0x00810390,  // float 1/1024
+    RIPPLE_POOL = 0x80,
+    RIPPLE_POOL_SELF = 0x20,
+    RIPPLE_KIND_SPLASH = 0xC9,
+    RIPPLE_KIND_TURNING_INDEX = 1,
+    RIPPLE_KIND_MOVING_INDEX = 2,
+    RIPPLE_KIND_SPLASH_INDEX = 3,
+    RIPPLE_MOVE_FLAGS = 0xF,  // forward, backward, strafing (0x005FA7E8)
+    RIPPLE_TURN_FLAGS = 0x30, // turning left or right (0x005FA7F3)
+    LIQUID_TRIANGLE_CLASS = 0xF0000,
+    LIQUIDTYPE_FLAG_RIPPLES = 0x1,
+    // EmitWaterRipple's own floats (each checked against the image).
+    VAR_RIPPLE_SPEED_CAP = 0x00804478,      // float 20.0
+    VAR_RIPPLE_SPEED_SCALE = 0x00803088,    // float 2.5
+    VAR_RIPPLE_SIZE_MAX = 0x0080655C,       // float 5/3
+    VAR_RIPPLE_LIFE_SPREAD = 0x008029C8,    // float 0.05
+    VAR_RIPPLE_LIFE_BASE = 0x0080C4F0,      // float 0.65
+    VAR_RIPPLE_GROWTH_SPAN = 0x0080308C,    // float 1.5
+    VAR_RIPPLE_GROWTH_BASE = 0x0080C4EC,    // float 3.75
+    VAR_RIPPLE_GROWTH_SCALE = 0x0080C4E8,   // float 12.0
+    VAR_RIPPLE_STILL_SCALES = 0x0080C474,   // float[4] 0.8, 1.0, 0.25, 0.6
+    VAR_RIPPLE_THREE_QUARTER_PI = 0x0080C4E0, // float 3pi/4
+    VAR_RIPPLE_BACK_TURN = 0x008030B0,      // float pi
+    VAR_RIPPLE_NEXT_SHARE = 0x008029B0,     // float 0.25
+    VAR_RIPPLE_NEXT_MS = 0x00801448,        // float -1000.0
+    VAR_RIPPLE_PEAK_SCALE = 0x00802990,     // float 6.0
+    RIPPLE_STILL_DELAY_MS = 400,            // 0x005FAC4E: 400 + the high word of 50 x a draw
+    RIPPLE_STILL_DELAY_SPREAD = 50,
+    // The GX buffers the ripple draw makes each frame: GxBufCreate
+    // `void *__fastcall(int kind, int itemSize, int count)` ret 4 (kind 0
+    // vertices, 1 indices), Lock `void *__fastcall(buf)`, Unlock
+    // `__fastcall(buf, int)`, the vertex bind `__fastcall(buf, int format)`
+    // and the index bind `__fastcall(buf)`.
+    FUN_GX_BUF_CREATE = 0x0058A140,
+    FUN_GX_BUF_LOCK = 0x0058A080,
+    FUN_GX_BUF_UNLOCK = 0x0058A0A0,
+    FUN_GX_VERTEX_BUF_BIND = 0x0058A7C0,
+    FUN_GX_INDEX_BUF_BIND = 0x0058A800,
+    GX_BUF_VERTICES = 0,
+    GX_BUF_INDICES = 1,
+    GX_FORMAT_PNCT = 4,
+    GX_PNCT_SIZE = 0x24,
+    VAR_OCEAN_SWATCH = 0x00C81B90,
+    VAR_RIVER_SWATCH = 0x00C89D68,
+    VAR_FANCY_WATER = 0x00C9A324,
+    VAR_WATER_PROGRAM = 0x00C81B7C,
+    VAR_WATER_SHININESS = 0x008102E8,
+    VAR_RIVER_SWATCH_FRESH = 0x00C8117C,
+    VAR_OCEAN_SWATCH_FRESH = 0x00C81B70,
+    VAR_LIQUID_LIGHT_RADIUS_IMMEDIATE = 0x0068DFAF,
+    GXRS_SPECULAR = 0x03,
+    GXRS_SHININESS = 0x04,
+    LIQUID_STAGE1_ADD = 3,
+    FUN_GX_BUFFER_INVALIDATE = 0x0058A130,
+    // The MCNK header's reference counts (LoadReferences): doodads +0x10,
+    // map objects +0x38; the MCRF list holds the doodad indices first.
+    OFF_MCNK_DOODAD_REF_COUNT = 0x10,
+    OFF_MCNK_MCRF = 0x20,
+    OFF_MCNK_MAPOBJ_REF_COUNT = 0x38,
+    ADT_CHUNKS = 256,
+    MCIN_ENTRY_SIZE = 0x10,
+    MCNK_RECORD_HEADER = 8,
+    OFF_MCNK_FLAGS = 0x00,
+    OFF_MCNK_LAYER_COUNT = 0x0C,
+    OFF_MCNK_MCVT = 0x14,
+    OFF_MCNK_MCNR = 0x18,
+    OFF_MCNK_MCLY = 0x1C,
+    OFF_MCNK_MCAL = 0x24,
+    OFF_MCNK_MCSH = 0x2C,
+    OFF_MCNK_SHADOW_WORD = 0x30,
+    OFF_MCNK_AREA_ID = 0x34,
+    OFF_MCNK_HOLES = 0x3C,
+    OFF_MCNK_LOW_TEXTURES = 0x40,
+    OFF_MCNK_DOODAD_MAP = 0x50,
+    OFF_MCNK_POSITION = 0x68,
+    MCNK_HEADER_SIZE = 0x80,
+    MCNK_FLAG_SHADOW = 0x1,
+    MCNK_FLAG_IMPASSABLE = 0x2,
+    MCNK_HOLES_ALL = 0xFFFF,
+    MCNK_MAX_LAYERS = 4,
+    MCLY_ENTRY_SIZE = 0x10,
+    OFF_MCLY_FLAGS = 0x04,
+    OFF_MCLY_ALPHA = 0x08,
+    MCLY_FLAG_ALPHA = 0x100,
+    MCVT_SIZE = 145 * 4,
+    MCNR_SIZE = 145 * 3,
+    MCAL_MAP_SIZE = 0x800,
+    MCSH_SIZE = 0x200,
+    // Tiles fall from the map origin (17066.666, 0x007FFAB4) in steps of
+    // 533.33331 (0x0080654C): the row from x, the column from y; a tile is
+    // <dir>\<dir>_<column>_<row>.adt (0x006C274D) of 16 x 16 chunks.
+    VAR_MAP_ORIGIN = 0x007FFAB4,
+    VAR_TILE_SIZE = 0x0080654C,
+    MAP_TILES = 64,
+    TILE_CHUNKS = 16,
+    // ---- Terrain collision (Model::Scene::Terrain, layer 3) ----------------------
+    // The box gather (0x006AA8B0 under the box query 0x006721B0): map objects
+    // first, then each chunk whose cells the box touches. Corners map to
+    // cells as fistp(float(0.24 x float(17066.666 - c)) - 0.5), rows from x;
+    // the box must have origin - max >= 0 (a NaN passes) and origin - min
+    // < 34133.332 on both axes. Chunk rows run from the max-x cell >> 3 to
+    // the min-x cell >> 3, columns likewise from y.
+    VAR_GATHER_CELLS_PER_YARD = 0x00810AE4,
+    VAR_GATHER_HALF_CELL = 0x0086AA2C,
+    VAR_MAP_EXTENT = 0x007FFAB0,
+    // GatherChunkFacets (0x006AADC0, terrain legs): the fence walls of an
+    // impassable chunk first, then each cell of the clamped rectangle that
+    // no hole bit drops: outcodes of its five vertices (offsets 0, 9, 17, 1,
+    // 18 from its corner, 0x00810468) against the box less the chunk
+    // position, grown by 0.019444443 (0x008101B8), sign bits of float(v -
+    // min + e) and float(max - v + e); each of its four triangles (0x00810438,
+    // three vertex offsets each) kept unless its three codes share a bit, at
+    // vertex + position, its plane by the emitter's SSE arithmetic
+    // (Contact::MakeFacet). Hole bit (column >> 1) + (row >> 1) x 4 of the
+    // table 0x008103F8 against MCNK +0x3C.
+    VAR_CELL_OUTCODE_VERTICES = 0x00810468,
+    CELL_OUTCODE_VERTICES = 5,
+    VAR_CELL_FACET_TRIANGLES = 0x00810438,
+    CELL_TRIANGLES = 4,
+    VAR_GATHER_EPSILON = 0x008101B8,
+    VAR_HOLE_BITS = 0x008103F8,
+    CHUNK_ROW_VERTICES = 17,
+    CHUNK_CELLS = 8,
+    // The chunk's own box (BuildVertices 0x006B0E50): min +0x44, max +0x50.
+    // AddImpassableWalls (0x006AB530): for each side the query box crosses
+    // (strictly: y-min, y-max, x-min, x-max), facets (p, p+e, p+e+u) and (p,
+    // p+e+u, p+u) with u = (0, 0, 32000), the side's outward axis normal and
+    // d = -n.p; the 32000 is the immediate stored at 0x006AB599.
+    OFF_CMAPCHUNK_BOX_MIN = 0x44,
+    OFF_CMAPCHUNK_BOX_MAX = 0x50,
+    // The 145 chunk-relative vertices (BuildVertices), 12 bytes each: row r,
+    // column c of the outer grid at r x 17 + c, a cell centre 9 past its corner.
+    OFF_CMAPCHUNK_VERTICES = 0x83C,
+    VAR_CHUNK_WALL_HEIGHT_IMMEDIATE = 0x006AB59C,
+    // The segment trace's terrain leg (TraceTerrainSegment 0x0069C320): ends
+    // to cells as the gather does (0x008107A4 = 0.24, 0x0086A758 = 0.5), a
+    // run along one column when |dy| < 2^-22 (0x008029D4) or both ends share
+    // a column, else along one row likewise for x, else a line walk: Rows
+    // (0x0069C600) when |dy| > |dx|, else Columns (0x0069C780), each
+    // `__fastcall(start, end, cells)` ret 4 with start/end = {origin - y,
+    // origin - x, 0}; the runs are `__thiscall(cells)`; cells = {start x, start
+    // y, end x, end y}. They fill the cell list 0x00C962C8 (pairs: the y
+    // cell, then the x cell; count of dwords 0x00C89F40, zeroed first).
+    VAR_TRACE_CELLS_PER_YARD = 0x008107A4,
+    VAR_TRACE_HALF_CELL = 0x0086A758,
+    FUN_LIST_CELL_ROW_RUN = 0x0069C4E0,
+    FUN_LIST_CELL_COLUMN_RUN = 0x0069C570,
+    FUN_LIST_CELLS_ALONG_ROWS = 0x0069C600,
+    FUN_LIST_CELLS_ALONG_COLUMNS = 0x0069C780,
+    VAR_TRACE_CELLS = 0x00C962C8,
+    VAR_TRACE_CELL_COUNT = 0x00C89F40,
+    // TraceListedCells (0x0069C920): a cell word above 0x2000 or a missing
+    // chunk ends the walk; the ray is the start less the chunk position and
+    // the unit direction (k = 1/sqrt((dz*float(dz) + dy*dy) + dx*dx)); each
+    // of the cell's four triangles (centre + 9, then the pairs at 0x0081047C,
+    // second then first) through IntersectRayTriangle `uint8 __fastcall(ray,
+    // vertices, const uint32 indices[3], float *t, float *uv, float slack)`
+    // ret 0x10, slack the immediate pushed at 0x0069CB95 (0.01); a hit at
+    // t*k below the best and not below 0 is the best.
+    TRACE_CELL_LIMIT = 0x2000,
+    TRACE_CELL_CHUNK_BITS = 0x1FF8,
+    VAR_CELL_TRACE_TRIANGLES = 0x0081047C,
+    CELL_CENTRE_VERTEX = 9,
+    FUN_INTERSECT_RAY_TRIANGLE = 0x007C2C40,
+    VAR_TRACE_SLACK_IMMEDIATE = 0x0069CB96,
+    // The decal's world box test (TestWorldBox 0x006AD2C0): map objects under
+    // 0xF00F0, then the terrain under 0xF0F00 (TestTerrainBox 0x006AD4E0,
+    // `__fastcall(box, mask, out)`). Its cells: the first from the unrounded
+    // origin - min.y, the rest from the stored floats, each fistp(float(0.24 x
+    // d) - 0.5) (0x00810B44, 0x0086AAC4); rows from the max-x cell >> 3 to the
+    // min-x cell >> 3, columns likewise from y; no bounds test. Per chunk
+    // (TestChunkBox 0x006AD610) the box less the chunk position and the
+    // rectangle clipped to {0, 0, 7, 7} (IntersectCellRects 0x006ADBF0), then,
+    // under 0x100, TestChunkTriangles `uint8 __fastcall(chunk, const int32
+    // rect[4], const float box[6], uint32 unused)` ret 8 (0x006AD7E0): the
+    // cells' kept triangles into one batch of the triangle batches, its matrix
+    // the chunk's translation, its vertices +0x83C. It reads only the chunk.
+    DECAL_MASK_TERRAIN = 0xF0F00,
+    CHUNK_TRIANGLE_CLASS = 0x100,
+    VAR_DECAL_CELLS_PER_YARD = 0x00810B44,
+    VAR_DECAL_HALF_CELL = 0x0086AAC4,
+    FUN_TEST_CHUNK_TRIANGLES = 0x006AD7E0,
+    // A unit's ground on terrain (AttachEntityToGround 0x006A8A20): the
+    // terrain (TraceTerrainSegment, mask 0x100) and the map objects traced
+    // down 1000 from the probe point, else up past the bounds; the terrain wins
+    // when nearer. Then GetGroundEffect `bool __fastcall(const float point[3],
+    // uint32 *out)` (0x0069B1C0) at the entity's position: the cell as the
+    // others (0.24 at 0x0081073C, 0.5 at 0x0086A750; distances >= 0 and below
+    // 34133.332), no hole, a layer, then the dominant layer of the cell: the
+    // MCNK +0x40 map's word for the row (+0xF0C, u16 per row) masked by
+    // 0x008104B4[column] (u16) and shifted right by 0x008104C4[column] (u32),
+    // that layer's effect id (+0x0A; 0xFFFF none) into GroundEffectTexture,
+    // whose +0x18 is the TerrainType id. It finds the chunk through the
+    // global area table, so the scene transcribes it.
+    // The same 0.24 and 0.5 serve GetLiquidStatus (0x0069B709), and the 0.5
+    // the area query (0x0069B120).
+    VAR_POINT_CELLS_PER_YARD = 0x0081073C,
+    VAR_POINT_HALF_CELL = 0x0086A750,
+    VAR_LOW_TEXTURE_MASKS = 0x008104B4,
+    VAR_LOW_TEXTURE_SHIFTS = 0x008104C4,
+    OFF_CMAPCHUNK_LAYERS = 0x128,
+    OFF_CMAPCHUNK_LAYER_COUNT = 0x138,
+    OFF_CHUNKLAYER_EFFECT = 0x0A,
+    GROUND_EFFECT_NONE = 0xFFFF,
+    // GroundEffectTexture.dbc (docs/DBCs.md; 7 columns: id, 4 doodads,
+    // density, TerrainType id at +0x18). Row 0 exists.
+    VAR_GROUNDEFFECTTEXTURE_RECORDS = 0x00C0DC60,
+    VAR_GROUNDEFFECTTEXTURE_COUNT = 0x00C0DC64,
+    OFF_GROUNDEFFECTTEXTURE_TERRAIN_TYPE = 0x18,
 };

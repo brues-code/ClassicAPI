@@ -135,8 +135,7 @@ void ReleaseLit(void *model, std::unique_ptr<EntityLight> &light) {
 void SettleLight(void *model, EntityLight *light, float elapsed) {
     if (model == nullptr || light == nullptr || !M2::IsLoaded(model, 0, 0))
         return;
-    if (World::Backdrop *world = WorldOf(light->frame))
-        World::Settle(*world, *light->ambience, light->frame, model, elapsed);
+    World::Settle(WorldOf(light->frame), TerrainOf(light->frame), *light->ambience, light->frame, model, elapsed);
 }
 
 } // namespace Model::Scene

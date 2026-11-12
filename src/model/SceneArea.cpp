@@ -37,8 +37,9 @@
 // and silences the loop, which starts again when the pause ends.
 //
 // The random draws are the client's own (its random state 0x00882664). The
-// traces are the scene's WMO (World::Trace); a scene without a WMO has no
-// floor, so there its shards land at the area's height. The scene clock
+// traces are the scene's ground (TraceGround: its WMO, then its terrain); a
+// scene without either has no floor, so there its shards land at the area's
+// height. The scene clock
 // times the shards, so they stop while the scene is paused.
 
 #include "model/Scene.h"
@@ -166,12 +167,12 @@ void Spawn(Actor &actor) {
     const float high[3] = {centre[0] + u * direction[0] * radius, centre[1] + us * radius,
                            centre[2] + Game::Read<float>(Offsets::VAR_AREA_SHARD_DROP_HEIGHT)};
     const float low[3] = {centre[0], centre[1], centre[2] + Game::Read<float>(Offsets::VAR_ONE_SIXTH)};
-    const World::Backdrop *world = WorldOf(frame);
+    const bool ground = HasGround(frame);
     float fraction = 1.0f;
     float normal[3];
     float start[3] = {high[0], high[1], high[2]};
     // Short of a ceiling between the centre and the point up there.
-    if (world != nullptr && World::Trace(*world, low, high, false, fraction, normal)) {
+    if (ground && TraceGround(frame, low, high, false, fraction, normal)) {
         const float share = fraction * Game::Read<float>(Offsets::VAR_AREA_SHARD_HIT_SHARE);
         for (int i = 0; i < 3; ++i)
             start[i] = low[i] + (high[i] - low[i]) * share;
@@ -180,11 +181,11 @@ void Spawn(Actor &actor) {
     shard->frame = frame;
     const float below[3] = {start[0], start[1], start[2] - Game::Read<float>(Offsets::VAR_AREA_SHARD_FALL)};
     fraction = 1.0f;
-    if (world == nullptr) {
+    if (!ground) {
         shard->position[0] = start[0];
         shard->position[1] = start[1];
         shard->position[2] = centre[2];
-    } else if (World::Trace(*world, start, below, false, fraction, normal)) {
+    } else if (TraceGround(frame, start, below, false, fraction, normal)) {
         for (int i = 0; i < 3; ++i)
             shard->position[i] = start[i] + (below[i] - start[i]) * fraction;
     } else {

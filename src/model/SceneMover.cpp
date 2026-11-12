@@ -85,6 +85,7 @@ const Live<float> kTwoPi{Offsets::VAR_MOVER_TWO_PI};
 const Live<float> kHalfPi{Offsets::VAR_HALF_PI};                 // the pitch clamp
 const Live<float> kNegHalfPi{Offsets::VAR_MINUS_HALF_PI};
 const Live<float> kThreeQuarters{Offsets::VAR_THREE_QUARTERS};
+const Live<float> kTwoFifths{Offsets::VAR_TWO_FIFTHS};
 constexpr float kFltMax = FLT_MAX;
 constexpr float kNegFltMax = -FLT_MAX;
 const Live<float> kSnapSq{Offsets::VAR_MOVER_SNAP_DISTANCE_SQ};  // 3 yards squared
@@ -2384,9 +2385,9 @@ void KnockBack(Body &body, float cosine, float sine, float speedXY, float speedZ
     body.speed = speedXY;
 }
 
-void UpdateSwimState(Body &body, bool inLiquid, float depth) {
+bool UpdateSwimState(Body &body, bool inLiquid, float depth) {
     if (body.flags & 0x400)
-        return;
+        return false;
     const double enter = D(body.height) * kThreeQuarters;
     const float leave = static_cast<float>(enter - kThirtySixth);
     if (!(body.flags & FLAG_SWIMMING)) {
@@ -2396,10 +2397,18 @@ void UpdateSwimState(Body &body, bool inLiquid, float depth) {
             StartSwimming(body);
             ApplyLatches(body);
         }
-        return;
+        // The splash (0x0060314A): the depth past two fifths of the height
+        // now and at the last test differ (a NaN on neither side), then the
+        // depth is kept.
+        const double splashAt = D(body.height) * kTwoFifths;
+        const bool now = D(depth) > splashAt;
+        const bool before = splashAt < D(body.splashDepth);
+        body.splashDepth = depth;
+        return now != before;
     }
     if (!inLiquid || !(depth >= leave))
         StopSwimming(body);
+    return false;
 }
 
 float ModelPitch(const Body &body) {

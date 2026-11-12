@@ -125,6 +125,7 @@
 #include "gx/Matrix.h"
 #include "model/M2.h"
 #include "model/SceneContact.h"
+#include "model/SceneFile.h"
 
 #include <algorithm>
 #include <array>
@@ -152,7 +153,8 @@ struct MapLight {
 };
 
 struct Doodad {
-    Backdrop *backdrop;
+    const Backdrop *backdrop; // its WMO, or null for a map's own doodad (a prop)
+    const bool *sounds;       // its owner's SetPlayWorldModelSounds, in the world
     void *frame;
     void *model; // one reference, or null when the file did not make one
     bool exterior;
@@ -215,10 +217,9 @@ struct Backdrop {
     float farClip = 0.0f;
     bool sounds = false; // SetPlayWorldModelSounds, in the world
     CameraFog fog;
-    // The camera's liquid type (0xF dry), and how far below the eye its probe
-    // is: the lowest of the eye and the near corners of the last paint.
+    // The camera's liquid type (0xF dry): the claim's first group's, else
+    // the scene's at the camera's probe point (OutdoorCameraLiquid).
     uint32_t cameraLiquid = Offsets::LIQUID_DRY;
-    float probeDrop = 0.0f;
     // The interior groups that hold the camera (the world's claim,
     // 0x00C7B748, and its group set 0x00C7CD88): the world then draws from
     // inside, and its portal walk from them decides the sky.
@@ -233,7 +234,8 @@ static_assert(Offsets::OFF_MAPOBJDEF_OBJECT + sizeof(void *) <= Offsets::MAPOBJD
 // An actor's place in the WMO (Settle), as the world keeps it on the unit's
 // map entity.
 struct Ambience {
-    uint32_t serial = 0; // the backdrop's, 0 before the first placement
+    uint32_t serial = 0; // the backdrop's, 0 before the first placement or without one
+    uint32_t terrainSerial = 0; // the terrain's, 0 without one
     const void *model = nullptr;
     uint32_t generation = 0;
     float position[3] = {};
@@ -245,6 +247,11 @@ struct Ambience {
     uint32_t directional = 0; // BGRA bytes (+0xA0)
     uint32_t dayWeight = 0; // a day face's blend toward the sun (+0xA3)
     int32_t ground = -1;    // the face's TerrainType id (+0xDC), or -1
+    // The liquid it stands in, outdoors (+0x90 bits 0x20 and 0x80, +0x98).
+    bool inLiquid = false;
+    bool splashes = false; // +0x90 bit 0x80, LiquidType flag 0x2
+    bool ripples = false;  // +0x90 bit 0x40, LiquidType flag 0x1
+    float liquidHeight = 0.0f;
     std::vector<Light> lights;
 };
 
@@ -272,41 +279,9 @@ struct ChunkHeader {
 
 // ---- files ------------------------------------------------------------------
 
-class File {
-  public:
-    explicit File(const char *path) {
-        using Open_t = int(__stdcall *)(const char *path, void **file);
-        if (reinterpret_cast<Open_t>(Offsets::FUN_SFILE_OPEN)(path, &handle_) == 0)
-            handle_ = nullptr;
-    }
-    ~File() {
-        if (handle_ != nullptr)
-            reinterpret_cast<uint32_t(__stdcall *)(void *)>(Offsets::FUN_SFILE_CLOSE)(handle_);
-    }
-    File(const File &) = delete;
-    File &operator=(const File &) = delete;
-
-    bool IsOpen() const { return handle_ != nullptr; }
-    uint32_t Size() const {
-        using Size_t = uint32_t(__stdcall *)(void *file, uint32_t *high);
-        return reinterpret_cast<Size_t>(Offsets::FUN_SFILE_GET_FILE_SIZE)(handle_, nullptr);
-    }
-    bool Read(void *buffer, uint32_t size) {
-        using Read_t = int(__stdcall *)(void *file, void *buffer, uint32_t size, uint32_t *read,
-                                        void *overlapped, int);
-        uint32_t read = 0;
-        return handle_ != nullptr &&
-               reinterpret_cast<Read_t>(Offsets::FUN_SFILE_READ)(handle_, buffer, size, &read, nullptr,
-                                                                0) != 0 &&
-               read == size;
-    }
-    bool Chunk(const char (&tag)[5], ChunkHeader &header) {
-        return Read(&header, sizeof header) && header.tag == Tag(tag);
-    }
-
-  private:
-    void *handle_ = nullptr;
-};
+bool ReadChunk(File &file, const char (&tag)[5], ChunkHeader &header) {
+    return file.Read(&header, sizeof header) && header.tag == Tag(tag);
+}
 
 bool HasWmoSuffix(const char *path) {
     const size_t n = std::strlen(path);
@@ -331,13 +306,10 @@ constexpr const char kRootChunks[][5] = {"MOHD", "MOTX", "MOMT", "MOGN", "MOGI",
 
 // The root's group count when the engine can read it safely, else -1.
 int CheckedGroupCount(const char *path) {
-    File file(path);
-    if (!file.IsOpen())
+    std::vector<uint8_t> data;
+    if (!File(path).ReadAll(data) || data.size() < sizeof(ChunkHeader) + 4)
         return -1;
-    const uint32_t size = file.Size();
-    std::vector<uint8_t> data(size);
-    if (size < sizeof(ChunkHeader) + 4 || !file.Read(data.data(), size))
-        return -1;
+    const size_t size = data.size();
     const auto header = [&](size_t at) {
         ChunkHeader h{};
         std::memcpy(&h, data.data() + at, sizeof h);
@@ -392,18 +364,6 @@ bool KeepGroup(void *object, uint32_t index, void *group) {
     if (Game::Read<void *>(group, Offsets::OFF_CMAPOBJGROUP_READ) == nullptr)
         reinterpret_cast<void(__thiscall *)(void *, uint32_t)>(Offsets::FUN_CMAPOBJ_LOAD_GROUP)(object, index);
     return false;
-}
-
-// A volume of the device's view and projection in scene space.
-void BuildViewVolume(uint8_t (&volume)[Offsets::FRUSTUM_VOLUME_SIZE], const float (&eye)[3]) {
-    Matrix view, projection;
-    Gx::GetView(view);
-    Gx::GetProjection(projection);
-    Translate(view, {-eye[0], -eye[1], -eye[2]});
-    using Corners_t = void(__fastcall *)(const float *view, const float *projection, float *corners);
-    reinterpret_cast<Corners_t>(Offsets::FUN_FRUSTUM_CORNERS)(
-        view, projection, reinterpret_cast<float *>(volume + Offsets::OFF_FRUSTUM_VOLUME_CORNERS));
-    reinterpret_cast<void(__thiscall *)(void *)>(Offsets::FUN_VOLUME_BUILD_PLANES)(volume);
 }
 
 using SetFog_t = void(__thiscall *)(void *record, const float *rgb, float start, float end);
@@ -645,11 +605,11 @@ void InteriorLight(const Backdrop &b, void *record, void *frame, uint32_t ambien
 // as the world's ApplyEntityLighting (0x00672A20) runs a def's fog and light
 // slots.
 void __fastcall DoodadLighting(void * /*instance*/, void *record, Doodad *d) {
-    const Backdrop &b = *d->backdrop;
     if (d->exterior)
         FrameLightAndFog(record, d->frame);
     else
-        InteriorLight(b, record, d->frame, d->ambient, d->directional, MapLightDirection(), EngineFloat(Offsets::VAR_ONE));
+        InteriorLight(*d->backdrop, record, d->frame, d->ambient, d->directional, MapLightDirection(),
+                      EngineFloat(Offsets::VAR_ONE));
     for (const Light &light : d->lights)
         AddLight(record, light.bytes);
 }
@@ -683,8 +643,7 @@ static_assert(kSoundEnd == 0x45534424 && kSoundLoop == 0x4C534424 && kSoundOnce 
 void __stdcall OnDoodadEvent(uint32_t tag, uint32_t soundID, const float *point, uint32_t /*unknown*/,
                              uint32_t userLow, uint32_t /*userHigh*/) {
     auto &d = *reinterpret_cast<Doodad *>(static_cast<uintptr_t>(userLow));
-    const Backdrop &b = *d.backdrop;
-    if (!b.sounds)
+    if (!*d.sounds)
         return;
     if (tag == kSoundEnd) {
         DropSound(d);
@@ -713,6 +672,19 @@ void __stdcall OnDoodadEvent(uint32_t tag, uint32_t soundID, const float *point,
 
 // ---- making them ----------------------------------------------------------------------
 
+// CreateDoodadModel (0x00695100) in the frame's scene, at the def's matrix.
+void MakeModel(Doodad &d, const char *path, const Matrix &m) {
+    d.model = M2::CreateModel(Model::Pane::Scene(d.frame), path);
+    if (d.model == nullptr)
+        return;
+    M2::SetBaseTransform(d.model, m);
+    const auto user = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(&d));
+    M2::SetAnimDoneCallback(d.model, reinterpret_cast<const void *>(Offsets::FUN_DOODAD_MODEL_DONE), 0, 0);
+    M2::SetEventCallback(d.model, reinterpret_cast<const void *>(&OnDoodadEvent), user, 0);
+    M2::SetRenderCallback(d.model, reinterpret_cast<const void *>(&DoodadLighting), &d);
+    M2::PlayAnimation(d.model, -1, 0, -1, 0, 1.0f, 1, 1);
+}
+
 // CreateGroupDoodadDef (0x00694E90) and CreateDoodadModel (0x00695100) in the
 // frame's scene.
 Doodad *MakeDoodad(Backdrop &b, void *frame, uint32_t index) {
@@ -723,6 +695,7 @@ Doodad *MakeDoodad(Backdrop &b, void *frame, uint32_t index) {
     auto owned = std::make_unique<Doodad>();
     Doodad &d = *owned;
     d.backdrop = &b;
+    d.sounds = &b.sounds;
     d.frame = frame;
     float position[3];
     ReadVector(record + Offsets::OFF_MODD_POSITION, position);
@@ -740,15 +713,7 @@ Doodad *MakeDoodad(Backdrop &b, void *frame, uint32_t index) {
     reinterpret_cast<Split_t>(Offsets::FUN_SPLIT_LIGHT_COLOR)(Game::Ptr<uint32_t>(record, Offsets::OFF_MODD_COLOR),
                                                              &d.directional, Offsets::DOODAD_DIRECTIONAL_FLOOR,
                                                              &d.ambient, Offsets::DOODAD_AMBIENT_CAP);
-    d.model = M2::CreateModel(Model::Pane::Scene(frame), path);
-    if (d.model != nullptr) {
-        M2::SetBaseTransform(d.model, m);
-        const auto user = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(&d));
-        M2::SetAnimDoneCallback(d.model, reinterpret_cast<const void *>(Offsets::FUN_DOODAD_MODEL_DONE), 0, 0);
-        M2::SetEventCallback(d.model, reinterpret_cast<const void *>(&OnDoodadEvent), user, 0);
-        M2::SetRenderCallback(d.model, reinterpret_cast<const void *>(&DoodadLighting), &d);
-        M2::PlayAnimation(d.model, -1, 0, -1, 0, 1.0f, 1, 1);
-    }
+    MakeModel(d, path, m);
     b.byIndex[index] = &d;
     b.doodads.push_back(std::move(owned));
     return &d;
@@ -823,6 +788,28 @@ float FadeAlpha(const Doodad &d, const float (&eye)[3], float farClip) {
     return alpha > 1.0f ? 1.0f : alpha;
 }
 
+// The animate list empties at each paint (as for the actors' models), and the
+// world shows each doodad it draws again each frame, faded by distance
+// (DrawDoodadModels, 0x00683F80).
+void ShowDoodads(const std::vector<std::unique_ptr<Doodad>> &doodads, const View &view) {
+    for (const auto &d : doodads) {
+        // A def's bounds are set once its model file has loaded (0x00698C50).
+        if (d->model != nullptr && !d->bounded && M2::IsLoaded(d->model, 0, 0))
+            Bound(*d);
+        if (d->model != nullptr && d->bounded && M2::IsReady(d->model, 0, 1)) {
+            const float alpha = FadeAlpha(*d, view.eye, view.farClip);
+            const bool shown = alpha > 0.0f;
+            M2::SetVisible(d->model, shown);
+            if (shown) {
+                M2::SetAnimated(d->model, true);
+                M2::SetAlpha(d->model, alpha);
+            }
+        }
+        if (d->sound != 0)
+            MoveSound(*d);
+    }
+}
+
 void ReleaseDoodad(Doodad &d) {
     DropSound(d);
     if (d.model == nullptr)
@@ -836,6 +823,30 @@ void ReleaseDoodad(Doodad &d) {
 }
 
 } // namespace
+
+void BuildViewVolume(ViewVolume &volume, const float (&eye)[3]) {
+    Matrix view, projection;
+    Gx::GetView(view);
+    Gx::GetProjection(projection);
+    Translate(view, {-eye[0], -eye[1], -eye[2]});
+    using Corners_t = void(__fastcall *)(const float *view, const float *projection, float *corners);
+    reinterpret_cast<Corners_t>(Offsets::FUN_FRUSTUM_CORNERS)(
+        view, projection, reinterpret_cast<float *>(volume.bytes + Offsets::OFF_FRUSTUM_VOLUME_CORNERS));
+    reinterpret_cast<void(__thiscall *)(void *)>(Offsets::FUN_VOLUME_BUILD_PLANES)(volume.bytes);
+}
+
+float ProbeDrop(const ViewVolume &volume, const float (&eye)[3]) {
+    // The camera's probe z (0x006809E2): a near corner at or below the
+    // lowest so far, or NaN, replaces it.
+    const auto *corners = reinterpret_cast<const float *>(volume.bytes + Offsets::OFF_FRUSTUM_VOLUME_CORNERS);
+    float lowest = eye[2];
+    for (int i = 0; i < 4; ++i)
+        if (!(corners[i * 3 + 2] > lowest))
+            lowest = corners[i * 3 + 2];
+    return eye[2] - lowest;
+}
+
+void FrameFog(void *record, void *frame) { SceneFog(record, frame); }
 
 bool IsWmoPath(const char *path) { return path != nullptr && HasWmoSuffix(path); }
 
@@ -870,16 +881,16 @@ Backdrop *LoadMap(uint32_t mapID) {
     uint32_t version = 0;
     uint8_t mphd[Offsets::WDT_MPHD_SIZE];
     std::vector<uint8_t> main(Offsets::WDT_MAIN_SIZE);
-    if (!wdt.Chunk("MVER", h) || !wdt.Read(&version, sizeof version) || !wdt.Chunk("MPHD", h) ||
-        !wdt.Read(mphd, sizeof mphd) || !wdt.Chunk("MAIN", h) || !wdt.Read(main.data(), Offsets::WDT_MAIN_SIZE))
+    if (!ReadChunk(wdt, "MVER", h) || !wdt.Read(&version, sizeof version) || !ReadChunk(wdt, "MPHD", h) ||
+        !wdt.Read(mphd, sizeof mphd) || !ReadChunk(wdt, "MAIN", h) || !wdt.Read(main.data(), Offsets::WDT_MAIN_SIZE))
         return nullptr;
     uint32_t flags = 0;
     std::memcpy(&flags, mphd, sizeof flags);
-    if ((flags & Offsets::WDT_FLAG_MAP_OBJECT) == 0 || !wdt.Chunk("MWMO", h) || h.size == 0 || h.size > 260)
+    if ((flags & Offsets::WDT_FLAG_MAP_OBJECT) == 0 || !ReadChunk(wdt, "MWMO", h) || h.size == 0 || h.size > 260)
         return nullptr;
     std::vector<char> name(h.size + 1, '\0');
     uint8_t entry[Offsets::MODF_SIZE];
-    if (!wdt.Read(name.data(), h.size) || !wdt.Chunk("MODF", h) || !wdt.Read(entry, sizeof entry))
+    if (!wdt.Read(name.data(), h.size) || !ReadChunk(wdt, "MODF", h) || !wdt.Read(entry, sizeof entry))
         return nullptr;
     float pos[3], rot[3];
     uint16_t doodadSet = 0;
@@ -919,6 +930,7 @@ void Silence(Backdrop &b) {
         DropSound(*d);
 }
 
+
 // ---- actors ---------------------------------------------------------------------------
 
 namespace {
@@ -952,14 +964,18 @@ void *LoadedGroup(void *object, uint32_t group) {
     return reinterpret_cast<GetGroup_t>(Offsets::FUN_CMAPOBJ_GET_LOADED_GROUP)(object, group, 0);
 }
 
-// What every facet query does first (0x006A893B, 0x006D7497).
-void ResetFacets() {
+} // namespace
+
+// What every facet query does first (0x006A893B, 0x006D7497, 0x006AB4F2).
+void ResetFacetBatches() {
     Game::Ref<uint32_t>(Offsets::VAR_FACET_OVERFLOW) = 0;
     Game::Ref<uint32_t>(Offsets::VAR_FACET_BATCH_COUNT) = 0;
     Game::Ref<uint32_t>(Offsets::VAR_FACET_FACE_CURSOR) = 0;
     Game::Ref<uint32_t>(Offsets::VAR_FACET_INDEX_CURSOR) = 0;
     Game::Ref<uint32_t>(Offsets::VAR_FACET_MATRIX_COUNT) = 0;
 }
+
+namespace {
 
 const uint8_t *FacetBatch(uint32_t index) {
     return reinterpret_cast<const uint8_t *>(static_cast<uintptr_t>(Offsets::VAR_FACET_BATCHES) +
@@ -995,7 +1011,7 @@ bool Nearest(const Backdrop &b, const float (&start)[3], const float (&end)[3], 
         void *loaded = LoadedGroup(object, g);
         if (loaded == nullptr)
             continue;
-        ResetFacets();
+        ResetFacetBatches();
         float segment[6];
         std::memcpy(segment, local, sizeof segment);
         float tt = t;
@@ -1127,13 +1143,13 @@ bool InteriorFog(const Backdrop &b, const float (&eye)[3], const uint32_t (&grou
 
 // CameraEnvironment (0x006809C0) inside the WMO: the liquid of the camera's
 // first group at the probe point, 0xF when dry.
-uint32_t CameraLiquid(const Backdrop &b, const float (&eye)[3], uint32_t group) {
+uint32_t GroupCameraLiquid(const Backdrop &b, void *frame, const float (&eye)[3], uint32_t group) {
     using Height_t = bool(__thiscall *)(void *group, const float *point, uint32_t *type, float *height,
                                         float *vector);
     void *loaded = LoadedGroup(b.object, group);
     if (loaded == nullptr)
         return Offsets::LIQUID_DRY;
-    const float probe[3] = {eye[0], eye[1], eye[2] - b.probeDrop};
+    const float probe[3] = {eye[0], eye[1], eye[2] - CameraProbeDrop(frame)};
     float point[3], height = 0.0f, vector[3] = {};
     TransformPoint(probe, b.inverse, point);
     uint32_t type = Offsets::LIQUID_DRY;
@@ -1148,8 +1164,9 @@ uint32_t CameraLiquid(const Backdrop &b, const float (&eye)[3], uint32_t group) 
 // fog as the target. The weight moves toward 1 while the camera is inside,
 // else toward 0, and the target stays the last one while it falls. The world
 // starts the weight at 0 and fades in; a scene's first update takes it as it
-// stands. The camera's liquid outside the WMO (the terrain's) does not exist
-// in a scene; inside it the claim's first group answers.
+// stands. The zone's fog under a liquid is the map's for it (MapLiquidFog).
+bool MapLiquidFog(uint32_t mapID, uint32_t cameraLiquid, const float (&eye)[3], float farClip, FogValues &out);
+
 void UpdateCameraFog(Backdrop &b, void *frame, const float (&eye)[3], float farClip, float elapsed) {
     CameraFog &fog = b.fog;
     uint32_t groups[2] = {kNoGroup, kNoGroup};
@@ -1159,7 +1176,9 @@ void UpdateCameraFog(Backdrop &b, void *frame, const float (&eye)[3], float farC
     fog.zoneIsTarget = false;
     b.cameraGroupCount = claimed;
     std::memcpy(b.cameraGroups, groups, sizeof groups);
-    b.cameraLiquid = claimed != 0 ? CameraLiquid(b, eye, groups[0]) : static_cast<uint32_t>(Offsets::LIQUID_DRY);
+    // Without the claim, the world asks its liquid query at the probe point
+    // (0x006723D0): the WMO's liquid, then the terrain's.
+    b.cameraLiquid = claimed != 0 ? GroupCameraLiquid(b, frame, eye, groups[0]) : OutdoorCameraLiquid(frame);
     if (count != 0) {
         FogValues records[2] = {};
         uint32_t flags = 0;
@@ -1170,7 +1189,8 @@ void UpdateCameraFog(Backdrop &b, void *frame, const float (&eye)[3], float farC
                          : liquid == Offsets::LIQUID_SLIME ? (flags & Offsets::MAPOBJ_FOG_FLAG_SLIME) != 0
                                                            : true;
         if (!own) {
-            fog.target = SceneZoneFog(b, frame);
+            if (!MapLiquidFog(b.mapID, b.cameraLiquid, eye, farClip, fog.target))
+                fog.target = SceneZoneFog(b, frame);
         } else {
             const FogValues &record = records[liquid == Offsets::LIQUID_DRY ? 0 : 1];
             fog.target.end = record.end < farClip ? record.end : farClip;
@@ -1201,7 +1221,6 @@ void UpdateCameraFog(Backdrop &b, void *frame, const float (&eye)[3], float farC
 using Fn_t = void(__cdecl *)();
 
 
-constexpr int kWorldStack = 8;
 
 // The render states pushed and world stack 8 = placement x Translate(-eye),
 // as the world's map object passes set it.
@@ -1211,12 +1230,12 @@ void PushObjectSpace(const Backdrop &b, const float (&eye)[3]) {
     Translate(toEye, {-eye[0], -eye[1], -eye[2]});
     Multiply(world, b.placement, toEye);
     Gx::PushStates();
-    Gx::PushTransform(kWorldStack);
-    Gx::SetTransform(kWorldStack, world);
+    Gx::PushTransform(Offsets::GX_XFORM_WORLD);
+    Gx::SetTransform(Offsets::GX_XFORM_WORLD, world);
 }
 
 void PopObjectSpace() {
-    Gx::PopTransform(kWorldStack);
+    Gx::PopTransform(Offsets::GX_XFORM_WORLD);
     Gx::PopStates();
 }
 
@@ -1259,7 +1278,8 @@ void Ease(Ambience &a, void *frame, float elapsed) {
 // AttachEntityToGround (0x006A8A20), the map object leg (a scene has no
 // terrain), with SyncLightNode's box, centre and radius and UpdateNode's
 // probe point (0x00613F80).
-void Place(const Backdrop &b, Ambience &a, void *frame, void *model, const float *base) {
+void Place(const Backdrop *wmo, const Terrain::Land *terrain, Ambience &a, void *frame, void *model,
+           const float *base) {
     using TraceFace_t = bool(__thiscall *)(const void *def, const float *start, const float *end, uint32_t group,
                                            uint16_t *face, float *hit, float *t);
     using TerrainType_t = int32_t(__thiscall *)(const void *def, uint32_t group, uint16_t face);
@@ -1267,7 +1287,6 @@ void Place(const Backdrop &b, Ambience &a, void *frame, void *model, const float
                                         uint32_t *bgra, bool *day);
     using Split_t = void(__stdcall *)(const uint32_t *src, uint32_t *first, uint8_t floor, uint32_t *second,
                                       uint8_t cap);
-    void *object = b.object;
     a.lights.clear();
     a.interior = false;
     a.ground = -1;
@@ -1302,18 +1321,37 @@ void Place(const Backdrop &b, Ambience &a, void *frame, void *model, const float
     float start[3];
     TransformPoint(point, *reinterpret_cast<const Matrix *>(base), start);
 
+    // AttachEntityToGround (0x006A8A20): the terrain and the map objects down
+    // from the probe; with neither, up past the bounds; the terrain wins when
+    // it is nearer.
     const float length = EngineFloat(Offsets::VAR_ONE_THOUSAND);
     float end[3] = {start[0], start[1], start[2] - length};
     float t = 1.0f;
+    float terrainT = 1.0f;
+    float normal[3];
     uint32_t group = 0;
     uint16_t face = 0;
-    if (!Nearest(b, start, end, t, group, face)) {
+    bool onTerrain = terrain != nullptr && Terrain::Trace(*terrain, start, end, terrainT, normal);
+    bool onWmo = wmo != nullptr && Nearest(*wmo, start, end, t, group, face);
+    if (!onTerrain && !onWmo) {
         end[0] = centre[0];
         end[1] = centre[1];
         end[2] = radius + length + centre[2];
-        if (!Nearest(b, start, end, t, group, face))
-            return; // links nothing: the sun, no ground
+        onTerrain = terrain != nullptr && Terrain::Trace(*terrain, start, end, terrainT, normal);
+        onWmo = wmo != nullptr && Nearest(*wmo, start, end, t, group, face);
     }
+    if (onTerrain && onWmo && terrainT < t)
+        onWmo = false;
+    if (!onWmo) {
+        // The terrain links the unit outdoors, in the sun: the ground is the
+        // dominant layer's under its position (GetGroundEffect 0x0069B1C0).
+        int32_t type = -1;
+        if (onTerrain && Terrain::GroundEffect(*terrain, a.position, type))
+            a.ground = type;
+        return; // with neither, it links nothing: the sun, no ground
+    }
+    const Backdrop &b = *wmo;
+    void *object = b.object;
     // The hit group links the unit: its lights light it.
     if (group < b.groupLights.size())
         for (const MapLight &light : b.groupLights[group])
@@ -1355,20 +1393,49 @@ void Place(const Backdrop &b, Ambience &a, void *frame, void *model, const float
     a.dayWeight = weight;
 }
 
+// UpdateMapEntityEnvironment's liquid leg (0x0069E2BF..0x0069E35F), after
+// the placement: outdoors, the liquid at the actor's position, and whether
+// the LiquidType of its area for that liquid splashes. The area is the
+// terrain's under the position: the scene's WMO carries no name set, so its
+// whole-WMO WMOAreaTable row is not looked up and the terrain answers, as
+// for the world's map object without a row.
+void LiquidEnvironment(const Terrain::Land *terrain, Ambience &a, void *frame) {
+    using LiquidType_t = const uint8_t *(__fastcall *)(int32_t areaID, uint32_t type);
+    a.inLiquid = false;
+    a.splashes = false;
+    a.ripples = false;
+    uint32_t type = 0;
+    float height = 0.0f;
+    if (a.interior || !LiquidAtPoint(frame, a.position, type, height))
+        return;
+    a.inLiquid = true;
+    a.liquidHeight = height;
+    const uint32_t area = terrain != nullptr ? Terrain::AreaAt(*terrain, a.position) : 0;
+    const uint8_t *row =
+        reinterpret_cast<LiquidType_t>(Offsets::FUN_LIQUIDTYPE_FOR_AREA)(static_cast<int32_t>(area), type);
+    const uint32_t flags = row != nullptr ? Game::Read<uint32_t>(row, Offsets::OFF_LIQUIDTYPE_FLAGS) : 0;
+    a.splashes = (flags & Offsets::LIQUIDTYPE_FLAG_SPLASH) != 0;
+    a.ripples = (flags & Offsets::LIQUIDTYPE_FLAG_RIPPLES) != 0;
+}
+
 } // namespace
 
 Ambience *NewAmbience() { return new Ambience(); }
 
 void FreeAmbience(Ambience *ambience) { delete ambience; }
 
-void Settle(const Backdrop &b, Ambience &a, void *frame, void *model, float elapsed) {
-    if (Game::Read<uint8_t>(b.object, Offsets::OFF_CMAPOBJ_LOADED) == 0)
+void Settle(const Backdrop *b, const Terrain::Land *terrain, Ambience &a, void *frame, void *model, float elapsed) {
+    if ((b == nullptr && terrain == nullptr) ||
+        (b != nullptr && Game::Read<uint8_t>(b->object, Offsets::OFF_CMAPOBJ_LOADED) == 0))
         return;
     const float *base = Game::Ptr<float>(model, Offsets::OFF_M2MODEL_BASE_MATRIX);
     const float position[3] = {base[12], base[13], base[14]};
-    const bool placed = a.serial == b.serial && a.model == model;
+    const uint32_t serial = b != nullptr ? b->serial : 0;
+    const uint32_t terrainSerial = terrain != nullptr ? Terrain::Serial(*terrain) : 0;
+    const uint32_t generation = b != nullptr ? b->generation : 0;
+    const bool placed = a.model == model && a.serial == serial && a.terrainSerial == terrainSerial;
     bool moved = true;
-    if (placed && a.generation == b.generation) {
+    if (placed && a.generation == generation) {
         const float dx = position[0] - a.position[0], dy = position[1] - a.position[1],
                     dz = position[2] - a.position[2];
         moved = !(std::fabs(dx * dx + dy * dy + dz * dz) < EngineFloat(Offsets::VAR_ONE_THOUSANDTH));
@@ -1380,11 +1447,13 @@ void Settle(const Backdrop &b, Ambience &a, void *frame, void *model, float elap
         a.intensity = a.intensityTarget = EngineFloat(Offsets::VAR_ONE);
     }
     if (moved) {
-        a.serial = b.serial;
+        a.serial = serial;
+        a.terrainSerial = terrainSerial;
         a.model = model;
-        a.generation = b.generation;
+        a.generation = generation;
         std::memcpy(a.position, position, sizeof a.position);
-        Place(b, a, frame, model, base);
+        Place(b, terrain, a, frame, model, base);
+        LiquidEnvironment(terrain, a, frame);
     }
     Ease(a, frame, elapsed);
 }
@@ -1417,7 +1486,37 @@ void ActorLight(const Backdrop *b, const Ambience &a, void *frame, void *record)
         AddLight(record, light.bytes);
 }
 
-int Ground(const Backdrop *b, const Ambience &a) { return b != nullptr && a.serial == b->serial ? a.ground : -1; }
+namespace {
+
+// The ambience is the actor's placement in this WMO and terrain.
+bool Current(const Backdrop *b, const Terrain::Land *terrain, const Ambience &a) {
+    return (b != nullptr || terrain != nullptr) && a.model != nullptr && a.serial == (b != nullptr ? b->serial : 0) &&
+           a.terrainSerial == (terrain != nullptr ? Terrain::Serial(*terrain) : 0);
+}
+
+} // namespace
+
+int Ground(const Backdrop *b, const Terrain::Land *terrain, const Ambience &a) {
+    return Current(b, terrain, a) ? a.ground : -1;
+}
+
+bool RippleSurface(const Backdrop *b, const Terrain::Land *terrain, const Ambience &a, float &surface) {
+    if (!Current(b, terrain, a) || !a.inLiquid || !a.ripples)
+        return false;
+    surface = a.liquidHeight;
+    return true;
+}
+
+bool FootstepWet(const Backdrop *b, const Terrain::Land *terrain, const Ambience &a, const float (&point)[3]) {
+    if (!Current(b, terrain, a) || !a.inLiquid || !a.splashes)
+        return false;
+    // 0x0060A7A3: z under the height plus 0.01, then the height less z under
+    // 2/3 (a NaN failing both).
+    const double z = point[2];
+    if (!(static_cast<double>(a.liquidHeight) + EngineFloat(Offsets::VAR_ONE_HUNDREDTH) > z))
+        return false;
+    return static_cast<double>(a.liquidHeight) - z < EngineFloat(Offsets::VAR_TWO_THIRDS);
+}
 
 bool LiquidAt(const Backdrop &b, const float (&point)[3], uint32_t &type, float &surface) {
     using Height_t = bool(__thiscall *)(void *group, const float *point, uint32_t *type, float *height,
@@ -1531,9 +1630,12 @@ bool CollectBox(const Backdrop &b, const float (&box)[6], uint32_t mask) {
 // (the same arithmetic as its 0x007BCA80), the plane from their winding. The
 // client's own lists (0x00C4E52C) and cached box are never touched.
 
-// The facet emitter (0x00671CC0) over the batches: one facet per triangle,
-// appended to `out`.
-void EmitBatches(std::vector<Contact::Facet> &out) {
+} // namespace
+
+namespace {
+
+// Each batch triangle's vertices through the batch's matrix (0x007BCA80).
+template <typename Add> void ForEachBatchTriangle(Add add) {
     const uint32_t batches = Game::Read<uint32_t>(Offsets::VAR_FACET_BATCH_COUNT);
     for (uint32_t i = 0; i < batches; ++i) {
         const uint8_t *batch = FacetBatch(i);
@@ -1550,10 +1652,18 @@ void EmitBatches(std::vector<Contact::Facet> &out) {
                 const float in[3] = {p[0], p[1], p[2]};
                 TransformPoint(in, *m, v[c]);
             }
-            out.push_back(Contact::MakeFacet(v[0], v[1], v[2]));
+            add(v);
         }
     }
 }
+
+} // namespace
+
+void EmitFacetBatches(std::vector<Contact::Facet> &out) {
+    ForEachBatchTriangle([&](const float (&v)[3][3]) { out.push_back(Contact::MakeFacet(v[0], v[1], v[2])); });
+}
+
+namespace {
 
 // Whether two boxes touch, closed, a NaN missing (0x006ACB40 and 0x00699330,
 // the doodad gather's own test at 0x006ABCEE).
@@ -1642,9 +1752,9 @@ bool QueryFacetsIn(Backdrop &b, const float (&box)[6], std::vector<Contact::Face
     TransformBox(b.placement, bounds, placed);
     if (!Touches(placed, box))
         return true;
-    ResetFacets();
+    ResetFacetBatches();
     if (CollectBox(b, box, Offsets::WORLD_TRACE_CLASS_LOS))
-        EmitBatches(out);
+        EmitFacetBatches(out);
     const uint32_t count = Game::Read<uint32_t>(object, Offsets::OFF_CMAPOBJ_GROUP_COUNT);
     for (uint32_t g = 0; g < count; ++g) {
         const uint8_t *info = reinterpret_cast<Info_t>(Offsets::FUN_CMAPOBJ_GET_GROUP_INFO)(object, g);
@@ -1701,11 +1811,11 @@ bool QueryLiquidIn(const Backdrop &b, const float (&box)[6], std::vector<Contact
         void *group = LoadedGroup(b.object, g);
         if (group == nullptr)
             continue;
-        ResetFacets();
+        ResetFacetBatches();
         uint32_t flags = 0;
         reinterpret_cast<CollectLiquid_t>(Offsets::FUN_CMAPOBJGROUP_COLLECT_LIQUID_BOX)(
             group, &flags, local, b.def, Offsets::WORLD_CLASS_SWIM_LIQUID);
-        EmitBatches(out);
+        EmitFacetBatches(out);
     }
     return true;
 }
@@ -1728,38 +1838,6 @@ bool QueryLiquidFacets(void *backdrop, const float (&box)[6], std::vector<Contac
     return QueryLiquidIn(*static_cast<const Backdrop *>(backdrop), box, out);
 }
 
-bool Sweep(const Backdrop &b, const float (&feet)[3], float radius, float height, const float (&move)[3],
-           float (&end)[3], float (&normal)[3]) {
-    std::copy(std::begin(feet), std::end(feet), std::begin(end));
-    normal[0] = normal[1] = normal[2] = 0.0f;
-    if (Game::Read<uint8_t>(b.object, Offsets::OFF_CMAPOBJ_LOADED) == 0 || !(radius > 0.0f) || !(height > 0.0f))
-        return false;
-    // The move as the substep loop (0x00634040) hands it on: its length at
-    // 53 bits, the unit direction by the reciprocal, none below 2^-20.
-    const double length = std::sqrt((static_cast<double>(move[0]) * move[0] + static_cast<double>(move[1]) * move[1]) +
-                                    static_cast<double>(move[2]) * move[2]);
-    float dir[3] = {0.0f, 0.0f, 0.0f};
-    if (!(length < 9.5367431640625e-7)) {
-        const double inverse = 1.0 / length;
-        for (int k = 0; k < 3; ++k)
-            dir[k] = static_cast<float>(move[k] * inverse);
-    }
-    // The facets start empty over the volume's own box, as the substep's
-    // query frame (0x00633840) leaves its cache; the sweep's gather then
-    // takes that box joined with the end of the move.
-    Contact::Facets facets{{}, {}, {}, &QueryFacets, &QueryLiquidFacets, const_cast<Backdrop *>(&b)};
-    Contact::BaseBox(feet, radius, height, facets.box);
-    Contact::Contact contact;
-    if (!Contact::Sweep(facets, false, false, feet, radius, height, dir, static_cast<float>(length), contact))
-        return false;
-    for (int k = 0; k < 3; ++k)
-        end[k] = static_cast<float>(feet[k] + static_cast<double>(dir[k]) * contact.distance);
-    if (contact.hit >= facets.solid.size())
-        return false;
-    std::copy(std::begin(facets.solid[contact.hit].plane.n), std::end(facets.solid[contact.hit].plane.n),
-              std::begin(normal));
-    return true;
-}
 
 namespace {
 
@@ -1817,7 +1895,7 @@ void DrawFacetBatches(uint32_t color, int lighting, const float (&eye)[3]) {
     Matrix toEye;
     Identity(toEye);
     Translate(toEye, {-eye[0], -eye[1], -eye[2]});
-    Gx::PushTransform(kWorldStack);
+    Gx::PushTransform(Offsets::GX_XFORM_WORLD);
     const uint32_t count = Game::Read<uint32_t>(Offsets::VAR_FACET_BATCH_COUNT);
     for (uint32_t i = 0; i < count; ++i) {
         const uint8_t *batch = FacetBatch(i);
@@ -1829,7 +1907,7 @@ void DrawFacetBatches(uint32_t color, int lighting, const float (&eye)[3]) {
             continue;
         Matrix world;
         Multiply(world, *reinterpret_cast<const Matrix *>(matrix), toEye);
-        Gx::SetTransform(kWorldStack, world);
+        Gx::SetTransform(Offsets::GX_XFORM_WORLD, world);
         if (lighting == 1)
             reinterpret_cast<WriteColored_t>(Offsets::FUN_WRITE_DECAL_VERTICES_COLOURED)(batch);
         else
@@ -1838,14 +1916,38 @@ void DrawFacetBatches(uint32_t color, int lighting, const float (&eye)[3]) {
         const Prim prim{Offsets::GX_PRIM_TRIANGLES, 0, indices, 0, static_cast<uint16_t>(indices - 1), 0};
         reinterpret_cast<Render_t>(Offsets::FUN_GX_PRIM_RENDER_ONE)(&prim, 1);
     }
-    Gx::PopTransform(kWorldStack);
+    Gx::PopTransform(Offsets::GX_XFORM_WORLD);
 }
 
-// DrawDecalBatches (0x006D7480) over the WMO's facets, the eye for the
-// world camera.
-void DrawBatches(const Backdrop &b, const float (&box)[6], uint32_t argb, uint32_t mask, const float (&eye)[3]) {
-    ResetFacets();
-    if (!CollectBox(b, box, mask))
+} // namespace
+
+void LiquidTriangles(const Backdrop *b, const Terrain::Land *terrain, const float (&box)[6], std::vector<float> &out) {
+    // EmitRipple (0x0068F6E1): the batches reset, TestWorldBox with the
+    // liquid classes, then each batch's triangles.
+    ResetFacetBatches();
+    bool any = b != nullptr && CollectBox(*b, box, Offsets::LIQUID_TRIANGLE_CLASS);
+    if (terrain != nullptr)
+        any = Terrain::CollectDecalBatches(*terrain, box, Offsets::LIQUID_TRIANGLE_CLASS) || any;
+    if (!any)
+        return;
+    ForEachBatchTriangle([&](const float (&v)[3][3]) {
+        for (const auto &p : v)
+            out.insert(out.end(), p, p + 3);
+    });
+}
+
+namespace {
+
+// DrawDecalBatches (0x006D7480) over the facets of the WMO and the terrain,
+// as TestWorldBox (0x006AD2C0) collects map objects then terrain, the eye for
+// the world camera.
+void DrawBatches(const Backdrop *b, const Terrain::Land *terrain, const float (&box)[6], uint32_t argb,
+                 uint32_t mask, const float (&eye)[3]) {
+    ResetFacetBatches();
+    bool any = b != nullptr && CollectBox(*b, box, mask);
+    if (terrain != nullptr && (mask & Offsets::DECAL_MASK_TERRAIN) != 0)
+        any = Terrain::CollectDecalBatches(*terrain, box, mask) || any;
+    if (!any)
         return;
     WithDecalStates(argb, [&](uint32_t color, int lighting) { DrawFacetBatches(color, lighting, eye); });
 }
@@ -1872,12 +1974,14 @@ void WithDecalTransforms(const float (&box)[6], const float (&m)[16], float fade
 
 } // namespace
 
-// DrawDecal (0x006D7330) onto the WMO.
-void DrawDecal(const Backdrop &b, const float (&box)[6], uint32_t argb, const float (&m)[16], float fade,
-               uint32_t mask, const float (&eye)[3]) {
-    if (Game::Read<uint8_t>(b.object, Offsets::OFF_CMAPOBJ_LOADED) == 0)
+// DrawDecal (0x006D7330) onto the WMO and the terrain.
+void DrawDecal(const Backdrop *b, const Terrain::Land *terrain, const float (&box)[6], uint32_t argb,
+               const float (&m)[16], float fade, uint32_t mask, const float (&eye)[3]) {
+    if (b != nullptr && Game::Read<uint8_t>(b->object, Offsets::OFF_CMAPOBJ_LOADED) == 0)
+        b = nullptr;
+    if (b == nullptr && terrain == nullptr)
         return;
-    WithDecalTransforms(box, m, fade, eye, [&] { DrawBatches(b, box, argb, mask, eye); });
+    WithDecalTransforms(box, m, fade, eye, [&] { DrawBatches(b, terrain, box, argb, mask, eye); });
 }
 
 // The flat ground stands in for the world's faces: one quad over the box at
@@ -1935,8 +2039,10 @@ void Update(Backdrop &b, void *frame, bool sounds, float elapsed) {
     if (!b.sounds)
         Silence(b);
     void *object = b.object;
-    if (Game::Read<uint8_t>(object, Offsets::OFF_CMAPOBJ_LOADED) == 0)
+    if (Game::Read<uint8_t>(object, Offsets::OFF_CMAPOBJ_LOADED) == 0) {
+        b.cameraLiquid = OutdoorCameraLiquid(frame);
         return;
+    }
     UpdateCameraFog(b, frame, view.eye, view.farClip, elapsed);
     const uint32_t count = Game::Read<uint32_t>(object, Offsets::OFF_CMAPOBJ_GROUP_COUNT);
     if (b.groupsMade.empty()) {
@@ -1954,28 +2060,10 @@ void Update(Backdrop &b, void *frame, bool sounds, float elapsed) {
         MakeGroupDoodads(b, frame, i, group);
         b.groupsMade[i] = true;
     }
-    // The animate list empties at each paint (as for the actors' models), and
-    // the world shows each doodad it draws again each frame, faded by distance
-    // (DrawDoodadModels, 0x00683F80).
-    for (const auto &d : b.doodads) {
-        // A def's bounds are set once its model file has loaded (0x00698C50).
-        if (d->model != nullptr && !d->bounded && M2::IsLoaded(d->model, 0, 0))
-            Bound(*d);
-        if (d->model != nullptr && d->bounded && M2::IsReady(d->model, 0, 1)) {
-            const float alpha = FadeAlpha(*d, view.eye, view.farClip);
-            const bool shown = alpha > 0.0f;
-            M2::SetVisible(d->model, shown);
-            if (shown) {
-                M2::SetAnimated(d->model, true);
-                M2::SetAlpha(d->model, alpha);
-            }
-        }
-        if (d->sound != 0)
-            MoveSound(*d);
-    }
+    ShowDoodads(b.doodads, view);
 }
 
-void Draw(Backdrop &b, void *frame, const float (&eye)[3]) {
+void Draw(Backdrop &b, void *frame, const float (&eye)[3], const ViewVolume &volume) {
     void *object = b.object;
     if (Game::Read<uint8_t>(object, Offsets::OFF_CMAPOBJ_LOADED) == 0)
         return;
@@ -1987,22 +2075,12 @@ void Draw(Backdrop &b, void *frame, const float (&eye)[3]) {
     }
     if (!any)
         return;
-    alignas(16) uint8_t volume[Offsets::FRUSTUM_VOLUME_SIZE] = {};
-    BuildViewVolume(volume, eye);
-    // The camera's probe z (0x006809E2): a near corner at or below the
-    // lowest so far, or NaN, replaces it.
-    const auto *corners = reinterpret_cast<const float *>(volume + Offsets::OFF_FRUSTUM_VOLUME_CORNERS);
-    float lowest = eye[2];
-    for (int i = 0; i < 4; ++i)
-        if (!(corners[i * 3 + 2] > lowest))
-            lowest = corners[i * 3 + 2];
-    b.probeDrop = eye[2] - lowest;
     // The render states a pass of the WMO sets (CommitLighting's fog range)
     // last until it ends.
     const Gx::SavedStates states;
     PushObjectSpace(b, eye);
     reinterpret_cast<Fn_t>(Offsets::FUN_FRUSTUM_PUSH)();
-    reinterpret_cast<void(__thiscall *)(void *)>(Offsets::FUN_FRUSTUM_STORE)(volume);
+    reinterpret_cast<void(__thiscall *)(const void *)>(Offsets::FUN_FRUSTUM_STORE)(volume.bytes);
     reinterpret_cast<void(__fastcall *)(const float *)>(Offsets::FUN_FRUSTUM_TRANSFORM)(b.inverse);
     CommitLighting(b, frame, eye);
     DrawGroups(b, frame);
@@ -2010,7 +2088,9 @@ void Draw(Backdrop &b, void *frame, const float (&eye)[3]) {
     PopObjectSpace();
 }
 
-bool CameraWet(const Backdrop &b) { return b.cameraLiquid != Offsets::LIQUID_DRY; }
+uint32_t CameraLiquid(const Backdrop &b) { return b.cameraLiquid; }
+
+uint32_t MapOf(const Backdrop &b) { return b.mapID; }
 
 namespace {
 
@@ -2032,10 +2112,10 @@ void Gather(int h, Record &out, const uint8_t *params) {
 // backdrop's map at the scene's camera, as the world builds its table at its
 // camera: the time of day is the world's; the storm blend, which follows the
 // weather where the player is, is left out. False when the map has no light.
-bool BuildMapLight(const Backdrop &b, const float (&eye)[3], Record &table) {
+bool BuildMapLight(uint32_t mapID, uint32_t cameraLiquid, const float (&eye)[3], Record &table) {
     const float day = EngineFloat(Offsets::VAR_LIGHT_TIME_OF_DAY) * EngineFloat(Offsets::VAR_HALF_MINUTES_PER_DAY);
     const int h = static_cast<int>(std::lrint(static_cast<double>(day) - EngineFloat(Offsets::VAR_DAY_NIGHT_HALF)));
-    const uint32_t liquid = b.cameraLiquid == Offsets::LIQUID_DRY ? b.cameraLiquid : (b.cameraLiquid & 3);
+    const uint32_t liquid = cameraLiquid == Offsets::LIQUID_DRY ? cameraLiquid : (cameraLiquid & 3);
     if (liquid == Offsets::LIQUID_MAGMA || liquid == Offsets::LIQUID_SLIME) {
         const int id = liquid == Offsets::LIQUID_MAGMA ? Offsets::LIGHTPARAMS_MAGMA : Offsets::LIGHTPARAMS_SLIME;
         if (Game::Read<int32_t>(Offsets::VAR_LIGHTPARAMS_LARGEST_ID) < id)
@@ -2055,7 +2135,7 @@ bool BuildMapLight(const Backdrop &b, const float (&eye)[3], Record &table) {
     std::vector<const uint8_t *> area;
     for (uint32_t i = 0; i < count; ++i) {
         const uint8_t *row = rows + i * Offsets::LIGHT_ROW_SIZE;
-        if (Game::Read<uint32_t>(row, Offsets::OFF_LIGHT_MAP) != b.mapID)
+        if (Game::Read<uint32_t>(row, Offsets::OFF_LIGHT_MAP) != mapID)
             continue;
         const float *p = Game::Ptr<float>(row, Offsets::OFF_LIGHT_POSITION);
         if (p[0] == 0.0f && p[1] == 0.0f && p[2] == 0.0f)
@@ -2094,39 +2174,68 @@ bool BuildMapLight(const Backdrop &b, const float (&eye)[3], Record &table) {
     return true;
 }
 
-// The water fields of the world's light table, the backdrop map's while its
-// liquids draw, then the world's again.
-class MapWaterLight {
-  public:
-    MapWaterLight(const Backdrop &b, const float (&eye)[3]) {
-        Record table;
-        if (b.mapID == kNoMap || !BuildMapLight(b, eye, table))
-            return;
-        for (size_t i = 0; i < std::size(kFields); ++i) {
-            std::memcpy(&saved_[i], Live() + kFields[i], sizeof saved_[i]);
-            std::memcpy(Live() + kFields[i], table + kFields[i], sizeof saved_[i]);
-        }
-        swapped_ = true;
-    }
-    ~MapWaterLight() {
-        if (!swapped_)
-            return;
-        for (size_t i = 0; i < std::size(kFields); ++i)
-            std::memcpy(Live() + kFields[i], &saved_[i], sizeof saved_[i]);
-    }
-    MapWaterLight(const MapWaterLight &) = delete;
-    MapWaterLight &operator=(const MapWaterLight &) = delete;
-
-  private:
-    static constexpr uintptr_t kFields[] = {Offsets::OFF_LIGHT_RECORD_DEEP_RIVER,
-                                            Offsets::OFF_LIGHT_RECORD_RIVER_ALPHA_SHALLOW,
-                                            Offsets::OFF_LIGHT_RECORD_RIVER_ALPHA_DEEP};
-    static uint8_t *Live() { return reinterpret_cast<uint8_t *>(static_cast<uintptr_t>(Offsets::VAR_LIGHT_TABLE)); }
-    uint32_t saved_[std::size(kFields)] = {};
-    bool swapped_ = false;
-};
+// BuildSceneFog (0x006CEE30) over map `mapID`'s light table for the camera's
+// liquid: the end capped at the far clip (a NaN takes it), the start the
+// scale of it, colour band 7. False while dry, for kNoMap or a map without
+// a light.
+bool MapLiquidFog(uint32_t mapID, uint32_t cameraLiquid, const float (&eye)[3], float farClip, FogValues &out) {
+    Record table;
+    if (cameraLiquid == Offsets::LIQUID_DRY || mapID == kNoMap || !BuildMapLight(mapID, cameraLiquid, eye, table))
+        return false;
+    out.end = Game::Read<float>(table, Offsets::OFF_LIGHT_RECORD_FOG_END);
+    if (!(out.end < farClip))
+        out.end = farClip;
+    out.start = Game::Read<float>(table, Offsets::OFF_LIGHT_RECORD_FOG_START_SCALE) * out.end;
+    out.color = Game::Read<uint32_t>(table, Offsets::OFF_LIGHT_RECORD_FOG_COLOR);
+    return true;
+}
 
 } // namespace
+
+namespace {
+constexpr uintptr_t kWaterFields[] = {
+    Offsets::OFF_LIGHT_RECORD_SHALLOW_OCEAN,      Offsets::OFF_LIGHT_RECORD_DEEP_OCEAN,
+    Offsets::OFF_LIGHT_RECORD_SHALLOW_RIVER,      Offsets::OFF_LIGHT_RECORD_DEEP_RIVER,
+    Offsets::OFF_LIGHT_RECORD_RIVER_ALPHA_SHALLOW, Offsets::OFF_LIGHT_RECORD_RIVER_ALPHA_DEEP,
+    Offsets::OFF_LIGHT_RECORD_OCEAN_ALPHA_SHALLOW, Offsets::OFF_LIGHT_RECORD_OCEAN_ALPHA_DEEP};
+static_assert(std::size(kWaterFields) == MapWater::kFields, "one saved word per water field");
+uint8_t *LiveLightTable() { return reinterpret_cast<uint8_t *>(static_cast<uintptr_t>(Offsets::VAR_LIGHT_TABLE)); }
+} // namespace
+
+MapWater::MapWater(uint32_t mapID, uint32_t cameraLiquid, const float (&eye)[3]) {
+    Record table;
+    if (mapID == kNoMap || !BuildMapLight(mapID, cameraLiquid, eye, table))
+        return;
+    for (size_t i = 0; i < std::size(kWaterFields); ++i) {
+        std::memcpy(&saved_[i], LiveLightTable() + kWaterFields[i], sizeof saved_[i]);
+        std::memcpy(LiveLightTable() + kWaterFields[i], table + kWaterFields[i], sizeof saved_[i]);
+    }
+    swapped_ = true;
+}
+
+MapWater::~MapWater() {
+    if (!swapped_)
+        return;
+    for (size_t i = 0; i < std::size(kWaterFields); ++i)
+        std::memcpy(LiveLightTable() + kWaterFields[i], &saved_[i], sizeof saved_[i]);
+}
+
+LiquidFog::LiquidFog(void *frame, uint32_t mapID, uint32_t cameraLiquid, const float (&eye)[3], float farClip) {
+    FogValues fog;
+    if (!MapLiquidFog(mapID, cameraLiquid, eye, farClip, fog))
+        return;
+    std::memcpy(saved_, Game::Ptr<uint8_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_FLAGS), sizeof saved_);
+    frame_ = frame;
+    Game::Ref<uint32_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_FLAGS) |= Offsets::SIMPLEMODEL_FOG_ARMED;
+    Game::Ref<uint32_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_COLOR) = fog.color;
+    Game::Ref<float>(frame, Offsets::OFF_SIMPLEMODEL_FOG_NEAR) = fog.start;
+    Game::Ref<float>(frame, Offsets::OFF_SIMPLEMODEL_FOG_FAR) = fog.end;
+}
+
+LiquidFog::~LiquidFog() {
+    if (frame_ != nullptr)
+        std::memcpy(Game::Ptr<uint8_t>(frame_, Offsets::OFF_SIMPLEMODEL_FOG_FLAGS), saved_, sizeof saved_);
+}
 
 // DrawGroupLiquidPass (0x00684CD0) over the one WMO's parsed liquid groups.
 // The world commits a record per group at the group def's sphere; here the
@@ -2152,7 +2261,7 @@ void DrawLiquids(Backdrop &b, void *frame, const float (&eye)[3]) {
     if (liquids.empty())
         return;
     // Outdoor water takes the light of the backdrop's map at the camera.
-    const MapWaterLight mapLight(b, eye);
+    const MapWater mapLight(b.mapID, b.cameraLiquid, eye);
     const Gx::SavedStates states;
     reinterpret_cast<Fn_t>(Offsets::FUN_MAPOBJ_BUILD_LIQUID_DEPTH_RAMP)();
     uint32_t &fogFlag = Game::Ref<uint32_t>(Offsets::VAR_MAPOBJ_GROUP_FOG_FLAG);
@@ -2313,7 +2422,7 @@ struct PortalSky {
 // callback and the liquid state, so it is not run.
 constexpr size_t kCornerBytes = 8 * 3 * sizeof(float); // the frustum's eight corners
 
-PortalSky WalkFromCamera(const Backdrop &b, const float (&eye)[3]) {
+PortalSky WalkFromCamera(const Backdrop &b, const float (&eye)[3], const ViewVolume &volume) {
     using Walk_t = void(__thiscall *)(void *object, uint32_t group, uint32_t from, const float *rect, uint32_t depth,
                                       void *interior);
     using Culled_t = uint32_t(__fastcall *)(const float *box, const float *basis, const float *position);
@@ -2340,14 +2449,12 @@ PortalSky WalkFromCamera(const Backdrop &b, const float (&eye)[3]) {
         {Offsets::VAR_PORTAL_WINDOW_COUNT, sizeof(uint32_t)},
         {Offsets::VAR_PORTAL_WINDOWS, Offsets::PORTAL_WINDOW_SLOTS * Offsets::PORTAL_WINDOW_SIZE},
     };
-    alignas(16) uint8_t volume[Offsets::FRUSTUM_VOLUME_SIZE] = {};
-    BuildViewVolume(volume, eye);
     const auto *corners = reinterpret_cast<const float *>(static_cast<uintptr_t>(Offsets::VAR_CAMERA_CORNER_RAYS));
-    std::memcpy(const_cast<float *>(corners), volume + Offsets::OFF_FRUSTUM_VOLUME_CORNERS, kCornerBytes);
+    std::memcpy(const_cast<float *>(corners), volume.bytes + Offsets::OFF_FRUSTUM_VOLUME_CORNERS, kCornerBytes);
     PushObjectSpace(b, eye);
     Matrix device, slot, toClip;
     reinterpret_cast<GetMatrix_t>(Offsets::FUN_GX_GET_VIEW_PROJECTION)(device);
-    reinterpret_cast<GetXform_t>(Offsets::FUN_GX_XFORM_GET)(kWorldStack, slot);
+    reinterpret_cast<GetXform_t>(Offsets::FUN_GX_XFORM_GET)(Offsets::GX_XFORM_WORLD, slot);
     Multiply(toClip, slot, device);
     std::memcpy(reinterpret_cast<void *>(static_cast<uintptr_t>(Offsets::VAR_PORTAL_OBJECT_TO_CLIP)), toClip,
                 sizeof toClip);
@@ -2413,7 +2520,10 @@ PortalSky WalkFromCamera(const Backdrop &b, const float (&eye)[3]) {
     return found;
 }
 
-void DrawSkyPass(const Backdrop &b, const float (&eye)[3], const float (&forward)[3], const char *skybox) {
+// `mapID` and `cameraLiquid` pick the light; `skybox`, at `skyboxWeight`, is
+// a portal walk's.
+void DrawSkyPass(uint32_t mapID, uint32_t cameraLiquid, const float (&eye)[3], const float (&forward)[3],
+                 const char *skybox, float skyboxWeight) {
     uint8_t *state = LightState();
     if (Game::Read<uint32_t>(state, Offsets::OFF_LIGHT_STATE_SKY_ON) == 0 || SkyObjects::DomeColours() == nullptr)
         return;
@@ -2422,7 +2532,7 @@ void DrawSkyPass(const Backdrop &b, const float (&eye)[3], const float (&forward
     // light with no screen tint (the player's) and no override; else the
     // world's light and its override.
     Record table;
-    const bool own = b.mapID != kNoMap && BuildMapLight(b, eye, table);
+    const bool own = mapID != kNoMap && BuildMapLight(mapID, cameraLiquid, eye, table);
     const uintptr_t from = own ? Offsets::OFF_LIGHT_STATE_OVERRIDE_SKYBOX : Offsets::OFF_LIGHT_STATE_SKYBOXES;
     std::memset(state + from, 0, Offsets::OFF_LIGHT_STATE_SKYBOX_WEIGHTS + Offsets::LIGHT_SKYBOX_SLOTS * 4 - from);
     if (own) {
@@ -2439,7 +2549,7 @@ void DrawSkyPass(const Backdrop &b, const float (&eye)[3], const float (&forward
     if (skybox != nullptr) {
         using SetSlot_t = void(__fastcall *)(int slot, const char *path, float weight);
         const auto setSlot = reinterpret_cast<SetSlot_t>(Offsets::FUN_SET_SKYBOX_SLOT);
-        setSlot(0, skybox, b.fog.weight);
+        setSlot(0, skybox, skyboxWeight);
         setSlot(1, nullptr, 0.0f);
     }
     Game::Ref<float>(state, Offsets::OFF_LIGHT_STATE_HEADING) = Heading(forward);
@@ -2447,15 +2557,15 @@ void DrawSkyPass(const Backdrop &b, const float (&eye)[3], const float (&forward
     const Gx::SavedStates states;
     Matrix identity;
     Identity(identity);
-    Gx::PushTransform(kWorldStack, identity);
+    Gx::PushTransform(Offsets::GX_XFORM_WORLD, identity);
     reinterpret_cast<Fn_t>(Offsets::FUN_DRAW_SKY)();
-    Gx::PopTransform(kWorldStack);
+    Gx::PopTransform(Offsets::GX_XFORM_WORLD);
 }
 
 } // namespace
 
-void ClearAndDrawSky(const Backdrop &b, void *frame, const float (&eye)[3]) {
-    const PortalSky walked = WalkFromCamera(b, eye);
+void ClearAndDrawSky(const Backdrop &b, void *frame, const float (&eye)[3], const ViewVolume &volume) {
+    const PortalSky walked = WalkFromCamera(b, eye, volume);
     const bool dry = b.cameraLiquid == Offsets::LIQUID_DRY;
     const uint32_t colour = !walked.weather ? DrawnFog(b, frame).color : dry ? 0u : ZoneFog(b, frame).color;
     const uint32_t saved = Gx::GetClearColor();
@@ -2463,7 +2573,104 @@ void ClearAndDrawSky(const Backdrop &b, void *frame, const float (&eye)[3]) {
     Gx::Clear(3);
     Gx::SetClearColor(saved);
     if (walked.weather && dry)
-        DrawSkyPass(b, eye, CameraView(frame).forward, walked.skybox);
+        DrawSkyPass(b.mapID, b.cameraLiquid, eye, CameraView(frame).forward, walked.skybox, b.fog.weight);
+}
+
+void ClearAndDrawOpenSky(void *frame, uint32_t mapID, uint32_t cameraLiquid, const float (&eye)[3]) {
+    // DrawWorldScene (0x0068123F): the clear colour black when dry, else the
+    // fog's (+0x70; the frame's, the zone's under the liquid); the sky only
+    // when dry.
+    const bool dry = cameraLiquid == Offsets::LIQUID_DRY;
+    const uint32_t saved = Gx::GetClearColor();
+    Gx::SetClearColor(dry ? 0u : Game::Read<uint32_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_COLOR));
+    Gx::Clear(3);
+    Gx::SetClearColor(saved);
+    if (dry)
+        DrawSkyPass(mapID, cameraLiquid, eye, CameraView(frame).forward, nullptr, 0.0f);
+}
+
+// ---- props: a map's own doodads (the terrain's MDDF) ---------------------------------
+
+struct Props {
+    std::vector<std::unique_ptr<Doodad>> doodads;
+    bool sounds = false; // SetPlayWorldModelSounds, in the world
+    uint32_t queryId = 0;
+};
+
+Props *NewProps() { return new Props(); }
+
+void FreeProps(Props *props) {
+    if (props == nullptr)
+        return;
+    for (const auto &d : props->doodads)
+        ReleaseDoodad(*d);
+    delete props;
+}
+
+uint32_t AddProp(Props &props, void *frame, const char *path, const uint8_t *entry) {
+    // PlaceDoodadDef (0x00694BC0): the position from the map's corner, the
+    // scale word over 1024, the angles in degrees (z a half turn more), each
+    // rounded where the client stores it.
+    using D = double;
+    auto owned = std::make_unique<Doodad>();
+    Doodad &d = *owned;
+    d.backdrop = nullptr;
+    d.sounds = &props.sounds;
+    d.frame = frame;
+    d.exterior = true; // LoadReferences' flag 4: outdoors, the sun
+    float raw[3], angles[3];
+    std::memcpy(raw, entry + Offsets::OFF_MDDF_POSITION, sizeof raw);
+    std::memcpy(angles, entry + Offsets::OFF_MDDF_ROTATION, sizeof angles);
+    const float origin = EngineFloat(Offsets::VAR_MAP_ORIGIN);
+    d.position[0] = static_cast<float>(D(-raw[2]) + origin);
+    d.position[1] = static_cast<float>(D(origin) + -raw[0]);
+    d.position[2] = raw[1];
+    const uint16_t scale = Game::Read<uint16_t>(entry, Offsets::OFF_MDDF_SCALE);
+    d.scale = static_cast<float>(D(scale) * EngineFloat(Offsets::VAR_ONE_OVER_1024));
+    const float k = EngineFloat(Offsets::VAR_DEGREES_TO_RADIANS);
+    const float aboutX = static_cast<float>(D(angles[2]) * k);
+    const float aboutY = static_cast<float>(D(angles[0]) * k);
+    const float aboutZ = static_cast<float>(D(angles[1]) * k + EngineFloat(Offsets::VAR_PI));
+    Matrix m;
+    Identity(m);
+    Translate(m, d.position);
+    Rotate(m, aboutZ, {0.0f, 0.0f, 1.0f});
+    Rotate(m, aboutY, {0.0f, 1.0f, 0.0f});
+    Rotate(m, aboutX, {1.0f, 0.0f, 0.0f});
+    Gx::Scale(m, d.scale);
+    std::memcpy(d.matrix, m, sizeof d.matrix);
+    MakeModel(d, path, m);
+    props.doodads.push_back(std::move(owned));
+    return static_cast<uint32_t>(props.doodads.size() - 1);
+}
+
+void UpdateProps(Props &props, void *frame, bool sounds) {
+    props.sounds = sounds && Game::Read<uint8_t>(Offsets::VAR_IN_WORLD) != 0;
+    if (!props.sounds)
+        SilenceProps(props);
+    ShowDoodads(props.doodads, CameraView(frame));
+}
+
+void SilenceProps(Props &props) {
+    for (const auto &d : props.doodads)
+        DropSound(*d);
+}
+
+void BeginPropQuery(Props &props) { ++props.queryId; }
+
+bool AddPropFacets(Props &props, uint32_t prop, const float (&box)[6], std::vector<Contact::Facet> &out) {
+    // GatherDoodadFacets' rules (0x006ABC40), as for a WMO group's doodads.
+    if (prop >= props.doodads.size())
+        return true;
+    Doodad &d = *props.doodads[prop];
+    if (d.stamp == props.queryId || d.model == nullptr)
+        return true;
+    if (!d.bounded)
+        return false;
+    if (Touches(d.collision, box))
+        AddDoodadFacets(d, box, out);
+    d.stamp = props.queryId;
+    return true;
 }
 
 } // namespace Model::Scene::World

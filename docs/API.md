@@ -847,6 +847,8 @@ build instructions.
   - [`scene:SetWorldModel(path [, x, y, z [, yaw [, doodadSet [, mapID]]]])`](#scenesetworldmodelpath--x-y-z--yaw--doodadset--mapid)
   - [`scene:SetWorldModelByMapID(mapID)`](#scenesetworldmodelbymapidmapid)
   - [`scene:ClearWorldModel()`](#sceneclearworldmodel)
+  - [`scene:SetWorldTerrain(mapID, x, y [, radius])`](#scenesetworldterrainmapid-x-y--radius)
+  - [`scene:ClearWorldTerrain()`](#sceneclearworldterrain)
   - [`scene:SetPlayWorldModelSounds(enabled)` / `scene:GetPlayWorldModelSounds()`](#scenesetplayworldmodelsoundsenabled--scenegetplayworldmodelsounds)
   - [`scene:TraceSegment(startX, startY, startZ, endX, endY, endZ [, camera])`](#scenetracesegmentstartx-starty-startz-endx-endy-endz--camera)
   - [`scene:GetLiquidAtPoint(x, y, z)`](#scenegetliquidatpointx-y-z)
@@ -19423,11 +19425,13 @@ the sounds of their footsteps and death thuds (see
 | `9` | Dusty grass |
 
 Without `terrainTypeID`, an actor stands on the floor of the WMO of the scene
-([`scene:SetWorldModel`](#scenesetworldmodelpath--x-y-z--yaw--doodadset--mapid)).
-The material of the floor under the actor selects the sounds, as in the
-world. An actor with no floor of a WMO under it makes no footsteps and no
-death thuds. This is the default. A ground that you set replaces the floor of
-the WMO for all actors. `scene:GetGroundTerrain()` returns the ID that you
+([`scene:SetWorldModel`](#scenesetworldmodelpath--x-y-z--yaw--doodadset--mapid))
+or on its ground
+([`scene:SetWorldTerrain`](#scenesetworldterrainmapid-x-y--radius)),
+whichever is nearer under it, as in the world. The material of the WMO floor,
+or the main texture of the ground at that point, selects the sounds. An actor
+with no floor and no ground under it makes no footsteps and no death thuds.
+This is the default. A ground that you set replaces both for all actors. `scene:GetGroundTerrain()` returns the ID that you
 set, or nothing. This is a ClassicAPI extension.
 
 ### `scene:SetWorldModel(path [, x, y, z [, yaw [, doodadSet [, mapID]]]])`
@@ -19455,8 +19459,11 @@ The scene shows the WMO as the world shows it:
 - If the scene has no fog, the fog of the WMO comes in from the far clip of
   the camera.
 - When the camera goes into the water of the WMO, the fog becomes the
-  underwater fog of the WMO. In lava or slime, the fog becomes the fog of
-  the scene, unless the WMO has a fog for that liquid.
+  underwater fog of the WMO. Small motes drift in the liquid around the
+  camera, with the `waterParticulates` setting. In lava or slime, the fog becomes the fog of
+  the map for that liquid, unless the WMO has a fog for that liquid.
+  Without `mapID`, the fog of the scene takes the place of the fog of the
+  map.
 - The WMO shows its props, for example torches, furniture and bones. The
   props of doodad set `0` always show. `doodadSet` adds the props of one
   more set. The props animate, and the lights of the WMO light them.
@@ -19533,6 +19540,62 @@ onyxia:SetPosition(0.7, -211.97, -86.08) -- her place in the lair
 
 Removes the WMO of the scene and its props. This is a ClassicAPI extension.
 
+### `scene:SetWorldTerrain(mapID, x, y [, radius])`
+
+Shows the ground of a map around a point and returns `true`. `mapID` is a
+row of `Map.dbc`, for example `0` for Eastern Kingdoms. `x` and `y` are a
+position on that map, so the positions in the scene are the positions on
+the map. The scene shows each part of the ground that is less than
+`radius` yards from the point. The default radius is 533.33 yards, the
+width of one map tile.
+
+The ground looks as it does in the world: the same textures, the same
+shadows and the same level of detail. The light of the scene stands in for
+the sun, and the fog of the scene stands in for the fog of the zone. In a
+scene without a WMO, the sky of the map shows behind the ground: its
+colors, the sun and the moons, the stars, the clouds and the skybox, in the
+light of the map at the camera and at the time of day of the world. The
+sky hides the background of the scene. A WMO from
+[`scene:SetWorldModel`](#scenesetworldmodelpath--x-y-z--yaw--doodadset--mapid)
+stands on the ground when you give it its position on the same map.
+
+The function returns `false` and shows no ground when the map has no
+ground within the radius. A new call replaces the ground of the scene.
+
+Actors stand, walk and fall on the ground as on the floor of a WMO (see
+[`actor:SetMovementEnabled`](#actorsetmovementenabledenabled--actorismovementenabled)),
+and
+[`scene:TraceSegment`](#scenetracesegmentstartx-starty-startz-endx-endy-endz--camera)
+and
+[`scene:SweepCollider`](#scenesweepcolliderfeetx-feety-feetz-radius-height-movex-movey-movez)
+find it. Past the radius there is no ground.
+
+The props of the map on that ground, for example trees, plants and rocks,
+show as in the world. They fade with distance, and actors collide with them.
+They play their sounds when
+[`scene:SetPlayWorldModelSounds`](#scenesetplayworldmodelsoundsenabled--scenegetplayworldmodelsounds)
+is on. Near the camera, the ground shows its grass and small clutter, as
+in the world, with the density of the ground clutter setting. The water and
+lava of the map show, and their textures animate. The water takes its colors
+from the light of the map at the camera. Actors swim in this water, and
+[`scene:GetLiquidAtPoint`](#scenegetliquidatpointx-y-z) finds it. When the
+camera goes into the water or the lava of the map, the fog becomes the fog
+of the map for that liquid, as in the world. Small motes drift in the
+liquid around the camera, with the `waterParticulates` setting. This is a ClassicAPI
+extension.
+
+```lua
+-- The Gurubashi Arena: the arena WMO where the map puts it, on its ground.
+scene:SetWorldModel("World\\wmo\\Azeroth\\Collidable Doodads\\Stranglethorn\\StranglethornArena\\StrangleGladiatorArena.wmo",
+    -13205.914, 271.832, 20.280, math.rad(64) + math.pi, 0, 0)
+scene:SetWorldTerrain(0, -13205.914, 271.832, 250)
+scene:SetCameraFarClip(500)
+```
+
+### `scene:ClearWorldTerrain()`
+
+Removes the ground of the scene. This is a ClassicAPI extension.
+
 ### `scene:SetPlayWorldModelSounds(enabled)` / `scene:GetPlayWorldModelSounds()`
 
 Sets whether the props of the WMO play their sounds, for example the
@@ -19547,10 +19610,12 @@ time later. This is a ClassicAPI extension.
 
 ### `scene:TraceSegment(startX, startY, startZ, endX, endY, endZ [, camera])`
 
-Returns the first face of the WMO on the segment from the start to the
-end. The positions are scene positions. The function tests the faces that
-the line of sight of the world tests: walls, floors and roofs. It does not
-test small details or the props of the WMO.
+Returns the first face of the WMO or of the ground on the segment from the
+start to the end. The positions are scene positions. The function tests the
+faces that the line of sight of the world tests: the walls, floors and
+roofs of the WMO, and the ground of
+[`scene:SetWorldTerrain`](#scenesetworldterrainmapid-x-y--radius). It does
+not test small details or the props of the WMO.
 
 The function returns `hitX, hitY, hitZ, normalX, normalY, normalZ, fraction`:
 
@@ -19568,7 +19633,7 @@ wall.
 The function returns nothing in these cases:
 
 - The segment hits no face.
-- The scene has no WMO.
+- The scene has no WMO and no ground.
 - The part of the WMO on the segment has not loaded.
 
 This is a ClassicAPI extension.
@@ -19580,8 +19645,10 @@ local _, _, floorZ = scene:TraceSegment(x, y, z + 2, x, y, z - 50)
 
 ### `scene:GetLiquidAtPoint(x, y, z)`
 
-Returns the liquid of the WMO at a scene point, as the world finds it for a
-unit that stands at the point. The function returns `liquidType, surfaceZ`:
+Returns the liquid of the WMO or of the terrain
+([`scene:SetWorldTerrain`](#scenesetworldterrainmapid-x-y--radius)) at a
+scene point, as the world finds it for a unit that stands at the point. The
+liquid of the WMO comes first. The function returns `liquidType, surfaceZ`:
 
 - `liquidType` is `0` for water, `1` for ocean, `2` for magma and `3` for
   slime.
@@ -19592,16 +19659,16 @@ unit that stands at the point. The function returns `liquidType, surfaceZ`:
 The function returns nothing in these cases:
 
 - The point is above the surface, or it is not in a liquid.
-- The scene has no WMO.
 - The part of the WMO at the point has not loaded.
 
 This is a ClassicAPI extension.
 
 ### `scene:SweepCollider(feetX, feetY, feetZ, radius, height, moveX, moveY, moveZ)`
 
-Moves a body in a straight line until it touches the WMO or one of its
-props. The world moves a character into a wall or onto a floor in the same
-way. The body
+Moves a body in a straight line until it touches the WMO, one of its
+props, or the ground of
+[`scene:SetWorldTerrain`](#scenesetworldterrainmapid-x-y--radius). The
+world moves a character into a wall or onto a floor in the same way. The body
 has the shape of a character in the world: a square box over a downward
 point at the feet. `radius` is half the width of the box, and `height` is
 the height of the box. `moveX, moveY, moveZ` is the full movement.
@@ -19611,8 +19678,8 @@ feet are the position where the body stops. The normal is the unit normal
 of the face that the body touched. It points to the side that the face
 blocks. When the body touched no face, the function returns only the feet.
 
-A face blocks the body only from its front side. Without a WMO, the body
-moves the full distance. While a part of the WMO in the way loads, the body
+A face blocks the body only from its front side. Without a WMO or ground,
+the body moves the full distance. While a part of the WMO in the way loads, the body
 does not move. The function does not slide the body along a wall or step
 it up a ledge. For that movement, use
 [`actor:SetMovementEnabled`](#actorsetmovementenabledenabled--actorismovementenabled).
@@ -19723,8 +19790,10 @@ Shows the click-to-move marker at a point, in scene coordinates. It is the
 same pulsing yellow mark that the world shows where you click to move. The
 scene shows one marker. A new call moves it to the new point.
 
-- In a scene with a WMO, the marker lies on the faces of the WMO near the
-  point. In a scene with no WMO, it lies flat at the height of the point.
+- In a scene with a WMO or ground
+  ([`scene:SetWorldTerrain`](#scenesetworldterrainmapid-x-y--radius)), the
+  marker lies on their faces near the point. In a scene with neither, it
+  lies flat at the height of the point.
 - The marker pulses between 0.5 and 0.75 yards in size, two times each
   second. It stops while the scene is paused.
 - The marker stays until you call `ClearMoveMarker`. It does not go away
@@ -20267,9 +20336,17 @@ default. When it is `true`, the animations play these sounds:
   does not play every time, and all actors together play it at most once
   every 10 seconds. A copy of your own character does not play it.
 - Footsteps and the death thud. These need a ground: the floor of the WMO
-  of the scene, or a ground that you set with
+  of the scene, its ground from
+  [`scene:SetWorldTerrain`](#scenesetworldterrainmapid-x-y--radius), or a
+  ground that you set with
   [`scene:SetGroundTerrain`](#scenesetgroundterrainterraintypeid--scenegetgroundterrain).
-  Footsteps also need the `FootstepSounds` setting.
+  Footsteps also need the `FootstepSounds` setting. At the surface of
+  water, footsteps splash.
+- The splash of the race of the unit, when the movement of the actor takes
+  it into or out of water that is deeper than two fifths of its height, or
+  when it starts to swim. Only an actor that shows a unit
+  ([`actor:SetModelByUnit`](#actorsetmodelbyunitunit--sheatheweapons-autodress-hideweapons-useplayernativeform-holdbowstring-customraceid))
+  has a race.
 - The sounds that some animations carry, with the `EmoteSounds` setting.
 - During the preparation of
   [`actor:PlaySpellVisual`](#actorplayspellvisualspellid--target--casttimems--channeltimems),
@@ -20295,13 +20372,14 @@ Shows or hides a blob shadow under the model. It is the same dark blob that
 units have on the ground in the world. The default is off.
 
 - In a scene with a WMO
-  ([`scene:SetWorldModel`](#scenesetworldmodelpath--x-y-z--yaw--doodadset--mapid)),
-  the shadow lies on the floor of the WMO under the actor, as on the ground
-  in the world. It follows slopes and steps, and it fades with the height of
-  the actor above the floor. An actor with no floor of the WMO under it shows
-  no shadow.
-- In a scene with no WMO, the shadow lies flat on the plane of the actor's
-  position, below its feet.
+  ([`scene:SetWorldModel`](#scenesetworldmodelpath--x-y-z--yaw--doodadset--mapid))
+  or ground
+  ([`scene:SetWorldTerrain`](#scenesetworldterrainmapid-x-y--radius)), the
+  shadow lies on the floor under the actor, as on the ground in the world.
+  It follows slopes and steps, and it fades with the height of the actor
+  above the floor. An actor with no floor under it shows no shadow.
+- In a scene with no WMO and no ground, the shadow lies flat on the plane of
+  the actor's position, below its feet.
 - The size of the shadow comes from the bounds of the model and from the
   scale of the actor. The shadow turns with the yaw of the actor.
 - The shadow darkens what is behind it. It fades with the alpha of the
@@ -20345,8 +20423,8 @@ Shows a selection circle under the feet of the actor. It is the same circle
 that the world shows under your target. The colour values are from 0 to 1,
 and `a` is 1 by default. An actor has no circle by default.
 
-- In a scene with a WMO, the circle lies on the floor of the WMO under the
-  actor. In a scene with no WMO, it lies flat at the height of the actor's
+- In a scene with a WMO or ground, the circle lies on the floor under the
+  actor. In a scene with neither, it lies flat at the height of the actor's
   position.
 - The size of the circle comes from the bounds of the model and from the
   scale of the actor, as for a unit in the world.
@@ -20393,8 +20471,8 @@ yards. With `valid` set to `false`, it shows the reticle that the world
 shows out of range. `valid` is `true` by default. An actor has no reticle
 by default.
 
-- In a scene with a WMO, the reticle lies on the floor of the WMO, up to 2
-  yards above or below the position of the actor. In a scene with no WMO,
+- In a scene with a WMO or ground, the reticle lies on the floor, up to 2
+  yards above or below the position of the actor. In a scene with neither,
   it lies flat at the height of the actor's position.
 - An actor with no model shows its reticle too, so an empty actor can mark
   a point on the ground.
@@ -20733,7 +20811,9 @@ is off. The actor moves on the WMO of the scene
 - It walks and runs on the floors, and it steps up and down small ledges.
 - It slides along walls and props.
 - It falls where the floor ends, and it jumps.
-- It swims in the liquids of the WMO.
+- It swims in the liquids of the WMO and of the terrain.
+- In shallow water it leaves foam rings, and wakes when it moves, as a
+  character does in the world, with the `waterRipples` setting.
 
 The actor moves at the speeds of a character: it runs 7 yards a second,
 walks 2.5, backs up 4.5, swims 4.72 and swims backward 2.5. It turns half a

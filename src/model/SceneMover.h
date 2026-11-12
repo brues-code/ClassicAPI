@@ -79,6 +79,7 @@ struct Body {
     std::optional<Spline> spline; // +0xA4, null when absent
     float radius;          // +0xB0
     float height;          // +0xB4
+    float splashDepth;     // the unit's +0x9A4: the depth the last splash test saw
     float stepRatio;       // +0xB8
     uint32_t clock;        // the movement manager's +0x128: the tick moved to
     Contact::Facets facets; // the world query's list (0x00C4E52C)
@@ -175,8 +176,10 @@ bool OnSpline(const Body &body);
 // player-controlled unit, after a tick: `depth` is the liquid's surface less
 // the feet's z, 0 out of liquid. A body starts swimming deeper than three
 // quarters of its height, unless it is still rising from a jump, and stops
-// out of the liquid or 1/36 yard shallower than that.
-void UpdateSwimState(Body &body, bool inLiquid, float depth);
+// out of the liquid or 1/36 yard shallower than that. True when the unit
+// splashes: not swimming before, the depth crossed two fifths of its height
+// since the last test, either way.
+bool UpdateSwimState(Body &body, bool inLiquid, float depth);
 
 // GetCurrentFallSpeed (0x007C5D70): the vertical speed now, down positive.
 float FallSpeed(const Body &body);

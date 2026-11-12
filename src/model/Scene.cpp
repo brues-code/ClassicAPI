@@ -107,7 +107,9 @@
 // SetWorldModelByMapID / ClearWorldModel: a WMO drawn by the world's own map
 // object draw after the animate pass, with its doodads as models of the
 // scene; Set/GetPlayWorldModelSounds: the doodads' sounds
-// (model/SceneWorld.cpp).
+// (model/SceneWorld.cpp). SetWorldTerrain / ClearWorldTerrain: a map's ADT
+// chunks around a point, built and drawn by the world's own chunk functions
+// before the WMO (model/SceneTerrain.cpp).
 
 #include "model/Scene.h"
 
@@ -169,6 +171,12 @@ struct Fields {
     int32_t groundTerrain; // SetGroundTerrain: a TerrainType id, or -1
     Actor *hovered; // the actor OnActorEnter last ran for, or null
     World::Backdrop *world; // SetWorldModel, owned, or null
+    Terrain::Land *terrain; // SetWorldTerrain, owned, or null
+    // The camera's liquid (0xF dry), from the last update, and how far below
+    // the eye its probe is, from the last paint (World::ProbeDrop).
+    uint32_t cameraLiquid;
+    float probeDrop;
+    Water::Effects *water; // the drift cloud, made when the camera first enters a liquid
     bool playWorldModelSounds; // SetPlayWorldModelSounds
     Actor *listener; // SetSoundListenerActor, or null; the frame owns its actors
     // GetSceneTime: the seconds the M2 scene's clock has advanced since the
@@ -380,8 +388,9 @@ void CameraTransforms(void *frame, void *camera, const float (&rect)[4]) {
 // it onto its ground with a decal (DrawDecal 0x006D7330): the faces in a box
 // from below the feet to above them, the texture placed on them by texgen,
 // faded with height by the ramp on stage 1. In a scene with a WMO the decal
-// is laid the same way on the WMO's faces (World::DrawDecal). A scene without
-// one has no ground, so the turned box itself is drawn, flat on the plane of
+// is laid the same way on the WMO's and the terrain's faces (World::DrawDecal).
+// A scene without either has no ground, so the turned box itself is drawn,
+// flat on the plane of
 // the base translation (the model's origin, its feet), culling off as for the
 // engine's other single quads (the lightning bolt, 0x007AFCB0), with no
 // height fade and no depth function (the quad is its own geometry). A model
@@ -487,8 +496,21 @@ void DrawQuad(const Blob &blob, const float (&eye)[3]) {
                                                                   kStrip);
 }
 
+// The ground the paint lays decals on: the WMO and the terrain it draws.
+struct Ground {
+    World::Backdrop *world = nullptr;
+    Terrain::Land *terrain = nullptr;
+    bool Any() const { return world != nullptr || terrain != nullptr; }
+};
+
+Ground GroundOf(void *frame) {
+    if (CameraOf(frame) == nullptr)
+        return {};
+    return {F(frame).world, F(frame).terrain};
+}
+
 // Draws one actor's shadow; the blob states are set.
-void DrawShadow(Actor &actor, World::Backdrop *world, const float (&eye)[3]) {
+void DrawShadow(Actor &actor, const Ground &ground, const float (&eye)[3]) {
     void *model = actor.model;
     if (!actor.shadowShown || !actor.shown || model == nullptr || M2::Parent(model) != nullptr ||
         !M2::IsReady(model, 0, 0))
@@ -496,18 +518,19 @@ void DrawShadow(Actor &actor, World::Backdrop *world, const float (&eye)[3]) {
     Blob blob;
     if (!MakeBlob(model, blob))
         return;
-    if (world == nullptr) {
+    if (!ground.Any()) {
         DrawQuad(blob, eye);
         return;
     }
     const uint32_t fadeBits = Offsets::DECAL_SHADOW_FADE;
     float fade;
     std::memcpy(&fade, &fadeBits, sizeof fade);
-    World::DrawDecal(*world, blob.box, blob.color, blob.matrix, fade, Offsets::SHADOW_DECAL_MASK, eye);
+    World::DrawDecal(ground.world, ground.terrain, blob.box, blob.color, blob.matrix, fade,
+                     Offsets::SHADOW_DECAL_MASK, eye);
 }
 
 // Draws one actor's shadow with the blob states (while shadowLOD is 1).
-void DrawShadowWithStates(Actor &actor, World::Backdrop *world, const float (&eye)[3]) {
+void DrawShadowWithStates(Actor &actor, const Ground &ground, const float (&eye)[3]) {
     void *texture = Game::Read<void *>(Offsets::VAR_SHADOW_BLOB_TEXTURE);
     if (!actor.shadowShown || Game::Read<int>(Offsets::VAR_SHADOW_LOD) != 1 || texture == nullptr)
         return;
@@ -519,11 +542,11 @@ void DrawShadowWithStates(Actor &actor, World::Backdrop *world, const float (&ey
     Gx::SetState(Offsets::GXRS_TEXTURE0, Texture::DeviceTexture(texture));
     Gx::SetStateWord(Offsets::GXRS_FOG_COLOR, 0xFFFFFFFFu);
     Gx::SetState(Offsets::GXRS_COMBINER0, Offsets::GXRS_COMBINE_BLEND_DIFFUSE_ALPHA);
-    if (world == nullptr)
+    if (!ground.Any())
         Gx::SetState(Offsets::GXRS_CULL, 0);
     else if (Game::Read<float>(Offsets::VAR_SHADOW_BIAS) == 0.0f)
         Gx::SetState(Offsets::GXRS_DEPTH_FUNC, Offsets::GXRS_DEPTH_FUNC_DECAL);
-    DrawShadow(actor, world, eye);
+    DrawShadow(actor, ground, eye);
     Gx::PopStates();
 }
 
@@ -536,9 +559,9 @@ void DrawShadowWithStates(Actor &actor, World::Backdrop *world, const float (&ey
 // state push, in the scene's fog for the world's (World::CommitDecalFog),
 // the circle's state (FUN_SELECTION_CIRCLE_STATE: blend 3, which
 // adds by source alpha, UnitSelectTexture.blp and its ramp) and the decal at
-// fade 0.5, flags 0x200122. In a scene with a WMO the decal lands on its
-// faces (World::DrawDecal), as the shadows do; without one, on the flat
-// ground at the feet (World::DrawDecalOnPlane).
+// fade 0.5, flags 0x200122. In a scene with a WMO or terrain the decal lands
+// on their faces (World::DrawDecal), as the shadows do; without either, on
+// the flat ground at the feet (World::DrawDecalOnPlane).
 //
 // The circle: the box about the feet, half size r across and 2r up and
 // down, r = the radius the unit takes when its model loads (0x0060AEE0,
@@ -554,7 +577,7 @@ bool SelectionDecalReady() {
            Game::Read<void *>(Offsets::VAR_SELECTION_CIRCLE_RAMP) != nullptr;
 }
 
-void DrawSelectionDecal(void *frame, World::Backdrop *world, const float (&box)[6], uint32_t argb,
+void DrawSelectionDecal(void *frame, const Ground &ground, const float (&box)[6], uint32_t argb,
                         const float (&point)[3], float groundZ, const float (&eye)[3]) {
     using Heading_t = float(__fastcall *)(const float *from, const float *to);
     using CircleState_t = void(__thiscall *)(void *obj);
@@ -566,10 +589,10 @@ void DrawSelectionDecal(void *frame, World::Backdrop *world, const float (&box)[
     float fade;
     std::memcpy(&fade, &fadeBits, sizeof fade);
     Gx::PushStates();
-    World::CommitDecalFog(world, frame, point, eye);
+    World::CommitDecalFog(ground.world, frame, point, eye);
     reinterpret_cast<CircleState_t>(Offsets::FUN_SELECTION_CIRCLE_STATE)(nullptr);
-    if (world != nullptr)
-        World::DrawDecal(*world, box, argb, m, fade, Offsets::DECAL_SELECTION_FLAGS, eye);
+    if (ground.Any())
+        World::DrawDecal(ground.world, ground.terrain, box, argb, m, fade, Offsets::DECAL_SELECTION_FLAGS, eye);
     else
         World::DrawDecalOnPlane(box, argb, m, fade, groundZ, eye);
     Gx::PopStates();
@@ -593,7 +616,7 @@ float SelectionRadius(void *model) {
     return std::sqrt(std::sqrt(dx * dx + dy * dy) * Game::Read<float>(Offsets::VAR_HALF));
 }
 
-void DrawSelectionCircle(void *frame, Actor &actor, World::Backdrop *world, const float (&eye)[3]) {
+void DrawSelectionCircle(void *frame, Actor &actor, const Ground &ground, const float (&eye)[3]) {
     void *model = actor.model;
     if (!actor.selectionCircleShown || !actor.shown || model == nullptr || M2::Parent(model) != nullptr ||
         !M2::IsReady(model, 0, 0))
@@ -605,10 +628,10 @@ void DrawSelectionCircle(void *frame, Actor &actor, World::Backdrop *world, cons
     const float feet[3] = {m[12], m[13], m[14]};
     const float box[6] = {feet[0] - r, feet[1] - r, feet[2] - 2.0f * r,
                           feet[0] + r, feet[1] + r, feet[2] + 2.0f * r};
-    DrawSelectionDecal(frame, world, box, actor.selectionCircle, feet, feet[2], eye);
+    DrawSelectionDecal(frame, ground, box, actor.selectionCircle, feet, feet[2], eye);
 }
 
-void DrawMoveMarker(void *frame, World::Backdrop *world, const float (&eye)[3]) {
+void DrawMoveMarker(void *frame, const Ground &ground, const float (&eye)[3]) {
     const Fields &f = F(frame);
     if (!f.moveMarkerShown)
         return;
@@ -623,7 +646,7 @@ void DrawMoveMarker(void *frame, World::Backdrop *world, const float (&eye)[3]) 
     const float s = wave * (high - low) + low;
     const float(&p)[3] = f.moveMarker;
     const float box[6] = {p[0] - s, p[1] - s, p[2] - s, p[0] + s, p[1] + s, p[2] + s};
-    DrawSelectionDecal(frame, world, box, Offsets::AUTOMOVE_MARKER_COLOR, p, p[2], eye);
+    DrawSelectionDecal(frame, ground, box, Offsets::AUTOMOVE_MARKER_COLOR, p, p[2], eye);
 }
 
 // ---- the ground-target reticle (SetGroundReticle) ----------------------------------
@@ -638,11 +661,11 @@ void DrawMoveMarker(void *frame, World::Backdrop *world, const float (&eye)[3]) 
 // selection circle does) and fade 0.5, onto terrain and buildings. It is
 // drawn after the opaque models and before the water and the translucent
 // models (0x004836B0), in the world's fog, so here in the scene's
-// (World::CommitDecalFog). Without a WMO it lies on the flat ground at the
-// actor's height. The textures exist once the world frame is built, so at
+// (World::CommitDecalFog). Without a WMO or terrain it lies on the flat
+// ground at the actor's height. The textures exist once the world frame is built, so at
 // the login and character screens no reticle shows.
 
-void DrawGroundReticle(void *frame, const Actor &actor, World::Backdrop *world, const float (&eye)[3]) {
+void DrawGroundReticle(void *frame, const Actor &actor, const Ground &ground, const float (&eye)[3]) {
     if (!actor.groundReticleShown || !actor.shown)
         return;
     void *texture = Game::Read<void *>(actor.groundReticleValid ? Offsets::VAR_RETICLE_TEXTURE_ACCEPTABLE
@@ -659,37 +682,38 @@ void DrawGroundReticle(void *frame, const Actor &actor, World::Backdrop *world, 
     float fade;
     std::memcpy(&fade, &fadeBits, sizeof fade);
     Gx::PushStates();
-    World::CommitDecalFog(world, frame, p, eye);
+    World::CommitDecalFog(ground.world, frame, p, eye);
     Gx::SetState(Offsets::GXRS_LIGHTING, 0);
     Gx::SetState(Offsets::GXRS_DEPTH_WRITE, 0);
     Gx::SetState(Offsets::GXRS_BLEND, Offsets::RETICLE_BLEND);
     Gx::SetState(Offsets::GXRS_TEXTURE0, Texture::DeviceTexture(texture));
-    if (world != nullptr)
-        World::DrawDecal(*world, box, Offsets::RETICLE_COLOR, m, fade, Offsets::DECAL_SELECTION_FLAGS, eye);
+    if (ground.Any())
+        World::DrawDecal(ground.world, ground.terrain, box, Offsets::RETICLE_COLOR, m, fade,
+                         Offsets::DECAL_SELECTION_FLAGS, eye);
     else
         World::DrawDecalOnPlane(box, Offsets::RETICLE_COLOR, m, fade, p[2], eye);
     Gx::PopStates();
 }
 
 void DrawGroundReticles(void *frame, const float (&eye)[3]) {
-    World::Backdrop *world = CameraOf(frame) != nullptr ? F(frame).world : nullptr;
+    const Ground ground = GroundOf(frame);
     for (const Actor *actor : *F(frame).actors)
-        DrawGroundReticle(frame, *actor, world, eye);
+        DrawGroundReticle(frame, *actor, ground, eye);
 }
 
 // What the world lays on the ground under its entities, for the actors.
 void DrawGroundDecals(void *frame, const float (&eye)[3]) {
-    World::Backdrop *world = CameraOf(frame) != nullptr ? F(frame).world : nullptr;
+    const Ground ground = GroundOf(frame);
     const bool decals = SelectionDecalReady();
     void *cvar = Game::Read<void *>(Offsets::VAR_CVAR_OBJECT_SELECTION_CIRCLE);
     const bool circles = decals && cvar != nullptr && CVar::Factory::GetInt(cvar) != 0;
     for (Actor *actor : *F(frame).actors) {
         if (circles)
-            DrawSelectionCircle(frame, *actor, world, eye);
-        DrawShadowWithStates(*actor, world, eye);
+            DrawSelectionCircle(frame, *actor, ground, eye);
+        DrawShadowWithStates(*actor, ground, eye);
     }
     if (decals)
-        DrawMoveMarker(frame, world, eye);
+        DrawMoveMarker(frame, ground, eye);
 }
 
 void __fastcall Paint(void *frame) {
@@ -729,29 +753,54 @@ void __fastcall Paint(void *frame) {
         Gx::SetViewport({rect[1] * vp.maxX, rect[3] * vp.maxX, rect[0] * vp.maxY, rect[2] * vp.maxY,
                          0.0f, 1.0f});
         World::Backdrop *world = CameraOf(frame) != nullptr ? F(frame).world : nullptr;
+        Terrain::Land *terrain = CameraOf(frame) != nullptr ? F(frame).terrain : nullptr;
+        World::ViewVolume volume;
+        World::BuildViewVolume(volume, eye);
+        F(frame).probeDrop = World::ProbeDrop(volume, eye);
+        // The world's frame under a liquid: its fog the map's for that liquid.
+        const uint32_t liquid = CameraLiquid(frame);
+        const uint32_t map = terrain != nullptr ? Terrain::MapOf(*terrain)
+                             : world != nullptr ? World::MapOf(*world)
+                                                : World::kNoMap;
+        const World::LiquidFog liquidFog(frame, map, liquid, eye, F(frame).farClip);
+        const bool wet = liquid != Offsets::LIQUID_DRY;
         if (world != nullptr)
-            World::ClearAndDrawSky(*world, frame, eye);
+            World::ClearAndDrawSky(*world, frame, eye, volume);
+        else if (terrain != nullptr)
+            World::ClearAndDrawOpenSky(frame, map, liquid, eye);
         else
             Gx::Clear(2);
         PlaceActors(frame);
         void *scene = Model::Pane::Scene(frame);
         M2::AnimateScene(scene, eye);
+        // The world's frame draws its chunks before its map objects, and the
+        // terrain's magma after them (DrawWorldScene 0x006812B1..0x006812BB).
+        if (terrain != nullptr)
+            Terrain::Draw(*terrain, frame, eye, volume, F(frame).farClip);
         if (world != nullptr)
-            World::Draw(*world, frame, eye);
+            World::Draw(*world, frame, eye, volume);
+        if (terrain != nullptr)
+            Terrain::DrawMagma(*terrain, frame, eye, volume, F(frame).farClip);
         DrawGroundDecals(frame, eye);
         M2::DrawScene(scene, 0);
         DrawGroundReticles(frame, eye);
         // The world's frame draws its liquids before the translucent models
         // over the water and, with the camera in liquid, after them
         // (0x004836D6).
-        const bool wet = world != nullptr && World::CameraWet(*world);
         if (wet)
             M2::DrawScene(scene, 1);
+        // RenderLiquid (0x006816D0): the terrain's ocean and river, then the
+        // map objects' liquids.
+        if (terrain != nullptr)
+            Terrain::DrawWater(*terrain, frame, eye, volume, F(frame).farClip, liquid);
         if (world != nullptr)
             World::DrawLiquids(*world, frame, eye);
+        Water::DrawRipples(F(frame).water, eye);
         if (!wet)
             M2::DrawScene(scene, 1);
         Chains::Render(frame, eye);
+        // The world stage's particulates follow its models (0x006701E0).
+        Water::DrawDrift(F(frame).water, liquid);
     }
 }
 
@@ -976,6 +1025,10 @@ void Destroy(void *frame) {
     f.actors = nullptr;
     World::Free(f.world);
     f.world = nullptr;
+    Terrain::Free(f.terrain);
+    f.terrain = nullptr;
+    Water::Free(f.water);
+    f.water = nullptr;
     Time::Timer::CancelOwned(frame);
 }
 
@@ -1045,13 +1098,21 @@ void __fastcall SetFrameAlpha(void *self, void *, uint8_t alpha) {
 void __fastcall OnFrameUpdate(void *self, void *, float elapsedSec) {
     for (Actor *actor : *F(self).actors)
         actor->Link();
-    if (World::Backdrop *world = F(self).world) {
+    World::Backdrop *world = F(self).world;
+    Terrain::Land *terrain = F(self).terrain;
+    if (world != nullptr)
         World::Update(*world, self, F(self).playWorldModelSounds, elapsedSec);
-        // A seated rider or an attached actor takes its parent's light.
+    if (terrain != nullptr)
+        Terrain::Update(*terrain, self, F(self).playWorldModelSounds);
+    const uint32_t lastLiquid = F(self).cameraLiquid;
+    F(self).cameraLiquid = world != nullptr ? World::CameraLiquid(*world) : OutdoorCameraLiquid(self);
+    Water::Update(F(self).water, lastLiquid, F(self).cameraLiquid, CameraView(self).eye, elapsedSec,
+                  static_cast<double>(ClockMs(self)) / 1000.0);
+    // A seated rider or an attached actor takes its parent's light.
+    if (world != nullptr || terrain != nullptr)
         for (Actor *actor : *F(self).actors)
             if (actor->model != nullptr && M2::Parent(actor->model) == nullptr && M2::IsLoaded(actor->model, 0, 0))
-                World::Settle(*world, *actor->ambience, self, actor->model, elapsedSec);
-    }
+                World::Settle(world, terrain, *actor->ambience, self, actor->model, elapsedSec);
     const uint32_t before = ClockMs(self);
     if (F(self).paused)
         FrameBase<OnFrameUpdate_t>(Offsets::VTBL_FRAME_ON_FRAME_UPDATE)(self, nullptr, elapsedSec);
@@ -1085,6 +1146,8 @@ void __fastcall UpdateModel(void *self) { PlaceActors(self); }
 int __fastcall Hide(void *self, void *) {
     if (World::Backdrop *world = F(self).world)
         World::Silence(*world);
+    if (Terrain::Land *terrain = F(self).terrain)
+        Terrain::Silence(*terrain);
     for (Actor *actor : *F(self).actors) {
         Casts::Silence(*actor);
         Areas::Silence(*actor);
@@ -1153,6 +1216,10 @@ void *__fastcall CreateModelScene(void *parent) {
     f.groundTerrain = -1;
     f.hovered = nullptr;
     f.world = nullptr;
+    f.terrain = nullptr;
+    f.cameraLiquid = Offsets::LIQUID_DRY;
+    f.probeDrop = 0.0f;
+    f.water = nullptr;
     f.playWorldModelSounds = false;
     f.listener = nullptr;
     f.clock = 0.0;
@@ -1588,23 +1655,53 @@ int __fastcall Script_ClearWorldModel(void *L) {
     return 0;
 }
 
-// The WMO's nearest face on a segment (a ClassicAPI extension): the hit
-// point, the face's normal toward the start, and the fraction. Nothing on a
-// miss or without a WMO.
+// The scene's terrain (a ClassicAPI extension, model/SceneTerrain.cpp). A
+// set that fails clears it, as SetWorldModel does.
+void SetTerrain(void *frame, Terrain::Land *terrain) {
+    Terrain::Free(F(frame).terrain);
+    F(frame).terrain = terrain;
+}
+
+constexpr char kUsageSetWorldTerrain[] = "SetWorldTerrain(mapID, x, y [, radius])";
+
+int __fastcall Script_SetWorldTerrain(void *L) {
+    void *frame = Self(L);
+    if (frame == nullptr)
+        return 0;
+    const char *owner = Game::Lua::ObjectDisplayName(frame);
+    if (!NumberArgs(L, 2, 3, owner, kUsageSetWorldTerrain))
+        return 0;
+    const bool hasRadius = Game::Lua::Type(L, 5) > Game::Lua::TYPE_NIL;
+    if (hasRadius && !NumberArgs(L, 5, 1, owner, kUsageSetWorldTerrain))
+        return 0;
+    // One tile's width by default, the world's own unit of terrain.
+    const float radius = hasRadius ? FloatArg(L, 5) : Game::Read<float>(Offsets::VAR_TILE_SIZE);
+    SetTerrain(frame, Terrain::Load(frame, static_cast<uint32_t>(Game::Lua::ToNumber(L, 2)), FloatArg(L, 3),
+                                    FloatArg(L, 4), radius));
+    Game::Lua::PushBool(L, F(frame).terrain != nullptr);
+    return 1;
+}
+
+int __fastcall Script_ClearWorldTerrain(void *L) {
+    if (void *frame = Self(L))
+        SetTerrain(frame, nullptr);
+    return 0;
+}
+
+// The nearest face of the scene's ground on a segment (a ClassicAPI
+// extension): the hit point, the face's normal toward the start, and the
+// fraction. Nothing on a miss or without ground.
 int __fastcall Script_TraceSegment(void *L) {
     void *frame = Self(L);
     if (frame == nullptr || !NumberArgs(L, 2, 6, Game::Lua::ObjectDisplayName(frame),
                                         "TraceSegment(startX, startY, startZ, endX, endY, endZ [, camera])"))
-        return 0;
-    const World::Backdrop *world = F(frame).world;
-    if (world == nullptr)
         return 0;
     const float start[3] = {FloatArg(L, 2), FloatArg(L, 3), FloatArg(L, 4)};
     const float end[3] = {FloatArg(L, 5), FloatArg(L, 6), FloatArg(L, 7)};
     float fraction = 1.0f;
     float normal[3];
     const bool camera = Game::Lua::ToBoolean(L, 8) != 0;
-    if (!World::Trace(*world, start, end, camera, fraction, normal))
+    if (!TraceGround(frame, start, end, camera, fraction, normal))
         return 0;
     for (int i = 0; i < 3; ++i)
         Game::Lua::PushNumber(L, start[i] + (end[i] - start[i]) * fraction);
@@ -1614,21 +1711,18 @@ int __fastcall Script_TraceSegment(void *L) {
     return 7;
 }
 
-// The liquid at a point of the scene's WMO (a ClassicAPI extension): its type
-// and its surface's z, nil for a group that is liquid throughout. Nothing
-// when the point is dry or the scene has no WMO.
+// The liquid at a point of the scene's WMO or terrain (a ClassicAPI
+// extension): its type and its surface's z, nil for a WMO group that is
+// liquid throughout. Nothing when the point is dry.
 int __fastcall Script_GetLiquidAtPoint(void *L) {
     void *frame = Self(L);
     if (frame == nullptr ||
         !NumberArgs(L, 2, 3, Game::Lua::ObjectDisplayName(frame), "GetLiquidAtPoint(pointX, pointY, pointZ)"))
         return 0;
-    const World::Backdrop *world = F(frame).world;
-    if (world == nullptr)
-        return 0;
     const float point[3] = {FloatArg(L, 2), FloatArg(L, 3), FloatArg(L, 4)};
     uint32_t type = 0;
     float surface = 0.0f;
-    if (!World::LiquidAt(*world, point, type, surface))
+    if (!LiquidAtPoint(frame, point, type, surface))
         return 0;
     Game::Lua::PushNumber(L, type);
     if (surface >= FLT_MAX)
@@ -1638,7 +1732,52 @@ int __fastcall Script_GetLiquidAtPoint(void *L) {
     return 2;
 }
 
-// A body swept through the scene's WMO to its first contact (a ClassicAPI
+// Sweeps a body by `move` to its first contact with the scene's ground, as
+// the client's mover sweeps a unit's volume (CMovement::SweepVolume
+// 0x00632BA0, SceneContact.h): a box `radius` from `feet` on each side and
+// `height` tall over a downward point at `feet`. `end` is where the feet
+// stop; true when a face was met, `normal` the facet's plane normal. With
+// no ground the body moves the full distance; the feet stay put while the
+// WMO is loading.
+bool SweepGround(void *frame, const float (&feet)[3], float radius, float height, const float (&move)[3],
+                 float (&end)[3], float (&normal)[3]) {
+    normal[0] = normal[1] = normal[2] = 0.0f;
+    if (!HasGround(frame)) {
+        for (int k = 0; k < 3; ++k)
+            end[k] = feet[k] + move[k];
+        return false;
+    }
+    std::copy(std::begin(feet), std::end(feet), std::begin(end));
+    if (!(radius > 0.0f) || !(height > 0.0f))
+        return false;
+    // The move as the substep loop (0x00634040) hands it on: its length at
+    // 53 bits, the unit direction by the reciprocal, none below 2^-20.
+    const double length = std::sqrt((static_cast<double>(move[0]) * move[0] + static_cast<double>(move[1]) * move[1]) +
+                                    static_cast<double>(move[2]) * move[2]);
+    float dir[3] = {0.0f, 0.0f, 0.0f};
+    if (!(length < 9.5367431640625e-7)) {
+        const double inverse = 1.0 / length;
+        for (int k = 0; k < 3; ++k)
+            dir[k] = static_cast<float>(move[k] * inverse);
+    }
+    // The facets start empty over the volume's own box, as the substep's
+    // query frame (0x00633840) leaves its cache; the sweep's gather then
+    // takes that box joined with the end of the move.
+    Contact::Facets facets{{}, {}, {}, &QueryGroundFacets, &QueryGroundLiquidFacets, frame};
+    Contact::BaseBox(feet, radius, height, facets.box);
+    Contact::Contact contact;
+    if (!Contact::Sweep(facets, false, false, feet, radius, height, dir, static_cast<float>(length), contact))
+        return false;
+    for (int k = 0; k < 3; ++k)
+        end[k] = static_cast<float>(feet[k] + static_cast<double>(dir[k]) * contact.distance);
+    if (contact.hit >= facets.solid.size())
+        return false;
+    std::copy(std::begin(facets.solid[contact.hit].plane.n), std::end(facets.solid[contact.hit].plane.n),
+              std::begin(normal));
+    return true;
+}
+
+// A body swept through the scene's ground to its first contact (a ClassicAPI
 // extension): where its feet stop, and the normal of the face it met.
 int __fastcall Script_SweepCollider(void *L) {
     void *frame = Self(L);
@@ -1648,11 +1787,9 @@ int __fastcall Script_SweepCollider(void *L) {
         return 0;
     const float feet[3] = {FloatArg(L, 2), FloatArg(L, 3), FloatArg(L, 4)};
     const float move[3] = {FloatArg(L, 7), FloatArg(L, 8), FloatArg(L, 9)};
-    float end[3] = {feet[0] + move[0], feet[1] + move[1], feet[2] + move[2]};
-    float normal[3] = {};
-    bool hit = false;
-    if (const World::Backdrop *world = F(frame).world)
-        hit = World::Sweep(*world, feet, FloatArg(L, 5), FloatArg(L, 6), move, end, normal);
+    float end[3];
+    float normal[3];
+    const bool hit = SweepGround(frame, feet, FloatArg(L, 5), FloatArg(L, 6), move, end, normal);
     for (float c : end)
         Game::Lua::PushNumber(L, c);
     if (!hit)
@@ -1876,6 +2013,8 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"SetWorldModel", &Script_SetWorldModel},
     {"SetWorldModelByMapID", &Script_SetWorldModelByMapID},
     {"ClearWorldModel", &Script_ClearWorldModel},
+    {"SetWorldTerrain", &Script_SetWorldTerrain},
+    {"ClearWorldTerrain", &Script_ClearWorldTerrain},
     {"TraceSegment", &Script_TraceSegment},
     {"GetLiquidAtPoint", &Script_GetLiquidAtPoint},
     {"SweepCollider", &Script_SweepCollider},
@@ -2071,6 +2210,22 @@ const Game::Doc::Function kSetWorldModelByMapID{
     "map's positions. Returns false, and shows no WMO, for any other map.",
     kWorldModelMapArg, kWorldModelRet, nullptr, true};
 const Game::Doc::Function kClearWorldModel{"Removes the scene's WMO.", {}, {}, nullptr, true};
+const Game::Doc::Field kWorldTerrainArgs[] = {
+    Req("mapID", "number", "A Map.dbc row with terrain, for example 0 (Eastern Kingdoms)."),
+    Req("x", "number", "The map's x, as the map places its terrain."),
+    Req("y", "number"),
+    Opt("radius", "number", "533.33331", "Chunks within this distance of (x, y) are shown: one map tile by default."),
+};
+const Game::Doc::Function kSetWorldTerrain{
+    "Shows the map's ground around a point the way the world draws it, with its textures, shadows and "
+    "level of detail, in map coordinates. The scene's light stands in for the sun, and its fog for the "
+    "zone's. Without a WMO, the map's sky shows behind it. Actors walk on it, and TraceSegment and SweepCollider find it; past the radius there is no "
+    "ground. The map's props on it (trees, plants, rocks) show too, and actors collide with them; its "
+    "grass shows near the camera, and its water and lava show; actors swim in the water, and under it the "
+    "camera takes the map's underwater fog. Returns false, and shows no terrain, when no ground lies within the "
+    "radius.",
+    kWorldTerrainArgs, kWorldModelRet, nullptr, true};
+const Game::Doc::Function kClearWorldTerrain{"Removes the scene's terrain.", {}, {}, nullptr, true};
 const Game::Doc::Field kTraceSegmentArgs[] = {
     Req("startX", "number"), Req("startY", "number"), Req("startZ", "number"),
     Req("endX", "number"),   Req("endY", "number"),   Req("endZ", "number"),
@@ -2088,10 +2243,10 @@ const Game::Doc::Field kTraceSegmentRets[] = {
     Req("fraction", "number", "0 at the start, 1 at the end."),
 };
 const Game::Doc::Function kTraceSegment{
-    "Returns the first face of the WMO on the segment from the start to the end, in scene positions. "
-    "It tests the faces that the world's line of sight tests: walls, floors and roofs, not small details. "
-    "Returns nothing when the segment hits no face, when the scene has no WMO, or for parts of the WMO "
-    "that have not loaded.",
+    "Returns the first face of the WMO or of the scene's terrain on the segment from the start to the end, "
+    "in scene positions. It tests the faces that the world's line of sight tests: the WMO's walls, floors "
+    "and roofs, not small details, and the terrain. Returns nothing when the segment hits no face, when the "
+    "scene has no WMO and no terrain, or for parts of the WMO that have not loaded.",
     kTraceSegmentArgs, kTraceSegmentRets, nullptr, true};
 const Game::Doc::Field kLiquidArgs[] = {Req("pointX", "number"), Req("pointY", "number"),
                                         Req("pointZ", "number")};
@@ -2101,9 +2256,9 @@ const Game::Doc::Field kLiquidRets[] = {
         "The height of the surface above the point. Nil when that part of the WMO is liquid throughout."),
 };
 const Game::Doc::Function kGetLiquidAtPoint{
-    "Returns the liquid of the WMO that a scene point is in, as the world finds it for a unit that stands "
-    "there. Returns nothing when the point is above the surface or not in a liquid, when the scene has no "
-    "WMO, or for parts of the WMO that have not loaded.",
+    "Returns the liquid of the WMO or of the scene's terrain that a scene point is in, as the world finds "
+    "it for a unit that stands there: the WMO's first, then the terrain's. Returns nothing when the point "
+    "is above the surface or not in a liquid, or for parts of the WMO that have not loaded.",
     kLiquidArgs, kLiquidRets, nullptr, true};
 const Game::Doc::Field kSweepArgs[] = {
     Req("feetX", "number"),
@@ -2124,12 +2279,12 @@ const Game::Doc::Field kSweepRets[] = {
     Opt("normalZ", "number"),
 };
 const Game::Doc::Function kSweepCollider{
-    "Moves a body in a straight line until it touches the WMO or one of its doodads, as the world moves a "
-    "character into a wall or onto a floor. The body has the shape a character has in the world: a square "
-    "box, radius from the feet on each side and height tall, over a downward point at the feet. A face "
-    "blocks the body only from its front side. Returns where the feet stop, and the normal of the face the "
-    "body met, or only the feet when it met none. Without a WMO the body moves the full distance. While a "
-    "part of the WMO in the way is still loading, the body does not move.",
+    "Moves a body in a straight line until it touches the WMO, one of its doodads or the scene's terrain, "
+    "as the world moves a character into a wall or onto a floor. The body has the shape a character has "
+    "in the world: a square box, radius from the feet on each side and height tall, over a downward point "
+    "at the feet. A face blocks the body only from its front side. Returns where the feet stop, and the "
+    "normal of the face the body met, or only the feet when it met none. Without a WMO or terrain the body "
+    "moves the full distance. While a part of the WMO in the way is still loading, the body does not move.",
     kSweepArgs, kSweepRets, nullptr, true};
 const Game::Doc::Field kListenerArg[] = {
     Opt("actor", "ModelSceneFrameActor", nullptr, "An actor of this scene. Without it, the camera hears the sounds."),
@@ -2260,6 +2415,8 @@ const Game::Doc::Method g_methodDocs[] = {
     {"SetWorldModel", &kSetWorldModel},
     {"SetWorldModelByMapID", &kSetWorldModelByMapID},
     {"ClearWorldModel", &kClearWorldModel},
+    {"SetWorldTerrain", &kSetWorldTerrain},
+    {"ClearWorldTerrain", &kClearWorldTerrain},
     {"TraceSegment", &kTraceSegment},
     {"GetLiquidAtPoint", &kGetLiquidAtPoint},
     {"SweepCollider", &kSweepCollider},
@@ -2341,6 +2498,66 @@ float FloatArg(void *L, int index) { return static_cast<float>(Game::Lua::ToNumb
 int GroundTerrain(void *sceneFrame) { return F(sceneFrame).groundTerrain; }
 
 World::Backdrop *WorldOf(void *sceneFrame) { return F(sceneFrame).world; }
+
+Terrain::Land *TerrainOf(void *sceneFrame) { return F(sceneFrame).terrain; }
+
+Water::Effects *&WaterOf(void *sceneFrame) { return F(sceneFrame).water; }
+
+bool QueryGroundFacets(void *sceneFrame, const float (&box)[6], std::vector<Contact::Facet> &out) {
+    const Fields &f = F(sceneFrame);
+    out.clear();
+    if (f.world == nullptr && f.terrain == nullptr)
+        return false;
+    if (f.world != nullptr && !World::QueryFacets(f.world, box, out))
+        return false;
+    return f.terrain == nullptr || Terrain::QueryFacets(*f.terrain, box, out);
+}
+
+bool QueryGroundLiquidFacets(void *sceneFrame, const float (&box)[6], std::vector<Contact::Facet> &out) {
+    const Fields &f = F(sceneFrame);
+    out.clear();
+    if (f.world == nullptr && f.terrain == nullptr)
+        return false;
+    if (f.world != nullptr && !World::QueryLiquidFacets(f.world, box, out))
+        return false;
+    return f.terrain == nullptr || Terrain::QueryLiquidFacets(*f.terrain, box, out);
+}
+
+bool LiquidAtPoint(void *sceneFrame, const float (&point)[3], uint32_t &type, float &surface) {
+    const Fields &f = F(sceneFrame);
+    if (f.world != nullptr && World::LiquidAt(*f.world, point, type, surface))
+        return true;
+    return f.terrain != nullptr && Terrain::LiquidAt(*f.terrain, point, type, surface);
+}
+
+uint32_t OutdoorCameraLiquid(void *sceneFrame) {
+    const View view = CameraView(sceneFrame);
+    const float probe[3] = {view.eye[0], view.eye[1], view.eye[2] - F(sceneFrame).probeDrop};
+    uint32_t type = 0;
+    float surface = 0.0f;
+    return LiquidAtPoint(sceneFrame, probe, type, surface) ? type : static_cast<uint32_t>(Offsets::LIQUID_DRY);
+}
+
+float CameraProbeDrop(void *sceneFrame) { return F(sceneFrame).probeDrop; }
+
+uint32_t CameraLiquid(void *sceneFrame) { return F(sceneFrame).cameraLiquid; }
+
+bool TraceGround(void *sceneFrame, const float (&start)[3], const float (&end)[3], bool camera, float &fraction,
+                 float (&normal)[3]) {
+    const Fields &f = F(sceneFrame);
+    fraction = 1.0f;
+    bool hit = false;
+    float wmoFraction = 1.0f;
+    if (f.world != nullptr && World::Trace(*f.world, start, end, camera, wmoFraction, normal)) {
+        fraction = wmoFraction;
+        hit = true;
+    }
+    if (f.terrain != nullptr && Terrain::Trace(*f.terrain, start, end, fraction, normal))
+        hit = true;
+    return hit;
+}
+
+bool HasGround(void *sceneFrame) { return F(sceneFrame).world != nullptr || F(sceneFrame).terrain != nullptr; }
 
 Actor *SoundListener(void *sceneFrame) { return F(sceneFrame).listener; }
 

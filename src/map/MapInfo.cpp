@@ -65,20 +65,8 @@ constexpr int kMapTypeContinent = 2;
 constexpr int kMapTypeZone = 3;
 constexpr int kMapTypeDungeon = 4;
 
-// `Map.dbc` is indexed by map id, and map id 0 (Eastern Kingdoms) is a real
-// row — so the shared `DBC::Record` (which treats id 0 as "unused slot") can't
-// be used here. Mirrors the reader in `Instance::Info`.
 const uint8_t *MapRecord(int mapID) {
-    if (mapID < 0)
-        return nullptr;
-    const int count = Game::Read<int>(Offsets::VAR_MAP_COUNT);
-    if (mapID > count)
-        return nullptr;
-    auto *const *records = *reinterpret_cast<const uint8_t *const *const *>(
-        static_cast<uintptr_t>(Offsets::VAR_MAP_RECORDS));
-    if (records == nullptr)
-        return nullptr;
-    return records[mapID];
+    return DBC::Record(Offsets::VAR_MAP_RECORDS, Offsets::VAR_MAP_COUNT, static_cast<uint32_t>(mapID));
 }
 
 // Localized `Map.dbc` display name ("Eastern Kingdoms", "Deadmines"), or null.
