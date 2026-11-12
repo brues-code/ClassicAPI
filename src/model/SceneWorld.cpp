@@ -1261,7 +1261,6 @@ void UpdateCameraFog(Backdrop &b, void *frame, const float (&eye)[3], float farC
 using Fn_t = void(__cdecl *)();
 
 
-constexpr int kWorldStack = 8;
 
 // The render states pushed and world stack 8 = placement x Translate(-eye),
 // as the world's map object passes set it.
@@ -1271,12 +1270,12 @@ void PushObjectSpace(const Backdrop &b, const float (&eye)[3]) {
     Translate(toEye, {-eye[0], -eye[1], -eye[2]});
     Multiply(world, b.placement, toEye);
     Gx::PushStates();
-    Gx::PushTransform(kWorldStack);
-    Gx::SetTransform(kWorldStack, world);
+    Gx::PushTransform(Offsets::GX_XFORM_WORLD);
+    Gx::SetTransform(Offsets::GX_XFORM_WORLD, world);
 }
 
 void PopObjectSpace() {
-    Gx::PopTransform(kWorldStack);
+    Gx::PopTransform(Offsets::GX_XFORM_WORLD);
     Gx::PopStates();
 }
 
@@ -1918,7 +1917,7 @@ void DrawFacetBatches(uint32_t color, int lighting, const float (&eye)[3]) {
     Matrix toEye;
     Identity(toEye);
     Translate(toEye, {-eye[0], -eye[1], -eye[2]});
-    Gx::PushTransform(kWorldStack);
+    Gx::PushTransform(Offsets::GX_XFORM_WORLD);
     const uint32_t count = Game::Read<uint32_t>(Offsets::VAR_FACET_BATCH_COUNT);
     for (uint32_t i = 0; i < count; ++i) {
         const uint8_t *batch = FacetBatch(i);
@@ -1930,7 +1929,7 @@ void DrawFacetBatches(uint32_t color, int lighting, const float (&eye)[3]) {
             continue;
         Matrix world;
         Multiply(world, *reinterpret_cast<const Matrix *>(matrix), toEye);
-        Gx::SetTransform(kWorldStack, world);
+        Gx::SetTransform(Offsets::GX_XFORM_WORLD, world);
         if (lighting == 1)
             reinterpret_cast<WriteColored_t>(Offsets::FUN_WRITE_DECAL_VERTICES_COLOURED)(batch);
         else
@@ -1939,7 +1938,7 @@ void DrawFacetBatches(uint32_t color, int lighting, const float (&eye)[3]) {
         const Prim prim{Offsets::GX_PRIM_TRIANGLES, 0, indices, 0, static_cast<uint16_t>(indices - 1), 0};
         reinterpret_cast<Render_t>(Offsets::FUN_GX_PRIM_RENDER_ONE)(&prim, 1);
     }
-    Gx::PopTransform(kWorldStack);
+    Gx::PopTransform(Offsets::GX_XFORM_WORLD);
 }
 
 // DrawDecalBatches (0x006D7480) over the facets of the WMO and the terrain,
@@ -2462,7 +2461,7 @@ PortalSky WalkFromCamera(const Backdrop &b, const float (&eye)[3]) {
     PushObjectSpace(b, eye);
     Matrix device, slot, toClip;
     reinterpret_cast<GetMatrix_t>(Offsets::FUN_GX_GET_VIEW_PROJECTION)(device);
-    reinterpret_cast<GetXform_t>(Offsets::FUN_GX_XFORM_GET)(kWorldStack, slot);
+    reinterpret_cast<GetXform_t>(Offsets::FUN_GX_XFORM_GET)(Offsets::GX_XFORM_WORLD, slot);
     Multiply(toClip, slot, device);
     std::memcpy(reinterpret_cast<void *>(static_cast<uintptr_t>(Offsets::VAR_PORTAL_OBJECT_TO_CLIP)), toClip,
                 sizeof toClip);
@@ -2565,9 +2564,9 @@ void DrawSkyPass(uint32_t mapID, uint32_t cameraLiquid, const float (&eye)[3], c
     const Gx::SavedStates states;
     Matrix identity;
     Identity(identity);
-    Gx::PushTransform(kWorldStack, identity);
+    Gx::PushTransform(Offsets::GX_XFORM_WORLD, identity);
     reinterpret_cast<Fn_t>(Offsets::FUN_DRAW_SKY)();
-    Gx::PopTransform(kWorldStack);
+    Gx::PopTransform(Offsets::GX_XFORM_WORLD);
 }
 
 } // namespace

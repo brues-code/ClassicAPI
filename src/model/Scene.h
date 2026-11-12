@@ -849,6 +849,19 @@ bool LiquidAt(const Land &land, const float (&point)[3], uint32_t &type, float &
 bool QueryLiquidFacets(const Land &land, const float (&box)[6], std::vector<Contact::Facet> &out);
 } // namespace Terrain
 
+// The water effects around a scene camera (model/SceneWater.cpp).
+namespace Water {
+struct Effects;
+// From the scene's update, once the camera's liquid is known (`before` the
+// last update's, `now` this one's): the drift cloud scattered for a new
+// liquid, made the first time, and advected with the camera.
+void Update(Effects *&effects, uint32_t before, uint32_t now, const float (&eye)[3], float elapsed);
+// From the paint, after the scene's models: the drift cloud, while the
+// camera is in a liquid.
+void DrawDrift(const Effects *effects, uint32_t cameraLiquid);
+void Free(Effects *effects);
+} // namespace Water
+
 // The scene's WMO, or null.
 World::Backdrop *WorldOf(void *sceneFrame);
 // The scene's terrain, or null.

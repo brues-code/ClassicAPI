@@ -14432,6 +14432,10 @@ enum Offsets {
     FUN_FRUSTUM_BOX_CULLED = 0x00682F60,
     FUN_GX_GET_VIEW_PROJECTION = 0x0058B0C0,
     FUN_GX_XFORM_GET = 0x0058B280,
+    // The world transform stack (unit 8): the world's passes set each object's
+    // matrix here (GxXformSetIdentity(8) and the translate 0x0058B250 in the
+    // liquid passes, 0x00685144); its view-space passes leave it identity.
+    GX_XFORM_WORLD = 8,
     FUN_SET_SKYBOX_SLOT = 0x006D4810,
     VAR_MAPOBJ_PASS = 0x00CA8014,
     VAR_PORTAL_INSIDE_LEG = 0x00CDE5AC,
@@ -16530,6 +16534,32 @@ enum Offsets {
     // 0x00C81B70 ocean) is cleared, which the world does once a frame
     // (0x006809C0).
     WORLD_FLAG_LIQUIDS = 0x1000000,
+    // The drift cloud (model/SceneWater.cpp): 0xFA40 bytes, 4000 motes of 16
+    // bytes (a camera-relative position, the quad size at +0xC), built by
+    // CreateDriftCloud `__thiscall(cloud, sizeBase bits, edge bits, path)`
+    // with the immediates the world pushes (0x0066F99E: 1/36, 30.0, the path
+    // at 0x00867A34); its texture is closed by 0x0068E640. The camera's
+    // liquid change (0x00680AEE) calls the scatter `__thiscall(cloud, mode)`
+    // with the new liquid, then the size base (1/36 for water and ocean,
+    // 1/9 for magma, 0x00680B57) and sets the enable byte +0xFA14; slime
+    // clears it. The advect `__thiscall(cloud)` reads the camera position
+    // (VAR_CAMERA_POSITION) and the frame seconds (0x00C62510); the draw
+    // `__thiscall(cloud)` the device view. Both run with world flag 0x2000000
+    // (the waterParticulates setting) and the camera in a liquid.
+    WORLD_FLAG_PARTICULATES = 0x2000000,
+    DRIFT_CLOUD_SIZE = 0xFA40,
+    FUN_CREATE_DRIFT_CLOUD = 0x0068E5A0,
+    FUN_FREE_DRIFT_CLOUD_TEXTURE = 0x0068E640,
+    FUN_SET_DRIFT_CLOUD_SIZE_BASE = 0x0068E670,
+    FUN_SCATTER_DRIFT_CLOUD = 0x0068E720,
+    FUN_ADVECT_DRIFT_CLOUD = 0x0068E930,
+    FUN_DRAW_DRIFT_CLOUD = 0x0068EFE0,
+    OFF_DRIFT_CLOUD_ENABLED = 0xFA14,
+    VAR_DRIFT_TEXTURE_PATH = 0x00867A34,
+    DRIFT_EDGE = 0x41F00000,            // 30.0
+    DRIFT_SIZE_BASE_WATER = 0x3CE38E39, // 1/36
+    DRIFT_SIZE_BASE_MAGMA = 0x3DE38E39, // 1/9
+    VAR_FRAME_SECONDS = 0x00C62510,
     VAR_OCEAN_SWATCH = 0x00C81B90,
     VAR_RIVER_SWATCH = 0x00C89D68,
     VAR_FANCY_WATER = 0x00C9A324,

@@ -19459,7 +19459,8 @@ The scene shows the WMO as the world shows it:
 - If the scene has no fog, the fog of the WMO comes in from the far clip of
   the camera.
 - When the camera goes into the water of the WMO, the fog becomes the
-  underwater fog of the WMO. In lava or slime, the fog becomes the fog of
+  underwater fog of the WMO. Small motes drift in the liquid around the
+  camera, with the `waterParticulates` setting. In lava or slime, the fog becomes the fog of
   the map for that liquid, unless the WMO has a fog for that liquid.
   Without `mapID`, the fog of the scene takes the place of the fog of the
   map.
@@ -19579,7 +19580,8 @@ lava of the map show, and their textures animate. The water takes its colors
 from the light of the map at the camera. Actors swim in this water, and
 [`scene:GetLiquidAtPoint`](#scenegetliquidatpointx-y-z) finds it. When the
 camera goes into the water or the lava of the map, the fog becomes the fog
-of the map for that liquid, as in the world. This is a ClassicAPI
+of the map for that liquid, as in the world. Small motes drift in the
+liquid around the camera, with the `waterParticulates` setting. This is a ClassicAPI
 extension.
 
 ```lua

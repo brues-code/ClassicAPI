@@ -81,7 +81,6 @@ using Gx::Identity;
 using Gx::Matrix;
 using Gx::Translate;
 
-constexpr int kWorldStack = 8;
 constexpr char kVertexPoolName[] = "ModelScene_terrain_vtx";
 constexpr char kIndexPoolName[] = "ModelScene_terrain_idx";
 constexpr char kLiquidVertexPoolName[] = "ModelScene_liquid_vtx";
@@ -776,10 +775,10 @@ class Staged {
         worldFogEnd = fogEnd;
         reinterpret_cast<void(__cdecl *)()>(Offsets::FUN_FRUSTUM_PUSH)();
         reinterpret_cast<void(__thiscall *)(void *)>(Offsets::FUN_FRUSTUM_STORE)(volume);
-        Gx::PushTransform(kWorldStack);
+        Gx::PushTransform(Offsets::GX_XFORM_WORLD);
     }
     ~Staged() {
-        Gx::PopTransform(kWorldStack);
+        Gx::PopTransform(Offsets::GX_XFORM_WORLD);
         reinterpret_cast<void(__cdecl *)()>(Offsets::FUN_FRUSTUM_POP)();
         float *camera = &Game::Ref<float>(Offsets::VAR_CAMERA_POSITION);
         for (int i = 0; i < 3; ++i)
@@ -799,7 +798,7 @@ class Staged {
         Matrix world;
         Identity(world);
         Translate(world, {position[0] - eye_[0], position[1] - eye_[1], position[2] - eye_[2]});
-        Gx::SetTransform(kWorldStack, world);
+        Gx::SetTransform(Offsets::GX_XFORM_WORLD, world);
     }
     bool Culled(const float (&box)[6]) const {
         return reinterpret_cast<uint32_t(__thiscall *)(const float *)>(Offsets::FUN_FRUSTUM_IS_BOX_CULLED)(box) != 0;

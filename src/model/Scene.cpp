@@ -176,6 +176,7 @@ struct Fields {
     // the eye its probe is, from the last paint (World::ProbeDrop).
     uint32_t cameraLiquid;
     float probeDrop;
+    Water::Effects *water; // the drift cloud, made when the camera first enters a liquid
     bool playWorldModelSounds; // SetPlayWorldModelSounds
     Actor *listener; // SetSoundListenerActor, or null; the frame owns its actors
     // GetSceneTime: the seconds the M2 scene's clock has advanced since the
@@ -795,6 +796,8 @@ void __fastcall Paint(void *frame) {
         if (!wet)
             M2::DrawScene(scene, 1);
         Chains::Render(frame, eye);
+        // The world stage's particulates follow its models (0x006701E0).
+        Water::DrawDrift(F(frame).water, liquid);
     }
 }
 
@@ -1021,6 +1024,8 @@ void Destroy(void *frame) {
     f.world = nullptr;
     Terrain::Free(f.terrain);
     f.terrain = nullptr;
+    Water::Free(f.water);
+    f.water = nullptr;
     Time::Timer::CancelOwned(frame);
 }
 
@@ -1096,7 +1101,9 @@ void __fastcall OnFrameUpdate(void *self, void *, float elapsedSec) {
         World::Update(*world, self, F(self).playWorldModelSounds, elapsedSec);
     if (terrain != nullptr)
         Terrain::Update(*terrain, self, F(self).playWorldModelSounds);
+    const uint32_t lastLiquid = F(self).cameraLiquid;
     F(self).cameraLiquid = world != nullptr ? World::CameraLiquid(*world) : OutdoorCameraLiquid(self);
+    Water::Update(F(self).water, lastLiquid, F(self).cameraLiquid, CameraView(self).eye, elapsedSec);
     // A seated rider or an attached actor takes its parent's light.
     if (world != nullptr || terrain != nullptr)
         for (Actor *actor : *F(self).actors)
@@ -1208,6 +1215,7 @@ void *__fastcall CreateModelScene(void *parent) {
     f.terrain = nullptr;
     f.cameraLiquid = Offsets::LIQUID_DRY;
     f.probeDrop = 0.0f;
+    f.water = nullptr;
     f.playWorldModelSounds = false;
     f.listener = nullptr;
     f.clock = 0.0;
