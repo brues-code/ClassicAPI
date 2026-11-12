@@ -761,17 +761,12 @@ void __fastcall Paint(void *frame) {
                                                 : World::kNoMap;
         const World::LiquidFog liquidFog(frame, map, liquid, eye, F(frame).farClip);
         const bool wet = liquid != Offsets::LIQUID_DRY;
-        if (world != nullptr) {
+        if (world != nullptr)
             World::ClearAndDrawSky(*world, frame, eye);
-        } else if (terrain != nullptr && wet) {
-            // DrawWorldScene's clear under a liquid (0x0068124D): the fog colour.
-            const uint32_t saved = Gx::GetClearColor();
-            Gx::SetClearColor(Game::Read<uint32_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_COLOR));
-            Gx::Clear(3);
-            Gx::SetClearColor(saved);
-        } else {
+        else if (terrain != nullptr)
+            World::ClearAndDrawOpenSky(frame, map, liquid, eye);
+        else
             Gx::Clear(2);
-        }
         PlaceActors(frame);
         void *scene = Model::Pane::Scene(frame);
         M2::AnimateScene(scene, eye);
@@ -2207,7 +2202,7 @@ const Game::Doc::Field kWorldTerrainArgs[] = {
 const Game::Doc::Function kSetWorldTerrain{
     "Shows the map's ground around a point the way the world draws it, with its textures, shadows and "
     "level of detail, in map coordinates. The scene's light stands in for the sun, and its fog for the "
-    "zone's. Actors walk on it, and TraceSegment and SweepCollider find it; past the radius there is no "
+    "zone's. Without a WMO, the map's sky shows behind it. Actors walk on it, and TraceSegment and SweepCollider find it; past the radius there is no "
     "ground. The map's props on it (trees, plants, rocks) show too, and actors collide with them; its "
     "grass shows near the camera, and its water and lava show; actors swim in the water, and under it the "
     "camera takes the map's underwater fog. Returns false, and shows no terrain, when no ground lies within the "

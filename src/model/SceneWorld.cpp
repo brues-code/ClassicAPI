@@ -2528,7 +2528,10 @@ PortalSky WalkFromCamera(const Backdrop &b, const float (&eye)[3]) {
     return found;
 }
 
-void DrawSkyPass(const Backdrop &b, const float (&eye)[3], const float (&forward)[3], const char *skybox) {
+// `mapID` and `cameraLiquid` pick the light; `skybox`, at `skyboxWeight`, is
+// a portal walk's.
+void DrawSkyPass(uint32_t mapID, uint32_t cameraLiquid, const float (&eye)[3], const float (&forward)[3],
+                 const char *skybox, float skyboxWeight) {
     uint8_t *state = LightState();
     if (Game::Read<uint32_t>(state, Offsets::OFF_LIGHT_STATE_SKY_ON) == 0 || SkyObjects::DomeColours() == nullptr)
         return;
@@ -2537,7 +2540,7 @@ void DrawSkyPass(const Backdrop &b, const float (&eye)[3], const float (&forward
     // light with no screen tint (the player's) and no override; else the
     // world's light and its override.
     Record table;
-    const bool own = b.mapID != kNoMap && BuildMapLight(b.mapID, b.cameraLiquid, eye, table);
+    const bool own = mapID != kNoMap && BuildMapLight(mapID, cameraLiquid, eye, table);
     const uintptr_t from = own ? Offsets::OFF_LIGHT_STATE_OVERRIDE_SKYBOX : Offsets::OFF_LIGHT_STATE_SKYBOXES;
     std::memset(state + from, 0, Offsets::OFF_LIGHT_STATE_SKYBOX_WEIGHTS + Offsets::LIGHT_SKYBOX_SLOTS * 4 - from);
     if (own) {
@@ -2554,7 +2557,7 @@ void DrawSkyPass(const Backdrop &b, const float (&eye)[3], const float (&forward
     if (skybox != nullptr) {
         using SetSlot_t = void(__fastcall *)(int slot, const char *path, float weight);
         const auto setSlot = reinterpret_cast<SetSlot_t>(Offsets::FUN_SET_SKYBOX_SLOT);
-        setSlot(0, skybox, b.fog.weight);
+        setSlot(0, skybox, skyboxWeight);
         setSlot(1, nullptr, 0.0f);
     }
     Game::Ref<float>(state, Offsets::OFF_LIGHT_STATE_HEADING) = Heading(forward);
@@ -2578,7 +2581,20 @@ void ClearAndDrawSky(const Backdrop &b, void *frame, const float (&eye)[3]) {
     Gx::Clear(3);
     Gx::SetClearColor(saved);
     if (walked.weather && dry)
-        DrawSkyPass(b, eye, CameraView(frame).forward, walked.skybox);
+        DrawSkyPass(b.mapID, b.cameraLiquid, eye, CameraView(frame).forward, walked.skybox, b.fog.weight);
+}
+
+void ClearAndDrawOpenSky(void *frame, uint32_t mapID, uint32_t cameraLiquid, const float (&eye)[3]) {
+    // DrawWorldScene (0x0068123F): the clear colour black when dry, else the
+    // fog's (+0x70; the frame's, the zone's under the liquid); the sky only
+    // when dry.
+    const bool dry = cameraLiquid == Offsets::LIQUID_DRY;
+    const uint32_t saved = Gx::GetClearColor();
+    Gx::SetClearColor(dry ? 0u : Game::Read<uint32_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_COLOR));
+    Gx::Clear(3);
+    Gx::SetClearColor(saved);
+    if (dry)
+        DrawSkyPass(mapID, cameraLiquid, eye, CameraView(frame).forward, nullptr, 0.0f);
 }
 
 // ---- props: a map's own doodads (the terrain's MDDF) ---------------------------------

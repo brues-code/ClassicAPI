@@ -649,6 +649,11 @@ void Silence(Backdrop &backdrop);
 // (the dome, the sun and moons, the stars, the clouds and the skyboxes) in
 // the device's view, lit by the backdrop map's light at the camera.
 void ClearAndDrawSky(const Backdrop &backdrop, void *frame, const float (&eye)[3]);
+// The same without a WMO, as the world's frame does in the open (the weather
+// byte stands set outside every map object): dry, the clear to black and the
+// sky in map `mapID`'s light at the camera; under a liquid, the clear to the
+// frame's fog colour (the zone's, LiquidFog) and no sky.
+void ClearAndDrawOpenSky(void *frame, uint32_t mapID, uint32_t cameraLiquid, const float (&eye)[3]);
 // From the paint, after the animate pass: the WMO in the device's view.
 void Draw(Backdrop &backdrop, void *frame, const float (&eye)[3]);
 // From the paint, between the scene's opaque and translucent lists: the

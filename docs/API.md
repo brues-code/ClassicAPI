@@ -19550,8 +19550,11 @@ width of one map tile.
 
 The ground looks as it does in the world: the same textures, the same
 shadows and the same level of detail. The light of the scene stands in for
-the sun, and the fog of the scene stands in for the fog of the zone. A
-WMO from
+the sun, and the fog of the scene stands in for the fog of the zone. In a
+scene without a WMO, the sky of the map shows behind the ground: its
+colors, the sun and the moons, the stars, the clouds and the skybox, in the
+light of the map at the camera and at the time of day of the world. The
+sky hides the background of the scene. A WMO from
 [`scene:SetWorldModel`](#scenesetworldmodelpath--x-y-z--yaw--doodadset--mapid)
 stands on the ground when you give it its position on the same map.
 
