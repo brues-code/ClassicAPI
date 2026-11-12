@@ -14072,6 +14072,7 @@ enum Offsets {
     GXRS_DEPTH_WRITE = 0x12,
     GXRS_CULL = 0x14,
     GXRS_BLEND_ALPHA = 2,             // SRC_ALPHA / INV_SRC_ALPHA, with the alpha test
+    GXRS_BLEND_ADD = 3,               // SRC_ALPHA / ONE (the ripple draw, 0x0068FCC1)
     GXRS_BLEND_MODULATE = 4,          // DST_COLOR / ZERO
     GXRS_COMBINE_BLEND_DIFFUSE_ALPHA = 5, // stage: texture to the vertex colour by its alpha
     // Topology for FUN_GX_PRIM_INDEXED: 4 is a triangle strip (the lightning
@@ -16560,6 +16561,78 @@ enum Offsets {
     DRIFT_SIZE_BASE_WATER = 0x3CE38E39, // 1/36
     DRIFT_SIZE_BASE_MAGMA = 0x3DE38E39, // 1/9
     VAR_FRAME_SECONDS = 0x00C62510,
+    // The foam rings and wakes of units in shallow liquid (model/SceneWater.cpp).
+    // CGUnit_C::EmitWaterRipple `__thiscall(unit, u32 kind)` (0x005FA760)
+    // runs each unit update (0x0060802E, kind 0) and after the swim
+    // decision's splash (0x0060319F, kind 0xC9): with the unit's liquid
+    // (UpdateMapEntityEnvironment: bit 0x20, the height +0x98) and bit 0x40
+    // (flag 0x1 of the area's LiquidType), the depth under twice the
+    // collision height (at least 1.0) and its next time (+0xC78, OS ms)
+    // reached, it emits at its position on the surface. The ripple kind:
+    // 3 for 0xC9, else 2 moving (move flags 0xF), 1 turning (0x30), 0 still;
+    // the byte table VAR_RIPPLE_KIND_WAKE {0, 0, 1, 0} makes kind 2 a wake
+    // (category 1, along the motion) and the rest rings (category 0, a random
+    // heading). AddSplash (0x0068BDA0) emits nothing while the waterRipples
+    // word is 0 and only in mode 0 (VAR_RIPPLE_MODE); AddRipple (0x0068F9F0)
+    // takes the next of 128 records of 0x50, 0 to 31 for the active mover and
+    // 32 to 127 for the rest; EmitRipple (0x0068F5C0) writes it and copies
+    // the liquid triangles TestWorldBox (class 0xF0000) finds in its box.
+    // UpdateRipples (0x0068FAE0, the tail of RenderLiquid) ages and draws
+    // them: blend 3, fog, depth write, culling and lighting off, the depth
+    // bias footstepBias (CVar 0x00C7F300) x 1/1024, the world stack at
+    // Translate(-camera), per category its texture (VAR_RIPPLE_TEXTURES,
+    // XTextures\splash\splash.blp and wake.blp, loaded by InitRipples
+    // 0x0068F8B0) over the polygon in format 4 (position, normal (0, 0, 1),
+    // colour, uv; 0x24 bytes), the uv the polygon through the texture matrix
+    // BuildDecalTransforms makes of the ripple's box turned by its heading.
+    VAR_WATER_RIPPLES = 0x0086A03C,
+    VAR_RIPPLE_MODE = 0x00C89DB8,
+    VAR_RIPPLE_TEXTURES = 0x00C800E4,
+    VAR_RIPPLE_KIND_WAKE = 0x00860A4C,
+    VAR_RIPPLE_RISE_SHARES = 0x00810348, // float[2] 0.4, the rise's share of the life
+    VAR_FOOTSTEP_BIAS_CVAR = 0x00C7F300,
+    VAR_RIPPLE_BIAS_SCALE = 0x00810390,  // float 1/1024
+    RIPPLE_POOL = 0x80,
+    RIPPLE_POOL_SELF = 0x20,
+    RIPPLE_KIND_SPLASH = 0xC9,
+    RIPPLE_KIND_TURNING_INDEX = 1,
+    RIPPLE_KIND_MOVING_INDEX = 2,
+    RIPPLE_KIND_SPLASH_INDEX = 3,
+    RIPPLE_MOVE_FLAGS = 0xF,  // forward, backward, strafing (0x005FA7E8)
+    RIPPLE_TURN_FLAGS = 0x30, // turning left or right (0x005FA7F3)
+    LIQUID_TRIANGLE_CLASS = 0xF0000,
+    LIQUIDTYPE_FLAG_RIPPLES = 0x1,
+    // EmitWaterRipple's own floats (each checked against the image).
+    VAR_RIPPLE_SPEED_CAP = 0x00804478,      // float 20.0
+    VAR_RIPPLE_SPEED_SCALE = 0x00803088,    // float 2.5
+    VAR_RIPPLE_SIZE_MAX = 0x0080655C,       // float 5/3
+    VAR_RIPPLE_LIFE_SPREAD = 0x008029C8,    // float 0.05
+    VAR_RIPPLE_LIFE_BASE = 0x0080C4F0,      // float 0.65
+    VAR_RIPPLE_GROWTH_SPAN = 0x0080308C,    // float 1.5
+    VAR_RIPPLE_GROWTH_BASE = 0x0080C4EC,    // float 3.75
+    VAR_RIPPLE_GROWTH_SCALE = 0x0080C4E8,   // float 12.0
+    VAR_RIPPLE_STILL_SCALES = 0x0080C474,   // float[4] 0.8, 1.0, 0.25, 0.6
+    VAR_RIPPLE_THREE_QUARTER_PI = 0x0080C4E0, // float 3pi/4
+    VAR_RIPPLE_BACK_TURN = 0x008030B0,      // float pi
+    VAR_RIPPLE_NEXT_SHARE = 0x008029B0,     // float 0.25
+    VAR_RIPPLE_NEXT_MS = 0x00801448,        // float -1000.0
+    VAR_RIPPLE_PEAK_SCALE = 0x00802990,     // float 6.0
+    RIPPLE_STILL_DELAY_MS = 400,            // 0x005FAC4E: 400 + the high word of 50 x a draw
+    RIPPLE_STILL_DELAY_SPREAD = 50,
+    // The GX buffers the ripple draw makes each frame: GxBufCreate
+    // `void *__fastcall(int kind, int itemSize, int count)` ret 4 (kind 0
+    // vertices, 1 indices), Lock `void *__fastcall(buf)`, Unlock
+    // `__fastcall(buf, int)`, the vertex bind `__fastcall(buf, int format)`
+    // and the index bind `__fastcall(buf)`.
+    FUN_GX_BUF_CREATE = 0x0058A140,
+    FUN_GX_BUF_LOCK = 0x0058A080,
+    FUN_GX_BUF_UNLOCK = 0x0058A0A0,
+    FUN_GX_VERTEX_BUF_BIND = 0x0058A7C0,
+    FUN_GX_INDEX_BUF_BIND = 0x0058A800,
+    GX_BUF_VERTICES = 0,
+    GX_BUF_INDICES = 1,
+    GX_FORMAT_PNCT = 4,
+    GX_PNCT_SIZE = 0x24,
     VAR_OCEAN_SWATCH = 0x00C81B90,
     VAR_RIVER_SWATCH = 0x00C89D68,
     VAR_FANCY_WATER = 0x00C9A324,

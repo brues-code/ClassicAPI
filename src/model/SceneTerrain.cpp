@@ -1292,12 +1292,13 @@ bool CollectDecalBatches(const Land &land, const float (&box)[6], uint32_t mask)
     const int32_t cells[4] = {Cell(perYard, half, fromMaxX), Cell(perYard, half, fromMaxY),
                               Cell(perYard, half, fromMinX), minY};
     using Triangles_t = uint8_t(__fastcall *)(void *chunk, const int32_t *rect, const float *box, uint32_t unused);
+    using Gather_t = uint8_t(__thiscall *)(void *slot, void *unused, const float *box, const int32_t *cells);
     const int32_t last = Offsets::CHUNK_CELLS - 1;
     bool any = false;
     for (int32_t row = cells[0] >> 3; row <= cells[2] >> 3; ++row) {
         for (int32_t column = cells[1] >> 3; column <= cells[3] >> 3; ++column) {
             void *chunk = ChunkAt(land, row, column);
-            if (chunk == nullptr || (mask & Offsets::CHUNK_TRIANGLE_CLASS) == 0)
+            if (chunk == nullptr)
                 continue;
             // TestChunkBox (0x006AD610): the box less the chunk position, the
             // rectangle clipped to the chunk's cells.
@@ -1312,8 +1313,20 @@ bool CollectDecalBatches(const Land &land, const float (&box)[6], uint32_t mask)
                                      (std::max)(cells[1] - column * Offsets::CHUNK_CELLS, 0),
                                      (std::min)(cells[2] - row * Offsets::CHUNK_CELLS, last),
                                      (std::min)(cells[3] - column * Offsets::CHUNK_CELLS, last)};
-            if (reinterpret_cast<Triangles_t>(Offsets::FUN_TEST_CHUNK_TRIANGLES)(chunk, rect, local, 0) != 0)
+            if ((mask & Offsets::CHUNK_TRIANGLE_CLASS) != 0 &&
+                reinterpret_cast<Triangles_t>(Offsets::FUN_TEST_CHUNK_TRIANGLES)(chunk, rect, local, 0) != 0)
                 any = true;
+            // The liquid leg (0x006AD75E): each slot the class names into the
+            // same batches.
+            for (uint32_t i = 0; i < Offsets::CHUNK_LIQUID_SLOTS; ++i) {
+                void *slot = LiquidSlot(chunk, i);
+                if (slot == nullptr || (mask & (1u << (Offsets::LIQUID_CLASS_FIRST_BIT + i))) == 0)
+                    continue;
+                uint32_t unused = 0;
+                if (reinterpret_cast<Gather_t>(Offsets::FUN_CHUNKLIQUID_GATHER_CELL_FACETS)(slot, &unused, local,
+                                                                                             rect) != 0)
+                    any = true;
+            }
         }
     }
     return any;

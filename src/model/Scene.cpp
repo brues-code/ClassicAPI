@@ -793,6 +793,7 @@ void __fastcall Paint(void *frame) {
             Terrain::DrawWater(*terrain, frame, eye, F(frame).farClip, liquid);
         if (world != nullptr)
             World::DrawLiquids(*world, frame, eye);
+        Water::DrawRipples(F(frame).water, eye);
         if (!wet)
             M2::DrawScene(scene, 1);
         Chains::Render(frame, eye);
@@ -1103,7 +1104,8 @@ void __fastcall OnFrameUpdate(void *self, void *, float elapsedSec) {
         Terrain::Update(*terrain, self, F(self).playWorldModelSounds);
     const uint32_t lastLiquid = F(self).cameraLiquid;
     F(self).cameraLiquid = world != nullptr ? World::CameraLiquid(*world) : OutdoorCameraLiquid(self);
-    Water::Update(F(self).water, lastLiquid, F(self).cameraLiquid, CameraView(self).eye, elapsedSec);
+    Water::Update(F(self).water, lastLiquid, F(self).cameraLiquid, CameraView(self).eye, elapsedSec,
+                  static_cast<double>(ClockMs(self)) / 1000.0);
     // A seated rider or an attached actor takes its parent's light.
     if (world != nullptr || terrain != nullptr)
         for (Actor *actor : *F(self).actors)
@@ -2491,6 +2493,8 @@ int GroundTerrain(void *sceneFrame) { return F(sceneFrame).groundTerrain; }
 World::Backdrop *WorldOf(void *sceneFrame) { return F(sceneFrame).world; }
 
 Terrain::Land *TerrainOf(void *sceneFrame) { return F(sceneFrame).terrain; }
+
+Water::Effects *&WaterOf(void *sceneFrame) { return F(sceneFrame).water; }
 
 bool QueryGroundFacets(void *sceneFrame, const float (&box)[6], std::vector<Contact::Facet> &out) {
     const Fields &f = F(sceneFrame);

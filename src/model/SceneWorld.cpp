@@ -248,7 +248,8 @@ struct Ambience {
     int32_t ground = -1;    // the face's TerrainType id (+0xDC), or -1
     // The liquid it stands in, outdoors (+0x90 bits 0x20 and 0x80, +0x98).
     bool inLiquid = false;
-    bool splashes = false;
+    bool splashes = false; // +0x90 bit 0x80, LiquidType flag 0x2
+    bool ripples = false;  // +0x90 bit 0x40, LiquidType flag 0x1
     float liquidHeight = 0.0f;
     std::vector<Light> lights;
 };
@@ -1443,6 +1444,7 @@ void LiquidEnvironment(const Terrain::Land *terrain, Ambience &a, void *frame) {
     using LiquidType_t = const uint8_t *(__fastcall *)(int32_t areaID, uint32_t type);
     a.inLiquid = false;
     a.splashes = false;
+    a.ripples = false;
     uint32_t type = 0;
     float height = 0.0f;
     if (a.interior || !LiquidAtPoint(frame, a.position, type, height))
@@ -1452,8 +1454,9 @@ void LiquidEnvironment(const Terrain::Land *terrain, Ambience &a, void *frame) {
     const uint32_t area = terrain != nullptr ? Terrain::AreaAt(*terrain, a.position) : 0;
     const uint8_t *row =
         reinterpret_cast<LiquidType_t>(Offsets::FUN_LIQUIDTYPE_FOR_AREA)(static_cast<int32_t>(area), type);
-    a.splashes = row != nullptr &&
-                 (Game::Read<uint32_t>(row, Offsets::OFF_LIQUIDTYPE_FLAGS) & Offsets::LIQUIDTYPE_FLAG_SPLASH) != 0;
+    const uint32_t flags = row != nullptr ? Game::Read<uint32_t>(row, Offsets::OFF_LIQUIDTYPE_FLAGS) : 0;
+    a.splashes = (flags & Offsets::LIQUIDTYPE_FLAG_SPLASH) != 0;
+    a.ripples = (flags & Offsets::LIQUIDTYPE_FLAG_RIPPLES) != 0;
 }
 
 } // namespace
@@ -1536,6 +1539,13 @@ bool Current(const Backdrop *b, const Terrain::Land *terrain, const Ambience &a)
 
 int Ground(const Backdrop *b, const Terrain::Land *terrain, const Ambience &a) {
     return Current(b, terrain, a) ? a.ground : -1;
+}
+
+bool RippleSurface(const Backdrop *b, const Terrain::Land *terrain, const Ambience &a, float &surface) {
+    if (!Current(b, terrain, a) || !a.inLiquid || !a.ripples)
+        return false;
+    surface = a.liquidHeight;
+    return true;
 }
 
 bool FootstepWet(const Backdrop *b, const Terrain::Land *terrain, const Ambience &a, const float (&point)[3]) {
@@ -1663,7 +1673,10 @@ bool CollectBox(const Backdrop &b, const float (&box)[6], uint32_t mask) {
 
 } // namespace
 
-void EmitFacetBatches(std::vector<Contact::Facet> &out) {
+namespace {
+
+// Each batch triangle's vertices through the batch's matrix (0x007BCA80).
+template <typename Add> void ForEachBatchTriangle(Add add) {
     const uint32_t batches = Game::Read<uint32_t>(Offsets::VAR_FACET_BATCH_COUNT);
     for (uint32_t i = 0; i < batches; ++i) {
         const uint8_t *batch = FacetBatch(i);
@@ -1680,9 +1693,15 @@ void EmitFacetBatches(std::vector<Contact::Facet> &out) {
                 const float in[3] = {p[0], p[1], p[2]};
                 TransformPoint(in, *m, v[c]);
             }
-            out.push_back(Contact::MakeFacet(v[0], v[1], v[2]));
+            add(v);
         }
     }
+}
+
+} // namespace
+
+void EmitFacetBatches(std::vector<Contact::Facet> &out) {
+    ForEachBatchTriangle([&](const float (&v)[3][3]) { out.push_back(Contact::MakeFacet(v[0], v[1], v[2])); });
 }
 
 namespace {
@@ -1940,6 +1959,25 @@ void DrawFacetBatches(uint32_t color, int lighting, const float (&eye)[3]) {
     }
     Gx::PopTransform(Offsets::GX_XFORM_WORLD);
 }
+
+} // namespace
+
+void LiquidTriangles(const Backdrop *b, const Terrain::Land *terrain, const float (&box)[6], std::vector<float> &out) {
+    // EmitRipple (0x0068F6E1): the batches reset, TestWorldBox with the
+    // liquid classes, then each batch's triangles.
+    ResetFacetBatches();
+    bool any = b != nullptr && CollectBox(*b, box, Offsets::LIQUID_TRIANGLE_CLASS);
+    if (terrain != nullptr)
+        any = Terrain::CollectDecalBatches(*terrain, box, Offsets::LIQUID_TRIANGLE_CLASS) || any;
+    if (!any)
+        return;
+    ForEachBatchTriangle([&](const float (&v)[3][3]) {
+        for (const auto &p : v)
+            out.insert(out.end(), p, p + 3);
+    });
+}
+
+namespace {
 
 // DrawDecalBatches (0x006D7480) over the facets of the WMO and the terrain,
 // as TestWorldBox (0x006AD2C0) collects map objects then terrain, the eye for

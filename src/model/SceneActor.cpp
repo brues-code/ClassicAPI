@@ -814,6 +814,27 @@ void LoadNode(Actor &actor, const void *node, void *status) {
     Animation::Xml::LoadKeyValues(&actor, node, status);
 }
 
+// CGUnit_C::EmitWaterRipple (0x005FA760) for the actor's body: each update,
+// and with `splash` after the swim decision's splash. Only a placed actor in
+// a liquid that ripples leaves any.
+void EmitRipple(Actor &actor, bool splash) {
+    void *frame = actor.SceneFrame();
+    float surface = 0.0f;
+    if (actor.mover == nullptr || !World::RippleSurface(WorldOf(frame), TerrainOf(frame), *actor.ambience, surface))
+        return;
+    const Mover::Body &body = *actor.mover;
+    const Water::RippleSource source{{body.position[0], body.position[1], body.position[2]},
+                                     body.facing,
+                                     actor.scale,
+                                     body.height,
+                                     body.flags,
+                                     body.speed,
+                                     surface};
+    const uint32_t now = ClockMs(frame);
+    Water::EmitUnitRipple(WaterOf(frame), frame, source, actor.nextRippleMs, now, static_cast<double>(now) / 1000.0,
+                          splash);
+}
+
 // The movement manager's tick for the actor's body, against the scene's
 // ground, then the unit's step (CGUnit_C::OnMoverStepped 0x005FAC70): the liquid
 // over the feet, as the unit's liquid query finds it, and the swim decision.
@@ -831,8 +852,11 @@ void Advance(Actor &actor) {
     const bool swam = (body.flags & Mover::FLAG_SWIMMING) != 0;
     // The splash plays at the unit (PlaySplash 0x006237C0), with the actor's
     // other sounds; its ripple is a world effect.
-    if (Mover::UpdateSwimState(body, inLiquid, depth) && actor.playAnimationSounds && actor.splashSound > 0)
-        Sounds::Play(actor.SceneFrame(), actor.splashSound, body.position);
+    if (Mover::UpdateSwimState(body, inLiquid, depth)) {
+        if (actor.playAnimationSounds && actor.splashSound > 0)
+            Sounds::Play(actor.SceneFrame(), actor.splashSound, body.position);
+        EmitRipple(actor, true);
+    }
     // The client's swim decision queues EnterSwim or StopSwimming, whose
     // messages the unit animates.
     const bool swims = (body.flags & Mover::FLAG_SWIMMING) != 0;
@@ -1149,6 +1173,8 @@ void Actor::Update(float elapsedSec, float sceneSec) {
         MarkTwistBones(*this);
         Locomotion::OnBodyTurn(*this, TurnBody(*this));
         FaceDisplay(*this);
+        // CGUnit_C::Update's ripple (0x0060802E).
+        EmitRipple(*this, false);
     }
     if (model != nullptr && !loaded) {
         bool ready = M2::IsLoaded(model, 0, 0);

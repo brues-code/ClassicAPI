@@ -295,6 +295,7 @@ class Actor : public Animation::Object {
     // The unit's race splash (ChrRaces +0x34, the unit's +0xB18), played as
     // it wades in or out or starts to swim; 0 for a model without a unit.
     int32_t splashSound = 0;
+    uint32_t nextRippleMs = 0; // the unit's +0xC78, on the scene's clock
     Outfit::Lanes lanes = {};
     Outfit::Weapons weapons;
     Outfit::Worn worn = {}; // what each inventory slot wears (GetItemTransmogInfoList)
@@ -685,6 +686,14 @@ int Ground(const Backdrop *backdrop, const Terrain::Land *terrain, const Ambienc
 // and the point is from 0.01 above to 2/3 yard below its surface.
 bool FootstepWet(const Backdrop *backdrop, const Terrain::Land *terrain, const Ambience &ambience,
                  const float (&point)[3]);
+// The surface a unit's ripples float on (EmitWaterRipple 0x005FA760): the
+// actor, placed outdoors, stands in a liquid whose LiquidType has flag 0x1.
+bool RippleSurface(const Backdrop *backdrop, const Terrain::Land *terrain, const Ambience &ambience, float &surface);
+// The liquid triangles in a box (scene space) a ripple lies on (EmitRipple
+// 0x0068F5C0: TestWorldBox with class 0xF0000, the WMO's then the
+// terrain's), appended to `out` as nine floats each.
+void LiquidTriangles(const Backdrop *backdrop, const Terrain::Land *terrain, const float (&box)[6],
+                     std::vector<float> &out);
 // The nearest face of the loaded groups that the segment from `start` to
 // `end` (scene space) crosses, of the faces the world's line of sight tests,
 // or with `camera` the faces its camera collides with: its fraction along the
@@ -853,15 +862,35 @@ bool QueryLiquidFacets(const Land &land, const float (&box)[6], std::vector<Cont
 namespace Water {
 struct Effects;
 // From the scene's update, once the camera's liquid is known (`before` the
-// last update's, `now` this one's): the drift cloud scattered for a new
-// liquid, made the first time, and advected with the camera.
-void Update(Effects *&effects, uint32_t before, uint32_t now, const float (&eye)[3], float elapsed);
+// last update's, `now` this one's): the ripples aged to `clock` (the
+// scene's, in seconds), then the drift cloud scattered for a new liquid,
+// made the first time, and advected with the camera.
+void Update(Effects *&effects, uint32_t before, uint32_t now, const float (&eye)[3], float elapsed, double clock);
 // From the paint, after the scene's models: the drift cloud, while the
 // camera is in a liquid.
 void DrawDrift(const Effects *effects, uint32_t cameraLiquid);
+// What a unit's ripple reads of it (CGUnit_C::EmitWaterRipple 0x005FA760).
+struct RippleSource {
+    float position[3]; // the feet
+    float facing;
+    float scale;     // the object's scale
+    float height;    // the collision height
+    uint32_t moveFlags;
+    float speed;     // the current speed
+    float surface;   // the liquid's z over the feet
+};
+// A unit's ring or wake, or with `splash` its swim splash's ring: `nextMs`
+// is the unit's next ripple time (+0xC78) on the scene's clock `nowMs`.
+void EmitUnitRipple(Effects *&effects, void *frame, const RippleSource &source, uint32_t &nextMs, uint32_t nowMs,
+                    double clock, bool splash);
+// From the paint, in the liquid phase after the liquids (UpdateRipples, the
+// tail of RenderLiquid 0x006816D0): the live rings and wakes.
+void DrawRipples(const Effects *effects, const float (&eye)[3]);
 void Free(Effects *effects);
 } // namespace Water
 
+// The scene's water effects (made on first use).
+Water::Effects *&WaterOf(void *sceneFrame);
 // The scene's WMO, or null.
 World::Backdrop *WorldOf(void *sceneFrame);
 // The scene's terrain, or null.

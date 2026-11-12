@@ -20812,6 +20812,8 @@ is off. The actor moves on the WMO of the scene
 - It slides along walls and props.
 - It falls where the floor ends, and it jumps.
 - It swims in the liquids of the WMO and of the terrain.
+- In shallow water it leaves foam rings, and wakes when it moves, as a
+  character does in the world, with the `waterRipples` setting.
 
 The actor moves at the speeds of a character: it runs 7 yards a second,
 walks 2.5, backs up 4.5, swims 4.72 and swims backward 2.5. It turns half a
