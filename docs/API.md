@@ -19460,7 +19460,9 @@ The scene shows the WMO as the world shows it:
   the camera.
 - When the camera goes into the water of the WMO, the fog becomes the
   underwater fog of the WMO. In lava or slime, the fog becomes the fog of
-  the scene, unless the WMO has a fog for that liquid.
+  the map for that liquid, unless the WMO has a fog for that liquid.
+  Without `mapID`, the fog of the scene takes the place of the fog of the
+  map.
 - The WMO shows its props, for example torches, furniture and bones. The
   props of doodad set `0` always show. `doodadSet` adds the props of one
   more set. The props animate, and the lights of the WMO light them.
@@ -19571,9 +19573,11 @@ They play their sounds when
 is on. Near the camera, the ground shows its grass and small clutter, as
 in the world, with the density of the ground clutter setting. The water and
 lava of the map show, and their textures animate. The water takes its colors
-from the light of the map at the camera. Actors do not swim in this water,
-and [`scene:GetLiquidAtPoint`](#scenegetliquidatpointx-y-z) does not find
-it. This is a ClassicAPI extension.
+from the light of the map at the camera. Actors swim in this water, and
+[`scene:GetLiquidAtPoint`](#scenegetliquidatpointx-y-z) finds it. When the
+camera goes into the water or the lava of the map, the fog becomes the fog
+of the map for that liquid, as in the world. This is a ClassicAPI
+extension.
 
 ```lua
 -- The Gurubashi Arena: the arena WMO where the map puts it, on its ground.
@@ -19636,8 +19640,10 @@ local _, _, floorZ = scene:TraceSegment(x, y, z + 2, x, y, z - 50)
 
 ### `scene:GetLiquidAtPoint(x, y, z)`
 
-Returns the liquid of the WMO at a scene point, as the world finds it for a
-unit that stands at the point. The function returns `liquidType, surfaceZ`:
+Returns the liquid of the WMO or of the terrain
+([`scene:SetWorldTerrain`](#scenesetworldterrainmapid-x-y--radius)) at a
+scene point, as the world finds it for a unit that stands at the point. The
+liquid of the WMO comes first. The function returns `liquidType, surfaceZ`:
 
 - `liquidType` is `0` for water, `1` for ocean, `2` for magma and `3` for
   slime.
@@ -19648,7 +19654,6 @@ unit that stands at the point. The function returns `liquidType, surfaceZ`:
 The function returns nothing in these cases:
 
 - The point is above the surface, or it is not in a liquid.
-- The scene has no WMO.
 - The part of the WMO at the point has not loaded.
 
 This is a ClassicAPI extension.
@@ -20330,7 +20335,13 @@ default. When it is `true`, the animations play these sounds:
   [`scene:SetWorldTerrain`](#scenesetworldterrainmapid-x-y--radius), or a
   ground that you set with
   [`scene:SetGroundTerrain`](#scenesetgroundterrainterraintypeid--scenegetgroundterrain).
-  Footsteps also need the `FootstepSounds` setting.
+  Footsteps also need the `FootstepSounds` setting. At the surface of
+  water, footsteps splash.
+- The splash of the race of the unit, when the movement of the actor takes
+  it into or out of water that is deeper than two fifths of its height, or
+  when it starts to swim. Only an actor that shows a unit
+  ([`actor:SetModelByUnit`](#actorsetmodelbyunitunit--sheatheweapons-autodress-hideweapons-useplayernativeform-holdbowstring-customraceid))
+  has a race.
 - The sounds that some animations carry, with the `EmoteSounds` setting.
 - During the preparation of
   [`actor:PlaySpellVisual`](#actorplayspellvisualspellid--target--casttimems--channeltimems),
@@ -20795,7 +20806,7 @@ is off. The actor moves on the WMO of the scene
 - It walks and runs on the floors, and it steps up and down small ledges.
 - It slides along walls and props.
 - It falls where the floor ends, and it jumps.
-- It swims in the liquids of the WMO.
+- It swims in the liquids of the WMO and of the terrain.
 
 The actor moves at the speeds of a character: it runs 7 yards a second,
 walks 2.5, backs up 4.5, swims 4.72 and swims backward 2.5. It turns half a

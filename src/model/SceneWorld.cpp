@@ -216,10 +216,9 @@ struct Backdrop {
     float farClip = 0.0f;
     bool sounds = false; // SetPlayWorldModelSounds, in the world
     CameraFog fog;
-    // The camera's liquid type (0xF dry), and how far below the eye its probe
-    // is: the lowest of the eye and the near corners of the last paint.
+    // The camera's liquid type (0xF dry): the claim's first group's, else
+    // the scene's at the camera's probe point (OutdoorCameraLiquid).
     uint32_t cameraLiquid = Offsets::LIQUID_DRY;
-    float probeDrop = 0.0f;
     // The interior groups that hold the camera (the world's claim,
     // 0x00C7B748, and its group set 0x00C7CD88): the world then draws from
     // inside, and its portal walk from them decides the sky.
@@ -247,6 +246,10 @@ struct Ambience {
     uint32_t directional = 0; // BGRA bytes (+0xA0)
     uint32_t dayWeight = 0; // a day face's blend toward the sun (+0xA3)
     int32_t ground = -1;    // the face's TerrainType id (+0xDC), or -1
+    // The liquid it stands in, outdoors (+0x90 bits 0x20 and 0x80, +0x98).
+    bool inLiquid = false;
+    bool splashes = false;
+    float liquidHeight = 0.0f;
     std::vector<Light> lights;
 };
 
@@ -870,6 +873,19 @@ void ViewVolume(uint8_t (&volume)[Offsets::FRUSTUM_VOLUME_SIZE], const float (&e
     BuildViewVolume(volume, eye);
 }
 
+float ProbeDrop(const float (&eye)[3]) {
+    alignas(16) uint8_t volume[Offsets::FRUSTUM_VOLUME_SIZE] = {};
+    BuildViewVolume(volume, eye);
+    // The camera's probe z (0x006809E2): a near corner at or below the
+    // lowest so far, or NaN, replaces it.
+    const auto *corners = reinterpret_cast<const float *>(volume + Offsets::OFF_FRUSTUM_VOLUME_CORNERS);
+    float lowest = eye[2];
+    for (int i = 0; i < 4; ++i)
+        if (!(corners[i * 3 + 2] > lowest))
+            lowest = corners[i * 3 + 2];
+    return eye[2] - lowest;
+}
+
 void FrameFog(void *record, void *frame) { SceneFog(record, frame); }
 
 bool IsWmoPath(const char *path) { return path != nullptr && HasWmoSuffix(path); }
@@ -988,14 +1004,18 @@ void *LoadedGroup(void *object, uint32_t group) {
     return reinterpret_cast<GetGroup_t>(Offsets::FUN_CMAPOBJ_GET_LOADED_GROUP)(object, group, 0);
 }
 
-// What every facet query does first (0x006A893B, 0x006D7497).
-void ResetFacets() {
+} // namespace
+
+// What every facet query does first (0x006A893B, 0x006D7497, 0x006AB4F2).
+void ResetFacetBatches() {
     Game::Ref<uint32_t>(Offsets::VAR_FACET_OVERFLOW) = 0;
     Game::Ref<uint32_t>(Offsets::VAR_FACET_BATCH_COUNT) = 0;
     Game::Ref<uint32_t>(Offsets::VAR_FACET_FACE_CURSOR) = 0;
     Game::Ref<uint32_t>(Offsets::VAR_FACET_INDEX_CURSOR) = 0;
     Game::Ref<uint32_t>(Offsets::VAR_FACET_MATRIX_COUNT) = 0;
 }
+
+namespace {
 
 const uint8_t *FacetBatch(uint32_t index) {
     return reinterpret_cast<const uint8_t *>(static_cast<uintptr_t>(Offsets::VAR_FACET_BATCHES) +
@@ -1031,7 +1051,7 @@ bool Nearest(const Backdrop &b, const float (&start)[3], const float (&end)[3], 
         void *loaded = LoadedGroup(object, g);
         if (loaded == nullptr)
             continue;
-        ResetFacets();
+        ResetFacetBatches();
         float segment[6];
         std::memcpy(segment, local, sizeof segment);
         float tt = t;
@@ -1163,13 +1183,13 @@ bool InteriorFog(const Backdrop &b, const float (&eye)[3], const uint32_t (&grou
 
 // CameraEnvironment (0x006809C0) inside the WMO: the liquid of the camera's
 // first group at the probe point, 0xF when dry.
-uint32_t CameraLiquid(const Backdrop &b, const float (&eye)[3], uint32_t group) {
+uint32_t GroupCameraLiquid(const Backdrop &b, void *frame, const float (&eye)[3], uint32_t group) {
     using Height_t = bool(__thiscall *)(void *group, const float *point, uint32_t *type, float *height,
                                         float *vector);
     void *loaded = LoadedGroup(b.object, group);
     if (loaded == nullptr)
         return Offsets::LIQUID_DRY;
-    const float probe[3] = {eye[0], eye[1], eye[2] - b.probeDrop};
+    const float probe[3] = {eye[0], eye[1], eye[2] - CameraProbeDrop(frame)};
     float point[3], height = 0.0f, vector[3] = {};
     TransformPoint(probe, b.inverse, point);
     uint32_t type = Offsets::LIQUID_DRY;
@@ -1184,8 +1204,9 @@ uint32_t CameraLiquid(const Backdrop &b, const float (&eye)[3], uint32_t group) 
 // fog as the target. The weight moves toward 1 while the camera is inside,
 // else toward 0, and the target stays the last one while it falls. The world
 // starts the weight at 0 and fades in; a scene's first update takes it as it
-// stands. The camera's liquid outside the WMO (the terrain's) does not exist
-// in a scene; inside it the claim's first group answers.
+// stands. The zone's fog under a liquid is the map's for it (MapLiquidFog).
+bool MapLiquidFog(uint32_t mapID, uint32_t cameraLiquid, const float (&eye)[3], float farClip, FogValues &out);
+
 void UpdateCameraFog(Backdrop &b, void *frame, const float (&eye)[3], float farClip, float elapsed) {
     CameraFog &fog = b.fog;
     uint32_t groups[2] = {kNoGroup, kNoGroup};
@@ -1195,7 +1216,9 @@ void UpdateCameraFog(Backdrop &b, void *frame, const float (&eye)[3], float farC
     fog.zoneIsTarget = false;
     b.cameraGroupCount = claimed;
     std::memcpy(b.cameraGroups, groups, sizeof groups);
-    b.cameraLiquid = claimed != 0 ? CameraLiquid(b, eye, groups[0]) : static_cast<uint32_t>(Offsets::LIQUID_DRY);
+    // Without the claim, the world asks its liquid query at the probe point
+    // (0x006723D0): the WMO's liquid, then the terrain's.
+    b.cameraLiquid = claimed != 0 ? GroupCameraLiquid(b, frame, eye, groups[0]) : OutdoorCameraLiquid(frame);
     if (count != 0) {
         FogValues records[2] = {};
         uint32_t flags = 0;
@@ -1206,7 +1229,8 @@ void UpdateCameraFog(Backdrop &b, void *frame, const float (&eye)[3], float farC
                          : liquid == Offsets::LIQUID_SLIME ? (flags & Offsets::MAPOBJ_FOG_FLAG_SLIME) != 0
                                                            : true;
         if (!own) {
-            fog.target = SceneZoneFog(b, frame);
+            if (!MapLiquidFog(b.mapID, b.cameraLiquid, eye, farClip, fog.target))
+                fog.target = SceneZoneFog(b, frame);
         } else {
             const FogValues &record = records[liquid == Offsets::LIQUID_DRY ? 0 : 1];
             fog.target.end = record.end < farClip ? record.end : farClip;
@@ -1410,6 +1434,29 @@ void Place(const Backdrop *wmo, const Terrain::Land *terrain, Ambience &a, void 
     a.dayWeight = weight;
 }
 
+// UpdateMapEntityEnvironment's liquid leg (0x0069E2BF..0x0069E35F), after
+// the placement: outdoors, the liquid at the actor's position, and whether
+// the LiquidType of its area for that liquid splashes. The area is the
+// terrain's under the position: the scene's WMO carries no name set, so its
+// whole-WMO WMOAreaTable row is not looked up and the terrain answers, as
+// for the world's map object without a row.
+void LiquidEnvironment(const Terrain::Land *terrain, Ambience &a, void *frame) {
+    using LiquidType_t = const uint8_t *(__fastcall *)(int32_t areaID, uint32_t type);
+    a.inLiquid = false;
+    a.splashes = false;
+    uint32_t type = 0;
+    float height = 0.0f;
+    if (a.interior || !LiquidAtPoint(frame, a.position, type, height))
+        return;
+    a.inLiquid = true;
+    a.liquidHeight = height;
+    const uint32_t area = terrain != nullptr ? Terrain::AreaAt(*terrain, a.position) : 0;
+    const uint8_t *row =
+        reinterpret_cast<LiquidType_t>(Offsets::FUN_LIQUIDTYPE_FOR_AREA)(static_cast<int32_t>(area), type);
+    a.splashes = row != nullptr &&
+                 (Game::Read<uint32_t>(row, Offsets::OFF_LIQUIDTYPE_FLAGS) & Offsets::LIQUIDTYPE_FLAG_SPLASH) != 0;
+}
+
 } // namespace
 
 Ambience *NewAmbience() { return new Ambience(); }
@@ -1445,6 +1492,7 @@ void Settle(const Backdrop *b, const Terrain::Land *terrain, Ambience &a, void *
         a.generation = generation;
         std::memcpy(a.position, position, sizeof a.position);
         Place(b, terrain, a, frame, model, base);
+        LiquidEnvironment(terrain, a, frame);
     }
     Ease(a, frame, elapsed);
 }
@@ -1477,12 +1525,29 @@ void ActorLight(const Backdrop *b, const Ambience &a, void *frame, void *record)
         AddLight(record, light.bytes);
 }
 
+namespace {
+
+// The ambience is the actor's placement in this WMO and terrain.
+bool Current(const Backdrop *b, const Terrain::Land *terrain, const Ambience &a) {
+    return (b != nullptr || terrain != nullptr) && a.model != nullptr && a.serial == (b != nullptr ? b->serial : 0) &&
+           a.terrainSerial == (terrain != nullptr ? Terrain::Serial(*terrain) : 0);
+}
+
+} // namespace
+
 int Ground(const Backdrop *b, const Terrain::Land *terrain, const Ambience &a) {
-    if (b == nullptr && terrain == nullptr)
-        return -1;
-    const bool current = a.model != nullptr && a.serial == (b != nullptr ? b->serial : 0) &&
-                         a.terrainSerial == (terrain != nullptr ? Terrain::Serial(*terrain) : 0);
-    return current ? a.ground : -1;
+    return Current(b, terrain, a) ? a.ground : -1;
+}
+
+bool FootstepWet(const Backdrop *b, const Terrain::Land *terrain, const Ambience &a, const float (&point)[3]) {
+    if (!Current(b, terrain, a) || !a.inLiquid || !a.splashes)
+        return false;
+    // 0x0060A7A3: z under the height plus 0.01, then the height less z under
+    // 2/3 (a NaN failing both).
+    const double z = point[2];
+    if (!(static_cast<double>(a.liquidHeight) + EngineFloat(Offsets::VAR_ONE_HUNDREDTH) > z))
+        return false;
+    return static_cast<double>(a.liquidHeight) - z < EngineFloat(Offsets::VAR_TWO_THIRDS);
 }
 
 bool LiquidAt(const Backdrop &b, const float (&point)[3], uint32_t &type, float &surface) {
@@ -1597,9 +1662,9 @@ bool CollectBox(const Backdrop &b, const float (&box)[6], uint32_t mask) {
 // (the same arithmetic as its 0x007BCA80), the plane from their winding. The
 // client's own lists (0x00C4E52C) and cached box are never touched.
 
-// The facet emitter (0x00671CC0) over the batches: one facet per triangle,
-// appended to `out`.
-void EmitBatches(std::vector<Contact::Facet> &out) {
+} // namespace
+
+void EmitFacetBatches(std::vector<Contact::Facet> &out) {
     const uint32_t batches = Game::Read<uint32_t>(Offsets::VAR_FACET_BATCH_COUNT);
     for (uint32_t i = 0; i < batches; ++i) {
         const uint8_t *batch = FacetBatch(i);
@@ -1620,6 +1685,8 @@ void EmitBatches(std::vector<Contact::Facet> &out) {
         }
     }
 }
+
+namespace {
 
 // Whether two boxes touch, closed, a NaN missing (0x006ACB40 and 0x00699330,
 // the doodad gather's own test at 0x006ABCEE).
@@ -1708,9 +1775,9 @@ bool QueryFacetsIn(Backdrop &b, const float (&box)[6], std::vector<Contact::Face
     TransformBox(b.placement, bounds, placed);
     if (!Touches(placed, box))
         return true;
-    ResetFacets();
+    ResetFacetBatches();
     if (CollectBox(b, box, Offsets::WORLD_TRACE_CLASS_LOS))
-        EmitBatches(out);
+        EmitFacetBatches(out);
     const uint32_t count = Game::Read<uint32_t>(object, Offsets::OFF_CMAPOBJ_GROUP_COUNT);
     for (uint32_t g = 0; g < count; ++g) {
         const uint8_t *info = reinterpret_cast<Info_t>(Offsets::FUN_CMAPOBJ_GET_GROUP_INFO)(object, g);
@@ -1767,11 +1834,11 @@ bool QueryLiquidIn(const Backdrop &b, const float (&box)[6], std::vector<Contact
         void *group = LoadedGroup(b.object, g);
         if (group == nullptr)
             continue;
-        ResetFacets();
+        ResetFacetBatches();
         uint32_t flags = 0;
         reinterpret_cast<CollectLiquid_t>(Offsets::FUN_CMAPOBJGROUP_COLLECT_LIQUID_BOX)(
             group, &flags, local, b.def, Offsets::WORLD_CLASS_SWIM_LIQUID);
-        EmitBatches(out);
+        EmitFacetBatches(out);
     }
     return true;
 }
@@ -1880,7 +1947,7 @@ void DrawFacetBatches(uint32_t color, int lighting, const float (&eye)[3]) {
 // the world camera.
 void DrawBatches(const Backdrop *b, const Terrain::Land *terrain, const float (&box)[6], uint32_t argb,
                  uint32_t mask, const float (&eye)[3]) {
-    ResetFacets();
+    ResetFacetBatches();
     bool any = b != nullptr && CollectBox(*b, box, mask);
     if (terrain != nullptr && (mask & Offsets::DECAL_MASK_TERRAIN) != 0)
         any = Terrain::CollectDecalBatches(*terrain, box, mask) || any;
@@ -1976,8 +2043,10 @@ void Update(Backdrop &b, void *frame, bool sounds, float elapsed) {
     if (!b.sounds)
         Silence(b);
     void *object = b.object;
-    if (Game::Read<uint8_t>(object, Offsets::OFF_CMAPOBJ_LOADED) == 0)
+    if (Game::Read<uint8_t>(object, Offsets::OFF_CMAPOBJ_LOADED) == 0) {
+        b.cameraLiquid = OutdoorCameraLiquid(frame);
         return;
+    }
     UpdateCameraFog(b, frame, view.eye, view.farClip, elapsed);
     const uint32_t count = Game::Read<uint32_t>(object, Offsets::OFF_CMAPOBJ_GROUP_COUNT);
     if (b.groupsMade.empty()) {
@@ -2012,14 +2081,6 @@ void Draw(Backdrop &b, void *frame, const float (&eye)[3]) {
         return;
     alignas(16) uint8_t volume[Offsets::FRUSTUM_VOLUME_SIZE] = {};
     BuildViewVolume(volume, eye);
-    // The camera's probe z (0x006809E2): a near corner at or below the
-    // lowest so far, or NaN, replaces it.
-    const auto *corners = reinterpret_cast<const float *>(volume + Offsets::OFF_FRUSTUM_VOLUME_CORNERS);
-    float lowest = eye[2];
-    for (int i = 0; i < 4; ++i)
-        if (!(corners[i * 3 + 2] > lowest))
-            lowest = corners[i * 3 + 2];
-    b.probeDrop = eye[2] - lowest;
     // The render states a pass of the WMO sets (CommitLighting's fog range)
     // last until it ends.
     const Gx::SavedStates states;
@@ -2033,7 +2094,9 @@ void Draw(Backdrop &b, void *frame, const float (&eye)[3]) {
     PopObjectSpace();
 }
 
-bool CameraWet(const Backdrop &b) { return b.cameraLiquid != Offsets::LIQUID_DRY; }
+uint32_t CameraLiquid(const Backdrop &b) { return b.cameraLiquid; }
+
+uint32_t MapOf(const Backdrop &b) { return b.mapID; }
 
 namespace {
 
@@ -2117,6 +2180,22 @@ bool BuildMapLight(uint32_t mapID, uint32_t cameraLiquid, const float (&eye)[3],
     return true;
 }
 
+// BuildSceneFog (0x006CEE30) over map `mapID`'s light table for the camera's
+// liquid: the end capped at the far clip (a NaN takes it), the start the
+// scale of it, colour band 7. False while dry, for kNoMap or a map without
+// a light.
+bool MapLiquidFog(uint32_t mapID, uint32_t cameraLiquid, const float (&eye)[3], float farClip, FogValues &out) {
+    Record table;
+    if (cameraLiquid == Offsets::LIQUID_DRY || mapID == kNoMap || !BuildMapLight(mapID, cameraLiquid, eye, table))
+        return false;
+    out.end = Game::Read<float>(table, Offsets::OFF_LIGHT_RECORD_FOG_END);
+    if (!(out.end < farClip))
+        out.end = farClip;
+    out.start = Game::Read<float>(table, Offsets::OFF_LIGHT_RECORD_FOG_START_SCALE) * out.end;
+    out.color = Game::Read<uint32_t>(table, Offsets::OFF_LIGHT_RECORD_FOG_COLOR);
+    return true;
+}
+
 } // namespace
 
 namespace {
@@ -2145,6 +2224,23 @@ MapWater::~MapWater() {
         return;
     for (size_t i = 0; i < std::size(kWaterFields); ++i)
         std::memcpy(LiveLightTable() + kWaterFields[i], &saved_[i], sizeof saved_[i]);
+}
+
+LiquidFog::LiquidFog(void *frame, uint32_t mapID, uint32_t cameraLiquid, const float (&eye)[3], float farClip) {
+    FogValues fog;
+    if (!MapLiquidFog(mapID, cameraLiquid, eye, farClip, fog))
+        return;
+    std::memcpy(saved_, Game::Ptr<uint8_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_FLAGS), sizeof saved_);
+    frame_ = frame;
+    Game::Ref<uint32_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_FLAGS) |= Offsets::SIMPLEMODEL_FOG_ARMED;
+    Game::Ref<uint32_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_COLOR) = fog.color;
+    Game::Ref<float>(frame, Offsets::OFF_SIMPLEMODEL_FOG_NEAR) = fog.start;
+    Game::Ref<float>(frame, Offsets::OFF_SIMPLEMODEL_FOG_FAR) = fog.end;
+}
+
+LiquidFog::~LiquidFog() {
+    if (frame_ != nullptr)
+        std::memcpy(Game::Ptr<uint8_t>(frame_, Offsets::OFF_SIMPLEMODEL_FOG_FLAGS), saved_, sizeof saved_);
 }
 
 // DrawGroupLiquidPass (0x00684CD0) over the one WMO's parsed liquid groups.

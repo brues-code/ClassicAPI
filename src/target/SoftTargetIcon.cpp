@@ -122,7 +122,7 @@ bool Project(uint64_t guid, void *object, void *worldFrame, float screen[2]) {
     world[2] += Game::Read<float>(object, Offsets::OFF_CGOBJECT_SCALE) *
                     Game::Read<float>(object, Offsets::OFF_CGOBJECT_BOX_HEIGHT) *
                     Game::Read<float>(Offsets::VAR_NAME_HEIGHT_FACTOR) +
-                Game::Read<float>(Offsets::VAR_NAMEPLATE_LIFT);
+                Game::Read<float>(Offsets::VAR_TWO_THIRDS);
     return reinterpret_cast<ScreenCoords_t>(Offsets::FUN_WORLDFRAME_GET_SCREEN_COORDS)(
         worldFrame, world, screen);
 }

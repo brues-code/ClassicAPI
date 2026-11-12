@@ -710,6 +710,25 @@ Land *Load(void *frame, uint32_t mapID, float x, float y, float radius) {
 
 uint32_t Serial(const Land &land) { return land.serial; }
 
+uint32_t MapOf(const Land &land) { return land.mapID; }
+
+uint32_t AreaAt(const Land &land, const float (&point)[3]) {
+    // 0x0069B126: x's distance stored, then times k and stored; y's product
+    // stored once; each less a half, rounded.
+    const double origin = Game::Read<float>(Offsets::VAR_MAP_ORIGIN);
+    const double perYard = Game::Read<float>(Offsets::VAR_AREA_CHUNKS_PER_YARD);
+    const double half = Game::Read<float>(Offsets::VAR_POINT_HALF_CELL);
+    const float fromX = static_cast<float>(-(static_cast<double>(point[0]) - origin));
+    const float y = static_cast<float>(-(static_cast<double>(point[1]) - origin) * perYard);
+    const float x = static_cast<float>(perYard * fromX);
+    const int32_t column = static_cast<int32_t>(std::lrint(static_cast<double>(y) - half));
+    const int32_t row = static_cast<int32_t>(std::lrint(static_cast<double>(x) - half));
+    if (row < 0 || column < 0)
+        return 0;
+    const auto found = land.byCell.find({static_cast<uint32_t>(row), static_cast<uint32_t>(column)});
+    return found != land.byCell.end() ? Game::Read<uint32_t>(found->second, Offsets::OFF_CMAPCHUNK_AREA_ID) : 0;
+}
+
 void Update(Land &land, void *frame, bool sounds) {
     if (land.props != nullptr)
         World::UpdateProps(*land.props, frame, sounds);
@@ -993,7 +1012,7 @@ void DrawMagma(Land &land, void *frame, const float (&eye)[3], float farClip) {
     DrawSlots(slots, Offsets::LIQUID_PASS_MAGMA, staged, frame, eye);
 }
 
-void DrawWater(Land &land, void *frame, const float (&eye)[3], float farClip) {
+void DrawWater(Land &land, void *frame, const float (&eye)[3], float farClip, uint32_t cameraLiquid) {
     if ((Game::Read<uint32_t>(Offsets::VAR_WORLD_FLAGS) & Offsets::WORLD_FLAG_CHUNKS) == 0)
         return;
     const Staged staged(frame, eye, farClip);
@@ -1005,7 +1024,7 @@ void DrawWater(Land &land, void *frame, const float (&eye)[3], float farClip) {
     // pass draws refills its swatch from the light state while its fresh flag
     // is clear (0x0068DE9E, 0x0068DEED); clearing them again after lets the
     // world's next frame refill them in its own.
-    const World::MapWater water(land.mapID, Offsets::LIQUID_DRY, eye);
+    const World::MapWater water(land.mapID, cameraLiquid, eye);
     uint32_t &riverFresh = Game::Ref<uint32_t>(Offsets::VAR_RIVER_SWATCH_FRESH);
     uint32_t &oceanFresh = Game::Ref<uint32_t>(Offsets::VAR_OCEAN_SWATCH_FRESH);
     if (water.Swapped())
@@ -1137,23 +1156,47 @@ uint32_t Outcode(const float *v, const float (&lo)[3], const float (&hi)[3], flo
     return code;
 }
 
+// A chunk's part of a box query (GatherChunkFacets 0x006AAE2A): the query's
+// cell rectangle clipped to the chunk's cells, {row first, column first, row
+// last, column last}, and the box less the chunk's position.
+struct Window {
+    int32_t rect[4];
+    float lo[3];
+    float hi[3];
+};
+
+Window ChunkWindow(const void *chunk, int32_t row, int32_t column, const int32_t (&cells)[4],
+                   const float (&box)[6]) {
+    const int32_t last = Offsets::CHUNK_CELLS - 1;
+    Window w = {{(std::max)(cells[0] - row * Offsets::CHUNK_CELLS, 0),
+                 (std::max)(cells[1] - column * Offsets::CHUNK_CELLS, 0),
+                 (std::min)(cells[2] - row * Offsets::CHUNK_CELLS, last),
+                 (std::min)(cells[3] - column * Offsets::CHUNK_CELLS, last)},
+                {},
+                {}};
+    const float *position = Game::Ptr<float>(chunk, Offsets::OFF_CMAPCHUNK_POSITION);
+    for (int i = 0; i < 3; ++i) {
+        const float shift = -position[i];
+        w.lo[i] = static_cast<float>(D(box[i]) + shift);
+        w.hi[i] = static_cast<float>(D(box[i + 3]) + shift);
+    }
+    return w;
+}
+
+bool Impassable(const void *chunk) {
+    return (Game::Read<uint8_t>(chunk, Offsets::OFF_CMAPCHUNK_FLAGS) & Offsets::CMAPCHUNK_FLAG_IMPASSABLE) != 0;
+}
+
 // GatherChunkFacets' wall and triangle legs (0x006AAE2A..0x006AB3F1).
 void GatherChunk(const void *chunk, int32_t row, int32_t column, const int32_t (&cells)[4], const float (&box)[6],
                  std::vector<Contact::Facet> &out) {
-    if ((Game::Read<uint8_t>(chunk, Offsets::OFF_CMAPCHUNK_FLAGS) & Offsets::CMAPCHUNK_FLAG_IMPASSABLE) != 0)
+    if (Impassable(chunk))
         AddWalls(chunk, box, out);
-    const int32_t last = Offsets::CHUNK_CELLS - 1;
-    const int32_t rowFirst = (std::max)(cells[0] - row * Offsets::CHUNK_CELLS, 0);
-    const int32_t columnFirst = (std::max)(cells[1] - column * Offsets::CHUNK_CELLS, 0);
-    const int32_t rowLast = (std::min)(cells[2] - row * Offsets::CHUNK_CELLS, last);
-    const int32_t columnLast = (std::min)(cells[3] - column * Offsets::CHUNK_CELLS, last);
+    const Window w = ChunkWindow(chunk, row, column, cells, box);
+    const int32_t rowFirst = w.rect[0], columnFirst = w.rect[1], rowLast = w.rect[2], columnLast = w.rect[3];
     const float *position = Game::Ptr<float>(chunk, Offsets::OFF_CMAPCHUNK_POSITION);
-    float lo[3], hi[3];
-    for (int i = 0; i < 3; ++i) {
-        const float shift = -position[i];
-        lo[i] = static_cast<float>(D(box[i]) + shift);
-        hi[i] = static_cast<float>(D(box[i + 3]) + shift);
-    }
+    const float(&lo)[3] = w.lo;
+    const float(&hi)[3] = w.hi;
     const float e = Game::Read<float>(Offsets::VAR_GATHER_EPSILON);
     const auto *probe = reinterpret_cast<const int32_t *>(static_cast<uintptr_t>(Offsets::VAR_CELL_OUTCODE_VERTICES));
     const auto *triangles = reinterpret_cast<const int32_t *>(static_cast<uintptr_t>(Offsets::VAR_CELL_FACET_TRIANGLES));
@@ -1182,8 +1225,11 @@ void GatherChunk(const void *chunk, int32_t row, int32_t column, const int32_t (
 
 } // namespace
 
-bool QueryFacets(Land &land, const float (&box)[6], std::vector<Contact::Facet> &out) {
-    // 0x006AA92D: the distances from the origin, the bounds, the cells.
+namespace {
+
+// The box query's cells (0x006AA92D): the distances from the origin, the
+// bounds, the cells {max x, max y, min x, min y}. False outside the map.
+bool BoxCells(const float (&box)[6], int32_t (&cells)[4]) {
     const float origin = Game::Read<float>(Offsets::VAR_MAP_ORIGIN);
     const float fromMaxX = static_cast<float>(-(D(box[3]) - origin));
     const double fromMaxY = -(D(box[4]) - origin);
@@ -1194,8 +1240,19 @@ bool QueryFacets(Land &land, const float (&box)[6], std::vector<Contact::Facet> 
         return false;
     const float perYard = Game::Read<float>(Offsets::VAR_GATHER_CELLS_PER_YARD);
     const float half = Game::Read<float>(Offsets::VAR_GATHER_HALF_CELL);
-    const int32_t cells[4] = {Cell(perYard, half, fromMaxX), Cell(perYard, half, static_cast<float>(fromMaxY)),
-                              Cell(perYard, half, fromMinX), Cell(perYard, half, fromMinY)};
+    cells[0] = Cell(perYard, half, fromMaxX);
+    cells[1] = Cell(perYard, half, static_cast<float>(fromMaxY));
+    cells[2] = Cell(perYard, half, fromMinX);
+    cells[3] = Cell(perYard, half, fromMinY);
+    return true;
+}
+
+} // namespace
+
+bool QueryFacets(Land &land, const float (&box)[6], std::vector<Contact::Facet> &out) {
+    int32_t cells[4];
+    if (!BoxCells(box, cells))
+        return false;
     // One query id for every chunk's doodads (0x006AA8BF advances it).
     if (land.props != nullptr)
         World::BeginPropQuery(*land.props);
@@ -1271,8 +1328,8 @@ bool GroundEffect(const Land &land, const float (&point)[3], int32_t &terrainTyp
     const float extent = Game::Read<float>(Offsets::VAR_MAP_EXTENT);
     if (!(fromY >= 0.0f) || !(fromX >= 0.0f) || !(fromY < extent) || !(fromX < extent))
         return false;
-    const float perYard = Game::Read<float>(Offsets::VAR_GROUND_EFFECT_CELLS_PER_YARD);
-    const float half = Game::Read<float>(Offsets::VAR_GROUND_EFFECT_HALF_CELL);
+    const float perYard = Game::Read<float>(Offsets::VAR_POINT_CELLS_PER_YARD);
+    const float half = Game::Read<float>(Offsets::VAR_POINT_HALF_CELL);
     const int32_t cellColumn = Cell(perYard, half, fromY);
     const int32_t cellRow = Cell(perYard, half, fromX);
     const void *chunk = ChunkAt(land, cellRow >> 3, cellColumn >> 3);
@@ -1301,6 +1358,95 @@ bool GroundEffect(const Land &land, const float (&point)[3], int32_t &terrainTyp
     if (row0 == nullptr)
         return false;
     terrainType = Game::Read<int32_t>(row0, Offsets::OFF_GROUNDEFFECTTEXTURE_TERRAIN_TYPE);
+    return true;
+}
+
+bool LiquidAt(const Land &land, const float (&point)[3], uint32_t &type, float &surface) {
+    // GetLiquidStatus (0x0069B709): u from y and v from x, each the negated
+    // distance from the origin times the cells per yard, stored as a float;
+    // the cells those less a half, rounded; the fractions the stored values
+    // less their cells, stored.
+    const double origin = Game::Read<float>(Offsets::VAR_MAP_ORIGIN);
+    const double perYard = Game::Read<float>(Offsets::VAR_POINT_CELLS_PER_YARD);
+    const double half = Game::Read<float>(Offsets::VAR_POINT_HALF_CELL);
+    const float u = static_cast<float>(-(D(point[1]) - origin) * perYard);
+    const float v = static_cast<float>(-(D(point[0]) - origin) * perYard);
+    const int32_t cellU = static_cast<int32_t>(std::lrint(D(u) - half));
+    const int32_t cellV = static_cast<int32_t>(std::lrint(D(v) - half));
+    void *chunk = ChunkAt(land, cellV >> 3, cellU >> 3);
+    if (chunk == nullptr)
+        return false;
+    const float fu = static_cast<float>(D(u) - cellU);
+    const float fv = static_cast<float>(D(v) - cellV);
+    const uint32_t column = static_cast<uint32_t>(cellU) & 7, row = static_cast<uint32_t>(cellV) & 7;
+    const double slack = Game::Read<float>(Offsets::VAR_ONE_HUNDREDTH);
+    for (uint32_t i = 0; i < Offsets::CHUNK_LIQUID_SLOTS; ++i) {
+        const void *slot = LiquidSlot(chunk, i);
+        if (slot == nullptr)
+            continue;
+        const uint8_t tile =
+            Game::Read<const uint8_t *>(slot, Offsets::OFF_CHUNKLIQUID_TILES)[row * Offsets::LIQUID_TILE_ROW + column];
+        if ((tile & Offsets::LIQUID_TILE_TYPE_MASK) == Offsets::LIQUID_TILE_NONE)
+            continue;
+        const uint32_t kind = tile & Offsets::LIQUID_TYPE_MASK;
+        // The ocean is at height 0: the point is in it under the slack.
+        if (kind == Offsets::LIQUID_OCEAN) {
+            if (D(point[2]) < slack) {
+                type = kind;
+                surface = 0.0f;
+                return true;
+            }
+            continue;
+        }
+        // The MCLQ heights bilinear along u (fu), then v (fv), at 53 bits.
+        const auto *records = Game::Read<const uint8_t *>(slot, Offsets::OFF_CHUNKLIQUID_MCLQ_VERTICES);
+        const uint32_t first = row * Offsets::LIQUID_VERTEX_ROW + column;
+        const auto h = [&](uint32_t k) {
+            return D(Game::Read<float>(records, k * Offsets::MCLQ_VERTEX_SIZE + Offsets::OFF_MCLQ_VERTEX_HEIGHT));
+        };
+        const uint32_t next = first + Offsets::LIQUID_VERTEX_ROW;
+        const double a = (h(first + 1) - h(first)) * fu + h(first);
+        const double b = (h(next + 1) - h(next)) * fu + h(next);
+        const float height = static_cast<float>((b - a) * fv + a);
+        if (D(height) + slack > D(point[2])) {
+            type = kind;
+            surface = height;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool QueryLiquidFacets(const Land &land, const float (&box)[6], std::vector<Contact::Facet> &out) {
+    using Gather_t = uint8_t(__thiscall *)(void *slot, void *unused, const float *box, const int32_t *cells);
+    int32_t cells[4];
+    if (!BoxCells(box, cells))
+        return false;
+    for (int32_t row = cells[0] >> 3; row <= cells[2] >> 3; ++row) {
+        for (int32_t column = cells[1] >> 3; column <= cells[3] >> 3; ++column) {
+            void *chunk = ChunkAt(land, row, column);
+            if (chunk == nullptr)
+                continue;
+            // The walls ignore the class (0x006AAE09).
+            if (Impassable(chunk))
+                AddWalls(chunk, box, out);
+            // The liquid leg (0x006AB3F7): each slot the class names, through
+            // GatherLiquidFacets (0x006AB4E0).
+            const Window w = ChunkWindow(chunk, row, column, cells, box);
+            const float local[6] = {w.lo[0], w.lo[1], w.lo[2], w.hi[0], w.hi[1], w.hi[2]};
+            for (uint32_t i = 0; i < Offsets::CHUNK_LIQUID_SLOTS; ++i) {
+                void *slot = LiquidSlot(chunk, i);
+                if (slot == nullptr ||
+                    (Offsets::WORLD_CLASS_SWIM_LIQUID & (1u << (Offsets::LIQUID_CLASS_FIRST_BIT + i))) == 0)
+                    continue;
+                World::ResetFacetBatches();
+                uint32_t unused = 0;
+                if (reinterpret_cast<Gather_t>(Offsets::FUN_CHUNKLIQUID_GATHER_CELL_FACETS)(slot, &unused, local,
+                                                                                             w.rect) != 0)
+                    World::EmitFacetBatches(out);
+            }
+        }
+    }
     return true;
 }
 

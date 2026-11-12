@@ -32,7 +32,8 @@
 //     $FSD        the footstep: +0x24 by the ground's terrain through the
 //                 engine's GetFootstepSound, with FootstepSounds on
 //                 (0x00623390); the ground is the scene's SetGroundTerrain,
-//                 else the terrain type of the WMO face under the actor
+//                 else the terrain type of the WMO face under the actor; wet
+//                 (the splash) at the surface of a liquid that splashes
 //     $DTH        the death thud by the size class and the ground, from the
 //                 engine's own table (0x006236E0)
 //     $WNG, $WGG  the wing flap +0x2C and glide +0x30 (vocal kinds 7 and 10,
@@ -169,13 +170,19 @@ int Ground(const Actor &actor) {
     return set >= 0 ? set : World::Ground(WorldOf(frame), TerrainOf(frame), *actor.ambience);
 }
 
-void PlayFootstep(const Actor &actor, const uint8_t *soundData) {
+// The footstep at the event's point: wet when the point is at the surface of
+// a liquid that splashes (0x00623406).
+void PlayFootstep(const Actor &actor, const uint8_t *soundData, const float *point) {
     using GetFootstepSound_t = int(__fastcall *)(int footstepID, int terrainTypeID, int wet);
     const int terrain = Ground(actor);
     if (terrain < 0 || !CVarOn("FootstepSounds"))
         return;
+    void *frame = actor.SceneFrame();
+    const bool wet = point != nullptr &&
+                     World::FootstepWet(WorldOf(frame), TerrainOf(frame), *actor.ambience,
+                                        {point[0], point[1], point[2]});
     Play(actor, reinterpret_cast<GetFootstepSound_t>(Offsets::FUN_GET_FOOTSTEP_SOUND)(
-        Game::Read<int32_t>(soundData, Offsets::OFF_CREATURESOUNDDATA_FOOTSTEP), terrain, 0));
+        Game::Read<int32_t>(soundData, Offsets::OFF_CREATURESOUNDDATA_FOOTSTEP), terrain, wet ? 1 : 0));
 }
 
 // PlayDeathThud's dry thud: the engine's table by size class and the
@@ -207,7 +214,7 @@ void PlayPrecast(const Actor &actor) {
         }
 }
 
-void PlaySound(Actor &actor, uint32_t tag, uint32_t data) {
+void PlaySound(Actor &actor, uint32_t tag, uint32_t data, const float *point) {
     if (tag == kCSD) {
         if (CVarOn("EmoteSounds"))
             Play(actor, static_cast<int32_t>(data));
@@ -230,7 +237,7 @@ void PlaySound(Actor &actor, uint32_t tag, uint32_t data) {
     else if (tag == kFDX)
         PlayStand(actor, soundData);
     else if (tag == kFSD)
-        PlayFootstep(actor, soundData);
+        PlayFootstep(actor, soundData, point);
     else if (tag == kWNG)
         Play(actor, Game::Read<int32_t>(soundData, Offsets::OFF_CREATURESOUNDDATA_WING_FLAP));
     else if (tag == kWGG)
@@ -286,7 +293,7 @@ void __stdcall OnModelEvent(uint32_t tag, uint32_t data, const float *point, uin
         return;
     }
     if (actor->playAnimationSounds)
-        PlaySound(*actor, tag, data);
+        PlaySound(*actor, tag, data, point);
 }
 
 } // namespace Model::Scene::Events

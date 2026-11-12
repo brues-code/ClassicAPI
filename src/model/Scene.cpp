@@ -172,6 +172,10 @@ struct Fields {
     Actor *hovered; // the actor OnActorEnter last ran for, or null
     World::Backdrop *world; // SetWorldModel, owned, or null
     Terrain::Land *terrain; // SetWorldTerrain, owned, or null
+    // The camera's liquid (0xF dry), from the last update, and how far below
+    // the eye its probe is, from the last paint (World::ProbeDrop).
+    uint32_t cameraLiquid;
+    float probeDrop;
     bool playWorldModelSounds; // SetPlayWorldModelSounds
     Actor *listener; // SetSoundListenerActor, or null; the frame owns its actors
     // GetSceneTime: the seconds the M2 scene's clock has advanced since the
@@ -748,16 +752,31 @@ void __fastcall Paint(void *frame) {
         Gx::SetViewport({rect[1] * vp.maxX, rect[3] * vp.maxX, rect[0] * vp.maxY, rect[2] * vp.maxY,
                          0.0f, 1.0f});
         World::Backdrop *world = CameraOf(frame) != nullptr ? F(frame).world : nullptr;
-        if (world != nullptr)
+        Terrain::Land *terrain = CameraOf(frame) != nullptr ? F(frame).terrain : nullptr;
+        F(frame).probeDrop = World::ProbeDrop(eye);
+        // The world's frame under a liquid: its fog the map's for that liquid.
+        const uint32_t liquid = CameraLiquid(frame);
+        const uint32_t map = terrain != nullptr ? Terrain::MapOf(*terrain)
+                             : world != nullptr ? World::MapOf(*world)
+                                                : World::kNoMap;
+        const World::LiquidFog liquidFog(frame, map, liquid, eye, F(frame).farClip);
+        const bool wet = liquid != Offsets::LIQUID_DRY;
+        if (world != nullptr) {
             World::ClearAndDrawSky(*world, frame, eye);
-        else
+        } else if (terrain != nullptr && wet) {
+            // DrawWorldScene's clear under a liquid (0x0068124D): the fog colour.
+            const uint32_t saved = Gx::GetClearColor();
+            Gx::SetClearColor(Game::Read<uint32_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_COLOR));
+            Gx::Clear(3);
+            Gx::SetClearColor(saved);
+        } else {
             Gx::Clear(2);
+        }
         PlaceActors(frame);
         void *scene = Model::Pane::Scene(frame);
         M2::AnimateScene(scene, eye);
         // The world's frame draws its chunks before its map objects, and the
         // terrain's magma after them (DrawWorldScene 0x006812B1..0x006812BB).
-        Terrain::Land *terrain = CameraOf(frame) != nullptr ? F(frame).terrain : nullptr;
         if (terrain != nullptr)
             Terrain::Draw(*terrain, frame, eye, F(frame).farClip);
         if (world != nullptr)
@@ -770,13 +789,12 @@ void __fastcall Paint(void *frame) {
         // The world's frame draws its liquids before the translucent models
         // over the water and, with the camera in liquid, after them
         // (0x004836D6).
-        const bool wet = world != nullptr && World::CameraWet(*world);
         if (wet)
             M2::DrawScene(scene, 1);
         // RenderLiquid (0x006816D0): the terrain's ocean and river, then the
         // map objects' liquids.
         if (terrain != nullptr)
-            Terrain::DrawWater(*terrain, frame, eye, F(frame).farClip);
+            Terrain::DrawWater(*terrain, frame, eye, F(frame).farClip, liquid);
         if (world != nullptr)
             World::DrawLiquids(*world, frame, eye);
         if (!wet)
@@ -1083,6 +1101,7 @@ void __fastcall OnFrameUpdate(void *self, void *, float elapsedSec) {
         World::Update(*world, self, F(self).playWorldModelSounds, elapsedSec);
     if (terrain != nullptr)
         Terrain::Update(*terrain, self, F(self).playWorldModelSounds);
+    F(self).cameraLiquid = world != nullptr ? World::CameraLiquid(*world) : OutdoorCameraLiquid(self);
     // A seated rider or an attached actor takes its parent's light.
     if (world != nullptr || terrain != nullptr)
         for (Actor *actor : *F(self).actors)
@@ -1192,6 +1211,8 @@ void *__fastcall CreateModelScene(void *parent) {
     f.hovered = nullptr;
     f.world = nullptr;
     f.terrain = nullptr;
+    f.cameraLiquid = Offsets::LIQUID_DRY;
+    f.probeDrop = 0.0f;
     f.playWorldModelSounds = false;
     f.listener = nullptr;
     f.clock = 0.0;
@@ -1683,21 +1704,18 @@ int __fastcall Script_TraceSegment(void *L) {
     return 7;
 }
 
-// The liquid at a point of the scene's WMO (a ClassicAPI extension): its type
-// and its surface's z, nil for a group that is liquid throughout. Nothing
-// when the point is dry or the scene has no WMO.
+// The liquid at a point of the scene's WMO or terrain (a ClassicAPI
+// extension): its type and its surface's z, nil for a WMO group that is
+// liquid throughout. Nothing when the point is dry.
 int __fastcall Script_GetLiquidAtPoint(void *L) {
     void *frame = Self(L);
     if (frame == nullptr ||
         !NumberArgs(L, 2, 3, Game::Lua::ObjectDisplayName(frame), "GetLiquidAtPoint(pointX, pointY, pointZ)"))
         return 0;
-    const World::Backdrop *world = F(frame).world;
-    if (world == nullptr)
-        return 0;
     const float point[3] = {FloatArg(L, 2), FloatArg(L, 3), FloatArg(L, 4)};
     uint32_t type = 0;
     float surface = 0.0f;
-    if (!World::LiquidAt(*world, point, type, surface))
+    if (!LiquidAtPoint(frame, point, type, surface))
         return 0;
     Game::Lua::PushNumber(L, type);
     if (surface >= FLT_MAX)
@@ -2191,7 +2209,8 @@ const Game::Doc::Function kSetWorldTerrain{
     "level of detail, in map coordinates. The scene's light stands in for the sun, and its fog for the "
     "zone's. Actors walk on it, and TraceSegment and SweepCollider find it; past the radius there is no "
     "ground. The map's props on it (trees, plants, rocks) show too, and actors collide with them; its "
-    "grass shows near the camera, and its water and lava show. Returns false, and shows no terrain, when no ground lies within the "
+    "grass shows near the camera, and its water and lava show; actors swim in the water, and under it the "
+    "camera takes the map's underwater fog. Returns false, and shows no terrain, when no ground lies within the "
     "radius.",
     kWorldTerrainArgs, kWorldModelRet, nullptr, true};
 const Game::Doc::Function kClearWorldTerrain{"Removes the scene's terrain.", {}, {}, nullptr, true};
@@ -2225,9 +2244,9 @@ const Game::Doc::Field kLiquidRets[] = {
         "The height of the surface above the point. Nil when that part of the WMO is liquid throughout."),
 };
 const Game::Doc::Function kGetLiquidAtPoint{
-    "Returns the liquid of the WMO that a scene point is in, as the world finds it for a unit that stands "
-    "there. Returns nothing when the point is above the surface or not in a liquid, when the scene has no "
-    "WMO, or for parts of the WMO that have not loaded.",
+    "Returns the liquid of the WMO or of the scene's terrain that a scene point is in, as the world finds "
+    "it for a unit that stands there: the WMO's first, then the terrain's. Returns nothing when the point "
+    "is above the surface or not in a liquid, or for parts of the WMO that have not loaded.",
     kLiquidArgs, kLiquidRets, nullptr, true};
 const Game::Doc::Field kSweepArgs[] = {
     Req("feetX", "number"),
@@ -2481,8 +2500,33 @@ bool QueryGroundFacets(void *sceneFrame, const float (&box)[6], std::vector<Cont
 }
 
 bool QueryGroundLiquidFacets(void *sceneFrame, const float (&box)[6], std::vector<Contact::Facet> &out) {
-    return World::QueryLiquidFacets(F(sceneFrame).world, box, out);
+    const Fields &f = F(sceneFrame);
+    out.clear();
+    if (f.world == nullptr && f.terrain == nullptr)
+        return false;
+    if (f.world != nullptr && !World::QueryLiquidFacets(f.world, box, out))
+        return false;
+    return f.terrain == nullptr || Terrain::QueryLiquidFacets(*f.terrain, box, out);
 }
+
+bool LiquidAtPoint(void *sceneFrame, const float (&point)[3], uint32_t &type, float &surface) {
+    const Fields &f = F(sceneFrame);
+    if (f.world != nullptr && World::LiquidAt(*f.world, point, type, surface))
+        return true;
+    return f.terrain != nullptr && Terrain::LiquidAt(*f.terrain, point, type, surface);
+}
+
+uint32_t OutdoorCameraLiquid(void *sceneFrame) {
+    const View view = CameraView(sceneFrame);
+    const float probe[3] = {view.eye[0], view.eye[1], view.eye[2] - F(sceneFrame).probeDrop};
+    uint32_t type = 0;
+    float surface = 0.0f;
+    return LiquidAtPoint(sceneFrame, probe, type, surface) ? type : static_cast<uint32_t>(Offsets::LIQUID_DRY);
+}
+
+float CameraProbeDrop(void *sceneFrame) { return F(sceneFrame).probeDrop; }
+
+uint32_t CameraLiquid(void *sceneFrame) { return F(sceneFrame).cameraLiquid; }
 
 bool TraceGround(void *sceneFrame, const float (&start)[3], const float (&end)[3], bool camera, float &fraction,
                  float (&normal)[3]) {

@@ -2067,13 +2067,14 @@ enum Offsets {
     // CGUnit_C::GetNamePlateScreenPos — `bool __fastcall(unit, worldFrame,
     // float screen[2])`, ret 4: the unit's name position (GetNamePosition
     // 0x608640: head attachment 18, 29 mounted, else 1.25 × scale × box
-    // height above the feet) raised by VAR_NAMEPLATE_LIFT, projected with
+    // height above the feet) raised by VAR_TWO_THIRDS, projected with
     // FUN_WORLDFRAME_GET_SCREEN_COORDS — where a nameplate is seated.
     FUN_UNIT_GET_NAMEPLATE_SCREEN_POS = 0x0060F7F0,
     // GetNamePosition's no-attachment factor (1.25) and the plate lift (2/3
-    // yard), both floats.
+    // yard), both floats; the 2/3 is also the wet footstep's depth below a
+    // liquid surface (0x0060A7BF).
     VAR_NAME_HEIGHT_FACTOR = 0x0080C5D0,
-    VAR_NAMEPLATE_LIFT = 0x0080ABFC,
+    VAR_TWO_THIRDS = 0x0080ABFC,
     // GetNamePosition's attachments (0x00608640): PlayerName on the unit's
     // model, PlayerNameMounted when the unit is mounted (its model is then
     // the mount's).
@@ -7003,6 +7004,10 @@ enum Offsets {
     // builder (0x004799A0) reads it at 0x00479A21 for
     // `Item\ObjectComponents\Head\<name>_<prefix><sex letter>.mdx`.
     OFF_CHRRACES_CLIENT_PREFIX = 0x18,
+    // The race's splash (SoundEntries id): PostInit (0x005FB880) stores it
+    // for the unit's race byte (UNIT_FIELD_BYTES_0) at +0xB18, and the swim
+    // decision plays it (CGUnit_C::PlaySplash 0x006237C0).
+    OFF_CHRRACES_SPLASH_SOUND = 0x34,
     // The helm builder's sex letters, `const char *[3]` = "M", "F", "U",
     // indexed by the sex byte (0x00479A1A).
     VAR_SEX_LETTERS = 0x00838AB4,
@@ -7088,6 +7093,25 @@ enum Offsets {
     // 0x00458450): the FootstepTerrainLookup sound for the TerrainType row's
     // +0x10, dry or wet, or 0 for an unknown terrain or footstep id.
     FUN_GET_FOOTSTEP_SOUND = 0x00458450,
+    // The footstep's wet flag (CGUnit_C::PlayFootstep 0x00623390 through
+    // IsPointAtLiquidSurface 0x0060A740): the entity's liquid, as
+    // UpdateMapEntityEnvironment (0x0069E280) stores it outdoors from
+    // GetLiquidStatus at the entity's position (bit 0x20 of +0x90, the height
+    // +0x98, the type +0xF0), and bit 0x80, bit 1 of the flags (+0x8) of the
+    // LiquidType row FUN_LIQUIDTYPE_FOR_AREA `__fastcall(int areaID, uint
+    // type)` (0x007CCF40) returns: the area's override at AreaTable +0x54 +
+    // 4 x (type & 3), else its parent's, else row (type & 3) + 1; null for
+    // type 0xF. The area is the entity's (CWorld::GetEntityAreaId
+    // 0x006703A0): a map object's whole-WMO WMOAreaTable row (its name set,
+    // group -1), else the terrain's (0x0069B120: the chunk at k = 0.03
+    // 0x00810740, (17066.666 - x) stored, then times k and stored; y's
+    // product stored once; each less 0.5 and rounded; the chunk's +0x16C, 0
+    // without one). Wet: the event point's z under the height plus 0.01
+    // (VAR_ONE_HUNDREDTH) and the height less z under 2/3 (VAR_TWO_THIRDS).
+    FUN_LIQUIDTYPE_FOR_AREA = 0x007CCF40,
+    OFF_LIQUIDTYPE_FLAGS = 0x08,
+    LIQUIDTYPE_FLAG_SPLASH = 0x2,
+    VAR_AREA_CHUNKS_PER_YARD = 0x00810740,
     // The death thud table: five size classes of {?, count, pairs *}, 12
     // bytes each, the pair {dry, wet} indexed by TerrainTypeSounds id and
     // bounded by count (PlayDeathThud 0x006236E0: `cmp ecx,[eax+0xC4E0F8]`,
@@ -14351,6 +14375,14 @@ enum Offsets {
     OFF_SKY_DISC_COLOUR = 0x0C,
     SKY_DISCS_LIT = 2, // the sun disc and the white moon take band 9
     OFF_LIGHT_RECORD_SUN = 0x20,
+    // The scene fog BuildSceneFog (0x006CEE30) takes from the light table:
+    // end = scalar band 0 (+0x44), the far clip when that is no less or NaN;
+    // start = scalar band 1 (+0x48) x end; colour band 7 (+0x1C). The world
+    // builds its table with the camera's liquid (underwater, magma or slime
+    // params), so this is its fog under a liquid.
+    OFF_LIGHT_RECORD_FOG_END = 0x44,
+    OFF_LIGHT_RECORD_FOG_START_SCALE = 0x48,
+    OFF_LIGHT_RECORD_FOG_COLOR = 0x1C,
     OFF_LIGHT_RECORD_SKYBOXES = 0x78, // {LightSkybox id, float weight} x 2
     // The portal walk (benilla terrain/portals.md) decides the sky from
     // inside. WalkPortals `__thiscall(obj, group, from, const float
@@ -16128,6 +16160,7 @@ enum Offsets {
     // are .rdata except the three noted.
     VAR_HALF = 0x007FFA24,                     // float 0.5
     VAR_THREE_QUARTERS = 0x008012CC,           // float 0.75; a swimmer's height share, the aim height
+    VAR_TWO_FIFTHS = 0x0080C5C0,               // float 0.4; the splash depth's height share (0x00603150)
     VAR_ONE_HUNDREDTH = 0x008029D0,            // float 0.01
     VAR_ONE_THIRTY_SIXTH = 0x007FF9D0,         // float 1/36
     VAR_MINUS_ONE_THIRTY_SIXTH = 0x007FF9C8,   // float -1/36
@@ -16440,6 +16473,39 @@ enum Offsets {
     OFF_CHUNKLIQUID_CHUNK = 0x1C,
     OFF_CHUNKLIQUID_VERTEX_BUFFER = 0x400,
     OFF_CHUNKLIQUID_INDEX_BUFFER = 0x404,
+    // GetLiquidStatus (0x0069B6D0) after the map objects' liquid: the cells
+    // from u = (17066.666 - y) x 0.24 (VAR_POINT_CELLS_PER_YARD) and v from
+    // x, each stored as a float, less 0.5 (VAR_POINT_HALF_CELL) and rounded;
+    // the chunk is the cells >> 3, the tile (v & 7, u & 7) and the fractions
+    // the products less their cells. Each slot's tile byte ([slot + 0x10] +
+    // 8 x row + column; low nibble 0xF none) answers type & 3: ocean (1) at
+    // height 0 when z is under 0.01 (VAR_ONE_HUNDREDTH), else the MCLQ
+    // heights ([slot + 0x0C], 8-byte records, the height at +4) bilinear (a = (h01 - h00) x fu + h00 along
+    // u, then b - a times fv), stored as a float, when z is under it plus
+    // 0.01. The camera's probe outside a map object group asks the same
+    // (0x006723D0 from CameraEnvironment 0x006809C0).
+    OFF_CHUNKLIQUID_MCLQ_VERTICES = 0x0C,
+    OFF_CHUNKLIQUID_TILES = 0x10,
+    MCLQ_VERTEX_SIZE = 8,
+    OFF_MCLQ_VERTEX_HEIGHT = 4,
+    LIQUID_TILE_ROW = 8,
+    LIQUID_VERTEX_ROW = 9,
+    LIQUID_TILE_TYPE_MASK = 0xF,
+    LIQUID_TILE_NONE = 0xF,
+    LIQUID_TYPE_MASK = 3,
+    LIQUID_OCEAN = 1,
+    // GatherChunkFacets' liquid leg (0x006AB3F7): each slot whose bit
+    // (0x10000 << slot) the class has goes to GatherLiquidFacets
+    // (0x006AB4E0), which resets the facet batches (the five words
+    // ResetFacetBatches clears), runs GatherLiquidCellFacets `__thiscall
+    // (slot, void *unused, const float *box, const int *cells)` (0x0068CEC0,
+    // ret 0xC, AL = any batch) with the chunk-relative box and the clipped
+    // cell rectangle {row first, column first, row last, column last}, and
+    // emits the batches on a hit (0x00671CC0). The batch is the slot's 81
+    // vertices (+0x34) at the chunk's position. The walls of an impassable
+    // chunk ignore the class; the doodad leg takes no def for 0x30000.
+    FUN_CHUNKLIQUID_GATHER_CELL_FACETS = 0x0068CEC0,
+    LIQUID_CLASS_FIRST_BIT = 16,
     LIQUID_VERTEX_SIZE = 0x28,
     LIQUID_VERTEX_COUNT = 0x51,
     LIQUID_INDEX_COUNT = 0xC0,
@@ -16617,8 +16683,10 @@ enum Offsets {
     // that layer's effect id (+0x0A; 0xFFFF none) into GroundEffectTexture,
     // whose +0x18 is the TerrainType id. It finds the chunk through the
     // global area table, so the scene transcribes it.
-    VAR_GROUND_EFFECT_CELLS_PER_YARD = 0x0081073C,
-    VAR_GROUND_EFFECT_HALF_CELL = 0x0086A750,
+    // The same 0.24 and 0.5 serve GetLiquidStatus (0x0069B709), and the 0.5
+    // the area query (0x0069B120).
+    VAR_POINT_CELLS_PER_YARD = 0x0081073C,
+    VAR_POINT_HALF_CELL = 0x0086A750,
     VAR_LOW_TEXTURE_MASKS = 0x008104B4,
     VAR_LOW_TEXTURE_SHIFTS = 0x008104C4,
     OFF_CMAPCHUNK_LAYERS = 0x128,

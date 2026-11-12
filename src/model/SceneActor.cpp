@@ -392,6 +392,7 @@ void ReleaseModel(Actor &actor) {
     actor.areaVisual = nullptr;
     Areas::Stop(actor);
     actor.unitGuid = 0;
+    actor.splashSound = 0;
     actor.lanes[0] = actor.lanes[1] = Outfit::HeldLane{};
     actor.weapons = Outfit::Weapons{};
     actor.rangedDrawn = false;
@@ -489,6 +490,10 @@ bool Actor::SetUnitModel(uint64_t guid) {
         return false;
     unitGuid = guid;
     const auto *descriptor = Game::Read<const uint8_t *>(unit, Offsets::OFF_UNIT_DESCRIPTOR);
+    // PostInit (0x005FB880): the race's splash.
+    if (const uint8_t *race = DBC::Record(Offsets::VAR_CHRRACES_RECORDS, Offsets::VAR_CHRRACES_COUNT,
+                                          Game::Read<uint8_t>(descriptor, Offsets::OFF_UNIT_DESCRIPTOR_RACE_BYTE)))
+        splashSound = Game::Read<int32_t>(race, Offsets::OFF_CHRRACES_SPLASH_SOUND);
     armorReady = Game::Read<uint32_t>(descriptor, Offsets::OFF_UNIT_FIELD_DISPLAYID) ==
                  Game::Read<uint32_t>(descriptor, Offsets::OFF_UNIT_FIELD_NATIVEDISPLAYID);
     dresser = Outfit::CloneComponent(copy, unit);
@@ -809,23 +814,25 @@ void LoadNode(Actor &actor, const void *node, void *status) {
     Animation::Xml::LoadKeyValues(&actor, node, status);
 }
 
-// The movement manager's tick for the actor's body, against the scene's WMO,
-// then the unit's step (CGUnit_C::OnMoverStepped 0x005FAC70): the liquid
+// The movement manager's tick for the actor's body, against the scene's
+// ground, then the unit's step (CGUnit_C::OnMoverStepped 0x005FAC70): the liquid
 // over the feet, as the unit's liquid query finds it, and the swim decision.
 // The client steps only a mover on the manager's list (moving, falling or
 // with a queued command); an idle body here keeps its depth from tick to
 // tick, so deciding again changes nothing.
 void Advance(Actor &actor) {
     Mover::Body &body = *actor.mover;
-    World::Backdrop *world = WorldOf(actor.SceneFrame());
     if (!Mover::Tick(body, ClockMs(actor.SceneFrame())))
         return;
     uint32_t type = 0;
     float surface = 0.0f;
-    const bool inLiquid = world != nullptr && World::LiquidAt(*world, body.position, type, surface);
+    const bool inLiquid = LiquidAtPoint(actor.SceneFrame(), body.position, type, surface);
     const float depth = inLiquid ? static_cast<float>(static_cast<double>(surface) - body.position[2]) : 0.0f;
     const bool swam = (body.flags & Mover::FLAG_SWIMMING) != 0;
-    Mover::UpdateSwimState(body, inLiquid, depth);
+    // The splash plays at the unit (PlaySplash 0x006237C0), with the actor's
+    // other sounds; its ripple is a world effect.
+    if (Mover::UpdateSwimState(body, inLiquid, depth) && actor.playAnimationSounds && actor.splashSound > 0)
+        Sounds::Play(actor.SceneFrame(), actor.splashSound, body.position);
     // The client's swim decision queues EnterSwim or StopSwimming, whose
     // messages the unit animates.
     const bool swims = (body.flags & Mover::FLAG_SWIMMING) != 0;
@@ -3306,8 +3313,9 @@ const Game::Doc::Function kPlaySound{
 const Game::Doc::Field kAnimationSoundsArg[] = {Req("enabled", "bool")};
 const Game::Doc::Function kSetPlayAnimationSounds{
     "Sets whether the model's animations play their sounds, as a unit's do in the world: fidgets, "
-    "the stand vocal, wing flaps, and on a scene with a ground terrain, footsteps and the death thud. They "
-    "are heard from the scene's camera. Off by default.",
+    "the stand vocal, wing flaps, and on a scene with a ground terrain, footsteps and the death thud. "
+    "Footsteps at the surface of water splash, and a unit's model plays its race's splash as it wades in "
+    "or out or starts to swim. They are heard from the scene's camera. Off by default.",
     kAnimationSoundsArg, {}, nullptr, true};
 const Game::Doc::Function kGetPlayAnimationSounds{
     "Returns whether the model's animations play their sounds.", {}, kAnimationSoundsArg, nullptr,
@@ -3380,7 +3388,8 @@ const Game::Doc::Function kGetNamePosition{
 const Game::Doc::Field kMovementEnabledArg[] = {Req("enabled", "bool")};
 const Game::Doc::Function kSetMovementEnabled{
     "Sets whether the actor moves as a character moves in the world: it walks and runs over the scene's "
-    "WMO, steps up and down ledges, slides along walls, falls, jumps, and swims in the WMO's liquids, at "
+    "WMO, steps up and down ledges, slides along walls, falls, jumps, and swims in the liquids of the WMO "
+    "and the terrain, at "
     "a character's speeds. The body is the size the world gives the actor's creature display, at the "
     "actor's scale. When you turn it on, and when you set the position while it is on, the actor falls "
     "to the floor below it. While it is on, the actor's position, yaw and pitch follow the movement: "

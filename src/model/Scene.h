@@ -292,6 +292,9 @@ class Actor : public Animation::Object {
     void *dresser = nullptr;
     // A unit's model (SetModelByUnit): the unit and what the copy holds.
     uint64_t unitGuid = 0;
+    // The unit's race splash (ChrRaces +0x34, the unit's +0xB18), played as
+    // it wades in or out or starts to swim; 0 for a model without a unit.
+    int32_t splashSound = 0;
     Outfit::Lanes lanes = {};
     Outfit::Weapons weapons;
     Outfit::Worn worn = {}; // what each inventory slot wears (GetItemTransmogInfoList)
@@ -651,9 +654,12 @@ void Draw(Backdrop &backdrop, void *frame, const float (&eye)[3]);
 // From the paint, between the scene's opaque and translucent lists: the
 // liquids of the WMO's groups (the world draws them between its model lists).
 void DrawLiquids(Backdrop &backdrop, void *frame, const float (&eye)[3]);
-// Whether the camera is in one of the WMO's liquids: the world then draws the
-// liquids after the translucent models.
-bool CameraWet(const Backdrop &backdrop);
+// The camera's liquid type (0xF dry), as the scene's last update found it
+// (CameraEnvironment 0x006809C0): the claimed group's, else the scene's
+// liquid at the camera's probe point.
+uint32_t CameraLiquid(const Backdrop &backdrop);
+// The map whose light the backdrop takes, or kNoMap.
+uint32_t MapOf(const Backdrop &backdrop);
 // How the world lights a unit that stands in a WMO, kept per actor: the
 // colour of the face under it, or the sun, and the WMO's lights near it.
 struct Ambience;
@@ -669,6 +675,11 @@ void ActorLight(const Backdrop *backdrop, const Ambience &ambience, void *frame,
 // The TerrainType id of the WMO face under the actor, or -1 (no face, no
 // WMO, or not placed in this one).
 int Ground(const Backdrop *backdrop, const Terrain::Land *terrain, const Ambience &ambience);
+// Whether a footstep at `point` is wet (IsPointAtLiquidSurface 0x0060A740):
+// the actor, placed outdoors, stands in a liquid whose LiquidType splashes,
+// and the point is from 0.01 above to 2/3 yard below its surface.
+bool FootstepWet(const Backdrop *backdrop, const Terrain::Land *terrain, const Ambience &ambience,
+                 const float (&point)[3]);
 // The nearest face of the loaded groups that the segment from `start` to
 // `end` (scene space) crosses, of the faces the world's line of sight tests,
 // or with `camera` the faces its camera collides with: its fraction along the
@@ -724,9 +735,18 @@ bool AddPropFacets(Props &props, uint32_t prop, const float (&box)[6], std::vect
 // The scene's view volume in scene space (the device's view moved by -eye
 // and its projection), as the world's camera builds its own.
 void ViewVolume(uint8_t (&volume)[Offsets::FRUSTUM_VOLUME_SIZE], const float (&eye)[3]);
+// How far below the eye the camera's liquid probe is (0x006809E2): the
+// lowest of the eye and the four near corners of the view volume, from the
+// paint (the device's view and projection).
+float ProbeDrop(const float (&eye)[3]);
 // The fog half of the frame's light callback: the scene's fog on a lighting
 // record, nothing when the scene has none.
 void FrameFog(void *record, void *frame);
+// The world's facet batches emptied (what every facet query does first), and
+// their triangles as facets appended to `out` (the facet emitter 0x00671CC0:
+// the vertices through each batch's matrix).
+void ResetFacetBatches();
+void EmitFacetBatches(std::vector<Contact::Facet> &out);
 // While it lives, the water fields of the world's light table (the river and
 // ocean colours and alphas) are map `mapID`'s at `eye` (Light.dbc, as the
 // world's light build makes them), for a scene's liquids; the world's again
@@ -743,6 +763,23 @@ class MapWater {
   private:
     uint32_t saved_[kFields] = {};
     bool swapped_ = false;
+};
+// While it lives, with the camera in a liquid, the frame's fog (which stands
+// for the zone's) is map `mapID`'s fog at `eye` for that liquid: the world
+// builds its light table with the camera's liquid (the underwater, magma or
+// slime light) and takes the scene fog from it (BuildSceneFog 0x006CEE30).
+// The scene's own fog again after. Nothing changes while dry, for kNoMap or
+// for a map without a light.
+class LiquidFog {
+  public:
+    LiquidFog(void *frame, uint32_t mapID, uint32_t cameraLiquid, const float (&eye)[3], float farClip);
+    ~LiquidFog();
+    LiquidFog(const LiquidFog &) = delete;
+    LiquidFog &operator=(const LiquidFog &) = delete;
+
+  private:
+    void *frame_ = nullptr;
+    uint32_t saved_[4] = {}; // the fog's flags, colour, near and far
 };
 } // namespace World
 
@@ -762,8 +799,9 @@ void Draw(Land &land, void *frame, const float (&eye)[3], float farClip);
 // pass 0x006855A0 follows the map objects).
 void DrawMagma(Land &land, void *frame, const float (&eye)[3], float farClip);
 // From the paint, before the WMO's liquids: the chunks' ocean and river
-// (RenderLiquid 0x006816D0), in the colours of the terrain's map at the eye.
-void DrawWater(Land &land, void *frame, const float (&eye)[3], float farClip);
+// (RenderLiquid 0x006816D0), in the colours of the terrain's map at the eye
+// for the camera's liquid.
+void DrawWater(Land &land, void *frame, const float (&eye)[3], float farClip, uint32_t cameraLiquid);
 // From the scene's update, before it advances: the chunks' doodads.
 void Update(Land &land, void *frame, bool sounds);
 // Drops the doodads' loop sounds (the scene hid).
@@ -779,6 +817,10 @@ bool CollectDecalBatches(const Land &land, const float (&box)[6], uint32_t mask)
 bool GroundEffect(const Land &land, const float (&point)[3], int32_t &terrainType);
 // This terrain among all loaded, for the actors' cached placements.
 uint32_t Serial(const Land &land);
+// The terrain's map.
+uint32_t MapOf(const Land &land);
+// The area id of the chunk under a point (0x0069B120), 0 without one.
+uint32_t AreaAt(const Land &land, const float (&point)[3]);
 // The world's box query's terrain leg (0x006AA8B0, GatherChunkFacets
 // 0x006AADC0): the triangles of the chunks' cells in a box (scene space) and
 // an impassable chunk's walls, appended to `out`. A box outside the map
@@ -790,6 +832,16 @@ bool QueryFacets(Land &land, const float (&box)[6], std::vector<Contact::Facet> 
 // False when nothing nearer is hit.
 bool Trace(const Land &land, const float (&start)[3], const float (&end)[3], float &fraction,
            float (&normal)[3]);
+// GetLiquidStatus's terrain leg (0x0069B6D0): the liquid of the chunk's
+// slots at a point (scene space), the first whose tile there has a type and
+// whose surface is above the point: the type (tile & 3) and the surface's z.
+// False when the point is dry or outside the scene's chunks.
+bool LiquidAt(const Land &land, const float (&point)[3], uint32_t &type, float &surface);
+// The swimmer's box query's terrain leg (GatherChunkFacets 0x006AADC0 with
+// class 0x30000): an impassable chunk's walls, then the river and ocean
+// slots' cell triangles in `box` (scene space), appended to `out`. A box
+// outside the map fails, as the world's does.
+bool QueryLiquidFacets(const Land &land, const float (&box)[6], std::vector<Contact::Facet> &out);
 } // namespace Terrain
 
 // The scene's WMO, or null.
@@ -802,8 +854,21 @@ Terrain::Land *TerrainOf(void *sceneFrame);
 // The box query a body's sweeps make (Contact::Facets with the scene frame as
 // context): false without either, or while the WMO is loading.
 bool QueryGroundFacets(void *sceneFrame, const float (&box)[6], std::vector<Contact::Facet> &out);
-// The swimmer's liquid query (the WMO's liquids).
+// The swimmer's liquid query: the WMO's liquids, then the terrain's.
 bool QueryGroundLiquidFacets(void *sceneFrame, const float (&box)[6], std::vector<Contact::Facet> &out);
+// The liquid at a point (scene space), as the world's liquid query finds it
+// (GetLiquidStatus 0x0069B6D0): the WMO's, then the terrain's. The type (0
+// water, 1 ocean, 2 magma, 3 slime) and the surface's z, FLT_MAX for a WMO
+// group that is liquid throughout. False when the point is dry.
+bool LiquidAtPoint(void *sceneFrame, const float (&point)[3], uint32_t &type, float &surface);
+// The camera's liquid outside a WMO group (CameraEnvironment 0x006809C0 to
+// 0x006723D0): the liquid at the eye lowered by the last paint's probe drop,
+// 0xF when dry.
+uint32_t OutdoorCameraLiquid(void *sceneFrame);
+// The last paint's probe drop (World::ProbeDrop).
+float CameraProbeDrop(void *sceneFrame);
+// The camera's liquid as the scene's last update found it, 0xF when dry.
+uint32_t CameraLiquid(void *sceneFrame);
 // The nearest face on a segment of the WMO (its ground or `camera` face set)
 // or the terrain: its fraction and its unit normal toward `start`.
 bool TraceGround(void *sceneFrame, const float (&start)[3], const float (&end)[3], bool camera, float &fraction,
