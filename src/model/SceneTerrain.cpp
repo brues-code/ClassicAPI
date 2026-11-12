@@ -67,6 +67,7 @@
 #include <cstdio>
 #include <cstring>
 #include <map>
+#include <unordered_map>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -158,12 +159,20 @@ struct Tile {
     std::unique_ptr<AreaMemory> area;
     // The MCIN indices of the chunks inside the radius.
     std::vector<uint32_t> wanted;
+    // The model tables (MMDX names, MMID offsets, MDDF placements), or null.
+    const char *modelNames = nullptr;
+    uint32_t modelNamesSize = 0;
+    const uint32_t *modelOffsets = nullptr;
+    uint32_t modelCount = 0;
+    const uint8_t *placements = nullptr;
+    uint32_t placementCount = 0;
 };
 
 struct Chunk {
     std::unique_ptr<ChunkMemory> memory;
     Tile *tile = nullptr;
     uint32_t index = 0; // row * 16 + column in the tile
+    std::vector<uint32_t> props; // its MCRF doodads, as indices into the land's props
     void *object() { return memory->bytes; }
 };
 
@@ -179,6 +188,9 @@ struct Land {
     // The chunks by (global row, global column), as the world finds them in
     // its area table.
     std::map<std::pair<uint32_t, uint32_t>, void *> byCell;
+    // Each chunk object's props, for the box query.
+    std::map<const void *, const std::vector<uint32_t> *> propsOf;
+    World::Props *props = nullptr;
     uint32_t serial = 0; // this terrain among all loaded, for the actors' caches
 };
 
@@ -227,6 +239,29 @@ bool ParseHeader(Tile &t) {
         return false;
     t.names = reinterpret_cast<const char *>(At(f, mtex));
     t.namesSize = size;
+    // The model tables (0x006C2010): each offset points 8 bytes before its
+    // data, whose size is the dword before it. A tile whose tables do not
+    // fit keeps its ground and has no doodads.
+    const auto table = [&](uint32_t field, const uint8_t *&data, uint32_t &bytes) {
+        const uint64_t at = mhdr + U32(At(f, mhdr + field)) + Offsets::MCNK_RECORD_HEADER;
+        if (U32(At(f, mhdr + field)) == 0 || at < 4 || !Inside(f, at, 0) || !Inside(f, at, U32(At(f, at - 4))))
+            return false;
+        data = At(f, at);
+        bytes = U32(At(f, at - 4));
+        return true;
+    };
+    const uint8_t *names = nullptr, *offsets = nullptr, *placements = nullptr;
+    uint32_t namesBytes = 0, offsetBytes = 0, placementBytes = 0;
+    if (Inside(f, mhdr, Offsets::OFF_MHDR_MDDF + 4) && table(Offsets::OFF_MHDR_MMDX, names, namesBytes) &&
+        table(Offsets::OFF_MHDR_MMID, offsets, offsetBytes) &&
+        table(Offsets::OFF_MHDR_MDDF, placements, placementBytes)) {
+        t.modelNames = reinterpret_cast<const char *>(names);
+        t.modelNamesSize = namesBytes;
+        t.modelOffsets = reinterpret_cast<const uint32_t *>(offsets);
+        t.modelCount = offsetBytes / sizeof(uint32_t);
+        t.placements = placements;
+        t.placementCount = placementBytes / Offsets::MDDF_SIZE;
+    }
     return true;
 }
 
@@ -364,9 +399,12 @@ void BuildChunk(Chunk &c) {
 void LinkNeighbours(Land &land) {
     std::map<std::pair<uint32_t, uint32_t>, void *> &at = land.byCell;
     at.clear();
-    for (Chunk &c : land.chunks)
+    land.propsOf.clear();
+    for (Chunk &c : land.chunks) {
         at[{Game::Read<uint32_t>(c.object(), Offsets::OFF_CMAPCHUNK_GLOBAL_ROW),
             Game::Read<uint32_t>(c.object(), Offsets::OFF_CMAPCHUNK_GLOBAL_COLUMN)}] = c.object();
+        land.propsOf[c.object()] = &c.props;
+    }
     const int steps[4][2] = {{-1, 0}, {0, 1}, {1, 0}, {0, -1}};
     for (Chunk &c : land.chunks) {
         void *o = c.object();
@@ -376,6 +414,46 @@ void LinkNeighbours(Land &land) {
             const auto found = at.find({row + steps[i][0], column + steps[i][1]});
             Game::Ref<void *>(o, Offsets::OFF_CMAPCHUNK_NEIGHBOURS + i * 4) =
                 found != at.end() ? found->second : nullptr;
+        }
+    }
+}
+
+// LoadReferences' doodad leg (0x006B00F0) for the scene's chunks: each MCRF
+// doodad index into MDDF, one prop per unique id (the def hash 0x00CA7DDC).
+// An index or a name outside the tile's tables is skipped.
+void MakeProps(Land &land, void *frame) {
+    land.props = World::NewProps();
+    std::unordered_map<uint32_t, uint32_t> byUniqueId;
+    for (Chunk &c : land.chunks) {
+        const Tile &t = *c.tile;
+        if (t.placements == nullptr)
+            continue;
+        const uint8_t *record = At(t.file, U32(McinEntry(t, c.index)));
+        const uint8_t *header = record + Offsets::MCNK_RECORD_HEADER;
+        const uint32_t refs = U32(header + Offsets::OFF_MCNK_DOODAD_REF_COUNT);
+        const uint64_t list = uint64_t{U32(McinEntry(t, c.index))} + U32(header + Offsets::OFF_MCNK_MCRF) +
+                              Offsets::MCNK_RECORD_HEADER;
+        if (!Inside(t.file, list, uint64_t{refs} * sizeof(uint32_t)))
+            continue;
+        for (uint32_t i = 0; i < refs; ++i) {
+            const uint32_t placement = U32(At(t.file, list + uint64_t{i} * sizeof(uint32_t)));
+            if (placement >= t.placementCount)
+                continue;
+            const uint8_t *entry = t.placements + static_cast<size_t>(placement) * Offsets::MDDF_SIZE;
+            const uint32_t nameIndex = U32(entry + Offsets::OFF_MDDF_NAME_INDEX);
+            if (nameIndex >= t.modelCount)
+                continue;
+            const uint32_t nameOffset = t.modelOffsets[nameIndex];
+            if (nameOffset >= t.modelNamesSize ||
+                std::memchr(t.modelNames + nameOffset, 0, t.modelNamesSize - nameOffset) == nullptr)
+                continue;
+            const uint32_t unique = U32(entry + Offsets::OFF_MDDF_UNIQUE_ID);
+            auto found = byUniqueId.find(unique);
+            if (found == byUniqueId.end())
+                found = byUniqueId
+                            .emplace(unique, World::AddProp(*land.props, frame, t.modelNames + nameOffset, entry))
+                            .first;
+            c.props.push_back(found->second);
         }
     }
 }
@@ -472,7 +550,7 @@ int TileIndex(float origin, float coordinate, float tile) {
 
 } // namespace
 
-Land *Load(uint32_t mapID, float x, float y, float radius) {
+Land *Load(void *frame, uint32_t mapID, float x, float y, float radius) {
     if (!(radius >= 0.0f) || !std::isfinite(x) || !std::isfinite(y) || !std::isfinite(radius))
         return nullptr;
     const char *dir =
@@ -523,6 +601,7 @@ Land *Load(uint32_t mapID, float x, float y, float radius) {
         return nullptr;
     }
     BuildAll(*land);
+    MakeProps(*land, frame);
     static uint32_t serials = 0;
     land->serial = ++serials;
     return land.release();
@@ -530,9 +609,20 @@ Land *Load(uint32_t mapID, float x, float y, float radius) {
 
 uint32_t Serial(const Land &land) { return land.serial; }
 
+void Update(Land &land, void *frame, bool sounds) {
+    if (land.props != nullptr)
+        World::UpdateProps(*land.props, frame, sounds);
+}
+
+void Silence(Land &land) {
+    if (land.props != nullptr)
+        World::SilenceProps(*land.props);
+}
+
 void Free(Land *land) {
     if (land == nullptr)
         return;
+    World::FreeProps(land->props);
     UnloadAll(*land);
     FreeBuffers(*land);
     delete land;
@@ -794,7 +884,7 @@ void GatherChunk(const void *chunk, int32_t row, int32_t column, const int32_t (
 
 } // namespace
 
-bool QueryFacets(const Land &land, const float (&box)[6], std::vector<Contact::Facet> &out) {
+bool QueryFacets(Land &land, const float (&box)[6], std::vector<Contact::Facet> &out) {
     // 0x006AA92D: the distances from the origin, the bounds, the cells.
     const float origin = Game::Read<float>(Offsets::VAR_MAP_ORIGIN);
     const float fromMaxX = static_cast<float>(-(D(box[3]) - origin));
@@ -808,11 +898,30 @@ bool QueryFacets(const Land &land, const float (&box)[6], std::vector<Contact::F
     const float half = Game::Read<float>(Offsets::VAR_GATHER_HALF_CELL);
     const int32_t cells[4] = {Cell(perYard, half, fromMaxX), Cell(perYard, half, static_cast<float>(fromMaxY)),
                               Cell(perYard, half, fromMinX), Cell(perYard, half, fromMinY)};
-    for (int32_t row = cells[0] >> 3; row <= cells[2] >> 3; ++row)
-        for (int32_t column = cells[1] >> 3; column <= cells[3] >> 3; ++column)
-            if (const void *chunk = ChunkAt(land, row, column))
-                GatherChunk(chunk, row, column, cells, box, out);
-    return true;
+    // One query id for every chunk's doodads (0x006AA8BF advances it).
+    if (land.props != nullptr)
+        World::BeginPropQuery(*land.props);
+    bool complete = true;
+    for (int32_t row = cells[0] >> 3; row <= cells[2] >> 3; ++row) {
+        for (int32_t column = cells[1] >> 3; column <= cells[3] >> 3; ++column) {
+            const void *chunk = ChunkAt(land, row, column);
+            if (chunk == nullptr)
+                continue;
+            GatherChunk(chunk, row, column, cells, box, out);
+            // GatherChunkFacets' doodad leg (0x006AB496), after its triangles;
+            // a doodad still loading fails the chunk.
+            const auto found = land.propsOf.find(chunk);
+            if (land.props == nullptr || found == land.propsOf.end())
+                continue;
+            for (uint32_t prop : *found->second) {
+                if (!World::AddPropFacets(*land.props, prop, box, out)) {
+                    complete = false;
+                    break;
+                }
+            }
+        }
+    }
+    return complete;
 }
 
 bool CollectDecalBatches(const Land &land, const float (&box)[6], uint32_t mask) {

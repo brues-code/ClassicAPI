@@ -1073,6 +1073,8 @@ void __fastcall OnFrameUpdate(void *self, void *, float elapsedSec) {
     Terrain::Land *terrain = F(self).terrain;
     if (world != nullptr)
         World::Update(*world, self, F(self).playWorldModelSounds, elapsedSec);
+    if (terrain != nullptr)
+        Terrain::Update(*terrain, self, F(self).playWorldModelSounds);
     // A seated rider or an attached actor takes its parent's light.
     if (world != nullptr || terrain != nullptr)
         for (Actor *actor : *F(self).actors)
@@ -1111,6 +1113,8 @@ void __fastcall UpdateModel(void *self) { PlaceActors(self); }
 int __fastcall Hide(void *self, void *) {
     if (World::Backdrop *world = F(self).world)
         World::Silence(*world);
+    if (Terrain::Land *terrain = F(self).terrain)
+        Terrain::Silence(*terrain);
     for (Actor *actor : *F(self).actors) {
         Casts::Silence(*actor);
         Areas::Silence(*actor);
@@ -1636,7 +1640,7 @@ int __fastcall Script_SetWorldTerrain(void *L) {
         return 0;
     // One tile's width by default, the world's own unit of terrain.
     const float radius = hasRadius ? FloatArg(L, 5) : Game::Read<float>(Offsets::VAR_TILE_SIZE);
-    SetTerrain(frame, Terrain::Load(static_cast<uint32_t>(Game::Lua::ToNumber(L, 2)), FloatArg(L, 3),
+    SetTerrain(frame, Terrain::Load(frame, static_cast<uint32_t>(Game::Lua::ToNumber(L, 2)), FloatArg(L, 3),
                                     FloatArg(L, 4), radius));
     Game::Lua::PushBool(L, F(frame).terrain != nullptr);
     return 1;
@@ -2178,7 +2182,8 @@ const Game::Doc::Function kSetWorldTerrain{
     "Shows the map's ground around a point the way the world draws it, with its textures, shadows and "
     "level of detail, in map coordinates. The scene's light stands in for the sun, and its fog for the "
     "zone's. Actors walk on it, and TraceSegment and SweepCollider find it; past the radius there is no "
-    "ground. Returns false, and shows no terrain, when no ground lies within the radius.",
+    "ground. The map's props on it (trees, plants, rocks) show too, and actors collide with them. Returns "
+    "false, and shows no terrain, when no ground lies within the radius.",
     kWorldTerrainArgs, kWorldModelRet, nullptr, true};
 const Game::Doc::Function kClearWorldTerrain{"Removes the scene's terrain.", {}, {}, nullptr, true};
 const Game::Doc::Field kTraceSegmentArgs[] = {

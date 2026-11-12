@@ -19562,8 +19562,14 @@ and
 [`scene:TraceSegment`](#scenetracesegmentstartx-starty-startz-endx-endy-endz--camera)
 and
 [`scene:SweepCollider`](#scenesweepcolliderfeetx-feety-feetz-radius-height-movex-movey-movez)
-find it. Past the radius there is no ground. The trees, grass and water of
-the map are not shown. This is a ClassicAPI extension.
+find it. Past the radius there is no ground.
+
+The props of the map on that ground, for example trees, plants and rocks,
+show as in the world. They fade with distance, and actors collide with them.
+They play their sounds when
+[`scene:SetPlayWorldModelSounds`](#scenesetplayworldmodelsoundsenabled--scenegetplayworldmodelsounds)
+is on. The grass and water of the map are not shown. This is a ClassicAPI
+extension.
 
 ```lua
 -- The Gurubashi Arena: the arena WMO where the map puts it, on its ground.

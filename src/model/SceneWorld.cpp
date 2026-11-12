@@ -152,7 +152,8 @@ struct MapLight {
 };
 
 struct Doodad {
-    Backdrop *backdrop;
+    const Backdrop *backdrop; // its WMO, or null for a map's own doodad (a prop)
+    const bool *sounds;       // its owner's SetPlayWorldModelSounds, in the world
     void *frame;
     void *model; // one reference, or null when the file did not make one
     bool exterior;
@@ -646,11 +647,11 @@ void InteriorLight(const Backdrop &b, void *record, void *frame, uint32_t ambien
 // as the world's ApplyEntityLighting (0x00672A20) runs a def's fog and light
 // slots.
 void __fastcall DoodadLighting(void * /*instance*/, void *record, Doodad *d) {
-    const Backdrop &b = *d->backdrop;
     if (d->exterior)
         FrameLightAndFog(record, d->frame);
     else
-        InteriorLight(b, record, d->frame, d->ambient, d->directional, MapLightDirection(), EngineFloat(Offsets::VAR_ONE));
+        InteriorLight(*d->backdrop, record, d->frame, d->ambient, d->directional, MapLightDirection(),
+                      EngineFloat(Offsets::VAR_ONE));
     for (const Light &light : d->lights)
         AddLight(record, light.bytes);
 }
@@ -684,8 +685,7 @@ static_assert(kSoundEnd == 0x45534424 && kSoundLoop == 0x4C534424 && kSoundOnce 
 void __stdcall OnDoodadEvent(uint32_t tag, uint32_t soundID, const float *point, uint32_t /*unknown*/,
                              uint32_t userLow, uint32_t /*userHigh*/) {
     auto &d = *reinterpret_cast<Doodad *>(static_cast<uintptr_t>(userLow));
-    const Backdrop &b = *d.backdrop;
-    if (!b.sounds)
+    if (!*d.sounds)
         return;
     if (tag == kSoundEnd) {
         DropSound(d);
@@ -714,6 +714,19 @@ void __stdcall OnDoodadEvent(uint32_t tag, uint32_t soundID, const float *point,
 
 // ---- making them ----------------------------------------------------------------------
 
+// CreateDoodadModel (0x00695100) in the frame's scene, at the def's matrix.
+void MakeModel(Doodad &d, const char *path, const Matrix &m) {
+    d.model = M2::CreateModel(Model::Pane::Scene(d.frame), path);
+    if (d.model == nullptr)
+        return;
+    M2::SetBaseTransform(d.model, m);
+    const auto user = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(&d));
+    M2::SetAnimDoneCallback(d.model, reinterpret_cast<const void *>(Offsets::FUN_DOODAD_MODEL_DONE), 0, 0);
+    M2::SetEventCallback(d.model, reinterpret_cast<const void *>(&OnDoodadEvent), user, 0);
+    M2::SetRenderCallback(d.model, reinterpret_cast<const void *>(&DoodadLighting), &d);
+    M2::PlayAnimation(d.model, -1, 0, -1, 0, 1.0f, 1, 1);
+}
+
 // CreateGroupDoodadDef (0x00694E90) and CreateDoodadModel (0x00695100) in the
 // frame's scene.
 Doodad *MakeDoodad(Backdrop &b, void *frame, uint32_t index) {
@@ -724,6 +737,7 @@ Doodad *MakeDoodad(Backdrop &b, void *frame, uint32_t index) {
     auto owned = std::make_unique<Doodad>();
     Doodad &d = *owned;
     d.backdrop = &b;
+    d.sounds = &b.sounds;
     d.frame = frame;
     float position[3];
     ReadVector(record + Offsets::OFF_MODD_POSITION, position);
@@ -741,15 +755,7 @@ Doodad *MakeDoodad(Backdrop &b, void *frame, uint32_t index) {
     reinterpret_cast<Split_t>(Offsets::FUN_SPLIT_LIGHT_COLOR)(Game::Ptr<uint32_t>(record, Offsets::OFF_MODD_COLOR),
                                                              &d.directional, Offsets::DOODAD_DIRECTIONAL_FLOOR,
                                                              &d.ambient, Offsets::DOODAD_AMBIENT_CAP);
-    d.model = M2::CreateModel(Model::Pane::Scene(frame), path);
-    if (d.model != nullptr) {
-        M2::SetBaseTransform(d.model, m);
-        const auto user = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(&d));
-        M2::SetAnimDoneCallback(d.model, reinterpret_cast<const void *>(Offsets::FUN_DOODAD_MODEL_DONE), 0, 0);
-        M2::SetEventCallback(d.model, reinterpret_cast<const void *>(&OnDoodadEvent), user, 0);
-        M2::SetRenderCallback(d.model, reinterpret_cast<const void *>(&DoodadLighting), &d);
-        M2::PlayAnimation(d.model, -1, 0, -1, 0, 1.0f, 1, 1);
-    }
+    MakeModel(d, path, m);
     b.byIndex[index] = &d;
     b.doodads.push_back(std::move(owned));
     return &d;
@@ -822,6 +828,28 @@ float FadeAlpha(const Doodad &d, const float (&eye)[3], float farClip) {
     const float distance = std::sqrt(dx * dx + dy * dy) - d.radius;
     const float alpha = 1.0f - (distance - (end - range)) / range;
     return alpha > 1.0f ? 1.0f : alpha;
+}
+
+// The animate list empties at each paint (as for the actors' models), and the
+// world shows each doodad it draws again each frame, faded by distance
+// (DrawDoodadModels, 0x00683F80).
+void ShowDoodads(const std::vector<std::unique_ptr<Doodad>> &doodads, const View &view) {
+    for (const auto &d : doodads) {
+        // A def's bounds are set once its model file has loaded (0x00698C50).
+        if (d->model != nullptr && !d->bounded && M2::IsLoaded(d->model, 0, 0))
+            Bound(*d);
+        if (d->model != nullptr && d->bounded && M2::IsReady(d->model, 0, 1)) {
+            const float alpha = FadeAlpha(*d, view.eye, view.farClip);
+            const bool shown = alpha > 0.0f;
+            M2::SetVisible(d->model, shown);
+            if (shown) {
+                M2::SetAnimated(d->model, true);
+                M2::SetAlpha(d->model, alpha);
+            }
+        }
+        if (d->sound != 0)
+            MoveSound(*d);
+    }
 }
 
 void ReleaseDoodad(Doodad &d) {
@@ -925,6 +953,7 @@ void Silence(Backdrop &b) {
     for (const auto &d : b.doodads)
         DropSound(*d);
 }
+
 
 // ---- actors ---------------------------------------------------------------------------
 
@@ -1966,25 +1995,7 @@ void Update(Backdrop &b, void *frame, bool sounds, float elapsed) {
         MakeGroupDoodads(b, frame, i, group);
         b.groupsMade[i] = true;
     }
-    // The animate list empties at each paint (as for the actors' models), and
-    // the world shows each doodad it draws again each frame, faded by distance
-    // (DrawDoodadModels, 0x00683F80).
-    for (const auto &d : b.doodads) {
-        // A def's bounds are set once its model file has loaded (0x00698C50).
-        if (d->model != nullptr && !d->bounded && M2::IsLoaded(d->model, 0, 0))
-            Bound(*d);
-        if (d->model != nullptr && d->bounded && M2::IsReady(d->model, 0, 1)) {
-            const float alpha = FadeAlpha(*d, view.eye, view.farClip);
-            const bool shown = alpha > 0.0f;
-            M2::SetVisible(d->model, shown);
-            if (shown) {
-                M2::SetAnimated(d->model, true);
-                M2::SetAlpha(d->model, alpha);
-            }
-        }
-        if (d->sound != 0)
-            MoveSound(*d);
-    }
+    ShowDoodads(b.doodads, view);
 }
 
 void Draw(Backdrop &b, void *frame, const float (&eye)[3]) {
@@ -2476,6 +2487,90 @@ void ClearAndDrawSky(const Backdrop &b, void *frame, const float (&eye)[3]) {
     Gx::SetClearColor(saved);
     if (walked.weather && dry)
         DrawSkyPass(b, eye, CameraView(frame).forward, walked.skybox);
+}
+
+// ---- props: a map's own doodads (the terrain's MDDF) ---------------------------------
+
+struct Props {
+    std::vector<std::unique_ptr<Doodad>> doodads;
+    bool sounds = false; // SetPlayWorldModelSounds, in the world
+    uint32_t queryId = 0;
+};
+
+Props *NewProps() { return new Props(); }
+
+void FreeProps(Props *props) {
+    if (props == nullptr)
+        return;
+    for (const auto &d : props->doodads)
+        ReleaseDoodad(*d);
+    delete props;
+}
+
+uint32_t AddProp(Props &props, void *frame, const char *path, const uint8_t *entry) {
+    // PlaceDoodadDef (0x00694BC0): the position from the map's corner, the
+    // scale word over 1024, the angles in degrees (z a half turn more), each
+    // rounded where the client stores it.
+    using D = double;
+    auto owned = std::make_unique<Doodad>();
+    Doodad &d = *owned;
+    d.backdrop = nullptr;
+    d.sounds = &props.sounds;
+    d.frame = frame;
+    d.exterior = true; // LoadReferences' flag 4: outdoors, the sun
+    float raw[3], angles[3];
+    std::memcpy(raw, entry + Offsets::OFF_MDDF_POSITION, sizeof raw);
+    std::memcpy(angles, entry + Offsets::OFF_MDDF_ROTATION, sizeof angles);
+    const float origin = EngineFloat(Offsets::VAR_MAP_ORIGIN);
+    d.position[0] = static_cast<float>(D(-raw[2]) + origin);
+    d.position[1] = static_cast<float>(D(origin) + -raw[0]);
+    d.position[2] = raw[1];
+    const uint16_t scale = Game::Read<uint16_t>(entry, Offsets::OFF_MDDF_SCALE);
+    d.scale = static_cast<float>(D(scale) * EngineFloat(Offsets::VAR_ONE_OVER_1024));
+    const float k = EngineFloat(Offsets::VAR_DEGREES_TO_RADIANS);
+    const float aboutX = static_cast<float>(D(angles[2]) * k);
+    const float aboutY = static_cast<float>(D(angles[0]) * k);
+    const float aboutZ = static_cast<float>(D(angles[1]) * k + EngineFloat(Offsets::VAR_PI));
+    Matrix m;
+    Identity(m);
+    Translate(m, d.position);
+    Rotate(m, aboutZ, {0.0f, 0.0f, 1.0f});
+    Rotate(m, aboutY, {0.0f, 1.0f, 0.0f});
+    Rotate(m, aboutX, {1.0f, 0.0f, 0.0f});
+    Gx::Scale(m, d.scale);
+    std::memcpy(d.matrix, m, sizeof d.matrix);
+    MakeModel(d, path, m);
+    props.doodads.push_back(std::move(owned));
+    return static_cast<uint32_t>(props.doodads.size() - 1);
+}
+
+void UpdateProps(Props &props, void *frame, bool sounds) {
+    props.sounds = sounds && Game::Read<uint8_t>(Offsets::VAR_IN_WORLD) != 0;
+    if (!props.sounds)
+        SilenceProps(props);
+    ShowDoodads(props.doodads, CameraView(frame));
+}
+
+void SilenceProps(Props &props) {
+    for (const auto &d : props.doodads)
+        DropSound(*d);
+}
+
+void BeginPropQuery(Props &props) { ++props.queryId; }
+
+bool AddPropFacets(Props &props, uint32_t prop, const float (&box)[6], std::vector<Contact::Facet> &out) {
+    // GatherDoodadFacets' rules (0x006ABC40), as for a WMO group's doodads.
+    if (prop >= props.doodads.size())
+        return true;
+    Doodad &d = *props.doodads[prop];
+    if (d.stamp == props.queryId || d.model == nullptr)
+        return true;
+    if (!d.bounded)
+        return false;
+    if (Touches(d.collision, box))
+        AddDoodadFacets(d, box, out);
+    d.stamp = props.queryId;
+    return true;
 }
 
 } // namespace Model::Scene::World

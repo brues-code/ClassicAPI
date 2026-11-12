@@ -704,6 +704,23 @@ void DrawDecalOnPlane(const float (&box)[6], uint32_t argb, const float (&m)[16]
 // The scene's fog on the device, for a decal at `point` that the world draws
 // in its own fog: the WMO's, or the frame's without one. Inside a state push.
 void CommitDecalFog(const Backdrop *backdrop, void *frame, const float (&point)[3], const float (&eye)[3]);
+// A map's own doodads, outside any WMO (the terrain's MDDF): made, lit
+// outdoors, faded and animated as the world does a chunk's doodads, with the
+// WMO doodads' code.
+struct Props;
+Props *NewProps();
+void FreeProps(Props *props);
+// PlaceDoodadDef (0x00694BC0) for a 36-byte MDDF entry, then
+// CreateDoodadModel; returns the prop's index.
+uint32_t AddProp(Props &props, void *frame, const char *path, const uint8_t *entry);
+// From the scene's update: bounds, fade, the animate list and sounds.
+void UpdateProps(Props &props, void *frame, bool sounds);
+void SilenceProps(Props &props);
+// One box query: BeginPropQuery once, then AddPropFacets for each prop a
+// gathered chunk holds (a prop two chunks hold gives its facets once). False
+// while the prop's model is loading.
+void BeginPropQuery(Props &props);
+bool AddPropFacets(Props &props, uint32_t prop, const float (&box)[6], std::vector<Contact::Facet> &out);
 // The scene's view volume in scene space (the device's view moved by -eye
 // and its projection), as the world's camera builds its own.
 void ViewVolume(uint8_t (&volume)[Offsets::FRUSTUM_VOLUME_SIZE], const float (&eye)[3]);
@@ -718,12 +735,16 @@ struct Land;
 // The chunks of map `mapID`'s ADT tiles within `radius` of (x, y), in map
 // coordinates; null when the map has no directory or no chunk in reach
 // opens and reads.
-Land *Load(uint32_t mapID, float x, float y, float radius);
+Land *Load(void *frame, uint32_t mapID, float x, float y, float radius);
 void Free(Land *land);
 // From the paint, after the animate pass and before the WMO: the chunks the
 // scene's view shows, as the world's chunk pass draws them. `farClip` is the
 // scene's, the fog end of a scene without fog.
 void Draw(Land &land, void *frame, const float (&eye)[3], float farClip);
+// From the scene's update, before it advances: the chunks' doodads.
+void Update(Land &land, void *frame, bool sounds);
+// Drops the doodads' loop sounds (the scene hid).
+void Silence(Land &land);
 // The world box test's terrain leg for a decal (TestTerrainBox 0x006AD4E0):
 // the triangles of the chunks' cells in `box` (scene space) into the
 // client's triangle batches, one per chunk (TestChunkTriangles 0x006AD7E0).
@@ -739,7 +760,7 @@ uint32_t Serial(const Land &land);
 // 0x006AADC0): the triangles of the chunks' cells in a box (scene space) and
 // an impassable chunk's walls, appended to `out`. A box outside the map
 // fails, as the world's does; a cell outside the scene's chunks has none.
-bool QueryFacets(const Land &land, const float (&box)[6], std::vector<Contact::Facet> &out);
+bool QueryFacets(Land &land, const float (&box)[6], std::vector<Contact::Facet> &out);
 // The world's segment trace's terrain leg (TraceTerrainSegment 0x0069C320):
 // the nearest triangle of the cells the segment crosses below `fraction`,
 // which it lowers, and that triangle's unit normal turned to face `start`.

@@ -16347,6 +16347,33 @@ enum Offsets {
     ADT_MHDR_BASE = 0x10,
     OFF_MHDR_MCIN = 0x04,
     OFF_MHDR_MTEX = 0x08,
+    // ParseAreaFile's model tables: MMDX names +0x0C, MMID name offsets +0x10,
+    // MDDF placements +0x1C (36 bytes each, the count size / 36).
+    OFF_MHDR_MMDX = 0x0C,
+    OFF_MHDR_MMID = 0x10,
+    OFF_MHDR_MDDF = 0x1C,
+    // An MDDF entry as PlaceDoodadDef (0x00694BC0) reads it: +0x00 the MMID
+    // index, +0x04 the unique id (one def per id, the hash 0x00CA7DDC), +0x08
+    // position (x = origin - +0x10, y = origin - +0x08, z = +0x0C), +0x14 /
+    // +0x18 / +0x1C the y / z / x angles in degrees (z + pi), +0x20 the scale
+    // word x 1/1024 (0x008090D8). The matrix: TranslateMatrix, RotateMatrix
+    // about z, y, x (0x007BDD60), ScaleMatrix (0x007BDD00); then
+    // CreateDoodadModel (0x00695100) as for a WMO's doodads. LoadReferences
+    // (0x006B00F0) gives a chunk's doodads flag 4 (outdoors, the sun) and
+    // intensity 1.0; their map lights come only from WMO group owners, so a
+    // chunk's doodads have none.
+    MDDF_SIZE = 36,
+    OFF_MDDF_NAME_INDEX = 0x00,
+    OFF_MDDF_UNIQUE_ID = 0x04,
+    OFF_MDDF_POSITION = 0x08,
+    OFF_MDDF_ROTATION = 0x14,
+    OFF_MDDF_SCALE = 0x20,
+    VAR_ONE_OVER_1024 = 0x008090D8,
+    // The MCNK header's reference counts (LoadReferences): doodads +0x10,
+    // map objects +0x38; the MCRF list holds the doodad indices first.
+    OFF_MCNK_DOODAD_REF_COUNT = 0x10,
+    OFF_MCNK_MCRF = 0x20,
+    OFF_MCNK_MAPOBJ_REF_COUNT = 0x38,
     ADT_CHUNKS = 256,
     MCIN_ENTRY_SIZE = 0x10,
     MCNK_RECORD_HEADER = 8,
