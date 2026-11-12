@@ -639,6 +639,7 @@ function Broodwatch_PickCard(i)
 	end
 	BW.cards:Hide();
 	UpdateBuild();
+	BW.UpdateHealth(); -- Vigor's larger bar and heal, Second Wind's heal (defined below)
 	if BW.run.picking == "chest" then
 		BW.run.chestPicks = BW.run.chestPicks - 1;
 	else
