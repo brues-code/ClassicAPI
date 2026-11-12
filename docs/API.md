@@ -19568,8 +19568,9 @@ The props of the map on that ground, for example trees, plants and rocks,
 show as in the world. They fade with distance, and actors collide with them.
 They play their sounds when
 [`scene:SetPlayWorldModelSounds`](#scenesetplayworldmodelsoundsenabled--scenegetplayworldmodelsounds)
-is on. The grass and water of the map are not shown. This is a ClassicAPI
-extension.
+is on. Near the camera, the ground shows its grass and small clutter, as
+in the world, with the density of the ground clutter setting. The water of
+the map is not shown. This is a ClassicAPI extension.
 
 ```lua
 -- The Gurubashi Arena: the arena WMO where the map puts it, on its ground.

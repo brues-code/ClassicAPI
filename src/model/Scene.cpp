@@ -2182,8 +2182,9 @@ const Game::Doc::Function kSetWorldTerrain{
     "Shows the map's ground around a point the way the world draws it, with its textures, shadows and "
     "level of detail, in map coordinates. The scene's light stands in for the sun, and its fog for the "
     "zone's. Actors walk on it, and TraceSegment and SweepCollider find it; past the radius there is no "
-    "ground. The map's props on it (trees, plants, rocks) show too, and actors collide with them. Returns "
-    "false, and shows no terrain, when no ground lies within the radius.",
+    "ground. The map's props on it (trees, plants, rocks) show too, and actors collide with them; its "
+    "grass shows near the camera. Returns false, and shows no terrain, when no ground lies within the "
+    "radius.",
     kWorldTerrainArgs, kWorldModelRet, nullptr, true};
 const Game::Doc::Function kClearWorldTerrain{"Removes the scene's terrain.", {}, {}, nullptr, true};
 const Game::Doc::Field kTraceSegmentArgs[] = {

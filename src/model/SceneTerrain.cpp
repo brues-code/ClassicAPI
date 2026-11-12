@@ -63,6 +63,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -173,6 +174,9 @@ struct Chunk {
     Tile *tile = nullptr;
     uint32_t index = 0; // row * 16 + column in the tile
     std::vector<uint32_t> props; // its MCRF doodads, as indices into the land's props
+    // CreateDetailDoodads reads 512 bytes at the MCSH pointer whether or not
+    // the chunk has a shadow map; false when they lie outside the file.
+    bool detailSafe = false;
     void *object() { return memory->bytes; }
 };
 
@@ -192,6 +196,7 @@ struct Land {
     std::map<const void *, const std::vector<uint32_t> *> propsOf;
     World::Props *props = nullptr;
     uint32_t serial = 0; // this terrain among all loaded, for the actors' caches
+    uint32_t detailStamp = 0; // the detail pools' rebuild stamp the batches were made under
 };
 
 namespace {
@@ -476,6 +481,16 @@ void BuildAll(Land &land) {
     AttachBuffers(land);
 }
 
+// The detail doodad batch of a chunk, freed (FreeDetailDoodadBatch); it holds
+// no buffers between draws.
+void FreeDetail(void *chunk) {
+    void *&batch = Game::Ref<void *>(chunk, Offsets::OFF_CMAPCHUNK_DETAIL_BATCH);
+    if (batch == nullptr)
+        return;
+    reinterpret_cast<void(__thiscall *)(void *)>(Offsets::FUN_FREE_DETAIL_DOODAD_BATCH)(batch);
+    batch = nullptr;
+}
+
 // UnloadChunk and the destructor, as DestroyChunk (0x006A6A00) does less
 // the pool: the buffers are the scene's and stay; then each tile's
 // textures.
@@ -589,6 +604,12 @@ Land *Load(void *frame, uint32_t mapID, float x, float y, float radius) {
                 c.memory = std::make_unique<ChunkMemory>();
                 c.tile = t.get();
                 c.index = i;
+                const uint32_t record = U32(McinEntry(*t, i));
+                const uint8_t *header = At(t->file, uint64_t{record} + Offsets::MCNK_RECORD_HEADER);
+                c.detailSafe = Inside(t->file,
+                                      uint64_t{record} + U32(header + Offsets::OFF_MCNK_MCSH) +
+                                          Offsets::MCNK_RECORD_HEADER,
+                                      Offsets::MCSH_SIZE);
                 land->chunks.push_back(std::move(c));
             }
             land->tiles.push_back(std::move(t));
@@ -636,6 +657,21 @@ void Draw(Land &land, void *frame, const float (&eye)[3], float farClip) {
         UnloadAll(land);
         BuildAll(land);
     }
+    // The detail pools, as the world's frame prepares them (0x0068121D) before
+    // its passes; when they were rebuilt since, the scene's batches were made
+    // for the old density and are scattered again.
+    if (Game::Read<uint32_t>(Offsets::VAR_DETAIL_DOODAD_REBUILD) != 0)
+        reinterpret_cast<void(__cdecl *)()>(Offsets::FUN_PREPARE_DETAIL_DOODAD_BUFFERS)();
+    const uint32_t detailStamp = Game::Read<uint32_t>(Offsets::VAR_DETAIL_DOODAD_STAMP);
+    if (detailStamp != land.detailStamp) {
+        for (Chunk &c : land.chunks)
+            FreeDetail(c.object());
+        land.detailStamp = detailStamp;
+    }
+    const bool details = (worldFlags & Offsets::WORLD_FLAG_DETAIL_DOODADS) != 0 &&
+                         Game::Read<void *>(Offsets::VAR_WORLD_MODEL_MANAGER) != nullptr;
+    const float horizon = Game::Read<float>(Offsets::VAR_DETAIL_DOODAD_HORIZON);
+    std::vector<void *> detailed; // the chunks the detail pass draws
 
     // The fog end the world's draw compares with: the scene's fog, else the
     // far clip, past which nothing draws.
@@ -675,12 +711,6 @@ void Draw(Land &land, void *frame, const float (&eye)[3], float farClip) {
     worldFogEnd = fogEnd;
 
     using Fn_t = void(__cdecl *)();
-    const Gx::SavedStates states;
-    if ((worldFlags & Offsets::WORLD_FLAG_ANISOTROPIC) != 0) {
-        const float bias = Game::Read<float>(Offsets::VAR_CHUNK_MIP_BIAS_IMMEDIATE);
-        for (int i = 0; i < Offsets::MIP_BIAS_STAGES; ++i)
-            Gx::SetStateFloat(Offsets::GXRS_MIP_BIAS_STAGE0 + i, bias);
-    }
     reinterpret_cast<Fn_t>(Offsets::FUN_FRUSTUM_PUSH)();
     reinterpret_cast<void(__thiscall *)(void *)>(Offsets::FUN_FRUSTUM_STORE)(volume);
     Gx::PushTransform(kWorldStack);
@@ -691,25 +721,19 @@ void Draw(Land &land, void *frame, const float (&eye)[3], float farClip) {
     using Commit_t = void(__thiscall *)(void *record, const float *origin, int fog);
     using Callback_t = void(__fastcall *)(void *instance, void *record, void *frame);
     using Mesh_t = void(__thiscall *)(void *chunk, uint32_t draw);
-    for (Chunk &c : land.chunks) {
-        void *o = c.object();
-        const uint8_t *header = Game::Read<const uint8_t *>(o, Offsets::OFF_CMAPCHUNK_HEADER);
-        if (Game::Read<uint16_t>(header, Offsets::OFF_MCNK_HOLES) == Offsets::MCNK_HOLES_ALL ||
-            reinterpret_cast<Culled_t>(Offsets::FUN_FRUSTUM_IS_BOX_CULLED)(
-                Game::Ptr<float>(o, Offsets::OFF_CMAPCHUNK_BOX)) != 0)
-            continue;
+    // The world transform at the chunk less the eye, and the chunk's lighting
+    // record: the scene's lights there, the fog always, the light only nearer
+    // than the fog end by twice the radius (a NaN depth adds none).
+    const auto placeAndLight = [&](void *o) {
         const float *position = Game::Ptr<float>(o, Offsets::OFF_CMAPCHUNK_POSITION);
         Matrix world;
         Identity(world);
         Translate(world, {position[0] - eye[0], position[1] - eye[1], position[2] - eye[2]});
         Gx::SetTransform(kWorldStack, world);
-
         alignas(16) uint8_t record[Offsets::M2_LIGHTING_RECORD_SIZE] = {};
         reinterpret_cast<Init_t>(Offsets::FUN_M2LIGHTING_INIT)(record, nullptr,
                                                               Game::Ptr<float>(o, Offsets::OFF_CMAPCHUNK_CENTRE));
         reinterpret_cast<Lights_t>(Offsets::FUN_M2SCENE_ADD_LIGHTS_FOR_POINT)(scene, record);
-        // The chunk's slots: the fog always, the light only nearer than the
-        // fog end by twice the radius (a NaN depth adds none).
         const float reach = Game::Read<float>(o, Offsets::OFF_CMAPCHUNK_VIEW_DEPTH) -
                             Game::Read<float>(o, Offsets::OFF_CMAPCHUNK_RADIUS);
         if (reach < fogEnd)
@@ -717,7 +741,52 @@ void Draw(Land &land, void *frame, const float (&eye)[3], float farClip) {
         else
             World::FrameFog(record, frame);
         reinterpret_cast<Commit_t>(Offsets::FUN_M2LIGHTING_SET_DEVICE_LIGHTS)(record, eye, 1);
+    };
+    // The chunk pass in its own state push (DrawChunkPass 0x00684510): the
+    // shader path's layer draw (0x006BF690) leaves its pixel program bound,
+    // and only the pass's pop takes it off.
+    Gx::PushStates();
+    if ((worldFlags & Offsets::WORLD_FLAG_ANISOTROPIC) != 0) {
+        const float bias = Game::Read<float>(Offsets::VAR_CHUNK_MIP_BIAS_IMMEDIATE);
+        for (int i = 0; i < Offsets::MIP_BIAS_STAGES; ++i)
+            Gx::SetStateFloat(Offsets::GXRS_MIP_BIAS_STAGE0 + i, bias);
+    }
+    for (Chunk &c : land.chunks) {
+        void *o = c.object();
+        const uint8_t *header = Game::Read<const uint8_t *>(o, Offsets::OFF_CMAPCHUNK_HEADER);
+        if (Game::Read<uint16_t>(header, Offsets::OFF_MCNK_HOLES) == Offsets::MCNK_HOLES_ALL ||
+            reinterpret_cast<Culled_t>(Offsets::FUN_FRUSTUM_IS_BOX_CULLED)(
+                Game::Ptr<float>(o, Offsets::OFF_CMAPCHUNK_BOX)) != 0)
+            continue;
+        placeAndLight(o);
         reinterpret_cast<Mesh_t>(Offsets::FUN_CMAPCHUNK_SELECT_MESH)(o, 1);
+        // The detail leg (0x006847C9): a chunk inside the horizon scatters its
+        // batch once and stays for the detail pass.
+        if (details && c.detailSafe && Game::Read<float>(o, Offsets::OFF_CMAPCHUNK_VIEW_DEPTH) < horizon) {
+            if (Game::Read<void *>(o, Offsets::OFF_CMAPCHUNK_DETAIL_BATCH) == nullptr)
+                reinterpret_cast<void(__thiscall *)(void *)>(Offsets::FUN_CMAPCHUNK_CREATE_DETAIL_DOODADS)(o);
+            if (Game::Read<void *>(o, Offsets::OFF_CMAPCHUNK_DETAIL_BATCH) != nullptr)
+                detailed.push_back(o);
+        }
+    }
+    Gx::PopStates();
+    // The detail pass (0x006813D0): stage 0's mip bias, then each listed
+    // chunk's batch at its transform and light. Each batch then gives its
+    // slot buffers back (the world's idle release), so none outlives a
+    // rebuild of the world's pools.
+    if (!detailed.empty()) {
+        Gx::PushStates();
+        Gx::SetStateFloat(Offsets::GXRS_MIP_BIAS_STAGE0, Game::Read<float>(Offsets::VAR_DETAIL_MIP_BIAS_IMMEDIATE));
+        using DrawDetail_t = void(__thiscall *)(void *chunk, float draw);
+        for (void *o : detailed) {
+            placeAndLight(o);
+            reinterpret_cast<DrawDetail_t>(Offsets::FUN_CMAPCHUNK_DRAW_DETAIL_DOODADS)(
+                o, std::numeric_limits<float>::denorm_min());
+        }
+        Gx::PopStates();
+        for (void *o : detailed)
+            reinterpret_cast<void(__thiscall *)(void *)>(Offsets::FUN_RELEASE_DETAIL_BATCH_BUFFERS)(
+                Game::Read<void *>(o, Offsets::OFF_CMAPCHUNK_DETAIL_BATCH));
     }
     Gx::PopTransform(kWorldStack);
     reinterpret_cast<Fn_t>(Offsets::FUN_FRUSTUM_POP)();

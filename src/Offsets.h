@@ -16369,6 +16369,40 @@ enum Offsets {
     OFF_MDDF_ROTATION = 0x14,
     OFF_MDDF_SCALE = 0x20,
     VAR_ONE_OVER_1024 = 0x008090D8,
+    // Detail doodads (benilla terrain/detail.md; Ghidra 2026-11-11). In the
+    // chunk pass (0x006847C9), with world flag 0x100000, a drawn chunk whose
+    // view depth +0x78 is below the horizon (0x00867958, read live: 300.0 in
+    // both the stock and the Octo image) scatters its batch once
+    // (CMapChunk::CreateDetailDoodads `__thiscall(chunk)` 0x006BFC10: it reads
+    // the chunk, the models table, the layers' GroundEffectTexture rows and
+    // 512 bytes at the MCSH pointer +0xF1C, flag or not); any other drawn
+    // chunk leaves the list. The pass (0x006813D0) sets stage 0's mip bias to
+    // the immediate at 0x006813EA (0.25), then for each listed chunk with a
+    // batch +0xC0: the world transform at the chunk, the chunk's lighting
+    // record, CMapChunk::DrawDetailDoodads `__thiscall(chunk, float)`
+    // (0x006C02D0; nonzero draws, the pass passes the bits 1). The batches'
+    // slot buffers come from the world's detail pools, which
+    // PrepareDetailDoodadBuffers `__cdecl` (0x006B1D30) frees and rebuilds
+    // while the flag 0x00CB0034 is set (frillDensity), after freeing only the
+    // listed chunks' batches (FreeAllDetailDoodads 0x006924F0); each rebuild
+    // adds 0x80 to 0x00CB003C, which nothing else writes. A slot's release
+    // (ReleaseDetailDoodadSlot 0x006B21D0) reads its buffer's pool, so a scene
+    // batch gives its buffers back after each draw (the world's idle release
+    // ReleaseDetailDoodadBatchBuffers `__thiscall(batch)` 0x006B28E0) and is
+    // freed (FreeDetailDoodadBatch `__thiscall(batch)` 0x006B2030) when the
+    // stamp moves. The models load into the world's model manager 0x00C7B298.
+    WORLD_FLAG_DETAIL_DOODADS = 0x100000,
+    VAR_DETAIL_DOODAD_HORIZON = 0x00867958,
+    VAR_DETAIL_MIP_BIAS_IMMEDIATE = 0x006813EA,
+    VAR_DETAIL_DOODAD_REBUILD = 0x00CB0034,
+    VAR_DETAIL_DOODAD_STAMP = 0x00CB003C,
+    VAR_WORLD_MODEL_MANAGER = 0x00C7B298,
+    FUN_PREPARE_DETAIL_DOODAD_BUFFERS = 0x006B1D30,
+    FUN_CMAPCHUNK_CREATE_DETAIL_DOODADS = 0x006BFC10,
+    FUN_CMAPCHUNK_DRAW_DETAIL_DOODADS = 0x006C02D0,
+    FUN_RELEASE_DETAIL_BATCH_BUFFERS = 0x006B28E0,
+    FUN_FREE_DETAIL_DOODAD_BATCH = 0x006B2030,
+    OFF_CMAPCHUNK_DETAIL_BATCH = 0xC0,
     // The MCNK header's reference counts (LoadReferences): doodads +0x10,
     // map objects +0x38; the MCRF list holds the doodad indices first.
     OFF_MCNK_DOODAD_REF_COUNT = 0x10,
