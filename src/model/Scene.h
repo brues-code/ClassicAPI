@@ -661,13 +661,14 @@ Ambience *NewAmbience();
 void FreeAmbience(Ambience *ambience);
 // From the scene's update: places the model in the WMO again when it moved,
 // or when more of the WMO has loaded since.
-void Settle(const Backdrop &backdrop, Ambience &ambience, void *frame, void *model, float elapsed);
+void Settle(const Backdrop *backdrop, const Terrain::Land *terrain, Ambience &ambience, void *frame, void *model,
+            float elapsed);
 // The actor's lighting slots: the frame's light and fog without a WMO, or
 // before the model is placed in this one.
 void ActorLight(const Backdrop *backdrop, const Ambience &ambience, void *frame, void *record);
 // The TerrainType id of the WMO face under the actor, or -1 (no face, no
 // WMO, or not placed in this one).
-int Ground(const Backdrop *backdrop, const Ambience &ambience);
+int Ground(const Backdrop *backdrop, const Terrain::Land *terrain, const Ambience &ambience);
 // The nearest face of the loaded groups that the segment from `start` to
 // `end` (scene space) crosses, of the faces the world's line of sight tests,
 // or with `camera` the faces its camera collides with: its fraction along the
@@ -728,6 +729,12 @@ void Draw(Land &land, void *frame, const float (&eye)[3], float farClip);
 // client's triangle batches, one per chunk (TestChunkTriangles 0x006AD7E0).
 // True when it added any.
 bool CollectDecalBatches(const Land &land, const float (&box)[6], uint32_t mask);
+// GetGroundEffect (0x0069B1C0) over the scene's chunks: the TerrainType id of
+// the dominant texture layer of the cell under `point`. False with no chunk,
+// a hole, no layer or no ground effect there.
+bool GroundEffect(const Land &land, const float (&point)[3], int32_t &terrainType);
+// This terrain among all loaded, for the actors' cached placements.
+uint32_t Serial(const Land &land);
 // The world's box query's terrain leg (0x006AA8B0, GatherChunkFacets
 // 0x006AADC0): the triangles of the chunks' cells in a box (scene space) and
 // an impassable chunk's walls, appended to `out`. A box outside the map
@@ -743,6 +750,8 @@ bool Trace(const Land &land, const float (&start)[3], const float (&end)[3], flo
 
 // The scene's WMO, or null.
 World::Backdrop *WorldOf(void *sceneFrame);
+// The scene's terrain, or null.
+Terrain::Land *TerrainOf(void *sceneFrame);
 
 // The scene's ground, as the world's queries take map objects then the
 // terrain (0x006AA8B0, 0x0069BFF0): the WMO's, then the terrain's.

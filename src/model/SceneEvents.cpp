@@ -161,11 +161,12 @@ void PlayStand(const Actor &actor, const uint8_t *soundData) {
 }
 
 // The ground the actor stands on: the scene's SetGroundTerrain, else the
-// terrain type of the WMO face under it (the unit's +0xC60).
+// terrain type of the WMO face or the terrain layer under it (the unit's
+// +0xC60).
 int Ground(const Actor &actor) {
     void *frame = actor.SceneFrame();
     const int set = GroundTerrain(frame);
-    return set >= 0 ? set : World::Ground(WorldOf(frame), *actor.ambience);
+    return set >= 0 ? set : World::Ground(WorldOf(frame), TerrainOf(frame), *actor.ambience);
 }
 
 void PlayFootstep(const Actor &actor, const uint8_t *soundData) {

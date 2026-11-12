@@ -233,7 +233,8 @@ static_assert(Offsets::OFF_MAPOBJDEF_OBJECT + sizeof(void *) <= Offsets::MAPOBJD
 // An actor's place in the WMO (Settle), as the world keeps it on the unit's
 // map entity.
 struct Ambience {
-    uint32_t serial = 0; // the backdrop's, 0 before the first placement
+    uint32_t serial = 0; // the backdrop's, 0 before the first placement or without one
+    uint32_t terrainSerial = 0; // the terrain's, 0 without one
     const void *model = nullptr;
     uint32_t generation = 0;
     float position[3] = {};
@@ -1265,7 +1266,8 @@ void Ease(Ambience &a, void *frame, float elapsed) {
 // AttachEntityToGround (0x006A8A20), the map object leg (a scene has no
 // terrain), with SyncLightNode's box, centre and radius and UpdateNode's
 // probe point (0x00613F80).
-void Place(const Backdrop &b, Ambience &a, void *frame, void *model, const float *base) {
+void Place(const Backdrop *wmo, const Terrain::Land *terrain, Ambience &a, void *frame, void *model,
+           const float *base) {
     using TraceFace_t = bool(__thiscall *)(const void *def, const float *start, const float *end, uint32_t group,
                                            uint16_t *face, float *hit, float *t);
     using TerrainType_t = int32_t(__thiscall *)(const void *def, uint32_t group, uint16_t face);
@@ -1273,7 +1275,6 @@ void Place(const Backdrop &b, Ambience &a, void *frame, void *model, const float
                                         uint32_t *bgra, bool *day);
     using Split_t = void(__stdcall *)(const uint32_t *src, uint32_t *first, uint8_t floor, uint32_t *second,
                                       uint8_t cap);
-    void *object = b.object;
     a.lights.clear();
     a.interior = false;
     a.ground = -1;
@@ -1308,18 +1309,37 @@ void Place(const Backdrop &b, Ambience &a, void *frame, void *model, const float
     float start[3];
     TransformPoint(point, *reinterpret_cast<const Matrix *>(base), start);
 
+    // AttachEntityToGround (0x006A8A20): the terrain and the map objects down
+    // from the probe; with neither, up past the bounds; the terrain wins when
+    // it is nearer.
     const float length = EngineFloat(Offsets::VAR_ONE_THOUSAND);
     float end[3] = {start[0], start[1], start[2] - length};
     float t = 1.0f;
+    float terrainT = 1.0f;
+    float normal[3];
     uint32_t group = 0;
     uint16_t face = 0;
-    if (!Nearest(b, start, end, t, group, face)) {
+    bool onTerrain = terrain != nullptr && Terrain::Trace(*terrain, start, end, terrainT, normal);
+    bool onWmo = wmo != nullptr && Nearest(*wmo, start, end, t, group, face);
+    if (!onTerrain && !onWmo) {
         end[0] = centre[0];
         end[1] = centre[1];
         end[2] = radius + length + centre[2];
-        if (!Nearest(b, start, end, t, group, face))
-            return; // links nothing: the sun, no ground
+        onTerrain = terrain != nullptr && Terrain::Trace(*terrain, start, end, terrainT, normal);
+        onWmo = wmo != nullptr && Nearest(*wmo, start, end, t, group, face);
     }
+    if (onTerrain && onWmo && terrainT < t)
+        onWmo = false;
+    if (!onWmo) {
+        // The terrain links the unit outdoors, in the sun: the ground is the
+        // dominant layer's under its position (GetGroundEffect 0x0069B1C0).
+        int32_t type = -1;
+        if (onTerrain && Terrain::GroundEffect(*terrain, a.position, type))
+            a.ground = type;
+        return; // with neither, it links nothing: the sun, no ground
+    }
+    const Backdrop &b = *wmo;
+    void *object = b.object;
     // The hit group links the unit: its lights light it.
     if (group < b.groupLights.size())
         for (const MapLight &light : b.groupLights[group])
@@ -1367,14 +1387,18 @@ Ambience *NewAmbience() { return new Ambience(); }
 
 void FreeAmbience(Ambience *ambience) { delete ambience; }
 
-void Settle(const Backdrop &b, Ambience &a, void *frame, void *model, float elapsed) {
-    if (Game::Read<uint8_t>(b.object, Offsets::OFF_CMAPOBJ_LOADED) == 0)
+void Settle(const Backdrop *b, const Terrain::Land *terrain, Ambience &a, void *frame, void *model, float elapsed) {
+    if ((b == nullptr && terrain == nullptr) ||
+        (b != nullptr && Game::Read<uint8_t>(b->object, Offsets::OFF_CMAPOBJ_LOADED) == 0))
         return;
     const float *base = Game::Ptr<float>(model, Offsets::OFF_M2MODEL_BASE_MATRIX);
     const float position[3] = {base[12], base[13], base[14]};
-    const bool placed = a.serial == b.serial && a.model == model;
+    const uint32_t serial = b != nullptr ? b->serial : 0;
+    const uint32_t terrainSerial = terrain != nullptr ? Terrain::Serial(*terrain) : 0;
+    const uint32_t generation = b != nullptr ? b->generation : 0;
+    const bool placed = a.model == model && a.serial == serial && a.terrainSerial == terrainSerial;
     bool moved = true;
-    if (placed && a.generation == b.generation) {
+    if (placed && a.generation == generation) {
         const float dx = position[0] - a.position[0], dy = position[1] - a.position[1],
                     dz = position[2] - a.position[2];
         moved = !(std::fabs(dx * dx + dy * dy + dz * dz) < EngineFloat(Offsets::VAR_ONE_THOUSANDTH));
@@ -1386,11 +1410,12 @@ void Settle(const Backdrop &b, Ambience &a, void *frame, void *model, float elap
         a.intensity = a.intensityTarget = EngineFloat(Offsets::VAR_ONE);
     }
     if (moved) {
-        a.serial = b.serial;
+        a.serial = serial;
+        a.terrainSerial = terrainSerial;
         a.model = model;
-        a.generation = b.generation;
+        a.generation = generation;
         std::memcpy(a.position, position, sizeof a.position);
-        Place(b, a, frame, model, base);
+        Place(b, terrain, a, frame, model, base);
     }
     Ease(a, frame, elapsed);
 }
@@ -1423,7 +1448,13 @@ void ActorLight(const Backdrop *b, const Ambience &a, void *frame, void *record)
         AddLight(record, light.bytes);
 }
 
-int Ground(const Backdrop *b, const Ambience &a) { return b != nullptr && a.serial == b->serial ? a.ground : -1; }
+int Ground(const Backdrop *b, const Terrain::Land *terrain, const Ambience &a) {
+    if (b == nullptr && terrain == nullptr)
+        return -1;
+    const bool current = a.model != nullptr && a.serial == (b != nullptr ? b->serial : 0) &&
+                         a.terrainSerial == (terrain != nullptr ? Terrain::Serial(*terrain) : 0);
+    return current ? a.ground : -1;
+}
 
 bool LiquidAt(const Backdrop &b, const float (&point)[3], uint32_t &type, float &surface) {
     using Height_t = bool(__thiscall *)(void *group, const float *point, uint32_t *type, float *height,

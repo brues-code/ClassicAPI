@@ -1069,13 +1069,15 @@ void __fastcall SetFrameAlpha(void *self, void *, uint8_t alpha) {
 void __fastcall OnFrameUpdate(void *self, void *, float elapsedSec) {
     for (Actor *actor : *F(self).actors)
         actor->Link();
-    if (World::Backdrop *world = F(self).world) {
+    World::Backdrop *world = F(self).world;
+    Terrain::Land *terrain = F(self).terrain;
+    if (world != nullptr)
         World::Update(*world, self, F(self).playWorldModelSounds, elapsedSec);
-        // A seated rider or an attached actor takes its parent's light.
+    // A seated rider or an attached actor takes its parent's light.
+    if (world != nullptr || terrain != nullptr)
         for (Actor *actor : *F(self).actors)
             if (actor->model != nullptr && M2::Parent(actor->model) == nullptr && M2::IsLoaded(actor->model, 0, 0))
-                World::Settle(*world, *actor->ambience, self, actor->model, elapsedSec);
-    }
+                World::Settle(world, terrain, *actor->ambience, self, actor->model, elapsedSec);
     const uint32_t before = ClockMs(self);
     if (F(self).paused)
         FrameBase<OnFrameUpdate_t>(Offsets::VTBL_FRAME_ON_FRAME_UPDATE)(self, nullptr, elapsedSec);
@@ -2451,6 +2453,8 @@ float FloatArg(void *L, int index) { return static_cast<float>(Game::Lua::ToNumb
 int GroundTerrain(void *sceneFrame) { return F(sceneFrame).groundTerrain; }
 
 World::Backdrop *WorldOf(void *sceneFrame) { return F(sceneFrame).world; }
+
+Terrain::Land *TerrainOf(void *sceneFrame) { return F(sceneFrame).terrain; }
 
 bool QueryGroundFacets(void *sceneFrame, const float (&box)[6], std::vector<Contact::Facet> &out) {
     const Fields &f = F(sceneFrame);

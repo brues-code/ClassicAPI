@@ -16471,4 +16471,29 @@ enum Offsets {
     VAR_DECAL_CELLS_PER_YARD = 0x00810B44,
     VAR_DECAL_HALF_CELL = 0x0086AAC4,
     FUN_TEST_CHUNK_TRIANGLES = 0x006AD7E0,
+    // A unit's ground on terrain (AttachEntityToGround 0x006A8A20): the
+    // terrain (TraceTerrainSegment, mask 0x100) and the map objects traced
+    // down 1000 from the probe point, else up past the bounds; the terrain wins
+    // when nearer. Then GetGroundEffect `bool __fastcall(const float point[3],
+    // uint32 *out)` (0x0069B1C0) at the entity's position: the cell as the
+    // others (0.24 at 0x0081073C, 0.5 at 0x0086A750; distances >= 0 and below
+    // 34133.332), no hole, a layer, then the dominant layer of the cell: the
+    // MCNK +0x40 map's word for the row (+0xF0C, u16 per row) masked by
+    // 0x008104B4[column] (u16) and shifted right by 0x008104C4[column] (u32),
+    // that layer's effect id (+0x0A; 0xFFFF none) into GroundEffectTexture,
+    // whose +0x18 is the TerrainType id. It finds the chunk through the
+    // global area table, so the scene transcribes it.
+    VAR_GROUND_EFFECT_CELLS_PER_YARD = 0x0081073C,
+    VAR_GROUND_EFFECT_HALF_CELL = 0x0086A750,
+    VAR_LOW_TEXTURE_MASKS = 0x008104B4,
+    VAR_LOW_TEXTURE_SHIFTS = 0x008104C4,
+    OFF_CMAPCHUNK_LAYERS = 0x128,
+    OFF_CMAPCHUNK_LAYER_COUNT = 0x138,
+    OFF_CHUNKLAYER_EFFECT = 0x0A,
+    GROUND_EFFECT_NONE = 0xFFFF,
+    // GroundEffectTexture.dbc (docs/DBCs.md; 7 columns: id, 4 doodads,
+    // density, TerrainType id at +0x18). Row 0 exists.
+    VAR_GROUNDEFFECTTEXTURE_RECORDS = 0x00C0DC60,
+    VAR_GROUNDEFFECTTEXTURE_COUNT = 0x00C0DC64,
+    OFF_GROUNDEFFECTTEXTURE_TERRAIN_TYPE = 0x18,
 };

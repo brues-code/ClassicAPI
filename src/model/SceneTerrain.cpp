@@ -179,6 +179,7 @@ struct Land {
     // The chunks by (global row, global column), as the world finds them in
     // its area table.
     std::map<std::pair<uint32_t, uint32_t>, void *> byCell;
+    uint32_t serial = 0; // this terrain among all loaded, for the actors' caches
 };
 
 namespace {
@@ -522,8 +523,12 @@ Land *Load(uint32_t mapID, float x, float y, float radius) {
         return nullptr;
     }
     BuildAll(*land);
+    static uint32_t serials = 0;
+    land->serial = ++serials;
     return land.release();
 }
+
+uint32_t Serial(const Land &land) { return land.serial; }
 
 void Free(Land *land) {
     if (land == nullptr)
@@ -849,6 +854,47 @@ bool CollectDecalBatches(const Land &land, const float (&box)[6], uint32_t mask)
         }
     }
     return any;
+}
+
+bool GroundEffect(const Land &land, const float (&point)[3], int32_t &terrainType) {
+    // GetGroundEffect (0x0069B1C0) over the scene's chunks.
+    const float origin = Game::Read<float>(Offsets::VAR_MAP_ORIGIN);
+    const float fromY = static_cast<float>(-(D(point[1]) - origin));
+    const float fromX = static_cast<float>(-(D(point[0]) - origin));
+    const float extent = Game::Read<float>(Offsets::VAR_MAP_EXTENT);
+    if (!(fromY >= 0.0f) || !(fromX >= 0.0f) || !(fromY < extent) || !(fromX < extent))
+        return false;
+    const float perYard = Game::Read<float>(Offsets::VAR_GROUND_EFFECT_CELLS_PER_YARD);
+    const float half = Game::Read<float>(Offsets::VAR_GROUND_EFFECT_HALF_CELL);
+    const int32_t cellColumn = Cell(perYard, half, fromY);
+    const int32_t cellRow = Cell(perYard, half, fromX);
+    const void *chunk = ChunkAt(land, cellRow >> 3, cellColumn >> 3);
+    if (chunk == nullptr)
+        return false;
+    const int32_t column = cellColumn & 7, row = cellRow & 7;
+    const uint32_t layers = Game::Read<uint32_t>(chunk, Offsets::OFF_CMAPCHUNK_LAYER_COUNT);
+    if (CellIsHole(chunk, row, column) || layers == 0)
+        return false;
+    const uint16_t map = Game::Read<const uint16_t *>(chunk, Offsets::OFF_CMAPCHUNK_LOW_TEXTURES)[row];
+    const uint16_t mask = Game::Read<uint16_t>(Offsets::VAR_LOW_TEXTURE_MASKS + column * sizeof(uint16_t));
+    const uint32_t shift = Game::Read<uint32_t>(Offsets::VAR_LOW_TEXTURE_SHIFTS + column * sizeof(uint32_t));
+    const uint32_t index = static_cast<uint32_t>(map & mask) >> shift;
+    // The client reads whichever layer the map names; one the chunk lacks
+    // would be a null record there.
+    if (index >= layers)
+        return false;
+    const void *layer = Game::Read<const void *>(chunk, Offsets::OFF_CMAPCHUNK_LAYERS + index * sizeof(void *));
+    if (layer == nullptr)
+        return false;
+    const uint16_t effect = Game::Read<uint16_t>(layer, Offsets::OFF_CHUNKLAYER_EFFECT);
+    if (effect == Offsets::GROUND_EFFECT_NONE)
+        return false;
+    const uint8_t *row0 = DBC::Record(Offsets::VAR_GROUNDEFFECTTEXTURE_RECORDS, Offsets::VAR_GROUNDEFFECTTEXTURE_COUNT,
+                                      effect);
+    if (row0 == nullptr)
+        return false;
+    terrainType = Game::Read<int32_t>(row0, Offsets::OFF_GROUNDEFFECTTEXTURE_TERRAIN_TYPE);
+    return true;
 }
 
 namespace {

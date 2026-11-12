@@ -19425,11 +19425,13 @@ the sounds of their footsteps and death thuds (see
 | `9` | Dusty grass |
 
 Without `terrainTypeID`, an actor stands on the floor of the WMO of the scene
-([`scene:SetWorldModel`](#scenesetworldmodelpath--x-y-z--yaw--doodadset--mapid)).
-The material of the floor under the actor selects the sounds, as in the
-world. An actor with no floor of a WMO under it makes no footsteps and no
-death thuds. This is the default. A ground that you set replaces the floor of
-the WMO for all actors. `scene:GetGroundTerrain()` returns the ID that you
+([`scene:SetWorldModel`](#scenesetworldmodelpath--x-y-z--yaw--doodadset--mapid))
+or on its ground
+([`scene:SetWorldTerrain`](#scenesetworldterrainmapid-x-y--radius)),
+whichever is nearer under it, as in the world. The material of the WMO floor,
+or the main texture of the ground at that point, selects the sounds. An actor
+with no floor and no ground under it makes no footsteps and no death thuds.
+This is the default. A ground that you set replaces both for all actors. `scene:GetGroundTerrain()` returns the ID that you
 set, or nothing. This is a ClassicAPI extension.
 
 ### `scene:SetWorldModel(path [, x, y, z [, yaw [, doodadSet [, mapID]]]])`
@@ -20314,7 +20316,9 @@ default. When it is `true`, the animations play these sounds:
   does not play every time, and all actors together play it at most once
   every 10 seconds. A copy of your own character does not play it.
 - Footsteps and the death thud. These need a ground: the floor of the WMO
-  of the scene, or a ground that you set with
+  of the scene, its ground from
+  [`scene:SetWorldTerrain`](#scenesetworldterrainmapid-x-y--radius), or a
+  ground that you set with
   [`scene:SetGroundTerrain`](#scenesetgroundterrainterraintypeid--scenegetgroundterrain).
   Footsteps also need the `FootstepSounds` setting.
 - The sounds that some animations carry, with the `EmoteSounds` setting.
