@@ -3607,7 +3607,68 @@ const Game::Doc::Function kGetActiveBoundingBox{
 const Game::Doc::Function kGetMaxBoundingBox{
     "Returns the overall bounds of the model. Nothing until it loads.", {}, kBoxRets};
 
+const Game::Doc::Field kObjectTypeRets[] = {
+    Game::Doc::Req("objectType", "cstring"),
+};
+const Game::Doc::Function kGetObjectType{"Returns the actor's object type.", {},
+                                         kObjectTypeRets};
+const Game::Doc::Field kIsObjectTypeArgs[] = {
+    Game::Doc::Req("objectType", "cstring"),
+};
+const Game::Doc::Field kIsObjectTypeRets[] = {
+    Game::Doc::Opt("isType", "number", nullptr,
+                   "1 when the actor is of that type or inherits from it, nil otherwise."),
+};
+const Game::Doc::Function kIsObjectType{"Returns whether the actor is of the given object type.",
+                                        kIsObjectTypeArgs, kIsObjectTypeRets};
+const Game::Doc::Field kNameRets[] = {
+    Game::Doc::Opt("name", "cstring", nullptr, "nil when the actor has no name."),
+};
+const Game::Doc::Function kGetName{"Returns the actor's global name.", {}, kNameRets};
+const Game::Doc::Field kParentRets[] = {
+    Game::Doc::Req("parent", "ModelScene"),
+};
+const Game::Doc::Function kGetParent{"Returns the model scene that holds the actor.", {},
+                                     kParentRets};
+const Game::Doc::Field kScriptNameArgs[] = {
+    Game::Doc::Req("scriptTypeName", "cstring"),
+};
+const Game::Doc::Field kHasScriptRets[] = {
+    Game::Doc::Opt("hasScript", "number", nullptr,
+                   "1 when the actor supports that script, nil otherwise."),
+};
+const Game::Doc::Function kHasScript{"Returns whether the actor supports a script.",
+                                     kScriptNameArgs, kHasScriptRets};
+const Game::Doc::Field kGetScriptRets[] = {
+    Game::Doc::Opt("script", "function", nullptr, "nil when the script has no handler."),
+};
+const Game::Doc::Function kGetScript{
+    "Returns the handler of a script. Raises an error for a script the actor does not support.",
+    kScriptNameArgs, kGetScriptRets};
+const Game::Doc::Field kSetScriptArgs[] = {
+    Game::Doc::Req("scriptTypeName", "cstring"),
+    Game::Doc::Opt("script", "function", nullptr, "nil removes the handler."),
+};
+const Game::Doc::Function kSetScript{
+    "Sets the handler of a script. Raises an error for a script the actor does not support.",
+    kSetScriptArgs, {}};
+const Game::Doc::Field kHookScriptArgs[] = {
+    Game::Doc::Req("scriptTypeName", "cstring"),
+    Game::Doc::Req("script", "function",
+                   "Runs after the current handler, with the same arguments."),
+};
+const Game::Doc::Function kHookScript{"Adds a function that runs after a script's handler.",
+                                      kHookScriptArgs, {}};
+
 const Game::Doc::Method kMethodDocs[] = {
+    {"GetObjectType", &kGetObjectType},
+    {"IsObjectType", &kIsObjectType},
+    {"GetName", &kGetName},
+    {"GetParent", &kGetParent},
+    {"HasScript", &kHasScript},
+    {"GetScript", &kGetScript},
+    {"SetScript", &kSetScript},
+    {"HookScript", &kHookScript},
     {"SetModelByCreatureDisplayID", &kSetModelByCreatureDisplayID},
     {"SetModelByPath", &kSetModelByPath},
     {"SetModelBySpellArea", &kSetModelBySpellArea},

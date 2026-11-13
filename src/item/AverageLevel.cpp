@@ -336,7 +336,7 @@ const Game::Doc::Function kGetAverageItemLevel{
     "gear the player wears.",
     {},
     kRets,
-    "PaperDollInfo"};
+    "PaperDollInfoGlobals"};
 
 void RegisterLuaFunctions() {
     // A new world session (login, /reload): 4.3.4 clears the wait when the
