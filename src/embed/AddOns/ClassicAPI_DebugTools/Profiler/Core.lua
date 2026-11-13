@@ -54,7 +54,7 @@ ns.WHITE = "|cffffffff"
 ns.RED = "|cffff5555"
 
 function ns.Print(msg)
-  DEFAULT_CHAT_FRAME:AddMessage(ns.ACCENT .. "Profiler|r: " .. msg)
+  DEFAULT_CHAT_FRAME:AddMessage(ns.ACCENT .. PROFILER_TITLE .. "|r: " .. msg)
 end
 
 function ns.KB(kb)
@@ -265,19 +265,20 @@ end
 -- [[ /profiler ]]
 function ClassicAPIProfiler_HandleSlashCmd(msg)
   local cmd, arg = strmatch(strlower(msg or ""), "^(%S*)%s*(.-)$")
-  if cmd == "" then
-    ns.window:SetShown(not ns.window:IsShown())
-  elseif cmd == "widget" then
+  -- if cmd == "" then
+  --   ns.window:SetShown(not ns.window:IsShown())
+  -- else
+    if cmd == "widget" then
     ns.widget:SetShown(not ns.widget:IsShown())
   elseif cmd == "reset" then
     ns.Reset()
-    ns.Print("CPU and allocation counters reset.")
+    ns.Print(PROFILER_RESET_MSG)
   elseif cmd == "profile" and (arg == "on" or arg == "off") then
     ns.SetProfiling(arg == "on")
   else
-    ns.Print("/profiler - toggle the analyzer")
-    ns.Print("/profiler widget - toggle the memory widget")
-    ns.Print("/profiler reset - reset CPU and allocation counters")
-    ns.Print("/profiler profile on|off - CPU profiling (reloads the UI)")
+    ns.Print(PROFILER_SLASH_1)
+    ns.Print(PROFILER_SLASH_2)
+    ns.Print(PROFILER_SLASH_3)
+    ns.Print(PROFILER_SLASH_4)
   end
 end

@@ -5,6 +5,7 @@
 ## Special Thanks: Iriel, Kirov, Esamynn
 ## Version: DEV
 ## LoadOnDemand: 1
+locales\locales.xml
 Dump.lua
 DebugTools.lua
 DebugTools.xml

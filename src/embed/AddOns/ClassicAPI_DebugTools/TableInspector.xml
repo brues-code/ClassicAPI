@@ -176,7 +176,7 @@
 				</Anchors>
 				<Layers>
 					<Layer level="OVERLAY">
-						<FontString parentKey="Label" inherits="GameFontWhite" text="Show">
+						<FontString parentKey="Label" inherits="GameFontWhite" text="$TI_SHOW$">
 							<Anchors>
 								<Anchor point="LEFT" relativePoint="RIGHT"/>
 							</Anchors>
@@ -199,7 +199,7 @@
 				</Anchors>
 				<Layers>
 					<Layer level="OVERLAY">
-						<FontString parentKey="Label" inherits="GameFontWhite" text="Highlight">
+						<FontString parentKey="Label" inherits="GameFontWhite" text="$TI_HIGHLIGHT$">
 							<Anchors>
 								<Anchor point="LEFT" relativePoint="RIGHT"/>
 							</Anchors>
@@ -222,7 +222,7 @@
 				</Anchors>
 				<Layers>
 					<Layer level="OVERLAY">
-						<FontString parentKey="Label" inherits="GameFontWhite" text="Dynamic Updates">
+						<FontString parentKey="Label" inherits="GameFontWhite" text="$TI_DYNAMIC_UPDATES$">
 							<Anchors>
 								<Anchor point="LEFT" relativePoint="RIGHT"/>
 							</Anchors>

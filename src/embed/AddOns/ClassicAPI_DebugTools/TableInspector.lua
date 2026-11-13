@@ -213,7 +213,7 @@ function TableInspectorMixin:InspectTable(focusedTable, title)
 	self.focusedTable = focusedTable;
 	if not focusedTable then
 		self:ClearData();
-		self.TitleButton.Text:SetText("No Table Selected");
+		self.TitleButton.Text:SetText(TI_NO_TABLE_SELECTED);
 		return;
 	end
 
@@ -230,9 +230,9 @@ function TableInspectorMixin:InspectTable(focusedTable, title)
 
 	if not title then
 		if focusedTable.GetDebugName then
-			title = "Frame Attributes - "..focusedTable:GetDebugName();
+			title = TI_FRAME_ATTRIBUTES..focusedTable:GetDebugName();
 		else
-			title = "Table Attributes";
+			title = TI_TABLE_ATTRIBUTES;
 		end
 	end
 
