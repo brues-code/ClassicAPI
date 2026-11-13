@@ -33,13 +33,13 @@ local function AddLine(label)
   return right
 end
 
-local memory = AddLine("Memory")
-local rate = AddLine("Rate")
-local cleanup = AddLine("Last Cleanup")
-local framerate = AddLine("Framerate")
-local cpu = AddLine("Lua CPU")
-local topMem = AddLine("Top Alloc")
-local topCpu = AddLine("Top CPU")
+local memory = AddLine(PROFILER_WIDGET_MEMORY)
+local rate = AddLine(PROFILER_WIDGET_RATE)
+local cleanup = AddLine(PROFILER_WIDGET_LAST_CLEANUP)
+local framerate = AddLine(PROFILER_WIDGET_FRAMERATE)
+local cpu = AddLine(PROFILER_WIDGET_LUA_CPU)
+local topMem = AddLine(PROFILER_WIDGET_TOP_ALLOC)
+local topCpu = AddLine(PROFILER_WIDGET_TOP_CPU)
 
 -- the largest allocation in a tenth of a second, draining over 5 seconds
 local DRAIN = .1 / 5
@@ -74,7 +74,7 @@ widget:SetScript("OnUpdate", function(self, elapsed)
   if grown > value then
     bar:SetMinMaxValues(0, grown)
     bar:SetValue(grown)
-    barText:SetText(ns.ACCENT .. "Last Peak (100ms):|r " .. grown .. ns.GREY .. " KB")
+    barText:SetText(ns.ACCENT .. PROFILER_WIDGET_LAST_PEAK .. grown .. ns.GREY .. " KB")
   else
     bar:SetValue(max(value - peak * DRAIN, 0))
   end
@@ -91,7 +91,7 @@ ns.OnSample(function()
   memory:SetText(ns.WHITE .. ns.KB(stats.mem) .. ns.GREY .. " / " .. ns.WHITE .. ns.KB(stats.threshold))
 
   if stats.collected then
-    rate:SetText(ns.ACCENT .. "collected " .. ns.KB(gc.freed or 0))
+    rate:SetText(ns.ACCENT .. PROFILER_WIDGET_COLLECTED .. ns.KB(gc.freed or 0))
   elseif stats.memRate then
     rate:SetText(ns.WHITE .. ns.KBRate(stats.memRate))
   end
@@ -99,7 +99,7 @@ ns.OnSample(function()
   if gc.time then
     cleanup:SetText(ns.WHITE .. gc.clock .. ns.GREY .. " (" .. SecondsToTime(GetTime() - gc.time) .. " ago)")
   else
-    cleanup:SetText(ns.GREY .. "none yet")
+    cleanup:SetText(ns.GREY .. PROFILER_WIDGET_NONE_YET)
   end
 
   local fps = GetFramerate()
@@ -109,7 +109,7 @@ ns.OnSample(function()
     cpu:SetText(ns.WHITE .. ns.MS(stats.scriptRate) .. ns.GREY .. "/s (" .. ns.WHITE .. format("%.1f%%", stats.scriptRate / 10) .. ns.GREY .. ")")
     topCpu:SetText(stats.topCpu and ns.WHITE .. stats.topCpu.name .. " " .. ns.GREY .. ns.MS(stats.topCpu.cpuRate) .. "/s" or "")
   else
-    cpu:SetText(ns.GREY .. "profiling off")
+    cpu:SetText(ns.GREY .. PROFILER_WIDGET_PROFILING_OFF)
     topCpu:SetText(ns.GREY .. "-")
   end
 
@@ -141,26 +141,26 @@ end
 widget:SetScript("OnEnter", function(self)
   GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
   GameTooltip:ClearLines()
-  GameTooltip:AddLine(ns.ACCENT .. "Profiler")
+  GameTooltip:AddLine(ns.ACCENT .. PROFILER_WIDGET_TT_TITLE)
 
   GameTooltip:AddLine(" ")
-  GameTooltip:AddLine("Allocated per second", 1, .8, 0)
+  GameTooltip:AddLine(PROFILER_WIDGET_ALLOC_PER_SEC, 1, .8, 0)
   for _, addon in ipairs(Top("memRate", 8)) do
     GameTooltip:AddDoubleLine(addon.name, ns.KBRate(addon.memRate), 1, 1, 1, 1, 1, 1)
   end
 
   if ns.profiling then
     GameTooltip:AddLine(" ")
-    GameTooltip:AddLine("CPU per second", 1, .8, 0)
+    GameTooltip:AddLine(PROFILER_WIDGET_CPU_PER_SEC, 1, .8, 0)
     for _, addon in ipairs(Top("cpuRate", 8)) do
       GameTooltip:AddDoubleLine(addon.name, ns.MS(addon.cpuRate), 1, 1, 1, 1, 1, 1)
     end
   end
 
   GameTooltip:AddLine(" ")
-  GameTooltip:AddLine("Left-click: reset the peak", .6, .6, .6)
-  GameTooltip:AddLine("Right-click: open the analyzer", .6, .6, .6)
-  GameTooltip:AddLine("Drag: move", .6, .6, .6)
+  GameTooltip:AddLine(PROFILER_WIDGET_LEFT_CLICK, .6, .6, .6)
+  GameTooltip:AddLine(PROFILER_WIDGET_RIGHT_CLICK, .6, .6, .6)
+  GameTooltip:AddLine(PROFILER_WIDGET_DRAG, .6, .6, .6)
   GameTooltip:Show()
 end)
 

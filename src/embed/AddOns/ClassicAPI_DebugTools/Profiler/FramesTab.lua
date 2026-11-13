@@ -34,9 +34,10 @@ end
 local function Tooltip(rec)
   local frame = rec.frame
   GameTooltip:AddLine(rec.name)
-  Line("Type", frame:GetObjectType())
-  Line("Owner", ns.OwnerLabel(rec.owner))
-  Line("State", frame:IsVisible() and "visible" or frame:IsShown() and "shown, parent hidden" or "hidden")
+  Line(PROFILER_LABEL_TYPE, frame:GetObjectType())
+  Line(PROFILER_LABEL_OWNER, ns.OwnerLabel(rec.owner))
+  Line(PROFILER_LABEL_STATE, frame:IsVisible() and PROFILER_STATE_VISIBLE
+    or frame:IsShown() and PROFILER_STATE_SHOWN_HIDDEN or PROFILER_STATE_HIDDEN)
 
   local source = frame:GetSourceLocation()
   if source then
@@ -50,23 +51,23 @@ local function Tooltip(rec)
       local text = ns.OwnerLabel(ns.Owner(fn))
       if ns.profiling then
         local ms, calls = GetFunctionCPUUsage(fn)
-        text = text .. ns.GREY .. "  " .. ns.MS(ms) .. " in " .. ns.Count(calls) .. " calls"
+        text = text .. ns.GREY .. "  " .. ns.MS(ms) .. format(PROFILER_CALLS_FORMAT, ns.Count(calls))
       end
       Line(script, text)
     end
   end
 
   if ns.profiling then
-    Line("All scripts", ns.MS(rec.cpu) .. " in " .. ns.Count(rec.calls) .. " calls")
+    Line(PROFILER_LABEL_ALL_SCRIPTS, ns.MS(rec.cpu) .. format(PROFILER_CALLS_FORMAT, ns.Count(rec.calls)))
   end
   if rec.hookedUpdate or rec.hookedEvent then
-    Line("Allocated", ns.KB(rec.alloc))
+    Line(PROFILER_LABEL_ALLOCATED, ns.KB(rec.alloc))
   end
 
   local events = SortedEvents(rec)
   if #events > 0 then
     GameTooltip:AddLine(" ")
-    GameTooltip:AddLine("Events", 1, .8, 0)
+    GameTooltip:AddLine(PROFILER_LABEL_EVENTS, 1, .8, 0)
     for i = 1, min(#events, 12) do
       local stat = events[i].stat
       local text = ns.Count(stat.count) .. "x"
@@ -76,52 +77,52 @@ local function Tooltip(rec)
   end
 
   GameTooltip:AddLine(" ")
-  GameTooltip:AddLine("Right-click: highlight, inspect or copy.", .6, .6, .6)
+  GameTooltip:AddLine(PROFILER_LABEL_RIGHT_CLICK_HINT, .6, .6, .6)
 end
 
-local tab = ns.AddTab("Frames")
+local tab = ns.AddTab("Frames", PROFILER_TAB_FRAMES)
 
 tab.list = ns.CreateList(tab.frame, {
   sort = 3,
   columns = {
     {
-      title = "Frame",
+      title = PROFILER_FRAMES_COL_FRAME,
       text = function(rec) return rec.name end,
       value = function(rec) return strlower(rec.name) end,
     },
     {
-      title = "Owner", width = 100, justify = "LEFT",
-      tip = "The addon that made the frame's OnUpdate or OnEvent handler, or the frame itself.",
+      title = PROFILER_FRAMES_COL_OWNER, width = 100, justify = "LEFT",
+      tip = PROFILER_FRAMES_TIP_OWNER,
       text = function(rec) return ns.OwnerLabel(rec.owner) end,
       value = function(rec) return strlower(ns.OwnerLabel(rec.owner)) end,
     },
     {
-      title = "CPU/s", width = 64,
-      tip = "The CPU time of all the frame's scripts in the last second. Needs CPU profiling.",
+      title = PROFILER_FRAMES_COL_CPU_S, width = 64,
+      tip = PROFILER_FRAMES_TIP_CPU_S,
       text = Profiled(function(rec) return ns.MS(rec.cpuRate) end),
       value = Profiled(function(rec) return rec.cpuRate end),
     },
     {
-      title = "Calls/s", width = 60,
-      tip = "How often the frame's scripts ran in the last second. Needs CPU profiling.",
+      title = PROFILER_FRAMES_COL_CALLS_S, width = 60,
+      tip = PROFILER_FRAMES_TIP_CALLS_S,
       text = Profiled(function(rec) return ns.Count(rec.callRate) end),
       value = Profiled(function(rec) return rec.callRate end),
     },
     {
-      title = "Per Call", width = 64,
-      tip = "The average CPU time of one script call since the last reset.",
+      title = PROFILER_FRAMES_COL_PER_CALL, width = 64,
+      tip = PROFILER_FRAMES_TIP_PER_CALL,
       text = Profiled(function(rec) return rec.calls > 0 and ns.MS(rec.cpu / rec.calls) end),
       value = Profiled(function(rec) return rec.calls > 0 and rec.cpu / rec.calls or nil end),
     },
     {
-      title = "Alloc/s", width = 72,
-      tip = "The Lua memory the frame's OnUpdate and OnEvent scripts allocated in the last second. Needs deep tracking.",
+      title = PROFILER_FRAMES_COL_ALLOC_S, width = 72,
+      tip = PROFILER_FRAMES_TIP_ALLOC_S,
       text = Tracked(function(rec) return ns.KBRate(rec.allocRate) end),
       value = Tracked(function(rec) return rec.allocRate end),
     },
     {
-      title = "CPU Total", width = 64,
-      tip = "The CPU time of all the frame's scripts since the last reset.",
+      title = PROFILER_FRAMES_COL_CPU_TOTAL, width = 64,
+      tip = PROFILER_FRAMES_TIP_CPU_TOTAL,
       text = Profiled(function(rec) return ns.MS(rec.cpu) end),
       value = Profiled(function(rec) return rec.cpu end),
     },
@@ -131,14 +132,14 @@ tab.list = ns.CreateList(tab.frame, {
 
   menu = function(rec, root)
     root:CreateTitle(rec.name)
-    root:CreateButton("Highlight", function() ns.Highlight(rec.frame) end)
-    root:CreateButton("Inspect", function() ns.Inspect(rec.frame) end)
-    root:CreateButton("Copy name", function() ns.Copy(rec.name) end)
+    root:CreateButton(PROFILER_FRAMES_MENU_HIGHLIGHT, function() ns.Highlight(rec.frame) end)
+    root:CreateButton(PROFILER_FRAMES_MENU_INSPECT, function() ns.Inspect(rec.frame) end)
+    root:CreateButton(PROFILER_FRAMES_MENU_COPY_NAME, function() ns.Copy(rec.name) end)
     local source = rec.frame:GetSourceLocation()
     if source then
-      root:CreateButton("Copy source location", function() ns.Copy(source) end)
+      root:CreateButton(PROFILER_FRAMES_MENU_COPY_SRC, function() ns.Copy(source) end)
     end
-    root:CreateButton("Show " .. ns.OwnerLabel(rec.owner) .. " frames", function()
+    root:CreateButton(format(PROFILER_FRAMES_MENU_SHOW_OWNER, ns.OwnerLabel(rec.owner)), function()
       ns.ShowIn("Frames", ns.OwnerLabel(rec.owner))
     end)
   end,
@@ -157,10 +158,10 @@ tab.OnSelect = Update
 tab.OnSample = Update
 
 function tab:Status()
-  local text = format("%d frames   %d listed", track.frameCount, #self.list.shown)
+  local text = format(PROFILER_FRAMES_STATUS, track.frameCount, #self.list.shown)
   if not ns.profiling and not track.deep then
-    return text .. "   " .. ns.GOLD .. "Turn on CPU profiling or deep tracking to measure frames."
+    return text .. "   " .. ns.GOLD .. PROFILER_FRAMES_STATUS_PROMPT
   end
-  if track.deep then text = text .. "   deep tracking on" end
+  if track.deep then text = text .. PROFILER_FRAMES_STATUS_DEEP end
   return text
 end

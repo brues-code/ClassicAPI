@@ -21,61 +21,61 @@ end
 local function Tooltip(entry)
   local value = entry.value
   GameTooltip:AddLine(entry.name)
-  Line("Type", entry.kind)
-  Line("Owner", ns.OwnerLabel(entry.owner))
+  Line(PROFILER_LABEL_TYPE, entry.kind)
+  Line(PROFILER_LABEL_OWNER, ns.OwnerLabel(entry.owner))
   if entry.override then
-    GameTooltip:AddLine("Not ClassicAPI's function: something replaced or hooked it.", 1, .3, .3, true)
+    GameTooltip:AddLine(PROFILER_LABEL_NOT_CLASSICAPI, 1, .3, .3, true)
   end
 
   if entry.kind == "function" and ns.profiling then
-    Line("CPU", ns.MS(entry.cpu))
-    Line("Calls", ns.Count(entry.calls))
-    if entry.calls > 0 then Line("Per call", ns.MS(entry.cpu / entry.calls)) end
+    Line(PROFILER_LABEL_CPU, ns.MS(entry.cpu))
+    Line(PROFILER_LABEL_CALLS, ns.Count(entry.calls))
+    if entry.calls > 0 then Line(PROFILER_LABEL_PER_CALL, ns.MS(entry.cpu / entry.calls)) end
   elseif entry.kind == "table" then
-    Line("Entries", ns.Count(table.count(value)))
+    Line(PROFILER_LABEL_ENTRIES, ns.Count(table.count(value)))
   elseif type(value) == "table" then
-    Line("Debug name", ns.FrameName(value))
+    Line(PROFILER_LABEL_DEBUG_NAME, ns.FrameName(value))
     local source = value:GetSourceLocation()
     if source then GameTooltip:AddLine(source, .6, .6, .6, true) end
   elseif type(value) ~= "function" and value ~= nil then
-    Line("Value", strsub(tostring(value), 1, 60))
+    Line(PROFILER_LABEL_VALUE, strsub(tostring(value), 1, 60))
   end
 end
 
-local tab = ns.AddTab("Globals")
+local tab = ns.AddTab("Globals", PROFILER_TAB_GLOBALS)
 tab.untagged = false
 
 tab.list = ns.CreateList(tab.frame, {
   sort = 3,
   columns = {
     {
-      title = "Name",
+      title = PROFILER_GLOBALS_COL_NAME,
       text = function(entry)
-        if entry.override then return ns.RED .. entry.name .. ns.GREY .. " (replaced)" end
+        if entry.override then return ns.RED .. entry.name .. ns.GREY .. PROFILER_LABEL_REPLACED end
         return entry.name
       end,
       value = function(entry) return strlower(entry.name) end,
     },
     {
-      title = "Type", width = 80, justify = "LEFT",
+      title = PROFILER_GLOBALS_COL_TYPE, width = 80, justify = "LEFT",
       text = function(entry) return entry.kind end,
       value = function(entry) return entry.kind end,
     },
     {
-      title = "Owner", width = 100, justify = "LEFT",
-      tip = "The addon that made the value. Strings, numbers and booleans have no owner.",
+      title = PROFILER_GLOBALS_COL_OWNER, width = 100, justify = "LEFT",
+      tip = PROFILER_GLOBALS_TIP_OWNER,
       text = function(entry) return ns.OwnerLabel(entry.owner) end,
       value = function(entry) return strlower(ns.OwnerLabel(entry.owner)) end,
     },
     {
-      title = "CPU", width = 64,
-      tip = "The CPU time of the function since the last reset. Needs CPU profiling.",
+      title = PROFILER_GLOBALS_COL_CPU, width = 64,
+      tip = PROFILER_GLOBALS_TIP_CPU,
       text = function(entry) return entry.cpu and ns.MS(entry.cpu) end,
       value = function(entry) return entry.cpu end,
     },
     {
-      title = "Calls", width = 70,
-      tip = "How often the function ran since the last reset. Needs CPU profiling.",
+      title = PROFILER_GLOBALS_COL_CALLS, width = 70,
+      tip = PROFILER_GLOBALS_TIP_CALLS,
       text = function(entry) return entry.calls and ns.Count(entry.calls) end,
       value = function(entry) return entry.calls end,
     },
@@ -87,12 +87,12 @@ tab.list = ns.CreateList(tab.frame, {
     local value = entry.value
     root:CreateTitle(entry.name)
     if type(value) == "table" then
-      root:CreateButton("Inspect", function() ns.Inspect(value) end)
+      root:CreateButton(PROFILER_GLOBALS_MENU_INSPECT, function() ns.Inspect(value) end)
       if entry.kind ~= "table" then
-        root:CreateButton("Highlight", function() ns.Highlight(value) end)
+        root:CreateButton(PROFILER_GLOBALS_MENU_HIGHLIGHT, function() ns.Highlight(value) end)
       end
     end
-    root:CreateButton("Copy name", function() ns.Copy(entry.name) end)
+    root:CreateButton(PROFILER_GLOBALS_MENU_COPY_NAME, function() ns.Copy(entry.name) end)
   end,
 })
 tab.list:SetPoint("TOPLEFT", 0, -26)
@@ -153,19 +153,19 @@ local function Scan()
   tab.list:SetEntries(entries)
 end
 
-local rescan = ns.CreateButton("ClassicAPIProfilerWindowRescan", tab.frame, 80, "Rescan", Scan)
+local rescan = ns.CreateButton("ClassicAPIProfilerWindowRescan", tab.frame, 80, PROFILER_GLOBALS_RESCAN, Scan)
 rescan:SetPoint("TOPRIGHT", -4, -2)
-ns.Tooltip(rescan, "Read the global namespace again. Also updates the CPU times.")
+ns.Tooltip(rescan, PROFILER_GLOBALS_RESCAN_TIP)
 
 local untagged = CreateFrame("CheckButton", "ClassicAPIProfilerWindowUntagged", tab.frame, "UICheckButtonTemplate")
 untagged:SetSize(20, 20)
 untagged:SetPoint("RIGHT", rescan, "LEFT", -110, 0)
-ClassicAPIProfilerWindowUntaggedText:SetText("Show FrameXML")
+ClassicAPIProfilerWindowUntaggedText:SetText(PROFILER_GLOBALS_SHOW_FRAMEXML)
 untagged:SetScript("OnClick", function(self)
   tab.untagged = self:GetChecked() and true or false
   Scan()
 end)
-ns.Tooltip(untagged, "Also list the values the game's own code made, and plain strings, numbers and booleans. With CPU profiling this shows the cost of every game API function.")
+ns.Tooltip(untagged, PROFILER_GLOBALS_SHOW_FRAMEXML_TIP)
 
 function tab:OnSelect()
   if not self.count then Scan() end
@@ -173,5 +173,5 @@ end
 
 function tab:Status()
   if not self.count then return "" end
-  return format("%d globals listed   %d ClassicAPI functions replaced or hooked", #self.list.shown, self.overrides)
+  return format(PROFILER_GLOBALS_STATUS, #self.list.shown, self.overrides)
 end

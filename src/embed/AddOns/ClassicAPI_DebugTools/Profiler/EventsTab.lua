@@ -16,11 +16,11 @@ end
 
 local function Tooltip(ev)
   GameTooltip:AddLine(ev.name)
-  Line("Fired", ns.Count(ev.fires) .. ns.GREY .. " (" .. format("%.1f", ev.fireRate or 0) .. "/s)")
+  Line(PROFILER_LABEL_FIRED, ns.Count(ev.fires) .. ns.GREY .. " (" .. format("%.1f", ev.fireRate or 0) .. "/s)")
   if track.deep then
-    Line("Handlers ran", ns.Count(ev.dispatches))
-    if ns.profiling then Line("Handler CPU", ns.MS(ev.cpu)) end
-    Line("Allocated", ns.KB(ev.alloc))
+    Line(PROFILER_LABEL_HANDLERS_RAN, ns.Count(ev.dispatches))
+    if ns.profiling then Line(PROFILER_LABEL_HANDLER_CPU, ns.MS(ev.cpu)) end
+    Line(PROFILER_LABEL_ALLOCATED, ns.KB(ev.alloc))
   end
 
   local listeners = {}
@@ -38,7 +38,7 @@ local function Tooltip(ev)
   end)
 
   GameTooltip:AddLine(" ")
-  GameTooltip:AddLine("Listeners", 1, .8, 0)
+  GameTooltip:AddLine(PROFILER_LABEL_LISTENERS, 1, .8, 0)
   for i = 1, min(#listeners, 15) do
     local frame, stat = listeners[i].frame, listeners[i].stat
     local text = ns.GREY .. ns.OwnerLabel(ns.Owner(frame:GetScript("OnEvent") or frame))
@@ -49,47 +49,47 @@ local function Tooltip(ev)
     Line(ns.FrameName(frame), text)
   end
   if #listeners > 15 then
-    GameTooltip:AddLine("and " .. (#listeners - 15) .. " more", .6, .6, .6)
+    GameTooltip:AddLine(format(PROFILER_MORE_LISTENERS, #listeners - 15), .6, .6, .6)
   end
 end
 
-local tab = ns.AddTab("Events")
+local tab = ns.AddTab("Events", PROFILER_TAB_EVENTS)
 
 tab.list = ns.CreateList(tab.frame, {
   sort = 2,
   columns = {
     {
-      title = "Event",
+      title = PROFILER_EVENTS_COL_EVENT,
       text = function(ev) return ev.name end,
       value = function(ev) return ev.search end,
     },
     {
-      title = "Fires/s", width = 60,
-      tip = "How often the event fired in the last second.",
+      title = PROFILER_EVENTS_COL_FIRES_S, width = 60,
+      tip = PROFILER_EVENTS_TIP_FIRES_S,
       text = function(ev) return ev.fireRate and format("%.1f", ev.fireRate) end,
       value = function(ev) return ev.fireRate end,
     },
     {
-      title = "Listeners", width = 60,
-      tip = "The frames registered for the event.",
+      title = PROFILER_EVENTS_COL_LISTENERS, width = 60,
+      tip = PROFILER_EVENTS_TIP_LISTENERS,
       text = function(ev) return ev.listeners end,
       value = function(ev) return ev.listeners end,
     },
     {
-      title = "CPU/s", width = 64,
-      tip = "The CPU time of the event's OnEvent handlers in the last second. Needs deep tracking and CPU profiling.",
+      title = PROFILER_EVENTS_COL_CPU_S, width = 64,
+      tip = PROFILER_EVENTS_TIP_CPU_S,
       text = Tracked(function(ev) return ns.profiling and ns.MS(ev.cpuRate) end),
       value = Tracked(function(ev) return ns.profiling and ev.cpuRate or nil end),
     },
     {
-      title = "Alloc/s", width = 72,
-      tip = "The Lua memory the event's OnEvent handlers allocated in the last second. Needs deep tracking.",
+      title = PROFILER_EVENTS_COL_ALLOC_S, width = 72,
+      tip = PROFILER_EVENTS_TIP_ALLOC_S,
       text = Tracked(function(ev) return ns.KBRate(ev.allocRate) end),
       value = Tracked(function(ev) return ev.allocRate end),
     },
     {
-      title = "Fired", width = 64,
-      tip = "How often the event fired since the analyzer opened or the last reset.",
+      title = PROFILER_EVENTS_COL_FIRED, width = 64,
+      tip = PROFILER_EVENTS_TIP_FIRED,
       text = function(ev) return ns.Count(ev.fires) end,
       value = function(ev) return ev.fires end,
     },
@@ -99,7 +99,7 @@ tab.list = ns.CreateList(tab.frame, {
 
   menu = function(ev, root)
     root:CreateTitle(ev.name)
-    root:CreateButton("Copy name", function() ns.Copy(ev.name) end)
+    root:CreateButton(PROFILER_EVENTS_MENU_COPY_NAME, function() ns.Copy(ev.name) end)
   end,
 })
 tab.list:SetAllPoints()
@@ -116,9 +116,9 @@ tab.OnSample = Update
 function tab:Status()
   local fires = 0
   for _, ev in pairs(track.events) do fires = fires + (ev.fireRate or 0) end
-  local text = format("%d events seen   %.0f fired/s", #self.list.entries, fires)
+  local text = format(PROFILER_EVENTS_STATUS, #self.list.entries, fires)
   if not track.deep then
-    return text .. "   " .. ns.GOLD .. "Turn on deep tracking for the CPU time and memory of each event."
+    return text .. "   " .. ns.GOLD .. PROFILER_EVENTS_STATUS_PROMPT
   end
   return text
 end

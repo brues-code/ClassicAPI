@@ -146,7 +146,7 @@ end
 -- texture shows and its coordinates when they are not the whole image.
 local function _FormatTextureCoordinates(ulX, ulY, blX, blY, urX, urY, brX, brY)
     if (type(brY) ~= "number") then
-        return "invalid coordinates";
+        return TI_INVALID_COORDS;
     end
     if (ulX == 0 and ulY == 0 and blX == 0 and blY == 1 and
         urX == 1 and urY == 0 and brX == 1 and brY == 1) then
@@ -164,7 +164,7 @@ local function _FormatTextureInfo(region)
     if (file == nil) then
         return nil;
     end
-    return string.format("%s : %s: %s %s", region:GetDebugName(), _WrapColor("File", "ffff0000"),
+    return string.format("%s : %s: %s %s", region:GetDebugName(), _WrapColor(TI_FILE_LABEL, "ffff0000"),
                          tostring(file), _FormatTextureCoordinates(region:GetTexCoord()));
 end
 
@@ -203,7 +203,7 @@ function FrameStackTooltip_OnTooltipSetFrameStack(self, highlightFrame)
     end
 
     if (fsobj) then
-        self:AddLine(string.format("\nfsobj = %s", fsobj:GetDebugName()));
+        self:AddLine(string.format("\n" .. FS_FSOBJ_LABEL, fsobj:GetDebugName()));
     end
 
     ns.AddFrameStackLines(self, self.highlightFrame);

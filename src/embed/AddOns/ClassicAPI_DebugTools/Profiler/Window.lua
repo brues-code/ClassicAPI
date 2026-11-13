@@ -25,7 +25,7 @@ tinsert(UISpecialFrames, "ClassicAPIProfilerWindow")
 local title = window:CreateFontString(nil, "OVERLAY", "GameFontWhite")
 title:SetFont(STANDARD_TEXT_FONT, 14)
 title:SetPoint("TOPLEFT", 10, -10)
-title:SetText(ns.ACCENT .. "Profiler|r: " .. ns.GOLD .. "Analyzer")
+title:SetText(ns.ACCENT .. PROFILER_TITLE .. "|r: " .. ns.GOLD .. PROFILER_ANALYZER)
 
 local close = CreateFrame("Button", "ClassicAPIProfilerWindowClose", window, "UIPanelCloseButton")
 close:SetSize(20, 20)
@@ -59,7 +59,7 @@ end
 -- [[ actions the tabs offer in their context menus ]]
 function ns.Copy(text)
   local bytes = CopyToClipboard(text, true)
-  ns.Print("Copied " .. bytes .. " bytes to the clipboard.")
+  ns.Print(format(PROFILER_COPIED, bytes))
 end
 
 function ns.Inspect(value)
@@ -75,7 +75,7 @@ highlight:Hide()
 
 function ns.Highlight(frame)
   if not frame:IsVisible() then
-    ns.Print(ns.FrameName(frame) .. " is hidden.")
+    ns.Print(format(PROFILER_FRAME_HIDDEN, ns.FrameName(frame)))
     return
   end
   highlight:ClearAllPoints()
@@ -301,7 +301,9 @@ function ns.SelectTab(tab)
   UpdateStatus()
 end
 
-function ns.AddTab(name)
+-- `name` is the stable key ns.ShowIn looks the tab up by; `label` is the
+-- localized button text
+function ns.AddTab(name, label)
   local tab = { name = name }
   local index = #tabs + 1
 
@@ -310,7 +312,7 @@ function ns.AddTab(name)
   tab.frame:SetPoint("BOTTOMRIGHT", -6, 24)
   tab.frame:Hide()
 
-  tab.button = ns.CreateButton("ClassicAPIProfilerWindowTab" .. index, window, 90, name, function() ns.SelectTab(tab) end)
+  tab.button = ns.CreateButton("ClassicAPIProfilerWindowTab" .. index, window, 90, label, function() ns.SelectTab(tab) end)
   tab.button:SetPoint("TOPLEFT", 8 + (index - 1) * 94, -32)
 
   tabs[index] = tab
@@ -338,38 +340,37 @@ end)
 
 search.placeholder = search:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
 search.placeholder:SetPoint("LEFT", 2, 0)
-search.placeholder:SetText("Search name, owner or source")
+search.placeholder:SetText(PROFILER_SEARCH_PLACEHOLDER)
 
-local copy = ns.CreateButton("ClassicAPIProfilerWindowCopy", window, 70, "Copy", function()
+local copy = ns.CreateButton("ClassicAPIProfilerWindowCopy", window, 70, PROFILER_COPY, function()
   ns.Copy(window.active.list:Export())
 end)
 copy:SetPoint("TOPRIGHT", -8, -58)
-Tooltip(copy, "Copy the shown rows to the clipboard as plain text.")
+Tooltip(copy, PROFILER_COPY_TIP)
 
-local reset = ns.CreateButton("ClassicAPIProfilerWindowReset", window, 70, "Reset", function()
+local reset = ns.CreateButton("ClassicAPIProfilerWindowReset", window, 70, PROFILER_RESET, function()
   ns.Reset()
   UpdateStatus()
 end)
 reset:SetPoint("RIGHT", copy, "LEFT", -4, 0)
-Tooltip(reset, "Set every CPU time, call count, allocation and event count to zero.")
+Tooltip(reset, PROFILER_RESET_TIP)
 
 local deep = ns.CreateButton("ClassicAPIProfilerWindowDeep", window, 150, "", function(self)
   ns.track.EnableDeep()
-  self:SetText("Deep Tracking: " .. ns.ACCENT .. "ON")
+  self:SetText(PROFILER_DEEP_TRACKING .. ns.ACCENT .. PROFILER_ON)
   self:Disable()
 end)
 deep:SetPoint("RIGHT", reset, "LEFT", -4, 0)
-deep:SetText("Deep Tracking: " .. ns.GREY .. "OFF")
-Tooltip(deep, "Hooks the OnUpdate and OnEvent scripts of every frame to measure the Lua memory each frame allocates, and the CPU time and memory of each event. The hooks never replace a handler, but they add a little time to every script call. They stay until /reload.")
+deep:SetText(PROFILER_DEEP_TRACKING .. ns.GREY .. PROFILER_OFF)
+Tooltip(deep, PROFILER_DEEP_TRACKING_TIP)
 
 local profiling = ns.CreateButton("ClassicAPIProfilerWindowProfiling", window, 150, "", function()
   ns.SetProfiling(not ns.profiling)
 end)
 profiling:SetPoint("TOPRIGHT", -24, -32)
-profiling:SetText("CPU Profiling: " .. (ns.profiling and ns.ACCENT .. "ON" or ns.GREY .. "OFF"))
+profiling:SetText(PROFILER_CPU_PROFILING .. (ns.profiling and ns.ACCENT .. PROFILER_ON or ns.GREY .. PROFILER_OFF))
 Tooltip(profiling, function()
-  return (ns.profiling and "Turn CPU profiling off" or "Turn CPU profiling on") ..
-    " and reload the UI.\n\nProfiling measures the CPU time of every addon, frame, function and event. It makes each Lua call slower, so turn it off when you are done."
+  return (ns.profiling and PROFILER_CPU_PROFILING_TIP_ON or PROFILER_CPU_PROFILING_TIP_OFF) .. PROFILER_CPU_PROFILING_TIP_BODY
 end)
 
 -- [[ sampling while open ]]

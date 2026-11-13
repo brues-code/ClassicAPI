@@ -12,7 +12,7 @@ function ns.AddFrameStackLines(tooltip, region)
   local frame = region.GetScript and region or region:GetParent()
 
   tooltip:AddLine(" ")
-  Line(tooltip, "Owner", ns.OwnerLabel(ns.Owner(region)))
+  Line(tooltip, PROFILER_LABEL_OWNER, ns.OwnerLabel(ns.Owner(region)))
   if not frame then return end
 
   for _, script in ipairs({ "OnUpdate", "OnEvent" }) do
@@ -21,7 +21,7 @@ function ns.AddFrameStackLines(tooltip, region)
       local text = ns.OwnerLabel(ns.Owner(fn))
       if ns.profiling then
         local ms, calls = GetFunctionCPUUsage(fn)
-        text = text .. ns.GREY .. "  " .. ns.MS(ms) .. " in " .. ns.Count(calls) .. " calls"
+        text = text .. ns.GREY .. "  " .. ns.MS(ms) .. format(PROFILER_CALLS_FORMAT, ns.Count(calls))
       end
       Line(tooltip, script, text)
     end
@@ -29,11 +29,11 @@ function ns.AddFrameStackLines(tooltip, region)
 
   if ns.profiling then
     local ms, calls = GetFrameCPUUsage(frame, false)
-    Line(tooltip, "All scripts", ns.MS(ms) .. ns.GREY .. " in " .. ns.Count(calls) .. " calls")
+    Line(tooltip, PROFILER_LABEL_ALL_SCRIPTS, ns.MS(ms) .. ns.GREY .. format(PROFILER_CALLS_FORMAT, ns.Count(calls)))
   end
 
   local rec = ns.track.frames[frame]
   if rec and (rec.hookedUpdate or rec.hookedEvent) then
-    Line(tooltip, "Allocated", ns.KB(rec.alloc) .. ns.GREY .. " (" .. ns.KBRate(rec.allocRate) .. ")")
+    Line(tooltip, PROFILER_LABEL_ALLOCATED, ns.KB(rec.alloc) .. ns.GREY .. " (" .. ns.KBRate(rec.allocRate) .. ")")
   end
 end
