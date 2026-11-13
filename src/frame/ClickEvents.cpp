@@ -115,6 +115,7 @@
 #include "Common.h"
 #include "Game.h"
 #include "Offsets.h"
+#include "baselib/Ascii.h"
 #include "frame/MouseRegistration.h"
 #include "frame/RunnerHook.h"
 #include "frame/ScriptArgs.h"
@@ -470,6 +471,13 @@ const char *ButtonNameForMask(uint32_t mask) {
     default:   va = Offsets::VAR_BUTTON_NAME_UNKNOWN; break;
     }
     return reinterpret_cast<const char *>(va);
+}
+
+uint32_t MaskForButtonName(const char *name) {
+    for (uint32_t mask = 0x01; mask <= 0x10; mask <<= 1)
+        if (Ascii::EqualCI(name, ButtonNameForMask(mask)))
+            return mask;
+    return 0;
 }
 
 } // namespace Frame::ClickEvents

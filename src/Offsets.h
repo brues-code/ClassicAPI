@@ -4728,6 +4728,11 @@ enum Offsets {
     ADDR_UI_PRESS_TARGET = 0x00766389,
     ADDR_UI_PRESS_DISPATCH = 0x007663EF,
     ADDR_UI_RELEASE_DISPATCH = 0x0076649C,
+    // The handlers' copy of the event (built by 0x00766F70, at [ebp-0x40] in
+    // the press): a 0x10-byte header, then the nine-dword input payload, so
+    // the payload's button (OFF_MOUSE_EVENT_BUTTON 0x04) sits at +0x14 and its
+    // held mask at +0x18. 0x0076BF70 ANDs +0x14 with the drag mask.
+    OFF_UI_MOUSE_EVENT_BUTTON = 0x14,
     OFF_MOUSE_EVENT_BUTTONS = 0x18,
     // CSimpleFrame::EnableEvent `__thiscall(frame, kind, priority)`, ret 8:
     // sets the kind's bit in OFF_FRAME_ENABLED_EVENTS and, when the frame is

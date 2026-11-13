@@ -428,6 +428,7 @@ build instructions.
   - [`frame:IsMouseMotionFocus()`](#frameismousemotionfocus)
   - [`frame:SetMouseClickEnabled(enabled)` / `frame:SetMouseMotionEnabled(enabled)`](#framesetmouseclickenabledenabled--framesetmousemotionenabledenabled)
   - [`frame:SetPropagateMouseClicks(propagate)` / `frame:CanPropagateMouseClicks()`](#framesetpropagatemouseclickspropagate--framecanpropagatemouseclicks)
+  - [`frame:SetPassThroughButtons(...)`](#framesetpassthroughbuttons)
   - [`frame:SetDontSavePosition([dontSave])` / `frame:GetDontSavePosition()`](#framesetdontsavepositiondontsave--framegetdontsaveposition)
   - [`frame:SetUsingParentLevel(usingParentLevel)` / `frame:IsUsingParentLevel()`](#framesetusingparentlevelusingparentlevel--frameisusingparentlevel)
   - [`frame:SetClipsChildren(clipsChildren)` / `frame:DoesClipChildren()`](#framesetclipschildrenclipschildren--framedoesclipchildren)
@@ -9980,6 +9981,35 @@ next frame can pass the click on too.
   `false`.
 - In XML, `propagateMouseInput="Clicks"` or `propagateMouseInput="Both"` on
   a frame sets the value to `true`.
+
+### `frame:SetPassThroughButtons(...)`
+
+Sets the mouse buttons that go through the frame.
+
+A click with one of these buttons does not go to the frame. The frame gets
+no `OnMouseDown`, `OnMouseUp` or `OnClick` for it. The click goes to the
+next frame under the cursor that takes clicks. If there is no such frame,
+the click goes to the game world. The frame still gets clicks with all
+other buttons, and it still gets `OnEnter` and `OnLeave`.
+
+- The arguments are button names: `LeftButton`, `RightButton`,
+  `MiddleButton`, `Button4` and `Button5`. Case is not important. The
+  function ignores other names.
+- Each call replaces the list. Call it with no arguments to clear the
+  list.
+- If you press a button while you hold a different button, the click goes
+  to the frame that got the first click.
+- In XML, use the `passThroughButtons` attribute with a list of names:
+
+```xml
+<Frame name="MyPin" enableMouse="true" passThroughButtons="RightButton"/>
+```
+
+```lua
+-- A map pin that shows a tooltip and takes left-clicks.
+-- A right-click goes to the map under the pin.
+pin:SetPassThroughButtons("RightButton")
+```
 
 ### `frame:SetDontSavePosition([dontSave])` / `frame:GetDontSavePosition()`
 

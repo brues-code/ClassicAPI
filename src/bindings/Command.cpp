@@ -43,6 +43,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "bindings/ModifiedClick.h"
+#include "frame/ClickEvents.h"
 #include "frame/ClickFrame.h"
 #include "item/Arg.h"
 #include "item/Location.h"
@@ -91,23 +92,6 @@ void UseItem(const char *name) {
     Item::Use::UseItem(found.item, ModifiedTarget());
 }
 
-// StringToMouseButton: the click mask for a button name, 0 for any other
-// (the click vmethod then names it "UNKNOWN").
-uint32_t MaskForButton(const char *button) {
-    static const struct {
-        uintptr_t name;
-        uint32_t mask;
-    } kButtons[] = {
-        {Offsets::VAR_BUTTON_NAME_LEFT, 0x01},  {Offsets::VAR_BUTTON_NAME_RIGHT, 0x04},
-        {Offsets::VAR_BUTTON_NAME_MIDDLE, 0x02}, {Offsets::VAR_BUTTON_NAME_4, 0x08},
-        {Offsets::VAR_BUTTON_NAME_5, 0x10},
-    };
-    for (const auto &entry : kButtons)
-        if (_stricmp(reinterpret_cast<const char *>(entry.name), button) == 0)
-            return entry.mask;
-    return 0;
-}
-
 // The frame's OnMouseDown / OnMouseUp, fired as the engine fires them.
 void FireMouseScript(void *frame, uintptr_t slotOffset, const char *button) {
     using FireVariadic_t = void(__cdecl *)(void *frame, uint32_t *slotPtr, const char *fmt, ...);
@@ -149,7 +133,7 @@ void VirtualMouseDown(void *frame, const char *button) {
         ButtonState(frame) == Offsets::BUTTON_STATE_DISABLED)
         return;
     if (Game::Read<uint32_t>(frame, Offsets::OFF_BUTTON_CLICK_MASK) & 0xFF)
-        InClick([&] { CallButton(frame, Offsets::VTBL_BUTTON_CLICK, MaskForButton(button)); });
+        InClick([&] { CallButton(frame, Offsets::VTBL_BUTTON_CLICK, Frame::ClickEvents::MaskForButtonName(button)); });
     if (!StateLocked(frame) && ButtonState(frame) != Offsets::BUTTON_STATE_DISABLED)
         CallButton(frame, Offsets::VTBL_BUTTON_SET_STATE, Offsets::BUTTON_STATE_PUSHED);
 }
@@ -164,7 +148,7 @@ void VirtualMouseUp(void *frame, const char *button) {
         InClick([&] {
             const uint32_t now = Time::Clock::NowMs();
             auto &last = Game::Ref<uint32_t>(frame, Offsets::OFF_BUTTON_LAST_CLICK_MS);
-            const uint32_t mask = MaskForButton(button);
+            const uint32_t mask = Frame::ClickEvents::MaskForButtonName(button);
             if (Game::Read<uint32_t>(frame, Offsets::OFF_BUTTON_ONDOUBLECLICK_HANDLER) != 0 &&
                 last != 0 && Time::Clock::Elapsed(last, now) <= Offsets::BUTTON_DOUBLE_CLICK_MS) {
                 CallButton(frame, Offsets::VTBL_BUTTON_DOUBLE_CLICK, mask);

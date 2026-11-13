@@ -34,4 +34,8 @@ const char *CurrentButton();
 // "UNKNOWN" for any other mask.
 const char *ButtonNameForMask(uint32_t mask);
 
+// The inverse: the bit for a button name ("LeftButton" … "Button5"),
+// ignoring case; 0 for any other name.
+uint32_t MaskForButtonName(const char *name);
+
 } // namespace Frame::ClickEvents
