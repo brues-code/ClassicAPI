@@ -3870,13 +3870,10 @@ required.
 
 **Input shapes**:
 
-- `GetItemCooldown(itemInfo)` — accepts itemID, `item:N` / chat-link
-  hyperlink, numeric string, or item name (the same inputs as
-  `C_Item.GetItemCount`).
-- `C_Container.GetItemCooldown(itemID)` — the namespaced signature accepts
-  number / hyperlink but **not** spell name. The retail documentation
-  says that it does not accept an item link or name, but this version
-  accepts an item link.
+Both forms accept an itemID, an `item:N` string or chat link, or a
+numeric string. An item name does not work: it returns `0, 0, 0`. The
+retail documentation of `C_Container.GetItemCooldown` says that it
+does not accept an item link, but this version accepts one.
 
 The cooldown is the cooldown of the item's ON_USE spell.
 
@@ -13400,15 +13397,15 @@ not the base `"Iridium Chain"`) — matching the bracketed name in
 [`C_Item.GetItemLink`](#c_itemgetitemlinkitemlocation). (If the
 decorated name is not available, it returns the base name.)
 
-The **ByID** form has no instance — an itemID can't carry a random suffix
-— so it returns the base name only. Cache miss on the `ByID`
+The **ByID** form returns the base name for an itemID. For an item link
+with a random suffix, it returns the name with that suffix. Cache miss on the `ByID`
 form returns `nil` and asks the server for the item so the next call (after
 `GET_ITEM_INFO_RECEIVED`) succeeds.
 
 ```lua
 -- location form → decorated name (random suffix included)
 local name = C_Item.GetItemName({equipmentSlotIndex = 2})  -- "Iridium Chain of the Owl"
--- ByID form → base name only (no instance → no suffix)
+-- ByID form with an itemID → base name
 local name = C_Item.GetItemNameByID(6948)                  -- "Hearthstone"
 ```
 
@@ -14336,7 +14333,8 @@ C_Item.PickupItem(itemLink)
 
 Asks the server for the item's data if it is not already cached.
 Returns `true` if the request was initiated (or the input was
-parseable to an itemID), `false` for malformed input. Fire-and-forget —
+parseable to an itemID). Returns `false` for malformed input, and when
+512 requests already wait for an answer. Fire-and-forget —
 the data lands in the cache when the server responds.
 
 Fires `ITEM_DATA_LOAD_RESULT(itemID, success)` when the data lands in
@@ -14541,9 +14539,7 @@ The stock API has ~14 `Get*ItemLink` functions covering every
 frame that lets you mouse over an item (loot, merchant, quests,
 auction, trade, mail, tradeskill, craft). To get the itemID, the
 standard pattern is to call the `Link` function and scrape the
-number out of the returned string with `gsub` / `match`. Direct-ID
-accessors exist for only a handful of these (`GetLootSlotItemID`,
-`GetInboxItemID`, `GetQuestItemID`, `GetMerchantItemID`, …).
+number out of the returned string with `gsub` / `match`.
 
 These add the missing ID companions, so the whole `Get*ItemLink`
 family has a 1-to-1 ID companion. Each returns the same itemID that
@@ -14681,11 +14677,11 @@ the ID and would otherwise have to parse the link string.
 - For `"player"` (and any token resolving to the local player, e.g.
   `"target"` when self-targeted): supports the full slot range
   (equipment 1..19, bag slots 20..23, bank slots, and more).
-- For other player-controlled units (`"target"`, `"party1"..party4"`,
-  inspect targets): uses the equipment that the server shows for the
-  unit. Equipment slots 1..19 only.
-- For NPCs / creatures: returns `nil`. The client has no equipment
-  data for units that are not player-controlled. `GetInventoryItemLink`
+- For other players (`"target"`, `"party1"..party4"`, inspect
+  targets): uses the equipment that the server shows for the unit.
+  Equipment slots 1..19 only.
+- For NPCs, creatures, pets, and totems: returns `nil`. The client has
+  no equipment data for units that are not players. `GetInventoryItemLink`
   can crash the client on the same input. This function does not.
 
 ```lua
@@ -14719,8 +14715,8 @@ end
 Returns `0` for slots that are empty, items without a durability
 concept, fully-repaired items, or items whose stats aren't cached yet
 (rare — happens briefly after login, before the server sends the data
-for newly-seen items). The "no return" path is reserved for
-invalid input (non-numeric slot).
+for newly-seen items). A slot that is not a number raises a usage
+error.
 
 > **Player-only**, same constraint as
 > [`GetInventoryItemDurability`](#getinventoryitemdurabilityinvslot)
@@ -24770,12 +24766,10 @@ UI, where movement breaks the channel), `false` otherwise.
 
 This is distinct from spell channeling: the function fires for
 *participants* who clicked the portal, not the warlock who cast
-Ritual of Summoning. There is no stock Lua surface for this state —
-the `SPELLCAST_CHANNEL_*` events don't fire and
-`C_Spell.CastingInfo()` returns nothing — so addons that want to react to
-the player being committed to a ritual (e.g. suppress autorun
-toggles, hide nameplate clicks, warn before movement) have no other
-way to detect it.
+Ritual of Summoning. The default cast bar does not show this channel,
+and `C_Spell.CastingInfo()` returns nothing. Addons that want to react
+to the player being committed to a ritual (for example, to warn before
+movement) use this function.
 
 The function returns `false` for the warlock who channels the ritual,
 and for mining and other casts on game objects.
@@ -26113,12 +26107,9 @@ returns the epoch for 14:30 UTC, so `date("!%H:%M", t)` prints
 
 ### `C_DateAndTime.GetSecondsUntilDailyReset()`
 
-Returns seconds until the next server midnight (00:00:00 in server
-wall-clock time). Returns 0 if called before login.
-
-> See the overview's "Daily reset semantics" note — this uses server
-> midnight, not UTC midnight (though they happen to coincide for
-> Turtle WoW since the server reports UTC-aligned components).
+Returns seconds until the next UTC midnight, where the realm's day
+boundary sits. Returns 0 if called before login. See the overview's
+"Daily reset semantics" note.
 
 ## Totem
 
@@ -26881,7 +26872,8 @@ owner but are not marked player-controlled, so a flag-only check would
 miss them. Players, NPCs, and world creatures return
 `false`.
 
-A bad or unresolved unit token returns `false`.
+A unit token that names no unit, or an argument that is not a string, returns
+`false`. A string that is not a unit token raises an error.
 
 ```lua
 UnitIsMinion("pet")     -- your pet → true
@@ -26901,8 +26893,9 @@ be player-controlled. The player-owner rule also excludes wild tameable
 beasts of the same family.
 
 `UnitIsMinion` is the umbrella (pet + guardian + totem); `UnitIsPet` is the
-controllable subset. A ClassicAPI extension, not a stock WoW global. A bad
-or unresolved unit token returns `false`.
+controllable subset. A ClassicAPI extension, not a stock WoW global.
+A unit token that names no unit, or an argument that is not a string, returns
+`false`. A string that is not a unit token raises an error.
 
 ```lua
 UnitIsPet("pet")                 -- your pet → true
@@ -26917,7 +26910,8 @@ creature) whose owner is a player **other than you**, `false` otherwise.
 Owner-based: the unit's owner (summoner, creator, or charmer) must be a
 player other than you. World creatures and
 players (no owner) return `false`; your own minions (owner is you) return
-`false`. A bad or unresolved unit token returns `false`.
+`false`. A unit token that names no unit, or an argument that is not a string, returns
+`false`. A string that is not a unit token raises an error.
 
 ```lua
 UnitIsOtherPlayersPet("target")  -- a party member's pet → true; your own pet → false
@@ -27105,6 +27099,10 @@ two `UnitPosition` reads equals `UnitDistanceSquared`.
 > loads last wins — install order decides
 > which shape is live. Without SuperWoW, this version is the
 > one you get.
+
+`C_PlayerInfo.UnitPosition(unit)` is the same function under
+`C_PlayerInfo`, a ClassicAPI extension. A mod that replaces the global
+`UnitPosition` does not change it.
 
 ### `UnitFacing(unit)`
 
