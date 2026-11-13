@@ -43,14 +43,14 @@ int __fastcall Script_IsChatDND(void *L) {
 }
 
 const Game::Doc::Field kAfkRets[] = {
-    Game::Doc::Req("isAFK", "boolean", nullptr),
+    Game::Doc::Req("isAFK", "bool", nullptr),
 };
 const Game::Doc::Function kIsChatAFK{
     "Returns whether the player is marked AFK. Changes as soon as /afk is typed or AFK is cleared.",
     {}, kAfkRets, "ChatGlobals"};
 
 const Game::Doc::Field kDndRets[] = {
-    Game::Doc::Req("isDND", "boolean", nullptr),
+    Game::Doc::Req("isDND", "bool", nullptr),
 };
 const Game::Doc::Function kIsChatDND{
     "Returns whether the player is marked DND.", {}, kDndRets, "ChatGlobals"};

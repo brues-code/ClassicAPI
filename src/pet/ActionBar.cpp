@@ -55,7 +55,7 @@ const Game::Doc::Field kArgs[] = {
     Game::Doc::Req("index", "number", "The pet bar slot, 1 to 10."),
 };
 const Game::Doc::Field kRets[] = {
-    Game::Doc::Req("isAttack", "boolean", "True if the slot holds the Attack command."),
+    Game::Doc::Req("isAttack", "bool", "True if the slot holds the Attack command."),
 };
 const Game::Doc::Function kIsPetAttackAction{
     "Returns true if a pet bar slot holds the Attack command.",

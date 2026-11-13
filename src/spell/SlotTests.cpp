@@ -135,13 +135,13 @@ const Game::Doc::Field kConsumableArgs[] = {
                    "\"spell\" or \"pet\" with a slot. With a name, the rank text."),
 };
 const Game::Doc::Field kAttackRets[] = {
-    Game::Doc::Req("isAttack", "boolean", "True if the spell is the melee Attack spell."),
+    Game::Doc::Req("isAttack", "bool", "True if the spell is the melee Attack spell."),
 };
 const Game::Doc::Field kAutoRepeatRets[] = {
-    Game::Doc::Req("isAutoRepeat", "boolean", "True if the spell is repeating now."),
+    Game::Doc::Req("isAutoRepeat", "bool", "True if the spell is repeating now."),
 };
 const Game::Doc::Field kConsumableRets[] = {
-    Game::Doc::Req("isConsumable", "boolean", "True if the spell uses up reagents."),
+    Game::Doc::Req("isConsumable", "bool", "True if the spell uses up reagents."),
 };
 const Game::Doc::Function kIsAttackSpell{
     "Returns true if a spellbook spell is the melee Attack spell.",

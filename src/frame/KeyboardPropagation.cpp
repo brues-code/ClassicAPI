@@ -120,12 +120,12 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
 };
 
 const Game::Doc::Field kSetArgs[] = {
-    Game::Doc::Opt("propagate", "boolean", "false",
+    Game::Doc::Opt("propagate", "bool", "false",
                    "When true, the frame's OnKeyDown and OnChar scripts run and the key goes on to the frames "
                    "below and to the key bindings."),
 };
 const Game::Doc::Field kGetRets[] = {
-    Game::Doc::Req("propagate", "boolean"),
+    Game::Doc::Req("propagate", "bool"),
 };
 const Game::Doc::Function kSetPropagateKeyboardInput{
     "Sets whether the frame passes the keys it gets on to the frames below it.", kSetArgs, {}};

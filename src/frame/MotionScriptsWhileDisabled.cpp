@@ -132,11 +132,11 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
 };
 
 const Game::Doc::Field kSetArgs[] = {
-    Game::Doc::Opt("enabled", "boolean", "false",
+    Game::Doc::Opt("enabled", "bool", "false",
                    "When true, OnEnter and OnLeave also run while the button is disabled."),
 };
 const Game::Doc::Field kGetRets[] = {
-    Game::Doc::Req("enabled", "boolean", "True when OnEnter and OnLeave also run while the button is disabled."),
+    Game::Doc::Req("enabled", "bool", "True when OnEnter and OnLeave also run while the button is disabled."),
 };
 const Game::Doc::Function kSet{"Sets whether OnEnter and OnLeave run while the button is disabled.", kSetArgs, {}};
 const Game::Doc::Function kGet{"Returns whether OnEnter and OnLeave run while the button is disabled.", {},

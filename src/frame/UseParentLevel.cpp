@@ -96,11 +96,11 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
 };
 
 const Game::Doc::Field kSetArgs[] = {
-    Game::Doc::Req("usingParentLevel", "boolean",
+    Game::Doc::Req("usingParentLevel", "bool",
                    "When true, the frame draws at its parent's frame level instead of one above it."),
 };
 const Game::Doc::Field kIsRets[] = {
-    Game::Doc::Req("usingParentLevel", "boolean", "True when the frame uses its parent's frame level."),
+    Game::Doc::Req("usingParentLevel", "bool", "True when the frame uses its parent's frame level."),
 };
 const Game::Doc::Function kSetUsingParentLevel{"Sets whether the frame uses its parent's frame level.", kSetArgs,
                                                {}};

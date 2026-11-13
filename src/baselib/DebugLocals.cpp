@@ -193,7 +193,7 @@ int __fastcall Script_debuglocals(void *L) {
 
 const Game::Doc::Field kDebuglocalsArgs[] = {
     Game::Doc::Opt("level", "number", "1", "The call level, as debugstack counts it."),
-    Game::Doc::Opt("skipFunctionsAndUserdata", "boolean", "false",
+    Game::Doc::Opt("skipFunctionsAndUserdata", "bool", "false",
                    "Leaves out function and userdata values."),
 };
 const Game::Doc::Field kDebuglocalsRets[] = {

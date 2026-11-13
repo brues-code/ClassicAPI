@@ -76,14 +76,14 @@ int __fastcall Script_IsPlayerInWorld(void *L) {
 }
 
 const Game::Doc::Field kLoggingOutRets[] = {
-    Game::Doc::Req("isLoggingOut", "boolean", "True while a logout or quit countdown runs."),
+    Game::Doc::Req("isLoggingOut", "bool", "True while a logout or quit countdown runs."),
 };
 const Game::Doc::Function kIsLoggingOut{
     "Returns whether the player has asked to log out and the logout has not finished or been cancelled.",
     {}, kLoggingOutRets, "SystemGlobals"};
 
 const Game::Doc::Field kInWorldRets[] = {
-    Game::Doc::Req("isInWorld", "boolean", "False during a loading screen."),
+    Game::Doc::Req("isInWorld", "bool", "False during a loading screen."),
 };
 const Game::Doc::Function kIsPlayerInWorld{
     "Returns whether the player is in the world, that is, not on a loading screen.", {}, kInWorldRets,

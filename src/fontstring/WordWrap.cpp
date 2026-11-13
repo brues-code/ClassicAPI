@@ -82,7 +82,7 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
 };
 
 const Game::Doc::Field kSetArgs[] = {
-    Game::Doc::Opt("wrap", "boolean", "true", "When false, the text stays on one line."),
+    Game::Doc::Opt("wrap", "bool", "true", "When false, the text stays on one line."),
 };
 const Game::Doc::Field kGetRets[] = {
     Game::Doc::Opt("wrap", "number", nullptr, "1 when the text wraps, else nil."),

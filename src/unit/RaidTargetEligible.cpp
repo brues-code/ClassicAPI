@@ -76,7 +76,7 @@ const Game::Doc::Field kArgs[] = {
     Game::Doc::Req("unit", "string", "The unit to test."),
 };
 const Game::Doc::Field kRets[] = {
-    Game::Doc::Req("canBeRaidTarget", "boolean", "True if you can put a raid target icon on the unit."),
+    Game::Doc::Req("canBeRaidTarget", "bool", "True if you can put a raid target icon on the unit."),
 };
 const Game::Doc::Function kCanBeRaidTarget{
     "Returns true if you can put a raid target icon on a unit.",

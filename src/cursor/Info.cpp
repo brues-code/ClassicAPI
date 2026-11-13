@@ -290,7 +290,7 @@ int __fastcall Script_CursorHasMacro(void *L) {
 }
 
 const Game::Doc::Field kCursorHasMacroRets[] = {
-    Game::Doc::Req("hasMacro", "boolean", "True if the cursor holds a macro."),
+    Game::Doc::Req("hasMacro", "bool", "True if the cursor holds a macro."),
 };
 const Game::Doc::Function kCursorHasMacro{
     "Returns true if the cursor holds a macro.",

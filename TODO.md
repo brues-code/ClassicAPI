@@ -4170,14 +4170,14 @@ Plan (Layer 1, end to end):
   (`runtime.version = "Lua 5.1"`, the nearest mode, because LuaLS has no
   5.0).
 
-Found while scoping (2026-11-12): descriptors on master use free-form type
-names (`UnitToken`, `SpellIdentifier`, `WOWGUID`, `vector2`, `colorRGB`,
-`uiUnit`, ...). Several look like doc sentences in the type slot,
-for example `"Kept with the message; GetMessageInfo returns them after its
-colour."`, `"Strings or numbers."` and `"The subevent's own values."`. Those
-are `Vararg(doc)` calls where `Vararg(type, doc)` was meant. Fix them at
-the source. The same is true of the 30 descriptors that say `boolean`
-where Blizzard says `bool`.
+Type names in the descriptors are Blizzard's own (`UnitToken`,
+`SpellIdentifier`, `WOWGUID`, `vector2`, `colorRGB`, `uiUnit`, `any`, ...),
+checked against `_forever_`'s `Blizzard_APIDocumentationGenerated` on
+2026-11-13. The mapping must cover each one: a Structure or enum name
+passes through, and a Blizzard alias needs its own row (`UnitToken` →
+`string`, `WOWGUID` → `string`, `uiUnit` → `number`, and so on). Every
+`Vararg` has a type in its first argument; the sentences are in the doc
+slot.
 
 Later layers: frame methods as classes with inheritance (first check whether
 1.12's method-table setup chains child → parent registries; if not, keep a

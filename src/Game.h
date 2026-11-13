@@ -151,7 +151,8 @@ int StrCmpI(const char *a, const char *b, int n = 0x7FFFFFFF);
 //   - `type` uses Blizzard's spellings — "number", "string", "bool",
 //     "table", "luaIndex", "UnitToken", "SpellIdentifier", … — or the Name
 //     of a `Structure` / enumeration declared elsewhere, which the browser
-//     renders as a link.
+//     renders as a link. Lua's own spelling is wrong here: "bool", never
+//     "boolean".
 //   - `Function::system` names the System a GLOBAL belongs to; convention
 //     `<Area>Globals` ("SpellGlobals", "ItemGlobals"). Table functions
 //     derive theirs from the table ("C_Spell" → System "Spell", Namespace

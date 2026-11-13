@@ -254,7 +254,7 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
 
 const Game::Doc::Field kApplyArgs[] = {
     Game::Doc::Req("spellVisualKitID", "number", "A SpellVisualKit ID."),
-    Game::Doc::Opt("oneShot", "boolean", "false",
+    Game::Doc::Opt("oneShot", "bool", "false",
                    "True plays the effects once; false keeps them until the model changes."),
 };
 const Game::Doc::Function kApply{"Shows a spell visual kit's effects on the model.", kApplyArgs,

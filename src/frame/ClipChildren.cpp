@@ -412,11 +412,11 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
 };
 
 const Game::Doc::Field kSetArgs[] = {
-    Game::Doc::Req("clipsChildren", "boolean",
+    Game::Doc::Req("clipsChildren", "bool",
                    "When true, the frame's child frames draw and take the mouse only inside the frame."),
 };
 const Game::Doc::Field kDoesRets[] = {
-    Game::Doc::Req("clipsChildren", "boolean", "True when the frame clips its child frames."),
+    Game::Doc::Req("clipsChildren", "bool", "True when the frame clips its child frames."),
 };
 const Game::Doc::Function kSetClipsChildren{"Sets whether the frame clips its child frames to its own rect.",
                                             kSetArgs, {}};

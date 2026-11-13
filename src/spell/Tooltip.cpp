@@ -203,8 +203,8 @@ static const Game::Lua::FrameMethodEntry g_methods[] = {
 
 static const Game::Doc::Field kSpellByIDArgs[] = {
     Game::Doc::Req("spellID", "number", "Any spell ID, learned or not."),
-    Game::Doc::Opt("isPet", "boolean", "false", "Read cost, range and cooldown as the pet's spell."),
-    Game::Doc::Opt("showSubtext", "boolean", "false", "Show the spell's rank to the right of its name."),
+    Game::Doc::Opt("isPet", "bool", "false", "Read cost, range and cooldown as the pet's spell."),
+    Game::Doc::Opt("showSubtext", "bool", "false", "Show the spell's rank to the right of its name."),
 };
 static const Game::Doc::Field kSpellByIDRets[] = {
     Game::Doc::Opt("hasCooldown", "number", nullptr,

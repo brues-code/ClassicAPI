@@ -34,7 +34,7 @@ int __fastcall Script_IsAtStableMaster(void *L) {
 // --- Documentation ----------------------------------------------------------
 
 const Game::Doc::Field kRets[] = {
-    Game::Doc::Req("isAtStableMaster", "boolean", "True while the stable window is open."),
+    Game::Doc::Req("isAtStableMaster", "bool", "True while the stable window is open."),
 };
 const Game::Doc::Function kIsAtStableMaster{
     "Returns true while the stable window is open.",

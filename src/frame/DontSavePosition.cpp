@@ -95,7 +95,7 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
 };
 
 const Game::Doc::Field kSetArgs[] = {
-    Game::Doc::Opt("dontSave", "boolean", "true",
+    Game::Doc::Opt("dontSave", "bool", "true",
                    "When true, the client does not save the frame's position and size to layout-cache.txt."),
 };
 const Game::Doc::Field kGetRets[] = {

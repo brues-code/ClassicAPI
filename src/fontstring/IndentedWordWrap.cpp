@@ -152,7 +152,7 @@ template <int (__fastcall *Set)(void *), int (__fastcall *Get)(void *)> struct P
 };
 
 const Game::Doc::Field kSetArgs[] = {
-    Game::Doc::Opt("indent", "boolean", "true", "When true, every line after the first starts 15 pixels in."),
+    Game::Doc::Opt("indent", "bool", "true", "When true, every line after the first starts 15 pixels in."),
 };
 const Game::Doc::Field kGetRets[] = {
     Game::Doc::Opt("indent", "number", nullptr, "1 when lines after the first are indented, else nil."),
@@ -162,7 +162,7 @@ const Game::Doc::Function kGet{"Returns whether wrapped text indents every line 
 
 const Game::Doc::Field kHtmlSetArgs[] = {
     Game::Doc::Opt("textType", "string", "\"p\"", "\"h1\", \"h2\", \"h3\" or \"p\": the element whose font to change."),
-    Game::Doc::Opt("indent", "boolean", "true", "When true, every line after the first starts 15 pixels in."),
+    Game::Doc::Opt("indent", "bool", "true", "When true, every line after the first starts 15 pixels in."),
 };
 const Game::Doc::Field kHtmlGetArgs[] = {
     Game::Doc::Opt("textType", "string", "\"p\"", "\"h1\", \"h2\", \"h3\" or \"p\"."),

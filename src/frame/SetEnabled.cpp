@@ -43,7 +43,7 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
 };
 
 const Game::Doc::Field kArgs[] = {
-    Game::Doc::Opt("enabled", "boolean", "false", "True enables the button, false disables it."),
+    Game::Doc::Opt("enabled", "bool", "false", "True enables the button, false disables it."),
 };
 const Game::Doc::Function kDoc{"Enables or disables the button, as Enable() or Disable().", kArgs, {}};
 const Game::Doc::Method kDocs[] = {{"SetEnabled", &kDoc}};

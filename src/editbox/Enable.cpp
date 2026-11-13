@@ -68,7 +68,7 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
 };
 
 const Game::Doc::Field kIsEnabledRets[] = {
-    Game::Doc::Req("enabled", "boolean"),
+    Game::Doc::Req("enabled", "bool"),
 };
 const Game::Doc::Function kEnable{"Enables the edit box and runs its OnEnable script.", {}, {}};
 const Game::Doc::Function kDisable{
