@@ -73,14 +73,25 @@ namespace Player::Equipment {
 namespace {
 
 constexpr const char *kEvtEquipmentChanged = "PLAYER_EQUIPMENT_CHANGED";
-const Event::Custom::AutoReserve _r{kEvtEquipmentChanged};
+const Game::Doc::Field kEquipmentChangedPayload[] = {
+    Game::Doc::Req("equipmentSlot", "number", "The inventory slot, 1 (head) to 19 (tabard)."),
+    Game::Doc::Opt("hasCurrent", "number", nullptr,
+                   "1 when the slot now holds an item, nil when it is empty."),
+};
+const Game::Doc::Event kEquipmentChangedDoc{
+    "PaperDollInfo",
+    "Fires when the item in one of the player's equipment slots changes.",
+    kEquipmentChangedPayload};
+const Event::Custom::AutoReserve _r{kEvtEquipmentChanged, &kEquipmentChangedDoc};
 constexpr const char *kEvtDurability = "UPDATE_INVENTORY_DURABILITY";
-const Event::Custom::AutoReserve _r2{kEvtDurability};
+const Game::Doc::Event kDurabilityDoc{
+    "PaperDollInfo",
+    "Fires when the durability of the player's items may have changed.",
+    {}};
+const Event::Custom::AutoReserve _r2{kEvtDurability, &kDurabilityDoc};
 
 // System per Blizzard's own generated docs, where all three of this
-// file's events live (PaperDollInfoDocumentation.lua) — so documenting
-// PLAYER_EQUIPMENT_CHANGED / UPDATE_INVENTORY_DURABILITY later puts them
-// in the same place.
+// file's events live (PaperDollInfoDocumentation.lua).
 constexpr const char *kEvtWeaponSlotChanged = "WEAPON_SLOT_CHANGED";
 const Game::Doc::Event kWeaponSlotChangedDoc{
     "PaperDollInfo",

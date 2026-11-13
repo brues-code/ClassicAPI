@@ -31,7 +31,9 @@ namespace Player::HearthstoneBound {
 
 namespace {
 
-const Event::Custom::AutoReserve _reserve{"HEARTHSTONE_BOUND"};
+const Game::Doc::Event kDoc{"Unit", "Fires when the player binds their hearthstone at an inn.",
+                            {}};
+const Event::Custom::AutoReserve _reserve{"HEARTHSTONE_BOUND", &kDoc};
 
 void OnPacket(uint32_t opcode, Net::CDataStore *) {
     if (opcode == Offsets::SMSG_PLAYERBOUND)

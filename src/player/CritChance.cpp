@@ -52,10 +52,10 @@ const Game::Doc::Field kChanceRets[] = {
 };
 const Game::Doc::Function kGetCritChance{
     "Returns your chance to get a critical strike with melee attacks.",
-    {}, kChanceRets, "PaperDollInfo"};
+    {}, kChanceRets, "PlayerGlobals"};
 const Game::Doc::Function kGetRangedCritChance{
     "Returns your chance to get a critical strike with ranged attacks.",
-    {}, kChanceRets, "PaperDollInfo"};
+    {}, kChanceRets, "PlayerGlobals"};
 
 } // namespace
 
