@@ -75,8 +75,16 @@ int __fastcall Script_LootUnit(void *L) {
     return 0;
 }
 
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("guid", "WOWGUID", "Does nothing when the unit is not visible."),
+};
+const Game::Doc::Function kLootUnit{
+    "Opens the loot window of a unit, as a right-click on its corpse does; does nothing while "
+    "mounted.",
+    kArgs, {}, nullptr, true};
+
 void Register() {
-    Game::Lua::RegisterTableFunction("C_Loot", "LootUnit", &Script_LootUnit);
+    Game::Lua::RegisterTableFunction("C_Loot", "LootUnit", &Script_LootUnit, &kLootUnit);
 }
 
 } // namespace

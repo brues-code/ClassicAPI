@@ -64,7 +64,13 @@ namespace Loot::Scan {
 namespace {
 
 constexpr const char *kEventCompleted = "LOOT_SCAN_COMPLETED";
-const Event::Custom::AutoReserve _reserve{kEventCompleted};
+const Game::Doc::Event kEventCompletedDoc{
+    "Loot",
+    "Fires once when a C_Loot.ScanNearbyLoot or C_Loot.LootAllCorpses walk ends, even when "
+    "it reached no corpse.",
+    {}};
+
+const Event::Custom::AutoReserve _reserve{kEventCompleted, &kEventCompletedDoc};
 
 // How long one step may wait: for the server to answer a CMSG_LOOT it
 // never answers, or for the engine to accept a send it keeps refusing
@@ -572,15 +578,64 @@ int __fastcall Script_GetLastScanResults(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kStartedRets[] = {
+    Game::Doc::Req("started", "bool",
+                   "False when a walk is already in progress, before login, or while mounted."),
+};
+const Game::Doc::Function kScanNearbyLoot{
+    "Reads the loot of each lootable corpse in range without showing the loot window or "
+    "taking anything.",
+    {}, kStartedRets, nullptr, true};
+
+const Game::Doc::Field kLootAllCorpsesArgs[] = {
+    Game::Doc::Opt("max", "number", "0", "The most corpses to visit; 0 visits all in range."),
+};
+const Game::Doc::Function kLootAllCorpses{
+    "Takes the coin and items of each lootable corpse in range, one corpse at a time, without "
+    "showing the loot window.",
+    kLootAllCorpsesArgs, kStartedRets, nullptr, true};
+
+const Game::Doc::Field kInProgressRets[] = {
+    Game::Doc::Req("inProgress", "bool"),
+};
+const Game::Doc::Function kIsScanInProgress{
+    "Returns whether a C_Loot.ScanNearbyLoot or C_Loot.LootAllCorpses walk is in progress.", {},
+    kInProgressRets, nullptr, true};
+
+const Game::Doc::Field kScannedLootItemFields[] = {
+    Game::Doc::Req("itemID", "number"),
+    Game::Doc::Req("count", "number"),
+    Game::Doc::Opt("link", "string", nullptr, "Nil when the item's data has not arrived yet."),
+};
+const Game::Doc::Structure kScannedLootItem{"ScannedLootItem", "Loot", kScannedLootItemFields,
+                                            "One item in a scanned corpse."};
+
+const Game::Doc::Field kScannedCorpseFields[] = {
+    Game::Doc::Req("guid", "WOWGUID"),
+    Game::Doc::Req("coin", "number", "In copper; 0 when the corpse held none."),
+    Game::Doc::Req("items", "table", "An array of ScannedLootItem."),
+};
+const Game::Doc::Structure kScannedCorpse{"ScannedCorpse", "Loot", kScannedCorpseFields,
+                                          "What one corpse held when the last walk opened it."};
+
+const Game::Doc::Field kResultsRets[] = {
+    Game::Doc::Req("results", "table",
+                   "An array of ScannedCorpse; during a walk, only the corpses read so far."),
+};
+const Game::Doc::Function kGetLastScanResults{
+    "Returns what each corpse held in the last C_Loot.ScanNearbyLoot or C_Loot.LootAllCorpses "
+    "walk.",
+    {}, kResultsRets, nullptr, true};
+
 void Register() {
-    Game::Lua::RegisterTableFunction("C_Loot", "ScanNearbyLoot",
-                                     &Script_ScanNearbyLoot);
-    Game::Lua::RegisterTableFunction("C_Loot", "LootAllCorpses",
-                                     &Script_LootAllCorpses);
-    Game::Lua::RegisterTableFunction("C_Loot", "IsScanInProgress",
-                                     &Script_IsScanInProgress);
+    Game::Lua::RegisterTableFunction("C_Loot", "ScanNearbyLoot", &Script_ScanNearbyLoot,
+                                     &kScanNearbyLoot);
+    Game::Lua::RegisterTableFunction("C_Loot", "LootAllCorpses", &Script_LootAllCorpses,
+                                     &kLootAllCorpses);
+    Game::Lua::RegisterTableFunction("C_Loot", "IsScanInProgress", &Script_IsScanInProgress,
+                                     &kIsScanInProgress);
     Game::Lua::RegisterTableFunction("C_Loot", "GetLastScanResults",
-                                     &Script_GetLastScanResults);
+                                     &Script_GetLastScanResults, &kGetLastScanResults);
 }
 
 } // namespace

@@ -252,9 +252,31 @@ int IndexOf(const HistItem *e) {
 constexpr const char *kRollChanged = "LOOT_HISTORY_ROLL_CHANGED";
 constexpr const char *kRollComplete = "LOOT_HISTORY_ROLL_COMPLETE";
 constexpr const char *kFullUpdate = "LOOT_HISTORY_FULL_UPDATE";
-const Event::Custom::AutoReserve _evRollChanged{kRollChanged};
-const Event::Custom::AutoReserve _evRollComplete{kRollComplete};
-const Event::Custom::AutoReserve _evFullUpdate{kFullUpdate};
+const Game::Doc::Field kRollChangedPayload[] = {
+    Game::Doc::Req("historyIndex", "luaIndex"),
+    Game::Doc::Req("playerIndex", "luaIndex",
+                   "0 when the roll names no player or the item's player list is full."),
+};
+const Game::Doc::Event kRollChangedDoc{
+    "Loot", "Fires when a player selects need, greed or pass on a loot roll, or rolls the dice.",
+    kRollChangedPayload};
+
+const Game::Doc::Field kRollCompletePayload[] = {
+    Game::Doc::Req("historyIndex", "luaIndex"),
+};
+const Game::Doc::Event kRollCompleteDoc{
+    "Loot", "Fires when a loot roll is decided, by a winner or because every player passed.",
+    kRollCompletePayload};
+
+const Game::Doc::Event kFullUpdateDoc{
+    "Loot",
+    "Fires when an item is added to or dropped from the loot history, or the history is "
+    "cleared, so every index may have changed.",
+    {}};
+
+const Event::Custom::AutoReserve _evRollChanged{kRollChanged, &kRollChangedDoc};
+const Event::Custom::AutoReserve _evRollComplete{kRollComplete, &kRollCompleteDoc};
+const Event::Custom::AutoReserve _evFullUpdate{kFullUpdate, &kFullUpdateDoc};
 
 // Returns the 1-based item index and writes the 1-based player index to
 // `*outPlayerIdx` (0 if none), so the hook can fire ROLL_CHANGED.
@@ -539,14 +561,64 @@ int __fastcall Script_Clear(void *L) {
     return 0;
 }
 
+const Game::Doc::Field kGetNumItemsRets[] = {
+    Game::Doc::Req("numItems", "number"),
+};
+const Game::Doc::Function kGetNumItems{
+    "Returns the number of rolled items in the loot history, which keeps the last 128.", {},
+    kGetNumItemsRets};
+
+const Game::Doc::Field kGetItemArgs[] = {
+    Game::Doc::Req("itemIndex", "luaIndex", "1 is the oldest item."),
+};
+const Game::Doc::Field kGetItemRets[] = {
+    Game::Doc::Opt("rollID", "number", nullptr,
+                   "Nil, with the rest, when the index is out of range; unlike the index, it "
+                   "does not change as old items drop out."),
+    Game::Doc::Opt("itemLink", "string", nullptr,
+                   "An item:ID:0:suffix:unique string that keeps the item's random suffix."),
+    Game::Doc::Opt("numPlayers", "number"),
+    Game::Doc::Opt("isDone", "bool", nullptr,
+                   "True when the item has a winner or every player passed."),
+    Game::Doc::Opt("winnerIdx", "luaIndex", nullptr,
+                   "The winner's player index; nil when there is no winner yet or every player "
+                   "passed."),
+    Game::Doc::Opt("isMasterLoot", "bool", nullptr, "Always false."),
+    Game::Doc::Opt("isCurrency", "bool", nullptr, "Always false."),
+};
+const Game::Doc::Function kGetItem{"Returns a rolled item in the loot history.", kGetItemArgs,
+                                   kGetItemRets};
+
+const Game::Doc::Field kGetPlayerInfoArgs[] = {
+    Game::Doc::Req("itemIndex", "luaIndex"),
+    Game::Doc::Req("playerIndex", "luaIndex"),
+};
+const Game::Doc::Field kGetPlayerInfoRets[] = {
+    Game::Doc::Opt("name", "string", nullptr,
+                   "Nil, with the rest, when either index is out of range; also nil when the "
+                   "name was not known at the time of the roll."),
+    Game::Doc::Opt("class", "string", nullptr,
+                   "The class token, such as \"WARRIOR\"; nil when the class is not known."),
+    Game::Doc::Opt("rollType", "number", nullptr, "0 for pass, 1 for need, 2 for greed."),
+    Game::Doc::Opt("roll", "number", nullptr,
+                   "The dice roll, from 1 to 100; nil when the player has no roll."),
+    Game::Doc::Opt("isWinner", "bool"),
+    Game::Doc::Opt("isMe", "bool", nullptr, "True when the player is the local player."),
+};
+const Game::Doc::Function kGetPlayerInfo{
+    "Returns a player's vote and roll on a rolled item in the loot history.", kGetPlayerInfoArgs,
+    kGetPlayerInfoRets};
+
+const Game::Doc::Function kClear{
+    "Clears the loot history and fires LOOT_HISTORY_FULL_UPDATE.", {}, {}, nullptr, true};
+
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterTableFunction("C_LootHistory", "GetNumItems",
-                                     &Script_GetNumItems);
-    Game::Lua::RegisterTableFunction("C_LootHistory", "GetItem",
-                                     &Script_GetItem);
-    Game::Lua::RegisterTableFunction("C_LootHistory", "GetPlayerInfo",
-                                     &Script_GetPlayerInfo);
-    Game::Lua::RegisterTableFunction("C_LootHistory", "Clear", &Script_Clear);
+    Game::Lua::RegisterTableFunction("C_LootHistory", "GetNumItems", &Script_GetNumItems,
+                                     &kGetNumItems);
+    Game::Lua::RegisterTableFunction("C_LootHistory", "GetItem", &Script_GetItem, &kGetItem);
+    Game::Lua::RegisterTableFunction("C_LootHistory", "GetPlayerInfo", &Script_GetPlayerInfo,
+                                     &kGetPlayerInfo);
+    Game::Lua::RegisterTableFunction("C_LootHistory", "Clear", &Script_Clear, &kClear);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

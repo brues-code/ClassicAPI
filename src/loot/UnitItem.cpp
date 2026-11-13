@@ -194,9 +194,23 @@ int __fastcall Script_LootUnitItem(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("guid", "WOWGUID"),
+    Game::Doc::Req("itemID", "number"),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Req("success", "bool",
+                   "With the unit's loot window open, whether it holds the item; otherwise "
+                   "whether the request to open it was sent. False while another request is "
+                   "pending."),
+};
+const Game::Doc::Function kLootUnitItem{
+    "Takes one item from a unit's loot, opening its loot window first when needed.", kArgs,
+    kRets, nullptr, true};
+
 void Register() {
-    Game::Lua::RegisterTableFunction("C_Loot", "LootUnitItem",
-                                     &Script_LootUnitItem);
+    Game::Lua::RegisterTableFunction("C_Loot", "LootUnitItem", &Script_LootUnitItem,
+                                     &kLootUnitItem);
 }
 
 } // namespace
