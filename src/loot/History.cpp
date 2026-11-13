@@ -247,8 +247,9 @@ int IndexOf(const HistItem *e) {
 
 // Modern loot-history events. ROLL_CHANGED(itemIdx, playerIdx) fires on each
 // roll; ROLL_COMPLETE(itemIdx) when the item is decided (winner / all-passed).
-// FULL_UPDATE is reserved for API/IsEventValid completeness (the UI fires it
-// on open); we don't dispatch it from C.
+// FULL_UPDATE() when the item list changes shape: a roll opens a new item,
+// the ring evicts the oldest (shifting every index), or C_LootHistory.Clear
+// empties it.
 constexpr const char *kRollChanged = "LOOT_HISTORY_ROLL_CHANGED";
 constexpr const char *kRollComplete = "LOOT_HISTORY_ROLL_COMPLETE";
 constexpr const char *kFullUpdate = "LOOT_HISTORY_FULL_UPDATE";
