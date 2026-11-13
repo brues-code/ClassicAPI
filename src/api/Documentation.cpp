@@ -169,6 +169,15 @@ const WidgetSystem kWidgetSystems[] = {
     {Offsets::VAR_FONT_METHOD_REGISTRY, "SimpleFontAPI"},
     {Offsets::VAR_EDITBOX_METHOD_REGISTRY, "SimpleEditBoxAPI"},
     {Offsets::VAR_MODEL_METHOD_REGISTRY, "SimpleModelAPI"},
+    {Offsets::VAR_BUTTON_METHOD_REGISTRY, "SimpleButtonAPI"},
+    {Offsets::VAR_SLIDER_METHOD_REGISTRY, "SimpleSliderAPI"},
+    {Offsets::VAR_STATUSBAR_METHOD_REGISTRY, "SimpleStatusBarAPI"},
+    {Offsets::VAR_MESSAGEFRAME_METHOD_REGISTRY, "SimpleMessageFrameAPI"},
+    {Offsets::VAR_SIMPLEHTML_METHOD_REGISTRY, "SimpleHTMLAPI"},
+    // No retail counterpart; named the same way.
+    {Offsets::VAR_SCROLLINGMESSAGEFRAME_METHOD_REGISTRY, "SimpleScrollingMessageFrameAPI"},
+    {Offsets::VAR_PLAYERMODEL_METHOD_REGISTRY, "SimplePlayerModelAPI"},
+    {Offsets::VAR_DRESSUPMODEL_METHOD_REGISTRY, "SimpleDressUpModelAPI"},
 };
 
 // Hashes of the frame classes this DLL adds (NameWidgetSystem).
