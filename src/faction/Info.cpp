@@ -784,7 +784,7 @@ const Game::Doc::Field kIsInactiveRets[] = {
 const Game::Doc::Function kIsFactionInactive{
     "Returns whether the faction at a position in the reputation list is under the Inactive "
     "header, as 1 or nil.",
-    kSortIndexArgs, kIsInactiveRets, nullptr, true};
+    kSortIndexArgs, kIsInactiveRets};
 
 const Game::Doc::Function kSetFactionInactiveByID{
     "Moves a faction under the Inactive header of the reputation list, by ID.",
@@ -794,7 +794,7 @@ const Game::Doc::Function kSetFactionActiveByID{
     kFactionIDArgs, {}, nullptr, true};
 const Game::Doc::Function kSetFactionInactive{
     "Moves the faction at a position in the reputation list under the Inactive header.",
-    kSortIndexArgs, {}, nullptr, true};
+    kSortIndexArgs, {}};
 const Game::Doc::Function kSetFactionActive{
     "Moves the faction at a position in the reputation list out from under the Inactive "
     "header.",

@@ -191,7 +191,7 @@ const Game::Doc::Field kIndexRets[] = {
 };
 const Game::Doc::Function kCreateMacro{
     "Creates a macro whose icon is given as a texture name instead of an icon index.",
-    kCreateArgs, kIndexRets, nullptr, true};
+    kCreateArgs, kIndexRets};
 
 const Game::Doc::Field kEditArgs[] = {
     Game::Doc::Req("index", "luaIndex", "A macro index, or a macro name."),
@@ -205,7 +205,7 @@ const Game::Doc::Field kEditRets[] = {
 };
 const Game::Doc::Function kEditMacro{
     "Changes a macro's name, icon or body; the icon is given as a texture name.",
-    kEditArgs, kEditRets, nullptr, true};
+    kEditArgs, kEditRets};
 
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Macro", "CreateMacro",

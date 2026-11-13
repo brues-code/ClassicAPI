@@ -89,7 +89,7 @@ const Game::Doc::Field kRets[] = {
 const Game::Doc::Function kUnitPosition{
     "Returns the world position of any unit in view.", kArgs, kRets, "UnitGlobals"};
 const Game::Doc::Function kPlayerInfoUnitPosition{
-    "Returns the world position of any unit in view.", kArgs, kRets, nullptr, true};
+    "Returns the world position of any unit in view.", kArgs, kRets};
 
 void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("UnitPosition", &Script_UnitPosition, &kUnitPosition);

@@ -255,8 +255,8 @@ const Game::Doc::Field kDoesTemplateExistRets[] = {
     Game::Doc::Req("exists", "bool"),
 };
 const Game::Doc::Function kDoesTemplateExist{
-    "Returns whether a virtual XML template has the name.", kNameArgs, kDoesTemplateExistRets,
-    nullptr, true};
+    "Returns whether a virtual XML template has the name.", kNameArgs,
+    kDoesTemplateExistRets};
 
 } // namespace
 

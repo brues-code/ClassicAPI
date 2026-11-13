@@ -27105,7 +27105,7 @@ two `UnitPosition` reads equals `UnitDistanceSquared`.
 > one you get.
 
 `C_PlayerInfo.UnitPosition(unit)` is the same function under
-`C_PlayerInfo`, a ClassicAPI extension. A mod that replaces the global
+`C_PlayerInfo`. A mod that replaces the global
 `UnitPosition` does not change it.
 
 ### `UnitFacing(unit)`
@@ -28121,8 +28121,8 @@ covers both Blizzard FrameXML and addon templates.
 
 ### `C_XMLUtil.DoesTemplateExist(name)`
 
-A ClassicAPI extension. Returns `true` if a virtual template of that name is registered, `false`
-otherwise:
+Returns `true` if a virtual template of that name is registered, `false`
+otherwise. It is the Blizzard global `DoesTemplateExist`, under `C_XMLUtil`:
 
 ```lua
 if C_XMLUtil.DoesTemplateExist("MyAddonRowTemplate") then
