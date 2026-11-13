@@ -81,6 +81,26 @@ const Game::Doc::Function kGetMaxPlayerLevel{
     "Returns the highest level a character can reach.", {}, kMaxPlayerLevelRets,
     "ExpansionGlobals"};
 
+const Game::Doc::Function kGetClassicExpansionLevel{
+    "Returns the expansion level of the game.", {}, kExpansionLevelRets, "ExpansionGlobals"};
+
+const Game::Doc::Field kExpansionLevelArgs[] = {
+    Game::Doc::Req("expansionLevel", "number", "An LE_EXPANSION_* value."),
+};
+const Game::Doc::Field kAtLeastRets[] = {
+    Game::Doc::Req("isAtLeast", "bool", "True only for 0 or less."),
+};
+const Game::Doc::Function kClassicExpansionAtLeast{
+    "Returns whether the expansion level of the game is at least a given level.",
+    kExpansionLevelArgs, kAtLeastRets, "ExpansionGlobals"};
+
+const Game::Doc::Field kAtMostRets[] = {
+    Game::Doc::Req("isAtMost", "bool", "False only for less than 0."),
+};
+const Game::Doc::Function kClassicExpansionAtMost{
+    "Returns whether the expansion level of the game is at most a given level.",
+    kExpansionLevelArgs, kAtMostRets, "ExpansionGlobals"};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("GetExpansionLevel", &Script_GetExpansionLevel,
                                       &kGetExpansionLevel);
@@ -89,11 +109,14 @@ void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("GetMaxPlayerLevel", &Script_GetMaxPlayerLevel,
                                       &kGetMaxPlayerLevel);
     Game::Lua::RegisterGlobalFunction("GetClassicExpansionLevel",
-                                      &Script_GetClassicExpansionLevel);
+                                      &Script_GetClassicExpansionLevel,
+                                      &kGetClassicExpansionLevel);
     Game::Lua::RegisterGlobalFunction("ClassicExpansionAtLeast",
-                                      &Script_ClassicExpansionAtLeast);
+                                      &Script_ClassicExpansionAtLeast,
+                                      &kClassicExpansionAtLeast);
     Game::Lua::RegisterGlobalFunction("ClassicExpansionAtMost",
-                                      &Script_ClassicExpansionAtMost);
+                                      &Script_ClassicExpansionAtMost,
+                                      &kClassicExpansionAtMost);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

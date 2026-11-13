@@ -197,15 +197,35 @@ const Game::Doc::Field kCoinTextRets[] = {
 };
 const Game::Doc::Function kGetCoinText{
     "Formats an amount of money as text, with a word for each coin.", kCoinTextArgs,
-    kCoinTextRets, "CurrencyInfo"};
+    kCoinTextRets, "CurrencyInfoGlobals"};
+const Game::Doc::Function kCurrencyInfoGetCoinText{
+    "Formats an amount of money as text, with a word for each coin.", kCoinTextArgs,
+    kCoinTextRets};
+
+const Game::Doc::Field kCoinTextureStringArgs[] = {
+    Game::Doc::Req("amount", "number", "The amount of money, in copper."),
+    Game::Doc::Opt("fontHeight", "number", "14",
+                   "The coin size, relative to a 14-point font; 0 matches the text height."),
+};
+const Game::Doc::Field kCoinTextureStringRets[] = {
+    Game::Doc::Req("result", "string", "The amount with a coin icon after each part."),
+};
+const Game::Doc::Function kGetCoinTextureString{
+    "Formats an amount of money as text, with a coin icon for each coin.",
+    kCoinTextureStringArgs, kCoinTextureStringRets, "CurrencyInfoGlobals"};
+const Game::Doc::Function kCurrencyInfoGetCoinTextureString{
+    "Formats an amount of money as text, with a coin icon for each coin.",
+    kCoinTextureStringArgs, kCoinTextureStringRets};
 
 void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("GetCoinText", &Script_GetCoinText, &kGetCoinText);
     Game::Lua::RegisterTableFunction("C_CurrencyInfo", "GetCoinText", &Script_GetCoinText,
-                                     &kGetCoinText);
-    Game::Lua::RegisterGlobalFunction("GetCoinTextureString", &Script_GetCoinTextureString);
+                                     &kCurrencyInfoGetCoinText);
+    Game::Lua::RegisterGlobalFunction("GetCoinTextureString", &Script_GetCoinTextureString,
+                                      &kGetCoinTextureString);
     Game::Lua::RegisterTableFunction("C_CurrencyInfo", "GetCoinTextureString",
-                                     &Script_GetCoinTextureString);
+                                     &Script_GetCoinTextureString,
+                                     &kCurrencyInfoGetCoinTextureString);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

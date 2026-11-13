@@ -52,8 +52,7 @@ const Game::Doc::Field kArgs[] = {
     Game::Doc::Req("message", "string", "The text of the line."),
 };
 const Game::Doc::Function kSendSystemMessage{
-    "Shows a line in chat as a system message, only on your own client. It fires "
-    "CHAT_MSG_SYSTEM with the text as arg1.",
+    "Shows a line in chat as a system message on your own client and fires CHAT_MSG_SYSTEM.",
     kArgs, {}, "ChatGlobals"};
 
 } // namespace

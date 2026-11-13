@@ -141,11 +141,31 @@ int __fastcall Script_SetSavedCharacterOrder(void *L) {
     return 0;
 }
 
+const Game::Doc::Field kRealmArgs[] = {
+    Game::Doc::Req("realm", "string"),
+};
+const Game::Doc::Field kGetSavedCharacterOrderRets[] = {
+    Game::Doc::Req("order", "string", "Empty when no order is saved for the realm."),
+};
+const Game::Doc::Function kGetSavedCharacterOrder{
+    "Returns the character order saved for a realm on this account.", kRealmArgs,
+    kGetSavedCharacterOrderRets, "CharacterListGlobals", true};
+
+const Game::Doc::Field kSetSavedCharacterOrderArgs[] = {
+    Game::Doc::Req("realm", "string"),
+    Game::Doc::Req("order", "string",
+                   "Any text without line breaks, such as names joined by \"|\"; empty clears "
+                   "the saved order."),
+};
+const Game::Doc::Function kSetSavedCharacterOrder{
+    "Saves a character order for a realm on this account.", kSetSavedCharacterOrderArgs, {},
+    "CharacterListGlobals", true};
+
 void RegisterGlue() {
     Game::Lua::RegisterGlueFunction("GetSavedCharacterOrder",
-                                    &Script_GetSavedCharacterOrder);
+                                    &Script_GetSavedCharacterOrder, &kGetSavedCharacterOrder);
     Game::Lua::RegisterGlueFunction("SetSavedCharacterOrder",
-                                    &Script_SetSavedCharacterOrder);
+                                    &Script_SetSavedCharacterOrder, &kSetSavedCharacterOrder);
 }
 
 const Game::GlueModuleAutoRegister _autoreg{&RegisterGlue};

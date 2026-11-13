@@ -143,6 +143,16 @@ void PushRequirements(void *L, const uint8_t *data) {
 // of quests inside a login-path loop can exhaust vanilla's fixed Lua
 // memory pool. Returns nil when the quest isn't cached (same contract as
 // GetQuestDetails).
+const Game::Doc::Field kQuestIDArgs[] = {
+    Game::Doc::Req("questID", "number"),
+};
+const Game::Doc::Field kGetNumQuestObjectivesRets[] = {
+    Game::Doc::Opt("leaderboardCount", "number", nullptr,
+                   "Nil when the quest data is not loaded."),
+};
+const Game::Doc::Function kGetNumQuestObjectives{
+    "Returns the number of objectives of a quest.", kQuestIDArgs, kGetNumQuestObjectivesRets};
+
 int __fastcall Script_GetNumQuestObjectives(void *L) {
     if (!Game::Lua::IsNumber(L, 1)) {
         Game::Lua::Error(L,
@@ -170,6 +180,68 @@ int __fastcall Script_GetNumQuestObjectives(void *L) {
     Game::Lua::PushNumber(L, static_cast<double>(count));
     return 1;
 }
+
+const Game::Doc::Field kQuestRewardItemFields[] = {
+    Game::Doc::Req("id", "number", "The item ID."),
+    Game::Doc::Req("count", "number"),
+};
+const Game::Doc::Structure kQuestRewardItem{"QuestDetailsItem", "QuestLog",
+                                            kQuestRewardItemFields, "A reward item of a quest."};
+
+const Game::Doc::Field kQuestRequirementFields[] = {
+    Game::Doc::Req("kind", "string", "\"monster\", \"object\" or \"item\"."),
+    Game::Doc::Req("id", "number", "The creature, game object or item ID."),
+    Game::Doc::Req("count", "number"),
+    Game::Doc::Req("text", "string",
+                   "The objective's own text; empty when the quest log builds the text."),
+};
+const Game::Doc::Structure kQuestRequirement{"QuestDetailsRequirement", "QuestLog",
+                                             kQuestRequirementFields,
+                                             "One objective of a quest."};
+
+const Game::Doc::Field kQuestPoiFields[] = {
+    Game::Doc::Req("mapID", "number"),
+    Game::Doc::Req("x", "number"),
+    Game::Doc::Req("y", "number"),
+    Game::Doc::Req("opt", "number"),
+};
+const Game::Doc::Structure kQuestPoi{"QuestDetailsPOI", "QuestLog", kQuestPoiFields,
+                                     "A map location for a quest."};
+
+const Game::Doc::Field kQuestDetailsFields[] = {
+    Game::Doc::Req("questID", "number"),
+    Game::Doc::Req("title", "string"),
+    Game::Doc::Req("level", "number"),
+    Game::Doc::Opt("questType", "string", nullptr,
+                   "The quest's tag, such as \"Elite\"; nil for a quest with no tag."),
+    Game::Doc::Req("rewardMoney", "number", "In copper."),
+    Game::Doc::Req("requiredMoney", "number", "The copper that the quest takes; 0 for none."),
+    Game::Doc::Req("rewardMoneyAtMaxLevel", "number",
+                   "The copper that the quest adds at the maximum level."),
+    Game::Doc::Req("rewardSpellID", "number", "The spell that the quest teaches; 0 for none."),
+    Game::Doc::Req("srcItemID", "number",
+                   "The item that the player gets on accepting the quest; 0 for none."),
+    Game::Doc::Req("questFlags", "number"),
+    Game::Doc::Req("isSharable", "bool"),
+    Game::Doc::Req("description", "string",
+                   "The quest text, with tokens such as $N not replaced."),
+    Game::Doc::Req("objectives", "string", "The objectives text, with tokens not replaced."),
+    Game::Doc::Req("endText", "string", "Usually empty."),
+    Game::Doc::Opt("poi", "QuestDetailsPOI"),
+    Game::Doc::Req("rewardItems", "table", "Array of QuestDetailsItem."),
+    Game::Doc::Req("choiceItems", "table",
+                   "Array of QuestDetailsItem, from which the player picks one."),
+    Game::Doc::Req("requirements", "table",
+                   "Array of QuestDetailsRequirement; creatures and game objects first."),
+};
+const Game::Doc::Structure kQuestDetails{"QuestDetails", "QuestLog", kQuestDetailsFields,
+                                         "The static data of a quest."};
+
+const Game::Doc::Field kGetQuestDetailsRets[] = {
+    Game::Doc::Opt("details", "QuestDetails", nullptr, "Nil when the quest data is not loaded."),
+};
+const Game::Doc::Function kGetQuestDetails{"Returns the static data of a quest.", kQuestIDArgs,
+                                           kGetQuestDetailsRets, nullptr, true};
 
 int __fastcall Script_GetQuestDetails(void *L) {
     if (!Game::Lua::IsNumber(L, 1)) {
@@ -281,9 +353,9 @@ int __fastcall Script_GetQuestDetails(void *L) {
 
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_QuestLog", "GetQuestDetails",
-                                     &Script_GetQuestDetails);
+                                     &Script_GetQuestDetails, &kGetQuestDetails);
     Game::Lua::RegisterTableFunction("C_QuestLog", "GetNumQuestObjectives",
-                                     &Script_GetNumQuestObjectives);
+                                     &Script_GetNumQuestObjectives, &kGetNumQuestObjectives);
 }
 
 } // namespace

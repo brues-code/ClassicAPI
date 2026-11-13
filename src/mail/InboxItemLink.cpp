@@ -89,9 +89,24 @@ int __fastcall Script_GetInboxItemLink(void *L) {
     return 2;
 }
 
+const Game::Doc::Field kGetInboxItemLinkArgs[] = {
+    Game::Doc::Req("messageIndex", "luaIndex"),
+    Game::Doc::Opt("attachmentIndex", "luaIndex", nullptr,
+                   "Only 1 returns an item; a message has one attachment."),
+};
+const Game::Doc::Field kGetInboxItemLinkRets[] = {
+    Game::Doc::Opt("itemLink", "string", nullptr,
+                   "A link with the item ID only, without enchant or random suffix; nil, with "
+                   "itemID, when the message has no item."),
+    Game::Doc::Opt("itemID", "number", nullptr, "A ClassicAPI extension."),
+};
+const Game::Doc::Function kGetInboxItemLink{
+    "Returns the item link of the item attached to an inbox message.", kGetInboxItemLinkArgs,
+    kGetInboxItemLinkRets, "MailGlobals"};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("GetInboxItemLink",
-                                       &Script_GetInboxItemLink);
+                                       &Script_GetInboxItemLink, &kGetInboxItemLink);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

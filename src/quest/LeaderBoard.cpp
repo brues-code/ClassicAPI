@@ -123,9 +123,25 @@ static int __fastcall Script_GetQuestLogLeaderBoardID(void *L) {
     return 0;
 }
 
+static const Game::Doc::Field kGetQuestLogLeaderBoardIDArgs[] = {
+    Game::Doc::Req("objectiveIndex", "luaIndex",
+                   "Counts creature and game object objectives first, then items."),
+    Game::Doc::Opt("questIndex", "luaIndex", nullptr,
+                   "Position in the quest log; without it, the selected quest."),
+};
+static const Game::Doc::Field kGetQuestLogLeaderBoardIDRets[] = {
+    Game::Doc::Opt("id", "number", nullptr,
+                   "The creature, game object or item ID; nil, with kind, when there is none."),
+    Game::Doc::Opt("kind", "string", nullptr, "\"monster\", \"object\" or \"item\"."),
+};
+static const Game::Doc::Function kGetQuestLogLeaderBoardID{
+    "Returns the creature, game object or item that a quest objective needs.",
+    kGetQuestLogLeaderBoardIDArgs, kGetQuestLogLeaderBoardIDRets, "QuestLogGlobals", true};
+
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("GetQuestLogLeaderBoardID",
-                                      &Script_GetQuestLogLeaderBoardID);
+                                      &Script_GetQuestLogLeaderBoardID,
+                                      &kGetQuestLogLeaderBoardID);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

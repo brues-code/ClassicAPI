@@ -58,12 +58,28 @@ void ApplyNote(const uint8_t *entry, const char *note) {
         Event::Custom::Fire(Event::Custom::LookupByName("FRIENDLIST_UPDATE"), "");
 }
 
+const Game::Doc::Field kSetFriendNotesArgs[] = {
+    Game::Doc::Req("name", "cstring", "The friend's name; case does not matter."),
+    Game::Doc::Opt("notes", "cstring", nullptr, "Empty or nil clears the note."),
+};
+const Game::Doc::Function kSetFriendNotes{
+    "Sets the note for a friend by name; does nothing when the name is not a friend.",
+    kSetFriendNotesArgs, {}};
+
 int __fastcall Script_SetFriendNotes(void *L) {
     const char *name = Game::Lua::IsString(L, 1) ? Game::Lua::ToString(L, 1) : nullptr;
     const char *note = Game::Lua::IsString(L, 2) ? Game::Lua::ToString(L, 2) : nullptr;
     ApplyNote(FindByName(name), note);
     return 0;
 }
+
+const Game::Doc::Field kSetFriendNotesByIndexArgs[] = {
+    Game::Doc::Req("index", "luaIndex"),
+    Game::Doc::Opt("notes", "cstring", nullptr, "Empty or nil clears the note."),
+};
+const Game::Doc::Function kSetFriendNotesByIndex{
+    "Sets the note for a friend by position in the friends list.", kSetFriendNotesByIndexArgs,
+    {}};
 
 int __fastcall Script_SetFriendNotesByIndex(void *L) {
     if (!Game::Lua::IsNumber(L, 1))
@@ -77,9 +93,9 @@ int __fastcall Script_SetFriendNotesByIndex(void *L) {
 
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_FriendList", "SetFriendNotes",
-                                     &Script_SetFriendNotes);
+                                     &Script_SetFriendNotes, &kSetFriendNotes);
     Game::Lua::RegisterTableFunction("C_FriendList", "SetFriendNotesByIndex",
-                                     &Script_SetFriendNotesByIndex);
+                                     &Script_SetFriendNotesByIndex, &kSetFriendNotesByIndex);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

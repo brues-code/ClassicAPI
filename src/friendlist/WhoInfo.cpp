@@ -41,6 +41,14 @@ int WhoResultCount() {
 // number of entries you can index with GetWhoInfo; the second is the server's
 // total-match count (it can exceed the displayed list). Mirrors the vanilla
 // global's two returns.
+const Game::Doc::Field kGetNumWhoResultsRets[] = {
+    Game::Doc::Req("numWhos", "number", "The number of results that GetWhoInfo can return."),
+    Game::Doc::Req("totalNumWhos", "number",
+                   "The total that the server reports; its meaning depends on the server."),
+};
+const Game::Doc::Function kGetNumWhoResults{"Returns the number of results of the last /who query.",
+                                            {}, kGetNumWhoResultsRets};
+
 int __fastcall Script_GetNumWhoResults(void *L) {
     const int displayed = WhoResultCount();
     const int total = Game::Read<int>(
@@ -51,6 +59,27 @@ int __fastcall Script_GetNumWhoResults(void *L) {
 }
 
 // `C_FriendList.GetWhoInfo(index)` → WhoInfo table, or nil for a bad index.
+const Game::Doc::Field kWhoInfoFields[] = {
+    Game::Doc::Req("fullName", "string"),
+    Game::Doc::Req("fullGuildName", "string", "Empty when the player has no guild."),
+    Game::Doc::Req("level", "number"),
+    Game::Doc::Opt("raceStr", "string"),
+    Game::Doc::Opt("classStr", "string"),
+    Game::Doc::Opt("area", "string"),
+    Game::Doc::Opt("filename", "string", nullptr, "The class token, such as \"MAGE\"."),
+};
+const Game::Doc::Structure kWhoInfo{"WhoInfo", "FriendList", kWhoInfoFields,
+                                    "One player in the /who results."};
+
+const Game::Doc::Field kGetWhoInfoArgs[] = {
+    Game::Doc::Req("index", "luaIndex"),
+};
+const Game::Doc::Field kGetWhoInfoRets[] = {
+    Game::Doc::Opt("info", "WhoInfo", nullptr, "Nil when the index is out of range."),
+};
+const Game::Doc::Function kGetWhoInfo{"Returns one result of the last /who query.",
+                                      kGetWhoInfoArgs, kGetWhoInfoRets};
+
 int __fastcall Script_GetWhoInfo(void *L) {
     if (!Game::Lua::IsNumber(L, 1)) {
         Game::Lua::PushNil(L);
@@ -100,9 +129,9 @@ int __fastcall Script_GetWhoInfo(void *L) {
 
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_FriendList", "GetWhoInfo",
-                                     &Script_GetWhoInfo);
+                                     &Script_GetWhoInfo, &kGetWhoInfo);
     Game::Lua::RegisterTableFunction("C_FriendList", "GetNumWhoResults",
-                                     &Script_GetNumWhoResults);
+                                     &Script_GetNumWhoResults, &kGetNumWhoResults);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

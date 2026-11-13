@@ -78,9 +78,22 @@ int __fastcall Script_GetSendMailItemLink(void *L) {
     return 2;
 }
 
+const Game::Doc::Field kGetSendMailItemLinkArgs[] = {
+    Game::Doc::Opt("attachmentIndex", "luaIndex", nullptr,
+                   "Only 1 returns an item; a mail has one attachment."),
+};
+const Game::Doc::Field kGetSendMailItemLinkRets[] = {
+    Game::Doc::Opt("itemLink", "string", nullptr,
+                   "Nil, with itemID, when no item is attached."),
+    Game::Doc::Opt("itemID", "number", nullptr, "A ClassicAPI extension."),
+};
+const Game::Doc::Function kGetSendMailItemLink{
+    "Returns the item link of the item attached to the mail that the player writes.",
+    kGetSendMailItemLinkArgs, kGetSendMailItemLinkRets, "MailGlobals"};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("GetSendMailItemLink",
-                                       &Script_GetSendMailItemLink);
+                                       &Script_GetSendMailItemLink, &kGetSendMailItemLink);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

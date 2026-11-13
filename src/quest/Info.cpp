@@ -189,7 +189,7 @@ const Game::Doc::Field kGetInfoRets[] = {
     Game::Doc::Opt("info", "QuestInfo", nullptr, "Nil when the index is not a row of the log."),
 };
 const Game::Doc::Function kGetInfo{
-    "A table that describes one row of the quest log.", kIndexArgs, kGetInfoRets};
+    "Returns a table that describes one row of the quest log.", kIndexArgs, kGetInfoRets};
 
 const Game::Doc::Field kTitleRets[] = {
     Game::Doc::Req("title", "string", "Quest name, or the header text for a header row."),
@@ -212,7 +212,7 @@ const Game::Doc::Field kTitleRets[] = {
     Game::Doc::Req("isScaling", "bool"),
 };
 const Game::Doc::Function kGetQuestLogTitle{
-    "The title, level, header state and completion state of one row of the quest log.",
+    "Returns the title, level, header state and completion state of a quest log row.",
     kIndexArgs, kTitleRets};
 
 constexpr Game::Lua::EnumIntegerEntry kQuestFrequencyEntries[] = {

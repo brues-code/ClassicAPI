@@ -53,9 +53,28 @@ static int __fastcall Script_IsInGroup(void *L) {
     return 1;
 }
 
+namespace {
+
+const Game::Doc::Field kGroupTypeArgs[] = {
+    Game::Doc::Opt("groupType", "number", nullptr, "Ignored."),
+};
+const Game::Doc::Field kIsInRaidRets[] = {
+    Game::Doc::Req("isInRaid", "bool"),
+};
+const Game::Doc::Function kIsInRaid{"Returns whether the player is in a raid group.",
+                                    kGroupTypeArgs, kIsInRaidRets, "PartyInfoGlobals"};
+
+const Game::Doc::Field kIsInGroupRets[] = {
+    Game::Doc::Req("isInGroup", "bool"),
+};
+const Game::Doc::Function kIsInGroup{"Returns whether the player is in a party or a raid group.",
+                                     kGroupTypeArgs, kIsInGroupRets, "PartyInfoGlobals"};
+
+} // namespace
+
 static void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("IsInRaid", &Script_IsInRaid);
-    Game::Lua::RegisterGlobalFunction("IsInGroup", &Script_IsInGroup);
+    Game::Lua::RegisterGlobalFunction("IsInRaid", &Script_IsInRaid, &kIsInRaid);
+    Game::Lua::RegisterGlobalFunction("IsInGroup", &Script_IsInGroup, &kIsInGroup);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

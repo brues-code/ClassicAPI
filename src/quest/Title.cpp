@@ -18,6 +18,16 @@
 
 namespace Quest::Title {
 
+static const Game::Doc::Field kGetTitleForQuestIDArgs[] = {
+    Game::Doc::Req("questID", "number"),
+};
+static const Game::Doc::Field kGetTitleForQuestIDRets[] = {
+    Game::Doc::Opt("title", "cstring", nullptr, "Nil when the quest data is not loaded."),
+};
+static const Game::Doc::Function kGetTitleForQuestID{"Returns the title of a quest.",
+                                                     kGetTitleForQuestIDArgs,
+                                                     kGetTitleForQuestIDRets};
+
 // `C_QuestLog.GetTitleForQuestID(questID)` — reads the title out of the
 // engine's quest static-info cache. Returns nil if the data isn't loaded
 // (callers should pair with `C_QuestLog.RequestLoadQuestByID` and listen
@@ -54,7 +64,7 @@ static int __fastcall Script_GetTitleForQuestID(void *L) {
 
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_QuestLog", "GetTitleForQuestID",
-                                     &Script_GetTitleForQuestID);
+                                     &Script_GetTitleForQuestID, &kGetTitleForQuestID);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

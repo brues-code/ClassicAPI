@@ -20,7 +20,15 @@
 namespace Quest::Data {
 
 static constexpr const char *kQuestDataLoadResult = "QUEST_DATA_LOAD_RESULT";
-static const Event::Custom::AutoReserve _reserveQuestDataLoadResult{kQuestDataLoadResult};
+static const Game::Doc::Field kLoadResultPayload[] = {
+    Game::Doc::Req("questID", "number"),
+    Game::Doc::Opt("success", "number", nullptr, "1 when the data loaded, else nil."),
+};
+static const Game::Doc::Event kQuestDataLoadResultDoc{
+    "QuestLog", "Fires when quest data that C_QuestLog.RequestLoadQuestByID asked for loads.",
+    kLoadResultPayload};
+static const Event::Custom::AutoReserve _reserveQuestDataLoadResult{kQuestDataLoadResult,
+                                                                    &kQuestDataLoadResultDoc};
 
 // Same `__stdcall(userData, success)` shape as `Item::Data::ItemLoadCallback`.
 // The engine's invocation pattern at 0x00562EEB et al. is:
@@ -50,6 +58,13 @@ static void RequestAndMaybeNotify(uint32_t questID) {
     }
 }
 
+static const Game::Doc::Field kQuestIDArgs[] = {
+    Game::Doc::Req("questID", "number"),
+};
+static const Game::Doc::Function kRequestLoadQuestByID{
+    "Requests the data of a quest; QUEST_DATA_LOAD_RESULT fires when it is ready.", kQuestIDArgs,
+    {}};
+
 static int __fastcall Script_RequestLoadQuestByID(void *L) {
     if (!Game::Lua::IsNumber(L, 1)) {
         Game::Lua::Error(L, "Usage: C_QuestLog.RequestLoadQuestByID(questID)");
@@ -62,6 +77,13 @@ static int __fastcall Script_RequestLoadQuestByID(void *L) {
     return 0;
 }
 
+static const Game::Doc::Field kIsQuestDataCachedByIDRets[] = {
+    Game::Doc::Req("isCached", "bool"),
+};
+static const Game::Doc::Function kIsQuestDataCachedByID{
+    "Returns whether the data of a quest is loaded.", kQuestIDArgs, kIsQuestDataCachedByIDRets,
+    nullptr, true};
+
 static int __fastcall Script_IsQuestDataCachedByID(void *L) {
     const int questID =
         Game::Lua::IsNumber(L, 1) ? static_cast<int>(Game::Lua::ToNumber(L, 1)) : 0;
@@ -73,9 +95,9 @@ static int __fastcall Script_IsQuestDataCachedByID(void *L) {
 
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_QuestLog", "RequestLoadQuestByID",
-                                     &Script_RequestLoadQuestByID);
+                                     &Script_RequestLoadQuestByID, &kRequestLoadQuestByID);
     Game::Lua::RegisterTableFunction("C_QuestLog", "IsQuestDataCachedByID",
-                                     &Script_IsQuestDataCachedByID);
+                                     &Script_IsQuestDataCachedByID, &kIsQuestDataCachedByID);
     // Event name reserved at file scope via `AutoReserve`.
 }
 

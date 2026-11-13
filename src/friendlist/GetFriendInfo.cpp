@@ -88,6 +88,31 @@ void PushFriendInfo(void *L, const uint8_t *entry) {
     Game::Lua::SetFieldNumber(L, "rafLinkType", 0);
 }
 
+const Game::Doc::Field kFriendInfoFields[] = {
+    Game::Doc::Req("connected", "bool"),
+    Game::Doc::Req("name", "string"),
+    Game::Doc::Opt("className", "string"),
+    Game::Doc::Opt("classFilename", "string", nullptr,
+                   "The class token, such as \"MAGE\"; present whenever className is."),
+    Game::Doc::Opt("area", "string", nullptr, "The zone, never a sub-area."),
+    Game::Doc::Opt("notes", "string", nullptr, "Nil when the friend has no note."),
+    Game::Doc::Opt("guid", "WOWGUID"),
+    Game::Doc::Req("level", "number", "0 when not known."),
+    Game::Doc::Req("dnd", "bool"),
+    Game::Doc::Req("afk", "bool"),
+    Game::Doc::Req("mobile", "bool", "Always false."),
+    Game::Doc::Req("referAFriend", "bool", "Always false."),
+    Game::Doc::Req("rafLinkType", "number", "Always 0."),
+};
+const Game::Doc::Structure kFriendInfo{"FriendInfo", "FriendList", kFriendInfoFields,
+                                       "One player on the friends list."};
+
+const Game::Doc::Field kGetNumFriendsRets[] = {
+    Game::Doc::Req("numFriends", "number"),
+};
+const Game::Doc::Function kGetNumFriends{"Returns the number of players on the friends list.",
+                                         {}, kGetNumFriendsRets};
+
 int __fastcall Script_GetNumFriends(void *L) {
     Game::Lua::PushNumber(L, static_cast<double>(FriendList::Count()));
     return 1;
@@ -96,6 +121,13 @@ int __fastcall Script_GetNumFriends(void *L) {
 // `C_FriendList.GetNumOnlineFriends()` — how many friends are online. Vanilla
 // stores no online count, so we count entries whose `connected` byte is set
 // (the same flag GetFriendInfo reports as `connected`).
+const Game::Doc::Field kGetNumOnlineFriendsRets[] = {
+    Game::Doc::Req("numOnline", "number"),
+};
+const Game::Doc::Function kGetNumOnlineFriends{
+    "Returns the number of players on the friends list who are online.", {},
+    kGetNumOnlineFriendsRets};
+
 int __fastcall Script_GetNumOnlineFriends(void *L) {
     int online = 0;
     const int count = FriendList::Count();
@@ -109,6 +141,16 @@ int __fastcall Script_GetNumOnlineFriends(void *L) {
     Game::Lua::PushNumber(L, static_cast<double>(online));
     return 1;
 }
+
+const Game::Doc::Field kGetFriendInfoByIndexArgs[] = {
+    Game::Doc::Req("index", "luaIndex"),
+};
+const Game::Doc::Field kFriendInfoRets[] = {
+    Game::Doc::Opt("info", "FriendInfo", nullptr, "Nil when there is no such friend."),
+};
+const Game::Doc::Function kGetFriendInfoByIndex{
+    "Returns information about a friend by position in the friends list.",
+    kGetFriendInfoByIndexArgs, kFriendInfoRets};
 
 int __fastcall Script_GetFriendInfoByIndex(void *L) {
     if (!Game::Lua::IsNumber(L, 1)) {
@@ -128,6 +170,12 @@ int __fastcall Script_GetFriendInfoByIndex(void *L) {
     PushFriendInfo(L, entry);
     return 1;
 }
+
+const Game::Doc::Field kGetFriendInfoArgs[] = {
+    Game::Doc::Req("name", "cstring", "The friend's name; case does not matter."),
+};
+const Game::Doc::Function kGetFriendInfo{"Returns information about a friend by name.",
+                                         kGetFriendInfoArgs, kFriendInfoRets};
 
 int __fastcall Script_GetFriendInfo(void *L) {
     const char *name = Game::Lua::IsString(L, 1) ? Game::Lua::ToString(L, 1) : nullptr;
@@ -153,13 +201,13 @@ int __fastcall Script_GetFriendInfo(void *L) {
 
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_FriendList", "GetNumFriends",
-                                     &Script_GetNumFriends);
+                                     &Script_GetNumFriends, &kGetNumFriends);
     Game::Lua::RegisterTableFunction("C_FriendList", "GetNumOnlineFriends",
-                                     &Script_GetNumOnlineFriends);
+                                     &Script_GetNumOnlineFriends, &kGetNumOnlineFriends);
     Game::Lua::RegisterTableFunction("C_FriendList", "GetFriendInfoByIndex",
-                                     &Script_GetFriendInfoByIndex);
+                                     &Script_GetFriendInfoByIndex, &kGetFriendInfoByIndex);
     Game::Lua::RegisterTableFunction("C_FriendList", "GetFriendInfo",
-                                     &Script_GetFriendInfo);
+                                     &Script_GetFriendInfo, &kGetFriendInfo);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
