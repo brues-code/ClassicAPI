@@ -87,7 +87,15 @@ constexpr const char *kModifierStateChanged = "MODIFIER_STATE_CHANGED";
 // Static-init reservation — runs before DllMain. The
 // `RebuildEventTable` hook appends our name to the engine's event-
 // table input when the engine populates it.
-const Event::Custom::AutoReserve _reserveModifierStateChanged{kModifierStateChanged};
+const Game::Doc::Field kModifierStateChangedPayload[] = {
+    Game::Doc::Req("key", "cstring", "LSHIFT, RSHIFT, LCTRL, RCTRL, LALT or RALT."),
+    Game::Doc::Req("down", "number", "1 on press, 0 on release."),
+};
+const Game::Doc::Event kModifierStateChangedDoc{
+    "KeyBindings", "Fires when a modifier key is pressed or released.",
+    kModifierStateChangedPayload};
+const Event::Custom::AutoReserve _reserveModifierStateChanged{kModifierStateChanged,
+                                                              &kModifierStateChangedDoc};
 
 // Which side of each modifier the message hook last saw go down. Only
 // meaningful under the engine's held-key list (see HeldMask).
@@ -260,21 +268,42 @@ void InstallHook() {
     registerEx(Offsets::EVENT_ID_ACTIVATE, &OnActivate, nullptr, FLT_MAX);
 }
 
+const Game::Doc::Field kDownRets[] = {
+    Game::Doc::Opt("down", "number", nullptr, "1 when the key is down, otherwise nil."),
+};
+const Game::Doc::Function kIsLeftShiftKeyDown{"Returns whether the left Shift key is down.", {},
+                                              kDownRets, "InputGlobals"};
+const Game::Doc::Function kIsRightShiftKeyDown{"Returns whether the right Shift key is down.",
+                                               {}, kDownRets, "InputGlobals"};
+const Game::Doc::Function kIsLeftControlKeyDown{
+    "Returns whether the left Control key is down.", {}, kDownRets, "InputGlobals"};
+const Game::Doc::Function kIsRightControlKeyDown{
+    "Returns whether the right Control key is down.", {}, kDownRets, "InputGlobals"};
+const Game::Doc::Function kIsLeftAltKeyDown{"Returns whether the left Alt key is down.", {},
+                                            kDownRets, "InputGlobals"};
+const Game::Doc::Function kIsRightAltKeyDown{"Returns whether the right Alt key is down.", {},
+                                             kDownRets, "InputGlobals"};
+const Game::Doc::Field kAnyDownRets[] = {
+    Game::Doc::Opt("down", "number", nullptr, "1 when any of the keys is down, otherwise nil."),
+};
+const Game::Doc::Function kIsModifierKeyDown{
+    "Returns whether any Shift, Control or Alt key is down.", {}, kAnyDownRets, "InputGlobals"};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("IsLeftShiftKeyDown",
-                                      &Script_IsKeyDown<BIT_LSHIFT>);
+                                      &Script_IsKeyDown<BIT_LSHIFT>, &kIsLeftShiftKeyDown);
     Game::Lua::RegisterGlobalFunction("IsRightShiftKeyDown",
-                                      &Script_IsKeyDown<BIT_RSHIFT>);
+                                      &Script_IsKeyDown<BIT_RSHIFT>, &kIsRightShiftKeyDown);
     Game::Lua::RegisterGlobalFunction("IsLeftControlKeyDown",
-                                      &Script_IsKeyDown<BIT_LCTRL>);
+                                      &Script_IsKeyDown<BIT_LCTRL>, &kIsLeftControlKeyDown);
     Game::Lua::RegisterGlobalFunction("IsRightControlKeyDown",
-                                      &Script_IsKeyDown<BIT_RCTRL>);
+                                      &Script_IsKeyDown<BIT_RCTRL>, &kIsRightControlKeyDown);
     Game::Lua::RegisterGlobalFunction("IsLeftAltKeyDown",
-                                      &Script_IsKeyDown<BIT_LALT>);
+                                      &Script_IsKeyDown<BIT_LALT>, &kIsLeftAltKeyDown);
     Game::Lua::RegisterGlobalFunction("IsRightAltKeyDown",
-                                      &Script_IsKeyDown<BIT_RALT>);
+                                      &Script_IsKeyDown<BIT_RALT>, &kIsRightAltKeyDown);
     Game::Lua::RegisterGlobalFunction("IsModifierKeyDown",
-                                      &Script_IsModifierKeyDown);
+                                      &Script_IsModifierKeyDown, &kIsModifierKeyDown);
 
     InstallHook();
 }

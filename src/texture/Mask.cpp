@@ -556,11 +556,72 @@ const Game::Lua::FrameMethodEntry g_frameMethods[] = {
     {"CreateMaskTexture", &Script_CreateMaskTexture},
 };
 
+const Game::Doc::Field kSetMaskArgs[] = {
+    Game::Doc::Opt("file", "cstring", nullptr,
+                   "A texture whose alpha channel is the shape; nil or an empty string removes "
+                   "the mask."),
+};
+const Game::Doc::Function kSetMask{"Clips the texture to the shape of a mask file.",
+                                   kSetMaskArgs, {}};
+
+const Game::Doc::Field kAddMaskTextureArgs[] = {
+    Game::Doc::Req("mask", "SimpleMaskTexture"),
+};
+const Game::Doc::Function kAddMaskTexture{
+    "Clips the texture to a mask texture's shape and position; several masks intersect.",
+    kAddMaskTextureArgs, {}};
+
+const Game::Doc::Field kRemoveMaskTextureArgs[] = {
+    Game::Doc::Opt("mask", "SimpleMaskTexture", nullptr, "Omitted removes every mask."),
+};
+const Game::Doc::Function kRemoveMaskTexture{"Removes a mask texture from the texture.",
+                                             kRemoveMaskTextureArgs, {}};
+
+const Game::Doc::Field kGetNumMaskTexturesRets[] = {
+    Game::Doc::Req("count", "number", "Does not count a mask set with SetMask."),
+};
+const Game::Doc::Function kGetNumMaskTextures{
+    "Returns the number of mask textures attached to the texture.", {}, kGetNumMaskTexturesRets};
+
+const Game::Doc::Field kGetMaskTextureArgs[] = {
+    Game::Doc::Opt("index", "luaIndex", "1", "1 is the first mask added."),
+};
+const Game::Doc::Field kGetMaskTextureRets[] = {
+    Game::Doc::Opt("mask", "SimpleMaskTexture", nullptr, "Nil when no mask has the index."),
+};
+const Game::Doc::Function kGetMaskTexture{"Returns a mask texture attached to the texture.",
+                                          kGetMaskTextureArgs, kGetMaskTextureRets};
+
+const Game::Doc::Field kCreateMaskTextureArgs[] = {
+    Game::Doc::Opt("name", "cstring"),
+    Game::Doc::Opt("drawLayer", "DrawLayer"),
+    Game::Doc::Opt("templateName", "cstring"),
+};
+const Game::Doc::Field kCreateMaskTextureRets[] = {
+    Game::Doc::Req("maskTexture", "SimpleMaskTexture",
+                   "A texture that is never drawn and clips the textures it is added to."),
+};
+const Game::Doc::Function kCreateMaskTexture{"Creates a mask texture on the frame.",
+                                             kCreateMaskTextureArgs, kCreateMaskTextureRets};
+
+const Game::Doc::Method g_methodDocs[] = {
+    {"SetMask", &kSetMask},
+    {"AddMaskTexture", &kAddMaskTexture},
+    {"RemoveMaskTexture", &kRemoveMaskTexture},
+    {"GetNumMaskTextures", &kGetNumMaskTextures},
+    {"GetMaskTexture", &kGetMaskTexture},
+};
+
+const Game::Doc::Method g_frameMethodDocs[] = {
+    {"CreateMaskTexture", &kCreateMaskTexture},
+};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterFrameMethods(
-        reinterpret_cast<void *>(Offsets::VAR_TEXTURE_METHOD_REGISTRY), g_methods);
+        reinterpret_cast<void *>(Offsets::VAR_TEXTURE_METHOD_REGISTRY), g_methods, g_methodDocs);
     Game::Lua::RegisterFrameMethods(
-        reinterpret_cast<void *>(Offsets::VAR_FRAME_METHOD_REGISTRY), g_frameMethods);
+        reinterpret_cast<void *>(Offsets::VAR_FRAME_METHOD_REGISTRY), g_frameMethods,
+        g_frameMethodDocs);
     Game::Lua::RegisterGlobalFunction("_classicapi_TextureMaskEnable", &Script_TextureMaskEnable);
 }
 

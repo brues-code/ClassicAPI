@@ -562,17 +562,187 @@ const Game::Lua::FrameMethodEntry g_fontStringMethods[] = {
     {"GetEffectiveScale", &Script_GetRegionEffectiveScale},
 };
 
+// ---- Documentation ---------------------------------------------------------
+
+const Game::Doc::Field kSetSizeArgs[] = {
+    Game::Doc::Req("x", "uiUnit"),
+    Game::Doc::Req("y", "uiUnit"),
+};
+const Game::Doc::Function kSetSize{"Sets the width and the height of the region.", kSetSizeArgs,
+                                   {}};
+
+const Game::Doc::Field kIgnoreRectArgs[] = {
+    Game::Doc::Opt("ignoreRect", "bool", "false",
+                   "True returns only the set size, which is 0 for a region with none."),
+};
+const Game::Doc::Field kSizeRets[] = {
+    Game::Doc::Req("width", "uiUnit"),
+    Game::Doc::Req("height", "uiUnit"),
+};
+const Game::Doc::Field kWidthRets[] = {
+    Game::Doc::Req("width", "uiUnit"),
+};
+const Game::Doc::Field kHeightRets[] = {
+    Game::Doc::Req("height", "uiUnit"),
+};
+const Game::Doc::Function kGetSize{
+    "Returns the width and the height of the region; a size from anchors is multiplied by the "
+    "effective scale.",
+    kIgnoreRectArgs, kSizeRets};
+const Game::Doc::Function kGetWidth{
+    "Returns the width of the region; a width from anchors is multiplied by the effective "
+    "scale.",
+    kIgnoreRectArgs, kWidthRets};
+const Game::Doc::Function kGetHeight{
+    "Returns the height of the region; a height from anchors is multiplied by the effective "
+    "scale.",
+    kIgnoreRectArgs, kHeightRets};
+const Game::Doc::Function kGetUnscaledSize{
+    "Returns the width and the height of the region in the units of GetTop and GetBottom.",
+    kIgnoreRectArgs, kSizeRets, nullptr, true};
+const Game::Doc::Function kGetUnscaledWidth{
+    "Returns the width of the region in the units of GetLeft and GetRight.", kIgnoreRectArgs,
+    kWidthRets, nullptr, true};
+const Game::Doc::Function kGetUnscaledHeight{
+    "Returns the height of the region in the units of GetTop and GetBottom.", kIgnoreRectArgs,
+    kHeightRets, nullptr, true};
+
+const Game::Doc::Field kIsMouseOverArgs[] = {
+    Game::Doc::Opt("offsetTop", "uiUnit", "0", "Added to the top edge before the test."),
+    Game::Doc::Opt("offsetBottom", "uiUnit", "0", "Added to the bottom edge."),
+    Game::Doc::Opt("offsetLeft", "uiUnit", "0", "Added to the left edge."),
+    Game::Doc::Opt("offsetRight", "uiUnit", "0", "Added to the right edge."),
+};
+const Game::Doc::Field kIsMouseOverRets[] = {
+    Game::Doc::Req("isMouseOver", "bool", "False for a region with no position."),
+};
+const Game::Doc::Function kIsMouseOver{
+    "Returns whether the cursor is inside the region's rectangle.", kIsMouseOverArgs,
+    kIsMouseOverRets};
+
+const Game::Doc::Field kRectRets[] = {
+    Game::Doc::Req("left", "uiUnit"),
+    Game::Doc::Req("bottom", "uiUnit"),
+    Game::Doc::Req("width", "uiUnit"),
+    Game::Doc::Req("height", "uiUnit"),
+};
+const Game::Doc::Function kGetRect{
+    "Returns the region's left, bottom, width and height; returns nothing for a region with no "
+    "position.",
+    {}, kRectRets};
+const Game::Doc::Function kGetScaledRect{
+    "Returns the four values of GetRect multiplied by the effective scale; returns nothing for "
+    "a region with no position.",
+    {}, kRectRets};
+
+const Game::Doc::Field kIsDraggingRets[] = {
+    Game::Doc::Req("isDragging", "bool"),
+};
+const Game::Doc::Function kIsDragging{
+    "Returns whether the region is the frame the mouse is moving or resizing now.", {},
+    kIsDraggingRets};
+
+const Game::Doc::Field kSetShownArgs[] = {
+    Game::Doc::Opt("shown", "bool", "false"),
+};
+const Game::Doc::Function kSetShown{"Shows the object when shown is true and hides it otherwise.",
+                                    kSetShownArgs, {}};
+
+const Game::Doc::Field kSetResizeBoundsArgs[] = {
+    Game::Doc::Req("minWidth", "uiUnit"),
+    Game::Doc::Req("minHeight", "uiUnit"),
+    Game::Doc::Opt("maxWidth", "uiUnit", nullptr, "Applied only together with maxHeight."),
+    Game::Doc::Opt("maxHeight", "uiUnit"),
+};
+const Game::Doc::Function kSetResizeBounds{
+    "Sets the smallest and largest size the frame can be resized to.", kSetResizeBoundsArgs,
+    {}};
+
+const Game::Doc::Field kHookScriptArgs[] = {
+    Game::Doc::Req("scriptTypeName", "cstring"),
+    Game::Doc::Req("script", "function",
+                   "Runs after the current handler, with the same arguments."),
+    Game::Doc::Opt("bindingType", "number", nullptr,
+                   "LE_SCRIPT_BINDING_TYPE_INTRINSIC_PRECALL or "
+                   "LE_SCRIPT_BINDING_TYPE_INTRINSIC_POSTCALL hooks that intrinsic script "
+                   "instead."),
+};
+const Game::Doc::Function kHookScript{"Adds a function that runs after a script's handler.",
+                                      kHookScriptArgs, {}};
+
+const Game::Doc::Field kGetEffectiveAlphaRets[] = {
+    Game::Doc::Req("effectiveAlpha", "number",
+                   "The frame's alpha multiplied by the alpha of its parents, in steps of 1/255."),
+};
+const Game::Doc::Function kGetEffectiveAlpha{"Returns the alpha the frame is drawn with.", {},
+                                             kGetEffectiveAlphaRets};
+
+const Game::Doc::Field kFontArgs[] = {
+    Game::Doc::Req("font", "SimpleFont"),
+};
+const Game::Doc::Field kFontRets[] = {
+    Game::Doc::Opt("font", "SimpleFont"),
+};
+const Game::Doc::Function kSetNormalFontObject{
+    "Sets the font of the button's text in its normal state.", kFontArgs, {}};
+const Game::Doc::Function kGetNormalFontObject{
+    "Returns the font of the button's text in its normal state.", {}, kFontRets};
+
+const Game::Doc::Field kScaleRets[] = {
+    Game::Doc::Req("scale", "number", "Always 1."),
+};
+const Game::Doc::Function kGetRegionScale{"Returns the region's own scale.", {}, kScaleRets};
+const Game::Doc::Field kEffectiveScaleRets[] = {
+    Game::Doc::Req("effectiveScale", "number"),
+};
+const Game::Doc::Function kGetRegionEffectiveScale{
+    "Returns the effective scale of the frame that owns the region.", {}, kEffectiveScaleRets};
+
+const Game::Doc::Method g_regionMethodDocs[] = {
+    {"SetSize", &kSetSize},
+    {"GetSize", &kGetSize},
+    {"GetWidth", &kGetWidth},
+    {"GetHeight", &kGetHeight},
+    {"GetUnscaledSize", &kGetUnscaledSize},
+    {"GetUnscaledWidth", &kGetUnscaledWidth},
+    {"GetUnscaledHeight", &kGetUnscaledHeight},
+    {"IsMouseOver", &kIsMouseOver},
+    {"GetRect", &kGetRect},
+    {"GetScaledRect", &kGetScaledRect},
+    {"IsDragging", &kIsDragging},
+};
+const Game::Doc::Method g_frameMethodDocs[] = {
+    {"SetShown", &kSetShown},
+    {"SetResizeBounds", &kSetResizeBounds},
+    {"HookScript", &kHookScript},
+    {"GetEffectiveAlpha", &kGetEffectiveAlpha},
+};
+const Game::Doc::Method g_buttonMethodDocs[] = {
+    {"SetNormalFontObject", &kSetNormalFontObject},
+    {"GetNormalFontObject", &kGetNormalFontObject},
+};
+const Game::Doc::Method g_regionScaleMethodDocs[] = {
+    {"SetShown", &kSetShown},
+    {"GetScale", &kGetRegionScale},
+    {"GetEffectiveScale", &kGetRegionEffectiveScale},
+};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterFrameMethods(
-        reinterpret_cast<void *>(Offsets::VAR_REGION_METHOD_REGISTRY), g_regionMethods);
+        reinterpret_cast<void *>(Offsets::VAR_REGION_METHOD_REGISTRY), g_regionMethods,
+        g_regionMethodDocs);
     Game::Lua::RegisterFrameMethods(
-        reinterpret_cast<void *>(Offsets::VAR_FRAME_METHOD_REGISTRY), g_frameMethods);
+        reinterpret_cast<void *>(Offsets::VAR_FRAME_METHOD_REGISTRY), g_frameMethods,
+        g_frameMethodDocs);
     Game::Lua::RegisterFrameMethods(
-        reinterpret_cast<void *>(Offsets::VAR_BUTTON_METHOD_REGISTRY), g_buttonMethods);
+        reinterpret_cast<void *>(Offsets::VAR_BUTTON_METHOD_REGISTRY), g_buttonMethods,
+        g_buttonMethodDocs);
     Game::Lua::RegisterFrameMethods(
-        reinterpret_cast<void *>(Offsets::VAR_TEXTURE_METHOD_REGISTRY), g_textureMethods);
+        reinterpret_cast<void *>(Offsets::VAR_TEXTURE_METHOD_REGISTRY), g_textureMethods,
+        g_regionScaleMethodDocs);
     Game::Lua::RegisterFrameMethods(
-        reinterpret_cast<void *>(Offsets::VAR_FONTSTRING_METHOD_REGISTRY), g_fontStringMethods);
+        reinterpret_cast<void *>(Offsets::VAR_FONTSTRING_METHOD_REGISTRY), g_fontStringMethods,
+        g_regionScaleMethodDocs);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

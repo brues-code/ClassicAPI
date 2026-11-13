@@ -226,9 +226,28 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"SetTexture", &Script_SetTexture},
 };
 
+const Game::Doc::Field kSetTextureArgs[] = {
+    Game::Doc::Opt("textureAsset", "cstring", nullptr,
+                   "A file path; nil or an empty string clears the image."),
+    Game::Doc::Opt("wrapModeHorizontal", "cstring", nullptr,
+                   "\"REPEAT\" or true repeats; any other value clamps."),
+    Game::Doc::Opt("wrapModeVertical", "cstring", nullptr,
+                   "\"REPEAT\" or true repeats; any other value clamps."),
+};
+const Game::Doc::Field kSetTextureRets[] = {
+    Game::Doc::Opt("success", "number", nullptr, "1, or nil when the file did not load."),
+};
+const Game::Doc::Function kSetTexture{
+    "Sets the image file the texture shows and the wrap mode of each axis.", kSetTextureArgs,
+    kSetTextureRets};
+
+const Game::Doc::Method g_methodDocs[] = {
+    {"SetTexture", &kSetTexture},
+};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterFrameMethods(
-        reinterpret_cast<void *>(Offsets::VAR_TEXTURE_METHOD_REGISTRY), g_methods);
+        reinterpret_cast<void *>(Offsets::VAR_TEXTURE_METHOD_REGISTRY), g_methods, g_methodDocs);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

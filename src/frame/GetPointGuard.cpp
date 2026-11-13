@@ -196,9 +196,30 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"GetPoint", &GetPoint_h},
 };
 
+const Game::Doc::Field kGetPointArgs[] = {
+    Game::Doc::Opt("anchorIndex", "luaIndex", "1",
+                   "Anchors count in point order, from TOPLEFT to BOTTOMRIGHT."),
+};
+const Game::Doc::Field kGetPointRets[] = {
+    Game::Doc::Req("point", "FramePoint"),
+    Game::Doc::Opt("relativeTo", "ScriptRegion", nullptr,
+                   "Nil when the anchor is relative to the screen."),
+    Game::Doc::Req("relativePoint", "FramePoint"),
+    Game::Doc::Req("offsetX", "uiUnit"),
+    Game::Doc::Req("offsetY", "uiUnit"),
+};
+const Game::Doc::Function kGetPoint{
+    "Returns one anchor of the region; returns nothing when the region has no anchor at the "
+    "index.",
+    kGetPointArgs, kGetPointRets};
+
+const Game::Doc::Method g_methodDocs[] = {
+    {"GetPoint", &kGetPoint},
+};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterFrameMethods(
-        reinterpret_cast<void *>(Offsets::VAR_REGION_METHOD_REGISTRY), g_methods);
+        reinterpret_cast<void *>(Offsets::VAR_REGION_METHOD_REGISTRY), g_methods, g_methodDocs);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

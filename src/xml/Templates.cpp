@@ -207,15 +207,66 @@ int __fastcall Script_DoesTemplateExist(void *L) {
     return 1;
 }
 
+// ---- Documentation ---------------------------------------------------------
+
+const Game::Doc::Field kListInfoFields[] = {
+    Game::Doc::Req("name", "cstring"),
+    Game::Doc::Req("type", "cstring", "The XML element the template is declared with."),
+};
+const Game::Doc::Structure kListInfo{"XMLTemplateListInfo", "XMLUtil", kListInfoFields};
+
+const Game::Doc::Field kKeyValueFields[] = {
+    Game::Doc::Req("key", "cstring"),
+    Game::Doc::Req("keyType", "cstring", "\"string\" when the file leaves it out."),
+    Game::Doc::Req("type", "cstring", "\"string\" when the file leaves it out."),
+    Game::Doc::Req("value", "cstring"),
+};
+const Game::Doc::Structure kKeyValue{"XMLTemplateKeyValue", "XMLUtil", kKeyValueFields};
+
+const Game::Doc::Field kInfoFields[] = {
+    Game::Doc::Req("type", "cstring", "The XML element the template is declared with."),
+    Game::Doc::Req("width", "number",
+                   "The size the template itself declares, or 0 when it declares none."),
+    Game::Doc::Req("height", "number"),
+    Game::Doc::Req("keyValues", "table",
+                   "An array of XMLTemplateKeyValue: the template's own KeyValues, in file "
+                   "order."),
+    Game::Doc::Opt("inherits", "cstring", nullptr, "The template's inherits attribute."),
+    Game::Doc::Opt("sourceLocation", "string", nullptr, "Never set."),
+};
+const Game::Doc::Structure kInfo{"XMLTemplateInfo", "XMLUtil", kInfoFields};
+
+const Game::Doc::Field kGetTemplatesRets[] = {
+    Game::Doc::Req("templates", "table", "An array of XMLTemplateListInfo, in no set order."),
+};
+const Game::Doc::Function kGetTemplates{"Returns every virtual XML frame template.", {},
+                                        kGetTemplatesRets};
+
+const Game::Doc::Field kNameArgs[] = {
+    Game::Doc::Req("name", "cstring", "Not case sensitive."),
+};
+const Game::Doc::Field kGetTemplateInfoRets[] = {
+    Game::Doc::Opt("info", "XMLTemplateInfo", nullptr, "Nil when no template has the name."),
+};
+const Game::Doc::Function kGetTemplateInfo{"Returns a description of a virtual XML template.",
+                                           kNameArgs, kGetTemplateInfoRets};
+
+const Game::Doc::Field kDoesTemplateExistRets[] = {
+    Game::Doc::Req("exists", "bool"),
+};
+const Game::Doc::Function kDoesTemplateExist{
+    "Returns whether a virtual XML template has the name.", kNameArgs, kDoesTemplateExistRets,
+    nullptr, true};
+
 } // namespace
 
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_XMLUtil", "GetTemplates",
-                                     &Script_GetTemplates);
+                                     &Script_GetTemplates, &kGetTemplates);
     Game::Lua::RegisterTableFunction("C_XMLUtil", "GetTemplateInfo",
-                                     &Script_GetTemplateInfo);
+                                     &Script_GetTemplateInfo, &kGetTemplateInfo);
     Game::Lua::RegisterTableFunction("C_XMLUtil", "DoesTemplateExist",
-                                     &Script_DoesTemplateExist);
+                                     &Script_DoesTemplateExist, &kDoesTemplateExist);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

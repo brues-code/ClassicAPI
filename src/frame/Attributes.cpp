@@ -1163,9 +1163,52 @@ const Game::Lua::FrameMethodEntry g_frameMethods[] = {
     {"GetAttribute", &Script_GetAttribute},
 };
 
+const Game::Doc::Field kSetAttributeArgs[] = {
+    Game::Doc::Req("attributeName", "cstring", "Not case sensitive."),
+    Game::Doc::Req("value", "any", "Any Lua value; nil clears the attribute."),
+};
+const Game::Doc::Function kSetAttribute{
+    "Sets a frame attribute and runs the frame's OnAttributeChanged script.", kSetAttributeArgs,
+    {}};
+const Game::Doc::Function kSetAttributeNoHandler{
+    "Sets a frame attribute without running the frame's OnAttributeChanged script.",
+    kSetAttributeArgs, {}};
+
+const Game::Doc::Field kClearAttributeArgs[] = {
+    Game::Doc::Req("attributeName", "cstring"),
+};
+const Game::Doc::Field kClearAttributeRets[] = {
+    Game::Doc::Req("cleared", "bool", "True when the attribute was set."),
+};
+const Game::Doc::Function kClearAttribute{
+    "Removes a frame attribute without running the frame's OnAttributeChanged script.",
+    kClearAttributeArgs, kClearAttributeRets};
+
+const Game::Doc::Field kGetAttributeArgs[] = {
+    Game::Doc::Req("attributeName", "cstring",
+                   "With exactly three arguments this is the prefix, and the first set "
+                   "attribute among prefix..name..suffix, \"*\"..name..suffix, "
+                   "prefix..name..\"*\", \"*\"..name..\"*\" and name is returned."),
+    Game::Doc::Opt("name", "cstring", nullptr, "The name in the three-argument form."),
+    Game::Doc::Opt("suffix", "cstring", nullptr, "The suffix in the three-argument form."),
+};
+const Game::Doc::Field kGetAttributeRets[] = {
+    Game::Doc::Opt("value", "any"),
+};
+const Game::Doc::Function kGetAttribute{"Returns the value of a frame attribute.",
+                                        kGetAttributeArgs, kGetAttributeRets};
+
+const Game::Doc::Method g_frameMethodDocs[] = {
+    {"SetAttribute", &kSetAttribute},
+    {"SetAttributeNoHandler", &kSetAttributeNoHandler},
+    {"ClearAttribute", &kClearAttribute},
+    {"GetAttribute", &kGetAttribute},
+};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterFrameMethods(
-        reinterpret_cast<void *>(Offsets::VAR_FRAME_METHOD_REGISTRY), g_frameMethods);
+        reinterpret_cast<void *>(Offsets::VAR_FRAME_METHOD_REGISTRY), g_frameMethods,
+        g_frameMethodDocs);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

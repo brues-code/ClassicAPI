@@ -527,6 +527,111 @@ int __fastcall Script_DumpAtlasMisses(void *L) {
     return 1;
 }
 
+// --- documentation ----------------------------------------------------------
+
+const Game::Doc::Field kSetAtlasArgs[] = {
+    Game::Doc::Req("atlas", "textureAtlas",
+                   "An unknown name leaves the texture showing what it showed before."),
+    Game::Doc::Opt("useAtlasSize", "bool", "false",
+                   "True also resizes the texture to the art's own size."),
+    Game::Doc::Opt("filterMode", "FilterMode", nullptr, "Ignored."),
+    Game::Doc::Opt("resetTexCoords", "bool", nullptr, "Ignored."),
+    Game::Doc::Opt("wrapModeHorizontal", "cstring", nullptr, "Ignored."),
+    Game::Doc::Opt("wrapModeVertical", "cstring", nullptr, "Ignored."),
+};
+const Game::Doc::Function kSetAtlas{
+    "Sets the texture to a named piece of art: its file and the rectangle inside it.",
+    kSetAtlasArgs, {}};
+
+const Game::Doc::Field kGetAtlasRets[] = {
+    Game::Doc::Opt("atlas", "textureAtlas", nullptr,
+                   "Nil when the texture no longer shows the atlas last set on it."),
+};
+const Game::Doc::Function kGetAtlas{"Returns the name of the atlas the texture shows.", {},
+                                    kGetAtlasRets};
+
+const Game::Doc::Function kResetTexCoord{
+    "Clears a texture-coordinate crop so the texture shows all of its atlas or file.", {}, {}};
+
+const Game::Doc::Field kAtlasInfoFields[] = {
+    Game::Doc::Req("elementName", "cstring", "The name in its canonical spelling."),
+    Game::Doc::Req("width", "number"),
+    Game::Doc::Req("height", "number"),
+    Game::Doc::Req("leftTexCoord", "number"),
+    Game::Doc::Req("rightTexCoord", "number"),
+    Game::Doc::Req("topTexCoord", "number"),
+    Game::Doc::Req("bottomTexCoord", "number"),
+    Game::Doc::Req("tilesHorizontally", "bool"),
+    Game::Doc::Req("tilesVertically", "bool"),
+    Game::Doc::Opt("file", "fileID", nullptr, "Never set; the texture is named by filename."),
+    Game::Doc::Opt("filename", "string", nullptr, "Path of the texture that holds the art."),
+};
+const Game::Doc::Structure kAtlasInfo{"AtlasInfo", "Texture", kAtlasInfoFields};
+
+const Game::Doc::Field kAtlasArgs[] = {
+    Game::Doc::Req("atlas", "textureAtlas"),
+};
+const Game::Doc::Field kGetAtlasInfoRets[] = {
+    Game::Doc::Opt("info", "AtlasInfo", nullptr, "Nil when the name is not known."),
+};
+const Game::Doc::Function kGetAtlasInfo{"Returns a description of an atlas.", kAtlasArgs,
+                                        kGetAtlasInfoRets};
+
+const Game::Doc::Field kGetAtlasExistsRets[] = {
+    Game::Doc::Req("atlasExists", "bool"),
+};
+const Game::Doc::Function kGetAtlasExists{"Returns whether an atlas name is known.", kAtlasArgs,
+                                          kGetAtlasExistsRets};
+
+const Game::Doc::Field kGetAtlasIDRets[] = {
+    Game::Doc::Opt("atlasID", "number", nullptr,
+                   "Negative for an atlas added with RegisterAtlas; nil when the name is not "
+                   "known."),
+};
+const Game::Doc::Function kGetAtlasID{"Returns the ID of the sheet that holds an atlas.",
+                                      kAtlasArgs, kGetAtlasIDRets};
+
+const Game::Doc::Field kGetAtlasElementIDRets[] = {
+    Game::Doc::Opt("elementID", "number", nullptr,
+                   "Negative for an atlas added with RegisterAtlas; nil when the name is not "
+                   "known."),
+};
+const Game::Doc::Function kGetAtlasElementID{"Returns the ID of one atlas element.", kAtlasArgs,
+                                             kGetAtlasElementIDRets};
+
+const Game::Doc::Field kGetAtlasElementsRets[] = {
+    Game::Doc::Req("atlases", "table",
+                   "An array of every known atlas name, in alphabetical order."),
+};
+const Game::Doc::Function kGetAtlasElements{"Returns the names of all known atlases.", {},
+                                            kGetAtlasElementsRets};
+
+const Game::Doc::Field kRegisterAtlasArgs[] = {
+    Game::Doc::Req("name", "string"),
+    Game::Doc::Req("file", "string", "Texture path, without the file extension."),
+    Game::Doc::Req("width", "number", "Size of the art in pixels, used by useAtlasSize."),
+    Game::Doc::Req("height", "number"),
+    Game::Doc::Opt("left", "number", "0", "Rectangle edges inside the file, from 0 to 1."),
+    Game::Doc::Opt("right", "number", "1"),
+    Game::Doc::Opt("top", "number", "0"),
+    Game::Doc::Opt("bottom", "number", "1"),
+    Game::Doc::Opt("tilesHorizontally", "bool", "false"),
+    Game::Doc::Opt("tilesVertically", "bool", "false"),
+};
+const Game::Doc::Field kRegisterAtlasRets[] = {
+    Game::Doc::Req("success", "bool", "Always true."),
+};
+const Game::Doc::Function kRegisterAtlas{
+    "Adds or replaces an atlas name that points at an addon's own art; a replaced name keeps "
+    "its IDs.",
+    kRegisterAtlasArgs, kRegisterAtlasRets, nullptr, true};
+
+const Game::Doc::Method g_textureMethodDocs[] = {
+    {"SetAtlas", &kSetAtlas},
+    {"GetAtlas", &kGetAtlas},
+    {"ResetTexCoord", &kResetTexCoord},
+};
+
 // --- registration -----------------------------------------------------------
 
 const Game::Lua::FrameMethodEntry g_textureMethods[] = {
@@ -537,16 +642,21 @@ const Game::Lua::FrameMethodEntry g_textureMethods[] = {
 
 void RegisterLuaFunctions() {
     Game::Lua::RegisterFrameMethods(
-        reinterpret_cast<void *>(Offsets::VAR_TEXTURE_METHOD_REGISTRY), g_textureMethods);
+        reinterpret_cast<void *>(Offsets::VAR_TEXTURE_METHOD_REGISTRY), g_textureMethods,
+        g_textureMethodDocs);
 
-    Game::Lua::RegisterTableFunction("C_Texture", "GetAtlasInfo", &Script_GetAtlasInfo);
-    Game::Lua::RegisterTableFunction("C_Texture", "GetAtlasExists", &Script_GetAtlasExists);
-    Game::Lua::RegisterTableFunction("C_Texture", "GetAtlasID", &Script_GetAtlasID);
+    Game::Lua::RegisterTableFunction("C_Texture", "GetAtlasInfo", &Script_GetAtlasInfo,
+                                     &kGetAtlasInfo);
+    Game::Lua::RegisterTableFunction("C_Texture", "GetAtlasExists", &Script_GetAtlasExists,
+                                     &kGetAtlasExists);
+    Game::Lua::RegisterTableFunction("C_Texture", "GetAtlasID", &Script_GetAtlasID,
+                                     &kGetAtlasID);
     Game::Lua::RegisterTableFunction("C_Texture", "GetAtlasElementID",
-                                     &Script_GetAtlasElementID);
+                                     &Script_GetAtlasElementID, &kGetAtlasElementID);
     Game::Lua::RegisterTableFunction("C_Texture", "GetAtlasElements",
-                                     &Script_GetAtlasElements);
-    Game::Lua::RegisterTableFunction("C_Texture", "RegisterAtlas", &Script_RegisterAtlas);
+                                     &Script_GetAtlasElements, &kGetAtlasElements);
+    Game::Lua::RegisterTableFunction("C_Texture", "RegisterAtlas", &Script_RegisterAtlas,
+                                     &kRegisterAtlas);
 
     Game::Lua::RegisterGlobalFunction("_classicapi_DumpAtlasMisses", &Script_DumpAtlasMisses);
 }

@@ -262,10 +262,30 @@ const Game::Doc::Field kGetPaddingRets[] = {
 };
 const Game::Doc::Function kGetPadding{"Returns the padding of the tooltip.", {}, kGetPaddingRets};
 
+const Game::Doc::Field kSetOwnerArgs[] = {
+    Game::Doc::Req("owner", "SimpleFrame"),
+    Game::Doc::Opt("anchorType", "string", "\"ANCHOR_LEFT\"",
+                   "An anchor name such as \"ANCHOR_RIGHT\", \"ANCHOR_TOP\" or "
+                   "\"ANCHOR_CURSOR\"; an unknown name is \"ANCHOR_LEFT\"."),
+    Game::Doc::Opt("xOffset", "number", "0", "Horizontal offset in pixels."),
+    Game::Doc::Opt("yOffset", "number", "0", "Vertical offset in pixels."),
+};
+const Game::Doc::Function kSetOwner{
+    "Hides the tooltip and sets the frame it belongs to and how it is anchored to that frame.",
+    kSetOwnerArgs, {}};
+
+const Game::Doc::Field kGetAnchorTypeRets[] = {
+    Game::Doc::Req("anchorType", "string"),
+};
+const Game::Doc::Function kGetAnchorType{"Returns how the tooltip is anchored to its owner.", {},
+                                         kGetAnchorTypeRets};
+
 const Game::Doc::Method g_methodDocs[] = {
     {"SetAnchorType", &kSetAnchorType},
     {"GetMinimumWidth", &kGetMinimumWidth},
     {"GetPadding", &kGetPadding},
+    {"SetOwner", &kSetOwner},
+    {"GetAnchorType", &kGetAnchorType},
 };
 
 void RegisterLuaFunctions() {

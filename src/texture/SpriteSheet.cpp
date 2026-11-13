@@ -74,9 +74,25 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"SetSpriteSheetCell", &Script_SetSpriteSheetCell},
 };
 
+const Game::Doc::Field kSetSpriteSheetCellArgs[] = {
+    Game::Doc::Req("cell", "luaIndex",
+                   "Counts left to right, then top to bottom; a cell outside the grid changes "
+                   "nothing."),
+    Game::Doc::Req("numRows", "number"),
+    Game::Doc::Req("numColumns", "number"),
+    Game::Doc::Opt("cellWidth", "number", nullptr, "Ignored."),
+    Game::Doc::Opt("cellHeight", "number", nullptr, "Ignored."),
+};
+const Game::Doc::Function kSetSpriteSheetCell{
+    "Crops the texture to one cell of an evenly divided grid.", kSetSpriteSheetCellArgs, {}};
+
+const Game::Doc::Method g_methodDocs[] = {
+    {"SetSpriteSheetCell", &kSetSpriteSheetCell},
+};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterFrameMethods(
-        reinterpret_cast<void *>(Offsets::VAR_TEXTURE_METHOD_REGISTRY), g_methods);
+        reinterpret_cast<void *>(Offsets::VAR_TEXTURE_METHOD_REGISTRY), g_methods, g_methodDocs);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

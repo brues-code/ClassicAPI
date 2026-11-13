@@ -232,9 +232,76 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"ClearHistory", &Script_ClearHistory},
 };
 
+const Game::Doc::Field kSetCursorPositionArgs[] = {
+    Game::Doc::Req("cursorPosition", "number",
+                   "A 0-based offset in bytes; a value past the end means the end."),
+};
+const Game::Doc::Function kSetCursorPosition{
+    "Moves the text cursor and clears the selected text.", kSetCursorPositionArgs, {}};
+
+const Game::Doc::Field kGetCursorPositionRets[] = {
+    Game::Doc::Req("cursorPosition", "number", "A 0-based offset in bytes."),
+};
+const Game::Doc::Function kGetCursorPosition{"Returns the position of the text cursor.", {},
+                                             kGetCursorPositionRets};
+
+const Game::Doc::Field kGetUTF8CursorPositionRets[] = {
+    Game::Doc::Req("cursorPosition", "number", "The number of characters before the cursor."),
+};
+const Game::Doc::Function kGetUTF8CursorPosition{
+    "Returns the position of the text cursor in characters.", {}, kGetUTF8CursorPositionRets};
+
+const Game::Doc::Function kClearHighlightText{
+    "Clears the selected text and leaves the cursor where it is.", {}, {}};
+
+const Game::Doc::Field kHasFocusRets[] = {
+    Game::Doc::Req("hasFocus", "bool"),
+};
+const Game::Doc::Function kHasFocus{"Returns whether the edit box has keyboard focus.", {},
+                                    kHasFocusRets};
+
+const Game::Doc::Field kHasTextRets[] = {
+    Game::Doc::Req("hasText", "bool"),
+};
+const Game::Doc::Function kHasText{"Returns whether the edit box holds any text.", {},
+                                   kHasTextRets};
+
+const Game::Doc::Field kSetHighlightColorArgs[] = {
+    Game::Doc::Req("colorR", "number", "From 0 to 1; values outside are clamped."),
+    Game::Doc::Req("colorG", "number"),
+    Game::Doc::Req("colorB", "number"),
+    Game::Doc::Opt("a", "number", "1"),
+};
+const Game::Doc::Function kSetHighlightColor{"Sets the color of the text-selection highlight.",
+                                             kSetHighlightColorArgs, {}};
+
+const Game::Doc::Field kGetHighlightColorRets[] = {
+    Game::Doc::Req("colorR", "number"),
+    Game::Doc::Req("colorG", "number"),
+    Game::Doc::Req("colorB", "number"),
+    Game::Doc::Req("colorA", "number"),
+};
+const Game::Doc::Function kGetHighlightColor{
+    "Returns the color of the text-selection highlight.", {}, kGetHighlightColorRets};
+
+const Game::Doc::Function kClearHistory{
+    "Removes every line from the edit box's input history and keeps its line limit.", {}, {}};
+
+const Game::Doc::Method g_methodDocs[] = {
+    {"SetCursorPosition", &kSetCursorPosition},
+    {"GetCursorPosition", &kGetCursorPosition},
+    {"GetUTF8CursorPosition", &kGetUTF8CursorPosition},
+    {"ClearHighlightText", &kClearHighlightText},
+    {"HasFocus", &kHasFocus},
+    {"HasText", &kHasText},
+    {"SetHighlightColor", &kSetHighlightColor},
+    {"GetHighlightColor", &kGetHighlightColor},
+    {"ClearHistory", &kClearHistory},
+};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterFrameMethods(
-        reinterpret_cast<void *>(Offsets::VAR_EDITBOX_METHOD_REGISTRY), g_methods);
+        reinterpret_cast<void *>(Offsets::VAR_EDITBOX_METHOD_REGISTRY), g_methods, g_methodDocs);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

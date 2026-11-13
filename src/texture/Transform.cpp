@@ -713,11 +713,102 @@ const Game::Lua::FrameMethodEntry g_fontStringMethods[] = {
     {"GetGlyphVerts", &Script_GetGlyphVerts},
 };
 
+const Game::Doc::Field kSetRotationArgs[] = {
+    Game::Doc::Req("radians", "number", "Positive turns counter-clockwise; 0 clears the rotation."),
+    Game::Doc::Opt("cx", "normalizedValue", nullptr,
+                   "Pivot across the region from 0 to 1, given with cy; omitted keeps the pivot "
+                   "set before, which starts at the center."),
+    Game::Doc::Opt("cy", "normalizedValue", nullptr, "Pivot up the region from 0 to 1."),
+};
+const Game::Doc::Function kSetTextureRotation{"Rotates the texture around a pivot point.",
+                                              kSetRotationArgs, {}};
+const Game::Doc::Function kSetFontStringRotation{
+    "Rotates the text around a pivot point; measuring and anchoring stay upright.",
+    kSetRotationArgs, {}};
+
+const Game::Doc::Field kGetRotationRets[] = {
+    Game::Doc::Req("radians", "number"),
+};
+const Game::Doc::Function kGetRotation{"Returns the rotation angle in radians.", {},
+                                       kGetRotationRets};
+
+const Game::Doc::Field kSetVertexOffsetArgs[] = {
+    Game::Doc::Req("vertexIndex", "luaIndex",
+                   "UPPER_LEFT_VERTEX, LOWER_LEFT_VERTEX, UPPER_RIGHT_VERTEX or "
+                   "LOWER_RIGHT_VERTEX."),
+    Game::Doc::Opt("offsetX", "uiUnit", "0", "Positive moves right."),
+    Game::Doc::Opt("offsetY", "uiUnit", "0", "Positive moves up."),
+};
+const Game::Doc::Function kSetVertexOffset{"Moves one corner of the texture.",
+                                           kSetVertexOffsetArgs, {}};
+
+const Game::Doc::Field kGetVertexOffsetArgs[] = {
+    Game::Doc::Req("vertexIndex", "luaIndex"),
+};
+const Game::Doc::Field kGetVertexOffsetRets[] = {
+    Game::Doc::Req("offsetX", "uiUnit"),
+    Game::Doc::Req("offsetY", "uiUnit"),
+};
+const Game::Doc::Function kGetVertexOffset{"Returns how far one corner of the texture is moved.",
+                                           kGetVertexOffsetArgs, kGetVertexOffsetRets};
+
+const Game::Doc::Field kGetCornersRets[] = {
+    Game::Doc::Req("bottomLeftX", "number"),
+    Game::Doc::Req("bottomLeftY", "number"),
+    Game::Doc::Req("topLeftX", "number"),
+    Game::Doc::Req("topLeftY", "number"),
+    Game::Doc::Req("bottomRightX", "number"),
+    Game::Doc::Req("bottomRightY", "number"),
+    Game::Doc::Req("topRightX", "number"),
+    Game::Doc::Req("topRightY", "number"),
+    Game::Doc::Req("top", "number"),
+    Game::Doc::Req("left", "number"),
+    Game::Doc::Req("bottom", "number"),
+    Game::Doc::Req("right", "number"),
+};
+const Game::Doc::Function kGetCorners{
+    "Returns the texture's drawn corner positions and its layout rectangle, for debugging.", {},
+    kGetCornersRets, nullptr, true};
+
+const Game::Doc::Field kGetGlyphVertsRets[] = {
+    Game::Doc::Req("x1", "number", "The first glyph's four corners, as x, y pairs."),
+    Game::Doc::Req("y1", "number"),
+    Game::Doc::Req("x2", "number"),
+    Game::Doc::Req("y2", "number"),
+    Game::Doc::Req("x3", "number"),
+    Game::Doc::Req("y3", "number"),
+    Game::Doc::Req("x4", "number"),
+    Game::Doc::Req("y4", "number"),
+    Game::Doc::Req("minX", "number", "The box around every glyph corner."),
+    Game::Doc::Req("minY", "number"),
+    Game::Doc::Req("maxX", "number"),
+    Game::Doc::Req("maxY", "number"),
+};
+const Game::Doc::Function kGetGlyphVerts{
+    "Returns the drawn corners of the first glyph and the box around all glyphs, for "
+    "debugging.",
+    {}, kGetGlyphVertsRets, nullptr, true};
+
+const Game::Doc::Method g_methodDocs[] = {
+    {"SetRotation", &kSetTextureRotation},
+    {"GetRotation", &kGetRotation},
+    {"SetVertexOffset", &kSetVertexOffset},
+    {"GetVertexOffset", &kGetVertexOffset},
+    {"GetCorners", &kGetCorners},
+};
+
+const Game::Doc::Method g_fontStringMethodDocs[] = {
+    {"SetRotation", &kSetFontStringRotation},
+    {"GetRotation", &kGetRotation},
+    {"GetGlyphVerts", &kGetGlyphVerts},
+};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterFrameMethods(
-        reinterpret_cast<void *>(Offsets::VAR_TEXTURE_METHOD_REGISTRY), g_methods);
+        reinterpret_cast<void *>(Offsets::VAR_TEXTURE_METHOD_REGISTRY), g_methods, g_methodDocs);
     Game::Lua::RegisterFrameMethods(
-        reinterpret_cast<void *>(Offsets::VAR_FONTSTRING_METHOD_REGISTRY), g_fontStringMethods);
+        reinterpret_cast<void *>(Offsets::VAR_FONTSTRING_METHOD_REGISTRY), g_fontStringMethods,
+        g_fontStringMethodDocs);
     // The UPPER_LEFT_VERTEX / … constants that VertexSlot maps are defined
     // FrameXML-style in the embedded addon's Util/Constants.lua, not here.
 }

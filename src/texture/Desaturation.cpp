@@ -466,9 +466,40 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"SetDesaturated", &Script_SetDesaturated},
 };
 
+const Game::Doc::Field kSetDesaturationArgs[] = {
+    Game::Doc::Req("desaturation", "normalizedValue",
+                   "0 is full color and 1 is grayscale; values outside are clamped."),
+};
+const Game::Doc::Function kSetDesaturation{"Sets how much color is removed from the texture.",
+                                           kSetDesaturationArgs, {}};
+
+const Game::Doc::Field kGetDesaturationRets[] = {
+    Game::Doc::Req("desaturation", "normalizedValue", "Stored in 255 steps."),
+};
+const Game::Doc::Function kGetDesaturation{
+    "Returns how much color is removed from the texture.", {}, kGetDesaturationRets};
+
+const Game::Doc::Field kSetDesaturatedArgs[] = {
+    Game::Doc::Opt("desaturated", "bool", "true",
+                   "True is SetDesaturation(1) and false is SetDesaturation(0); an explicit nil "
+                   "is false."),
+};
+const Game::Doc::Field kSetDesaturatedRets[] = {
+    Game::Doc::Opt("supported", "number", nullptr,
+                   "1 when textures can be desaturated, nil when they cannot."),
+};
+const Game::Doc::Function kSetDesaturated{"Sets whether the texture is drawn in grayscale.",
+                                          kSetDesaturatedArgs, kSetDesaturatedRets};
+
+const Game::Doc::Method g_methodDocs[] = {
+    {"SetDesaturation", &kSetDesaturation},
+    {"GetDesaturation", &kGetDesaturation},
+    {"SetDesaturated", &kSetDesaturated},
+};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterFrameMethods(
-        reinterpret_cast<void *>(Offsets::VAR_TEXTURE_METHOD_REGISTRY), g_methods);
+        reinterpret_cast<void *>(Offsets::VAR_TEXTURE_METHOD_REGISTRY), g_methods, g_methodDocs);
     Game::Lua::RegisterGlobalFunction("IsDesaturateSupported", &Script_IsDesaturateSupported,
                                       &kIsDesaturateSupported);
     Game::Lua::RegisterGlobalFunction("_classicapi_DesaturationInfo", &Script_DesaturationInfo);

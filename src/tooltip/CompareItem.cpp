@@ -655,9 +655,40 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"IsEquippedItem", &Script_IsEquippedItem},
 };
 
+const Game::Doc::Field kSetHyperlinkCompareItemArgs[] = {
+    Game::Doc::Req("itemLink", "string",
+                   "An item link, item string or item ID; its slot selects the equipped item."),
+    Game::Doc::Opt("offset", "luaIndex", "1",
+                   "Which equipped item to show when the slot holds more than one."),
+    Game::Doc::Opt("shiftButton", "bool", nullptr, "Ignored."),
+    Game::Doc::Opt("comparisonTooltip", "GameTooltip", nullptr,
+                   "A tooltip showing the compared item; when given, the stat changes are "
+                   "listed."),
+};
+const Game::Doc::Field kSetHyperlinkCompareItemRets[] = {
+    Game::Doc::Opt("success", "number", nullptr,
+                   "1 when the tooltip was filled; nil leaves the tooltip unchanged."),
+};
+const Game::Doc::Function kSetHyperlinkCompareItem{
+    "Shows the equipped item an item would replace, with a Currently Equipped header.",
+    kSetHyperlinkCompareItemArgs, kSetHyperlinkCompareItemRets};
+
+const Game::Doc::Field kIsEquippedItemRets[] = {
+    Game::Doc::Req("isEquipped", "bool"),
+};
+const Game::Doc::Function kIsEquippedItem{
+    "Returns whether the item the tooltip shows is equipped by the player.", {},
+    kIsEquippedItemRets};
+
+const Game::Doc::Method g_methodDocs[] = {
+    {"SetHyperlinkCompareItem", &kSetHyperlinkCompareItem},
+    {"IsEquippedItem", &kIsEquippedItem},
+};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterFrameMethods(
-        reinterpret_cast<void *>(Offsets::VAR_GAMETOOLTIP_METHOD_REGISTRY), g_methods);
+        reinterpret_cast<void *>(Offsets::VAR_GAMETOOLTIP_METHOD_REGISTRY), g_methods,
+        g_methodDocs);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

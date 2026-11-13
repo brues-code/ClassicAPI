@@ -195,9 +195,33 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"GetVertTile", &Script_GetVertTile},
 };
 
+const Game::Doc::Field kSetTileArgs[] = {
+    Game::Doc::Opt("tiling", "bool", "false"),
+};
+const Game::Doc::Field kGetTileRets[] = {
+    Game::Doc::Req("tiling", "bool"),
+};
+const Game::Doc::Function kSetHorizTile{
+    "Sets whether the texture repeats its image across its width at the image's own size.",
+    kSetTileArgs, {}};
+const Game::Doc::Function kGetHorizTile{
+    "Returns whether the texture repeats its image across its width.", {}, kGetTileRets};
+const Game::Doc::Function kSetVertTile{
+    "Sets whether the texture repeats its image down its height at the image's own size.",
+    kSetTileArgs, {}};
+const Game::Doc::Function kGetVertTile{
+    "Returns whether the texture repeats its image down its height.", {}, kGetTileRets};
+
+const Game::Doc::Method g_methodDocs[] = {
+    {"SetHorizTile", &kSetHorizTile},
+    {"GetHorizTile", &kGetHorizTile},
+    {"SetVertTile", &kSetVertTile},
+    {"GetVertTile", &kGetVertTile},
+};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterFrameMethods(
-        reinterpret_cast<void *>(Offsets::VAR_TEXTURE_METHOD_REGISTRY), g_methods);
+        reinterpret_cast<void *>(Offsets::VAR_TEXTURE_METHOD_REGISTRY), g_methods, g_methodDocs);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

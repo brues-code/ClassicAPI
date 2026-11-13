@@ -276,10 +276,18 @@ bool TakeDown(void *button) {
     return down;
 }
 
+const Game::Doc::Field kGetMouseButtonClickedRets[] = {
+    Game::Doc::Opt("buttonName", "cstring", nullptr,
+                   "Nil outside a mouse-down, mouse-up or click handler."),
+};
+const Game::Doc::Function kGetMouseButtonClicked{
+    "Returns the name of the mouse button that started the running click handler.", {},
+    kGetMouseButtonClickedRets, "InputGlobals"};
+
 void RegisterLuaFunctions() {
     PatchClickCallers();
     Game::Lua::RegisterGlobalFunction("GetMouseButtonClicked",
-                                      &Script_GetMouseButtonClicked);
+                                      &Script_GetMouseButtonClicked, &kGetMouseButtonClicked);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

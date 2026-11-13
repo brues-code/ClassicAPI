@@ -100,9 +100,23 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"RegisterForClicks", &Script_RegisterForClicks},
 };
 
+const Game::Doc::Field kRegisterForClicksArgs[] = {
+    Game::Doc::Vararg("cstring",
+                      "Click types such as \"LeftButtonUp\" or \"Button4Down\", or "
+                      "\"AnyUp\" and \"AnyDown\" for all five buttons."),
+};
+const Game::Doc::Function kRegisterForClicks{
+    "Sets which mouse button presses and releases click the button, replacing the earlier "
+    "set.",
+    kRegisterForClicksArgs, {}};
+
+const Game::Doc::Method g_methodDocs[] = {
+    {"RegisterForClicks", &kRegisterForClicks},
+};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterFrameMethods(
-        reinterpret_cast<void *>(Offsets::VAR_BUTTON_METHOD_REGISTRY), g_methods);
+        reinterpret_cast<void *>(Offsets::VAR_BUTTON_METHOD_REGISTRY), g_methods, g_methodDocs);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
