@@ -454,6 +454,23 @@ int __fastcall Script_GetRemoteTtsVoices(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kVoiceTtsVoiceTypeFields[] = {
+    Game::Doc::Req("voiceID", "number", "The voice's index, starting at 0."),
+    Game::Doc::Req("name", "string"),
+};
+const Game::Doc::Structure kVoiceTtsVoiceType{"VoiceTtsVoiceType", "VoiceChat",
+                                              kVoiceTtsVoiceTypeFields};
+
+const Game::Doc::Field kTtsVoicesRets[] = {
+    Game::Doc::Req("ttsVoices", "table",
+                   "Array of VoiceTtsVoiceType; empty when no speech engine is available."),
+};
+const Game::Doc::Function kGetTtsVoices{
+    "Returns the text-to-speech voices installed on the computer.", {}, kTtsVoicesRets};
+const Game::Doc::Function kGetRemoteTtsVoices{
+    "Returns the same voices as GetTtsVoices, because all speech plays on this computer.", {},
+    kTtsVoicesRets};
+
 int __fastcall Script_SpeakText(void *L) {
     if (!Game::Lua::IsNumber(L, 1) || !Game::Lua::IsString(L, 2)) {
         Game::Lua::Error(L, "Usage: C_VoiceChat.SpeakText(voiceID, text "
@@ -469,10 +486,24 @@ int __fastcall Script_SpeakText(void *L) {
     return 0;
 }
 
+const Game::Doc::Field kSpeakTextArgs[] = {
+    Game::Doc::Req("voiceID", "number", "A voiceID from GetTtsVoices."),
+    Game::Doc::Req("text", "cstring"),
+    Game::Doc::Opt("destination", "number", "1",
+                   "1 or 4; any other value becomes 1. Both queue after earlier speech."),
+    Game::Doc::Opt("rate", "number", "0", "From -10 to 10."),
+    Game::Doc::Opt("volume", "number", "100", "From 0 to 100."),
+};
+const Game::Doc::Function kSpeakText{"Speaks text aloud with a text-to-speech voice.",
+                                     kSpeakTextArgs, {}};
+
 int __fastcall Script_StopSpeakingText(void *) {
     StopAll();
     return 0;
 }
+
+const Game::Doc::Function kStopSpeakingText{"Stops all speech that is playing or queued.", {},
+                                            {}};
 
 // ---------------------------------------------------------------------------
 // C_TTSSettings
@@ -481,14 +512,32 @@ int __fastcall Script_GetSpeechRate(void *L) {
     Game::Lua::PushNumber(L, CVar::Factory::GetInt(g_cvarSpeed, 0));
     return 1;
 }
+const Game::Doc::Field kGetSpeechRateRets[] = {
+    Game::Doc::Req("rate", "number", "From -10 to 10."),
+};
+const Game::Doc::Function kGetSpeechRate{"Returns the saved text-to-speech rate.", {},
+                                         kGetSpeechRateRets};
+
 int __fastcall Script_GetSpeechVolume(void *L) {
     Game::Lua::PushNumber(L, CVar::Factory::GetInt(g_cvarVolume, 100));
     return 1;
 }
+const Game::Doc::Field kGetSpeechVolumeRets[] = {
+    Game::Doc::Req("volume", "number", "From 0 to 100."),
+};
+const Game::Doc::Function kGetSpeechVolume{"Returns the saved text-to-speech volume.", {},
+                                           kGetSpeechVolumeRets};
+
 int __fastcall Script_GetSpeechVoiceID(void *L) {
     Game::Lua::PushNumber(L, CVar::Factory::GetInt(g_cvarVoice, 0));
     return 1;
 }
+const Game::Doc::Field kGetSpeechVoiceIDRets[] = {
+    Game::Doc::Req("voiceID", "number", "A voiceID from C_VoiceChat.GetTtsVoices."),
+};
+const Game::Doc::Function kGetSpeechVoiceID{"Returns the saved text-to-speech voice.", {},
+                                            kGetSpeechVoiceIDRets, nullptr, true};
+
 int __fastcall Script_GetVoiceOptionName(void *L) {
     const int id = CVar::Factory::GetInt(g_cvarVoice, 0);
     auto voices = EnumerateVoices();
@@ -498,22 +547,46 @@ int __fastcall Script_GetVoiceOptionName(void *L) {
         Game::Lua::PushString(L, "");
     return 1;
 }
+const Game::Doc::Field kGetVoiceOptionNameRets[] = {
+    Game::Doc::Req("voiceName", "cstring", "Empty when the saved voice is not installed."),
+};
+const Game::Doc::Function kGetVoiceOptionName{
+    "Returns the name of the saved text-to-speech voice.", {}, kGetVoiceOptionNameRets};
 
 int __fastcall Script_SetSpeechRate(void *L) {
     if (Game::Lua::IsNumber(L, 1))
         CVar::Factory::SetInt(g_cvarSpeed, static_cast<int>(Game::Lua::ToNumber(L, 1)));
     return 0;
 }
+const Game::Doc::Field kSetSpeechRateArgs[] = {
+    Game::Doc::Req("newVal", "number", "Clamped to -10 to 10."),
+};
+const Game::Doc::Function kSetSpeechRate{"Saves the text-to-speech rate.", kSetSpeechRateArgs,
+                                         {}};
+
 int __fastcall Script_SetSpeechVolume(void *L) {
     if (Game::Lua::IsNumber(L, 1))
         CVar::Factory::SetInt(g_cvarVolume, static_cast<int>(Game::Lua::ToNumber(L, 1)));
     return 0;
 }
+const Game::Doc::Field kSetSpeechVolumeArgs[] = {
+    Game::Doc::Req("newVal", "number", "Clamped to 0 to 100."),
+};
+const Game::Doc::Function kSetSpeechVolume{"Saves the text-to-speech volume.",
+                                           kSetSpeechVolumeArgs, {}};
+
 int __fastcall Script_SetVoiceOption(void *L) {
     if (Game::Lua::IsNumber(L, 1))
         CVar::Factory::SetInt(g_cvarVoice, static_cast<int>(Game::Lua::ToNumber(L, 1)));
     return 0;
 }
+const Game::Doc::Field kSetVoiceOptionArgs[] = {
+    Game::Doc::Req("voiceID", "number",
+                   "A voiceID from C_VoiceChat.GetTtsVoices, clamped to the installed voices."),
+};
+const Game::Doc::Function kSetVoiceOption{"Saves the text-to-speech voice.", kSetVoiceOptionArgs,
+                                          {}};
+
 int __fastcall Script_SetVoiceOptionByName(void *L) {
     if (!Game::Lua::IsString(L, 1))
         return 0;
@@ -536,6 +609,14 @@ int __fastcall Script_SetVoiceOptionByName(void *L) {
     }
     return 0;
 }
+const Game::Doc::Field kSetVoiceOptionByNameArgs[] = {
+    Game::Doc::Req("voiceName", "string",
+                   "A voice's full name, without regard to case; an unknown name changes "
+                   "nothing."),
+};
+const Game::Doc::Function kSetVoiceOptionByName{"Saves the text-to-speech voice by its name.",
+                                                kSetVoiceOptionByNameArgs, {}, nullptr, true};
+
 int __fastcall Script_SetDefaultSettings(void *) {
     const int maxVoice = VoiceCount();
     CVar::Factory::SetInt(g_cvarVoice, maxVoice > 1 ? 1 : 0);
@@ -544,10 +625,55 @@ int __fastcall Script_SetDefaultSettings(void *) {
     FireVoicesUpdate();
     return 0;
 }
+const Game::Doc::Function kSetDefaultSettings{
+    "Resets the saved text-to-speech voice, rate and volume to their defaults.", {}, {}};
+
 int __fastcall Script_RefreshVoices(void *) {
     RefreshVoices();
     return 0;
 }
+const Game::Doc::Function kRefreshVoices{
+    "Reads the installed text-to-speech voices again, and fires VOICE_CHAT_TTS_VOICES_UPDATE "
+    "when they changed.",
+    {}, {}, nullptr, true};
+
+// ---------------------------------------------------------------------------
+// Event documentation
+// ---------------------------------------------------------------------------
+const Game::Doc::Field kPlaybackFailedPayload[] = {
+    Game::Doc::Req("status", "string", "\"EngineAllocationFailed\" or \"InternalError\"."),
+    Game::Doc::Req("utteranceID", "number"),
+    Game::Doc::Req("destination", "number", "The destination SpeakText was given, 1 or 4."),
+};
+const Game::Doc::Event kPlaybackFailedDoc{"VoiceChat",
+                                          "Fires when text from SpeakText cannot be spoken.",
+                                          kPlaybackFailedPayload};
+
+const Game::Doc::Field kPlaybackFinishedPayload[] = {
+    Game::Doc::Req("numConsumers", "number", "Always 1."),
+    Game::Doc::Req("utteranceID", "number"),
+    Game::Doc::Req("destination", "number", "The destination SpeakText was given, 1 or 4."),
+};
+const Game::Doc::Event kPlaybackFinishedDoc{
+    "VoiceChat",
+    "Fires when text from SpeakText finishes playing; speech that is stopped does not fire it.",
+    kPlaybackFinishedPayload};
+
+const Game::Doc::Field kPlaybackStartedPayload[] = {
+    Game::Doc::Req("numConsumers", "number", "Always 1."),
+    Game::Doc::Req("utteranceID", "number"),
+    Game::Doc::Req("durationMS", "number", "Always 0."),
+    Game::Doc::Req("destination", "number", "The destination SpeakText was given, 1 or 4."),
+};
+const Game::Doc::Event kPlaybackStartedDoc{"VoiceChat",
+                                           "Fires when text from SpeakText starts to play.",
+                                           kPlaybackStartedPayload};
+
+const Game::Doc::Event kSpeakTextUpdateDoc{
+    "VoiceChat", "Never fires; frames can register it without an error.", {}};
+
+const Game::Doc::Event kVoicesUpdateDoc{
+    "VoiceChat", "Fires when the list of installed text-to-speech voices changes.", {}};
 
 // ---------------------------------------------------------------------------
 // CVar clamp callbacks (re-entrant SetString to clamp; reject out-of-range)
@@ -588,11 +714,11 @@ void RegisterLuaFunctions() {
     // appends to Event::Custom's reservation list — the actual slot claims
     // happen later via the usual RetryClaims walk — so reserving here instead
     // of at static-init time changes nothing but the conditionality.
-    static const Event::Custom::AutoReserve _r1{kEvtPlaybackFailed};
-    static const Event::Custom::AutoReserve _r2{kEvtPlaybackFinished};
-    static const Event::Custom::AutoReserve _r3{kEvtPlaybackStarted};
-    static const Event::Custom::AutoReserve _r4{kEvtSpeakTextUpdate};
-    static const Event::Custom::AutoReserve _r5{kEvtVoicesUpdate};
+    static const Event::Custom::AutoReserve _r1{kEvtPlaybackFailed, &kPlaybackFailedDoc};
+    static const Event::Custom::AutoReserve _r2{kEvtPlaybackFinished, &kPlaybackFinishedDoc};
+    static const Event::Custom::AutoReserve _r3{kEvtPlaybackStarted, &kPlaybackStartedDoc};
+    static const Event::Custom::AutoReserve _r4{kEvtSpeakTextUpdate, &kSpeakTextUpdateDoc};
+    static const Event::Custom::AutoReserve _r5{kEvtVoicesUpdate, &kVoicesUpdateDoc};
     g_evtPlaybackFailed = &_r1;
     g_evtPlaybackFinished = &_r2;
     g_evtPlaybackStarted = &_r3;
@@ -604,21 +730,34 @@ void RegisterLuaFunctions() {
     g_cvarSpeed  = CVar::Factory::Register(kCVarSpeed,  nullptr, kCategory, "0",   &OnSpeedChanged);
     g_cvarVolume = CVar::Factory::Register(kCVarVolume, nullptr, kCategory, "100", &OnVolumeChanged);
 
-    Game::Lua::RegisterTableFunction("C_VoiceChat", "GetTtsVoices", &Script_GetTtsVoices);
-    Game::Lua::RegisterTableFunction("C_VoiceChat", "GetRemoteTtsVoices", &Script_GetRemoteTtsVoices);
-    Game::Lua::RegisterTableFunction("C_VoiceChat", "SpeakText", &Script_SpeakText);
-    Game::Lua::RegisterTableFunction("C_VoiceChat", "StopSpeakingText", &Script_StopSpeakingText);
+    Game::Lua::RegisterTableFunction("C_VoiceChat", "GetTtsVoices",
+                                     &Script_GetTtsVoices, &kGetTtsVoices);
+    Game::Lua::RegisterTableFunction("C_VoiceChat", "GetRemoteTtsVoices",
+                                     &Script_GetRemoteTtsVoices, &kGetRemoteTtsVoices);
+    Game::Lua::RegisterTableFunction("C_VoiceChat", "SpeakText", &Script_SpeakText, &kSpeakText);
+    Game::Lua::RegisterTableFunction("C_VoiceChat", "StopSpeakingText",
+                                     &Script_StopSpeakingText, &kStopSpeakingText);
 
-    Game::Lua::RegisterTableFunction("C_TTSSettings", "GetSpeechRate", &Script_GetSpeechRate);
-    Game::Lua::RegisterTableFunction("C_TTSSettings", "GetSpeechVolume", &Script_GetSpeechVolume);
-    Game::Lua::RegisterTableFunction("C_TTSSettings", "GetSpeechVoiceID", &Script_GetSpeechVoiceID);
-    Game::Lua::RegisterTableFunction("C_TTSSettings", "GetVoiceOptionName", &Script_GetVoiceOptionName);
-    Game::Lua::RegisterTableFunction("C_TTSSettings", "SetDefaultSettings", &Script_SetDefaultSettings);
-    Game::Lua::RegisterTableFunction("C_TTSSettings", "SetSpeechRate", &Script_SetSpeechRate);
-    Game::Lua::RegisterTableFunction("C_TTSSettings", "SetSpeechVolume", &Script_SetSpeechVolume);
-    Game::Lua::RegisterTableFunction("C_TTSSettings", "SetVoiceOption", &Script_SetVoiceOption);
-    Game::Lua::RegisterTableFunction("C_TTSSettings", "SetVoiceOptionByName", &Script_SetVoiceOptionByName);
-    Game::Lua::RegisterTableFunction("C_TTSSettings", "RefreshVoices", &Script_RefreshVoices);
+    Game::Lua::RegisterTableFunction("C_TTSSettings", "GetSpeechRate",
+                                     &Script_GetSpeechRate, &kGetSpeechRate);
+    Game::Lua::RegisterTableFunction("C_TTSSettings", "GetSpeechVolume",
+                                     &Script_GetSpeechVolume, &kGetSpeechVolume);
+    Game::Lua::RegisterTableFunction("C_TTSSettings", "GetSpeechVoiceID",
+                                     &Script_GetSpeechVoiceID, &kGetSpeechVoiceID);
+    Game::Lua::RegisterTableFunction("C_TTSSettings", "GetVoiceOptionName",
+                                     &Script_GetVoiceOptionName, &kGetVoiceOptionName);
+    Game::Lua::RegisterTableFunction("C_TTSSettings", "SetDefaultSettings",
+                                     &Script_SetDefaultSettings, &kSetDefaultSettings);
+    Game::Lua::RegisterTableFunction("C_TTSSettings", "SetSpeechRate",
+                                     &Script_SetSpeechRate, &kSetSpeechRate);
+    Game::Lua::RegisterTableFunction("C_TTSSettings", "SetSpeechVolume",
+                                     &Script_SetSpeechVolume, &kSetSpeechVolume);
+    Game::Lua::RegisterTableFunction("C_TTSSettings", "SetVoiceOption",
+                                     &Script_SetVoiceOption, &kSetVoiceOption);
+    Game::Lua::RegisterTableFunction("C_TTSSettings", "SetVoiceOptionByName",
+                                     &Script_SetVoiceOptionByName, &kSetVoiceOptionByName);
+    Game::Lua::RegisterTableFunction("C_TTSSettings", "RefreshVoices",
+                                     &Script_RefreshVoices, &kRefreshVoices);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
