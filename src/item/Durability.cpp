@@ -67,11 +67,24 @@ int __fastcall Script_GetInventoryItemDurability(void *L) {
     return PushDurabilityForItem(L, Item::Location::ResolveEquipmentSlot(slot1Based));
 }
 
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("invSlot", "luaIndex", "An equipment slot of the player, from 1 to 19."),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Opt("current", "number", nullptr,
+                   "Nil when the slot is empty or the item has no durability; 0 when broken."),
+    Game::Doc::Opt("maximum", "number"),
+};
+const Game::Doc::Function kGetInventoryItemDurability{
+    "Returns the current and maximum durability of an item the player wears.", kArgs, kRets,
+    "ItemGlobals"};
+
 } // namespace
 
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("GetInventoryItemDurability",
-                                      &Script_GetInventoryItemDurability);
+                                      &Script_GetInventoryItemDurability,
+                                      &kGetInventoryItemDurability);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

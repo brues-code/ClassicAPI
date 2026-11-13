@@ -108,6 +108,19 @@ int __fastcall Script_IsHarmfulItem(void *L) {
 
 // --- Documentation ----------------------------------------------------------
 
+const Game::Doc::Field kGetItemSpellArgs[] = {
+    Game::Doc::Req("itemInfo", "ItemInfo", "An item ID or an item link."),
+};
+const Game::Doc::Field kGetItemSpellRets[] = {
+    Game::Doc::Opt("spellName", "cstring", nullptr,
+                   "Nil when the item has no use effect or is not cached."),
+    Game::Doc::Opt("spellID", "number"),
+};
+const Game::Doc::Function kGetItemSpell{
+    "Returns the spell of the item's use effect, and asks the server for an item that is not "
+    "cached.",
+    kGetItemSpellArgs, kGetItemSpellRets};
+
 const Game::Doc::Field kItemArgs[] = {
     Game::Doc::Req("item", "number", "An item ID, an item link, or the name of a carried item."),
 };
@@ -162,7 +175,8 @@ int OnUseSpellIDForItemID(uint32_t itemID) {
 }
 
 static void RegisterLuaFunctions() {
-    Game::Lua::RegisterTableFunction("C_Item", "GetItemSpell", &Script_GetItemSpell);
+    Game::Lua::RegisterTableFunction("C_Item", "GetItemSpell", &Script_GetItemSpell,
+                                     &kGetItemSpell);
     Game::Lua::RegisterGlobalFunction("IsHelpfulItem", &Script_IsHelpfulItem, &kIsHelpfulItem);
     Game::Lua::RegisterGlobalFunction("IsHarmfulItem", &Script_IsHarmfulItem, &kIsHarmfulItem);
 }

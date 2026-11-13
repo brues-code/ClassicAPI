@@ -63,11 +63,34 @@ static int __fastcall Script_C_Item_GetDetailedItemLevelInfo(void *L) {
     return PushItemLevelForItemID(L, Item::Arg::ResolveItemID(L, 1));
 }
 
+static const Game::Doc::Field kCurrentArgs[] = {
+    Game::Doc::Req("itemLocation", "ItemLocation", "An item location or an item GUID."),
+};
+static const Game::Doc::Field kCurrentRets[] = {
+    Game::Doc::Opt("currentItemLevel", "number", nullptr,
+                   "Nil when there is no item or its data is not loaded, which also asks the "
+                   "server for it."),
+};
+static const Game::Doc::Function kGetCurrentItemLevel{
+    "Returns the item level of the item at a location.", kCurrentArgs, kCurrentRets};
+
+static const Game::Doc::Field kDetailedArgs[] = {
+    Game::Doc::Req("itemInfo", "ItemInfo", "An item ID or an item link."),
+};
+static const Game::Doc::Field kDetailedRets[] = {
+    Game::Doc::Opt("actualItemLevel", "number", nullptr,
+                   "The only value returned; nil when the item's data is not loaded, which also "
+                   "asks the server for it."),
+};
+static const Game::Doc::Function kGetDetailedItemLevelInfo{
+    "Returns the item's item level.", kDetailedArgs, kDetailedRets};
+
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Item", "GetCurrentItemLevel",
-                                     &Script_C_Item_GetCurrentItemLevel);
+                                     &Script_C_Item_GetCurrentItemLevel, &kGetCurrentItemLevel);
     Game::Lua::RegisterTableFunction("C_Item", "GetDetailedItemLevelInfo",
-                                     &Script_C_Item_GetDetailedItemLevelInfo);
+                                     &Script_C_Item_GetDetailedItemLevelInfo,
+                                     &kGetDetailedItemLevelInfo);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

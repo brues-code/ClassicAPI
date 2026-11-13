@@ -127,9 +127,38 @@ int __fastcall Script_C_Item_GetEnchantInfo(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kEffectFields[] = {
+    Game::Doc::Req("type", "number",
+                   "1 proc spell, 2 weapon damage, 3 equip spell, 4 resistance or armor, 5 stat, "
+                   "6 totem, 7 use spell."),
+    Game::Doc::Req("amount", "number"),
+    Game::Doc::Req("arg", "number", "The spell ID for types 1, 3 and 7; the stat for type 5."),
+};
+const Game::Doc::Structure kItemEnchantEffect{"ItemEnchantEffect", "Item", kEffectFields,
+                                              "One effect of an item enchantment."};
+
+const Game::Doc::Field kInfoFields[] = {
+    Game::Doc::Req("enchantID", "number"),
+    Game::Doc::Req("name", "string"),
+    Game::Doc::Req("effects", "table", "An array of ItemEnchantEffect, empty effects left out."),
+    Game::Doc::Opt("spellID", "number", nullptr,
+                   "The spell of the first spell effect; nil when the enchantment has none."),
+};
+const Game::Doc::Structure kItemEnchantInfo{"ItemEnchantInfo", "Item", kInfoFields};
+
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("enchantID", "number"),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Opt("info", "ItemEnchantInfo", nullptr,
+                   "Nil when no named enchantment has that ID."),
+};
+const Game::Doc::Function kGetEnchantInfo{
+    "Returns the name and effects of an item enchantment.", kArgs, kRets, nullptr, true};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Item", "GetEnchantInfo",
-                                     &Script_C_Item_GetEnchantInfo);
+                                     &Script_C_Item_GetEnchantInfo, &kGetEnchantInfo);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

@@ -46,8 +46,18 @@ static int __fastcall Script_GetItemID(void *L) {
     return 1;
 }
 
+static const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("itemLocation", "ItemLocation", "An item location or an item GUID."),
+};
+static const Game::Doc::Field kRets[] = {
+    Game::Doc::Opt("itemID", "number", nullptr,
+                   "Nil for an empty slot or a location that is not valid."),
+};
+static const Game::Doc::Function kGetItemID{"Returns the item ID of the item at a location.",
+                                            kArgs, kRets};
+
 static void RegisterLuaFunctions() {
-    Game::Lua::RegisterTableFunction("C_Item", "GetItemID", &Script_GetItemID);
+    Game::Lua::RegisterTableFunction("C_Item", "GetItemID", &Script_GetItemID, &kGetItemID);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

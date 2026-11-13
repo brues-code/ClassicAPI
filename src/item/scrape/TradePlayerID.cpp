@@ -40,8 +40,22 @@ static int __fastcall Script_GetTradePlayerItemID(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+static const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("slot", "luaIndex", "From 1 to 7; slot 7 is the item that is not traded."),
+};
+static const Game::Doc::Field kRets[] = {
+    Game::Doc::Opt("itemID", "number", nullptr,
+                   "Nil when the slot is empty."),
+};
+static const Game::Doc::Function kGetTradePlayerItemID{
+    "Returns the item in a slot of your side of the trade window.", kArgs, kRets,
+    "ItemGlobals", true};
+
 static void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("GetTradePlayerItemID", &Script_GetTradePlayerItemID);
+    Game::Lua::RegisterGlobalFunction("GetTradePlayerItemID", &Script_GetTradePlayerItemID,
+                                      &kGetTradePlayerItemID);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

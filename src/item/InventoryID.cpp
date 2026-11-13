@@ -124,8 +124,21 @@ static int __fastcall Script_GetInventoryItemID(void *L) {
     return 1;
 }
 
+static const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("unit", "UnitToken"),
+    Game::Doc::Req("slot", "luaIndex",
+                   "An inventory slot; for a unit other than the player, only slots 1 to 19."),
+};
+static const Game::Doc::Field kRets[] = {
+    Game::Doc::Opt("itemID", "number", nullptr,
+                   "Nil for an empty slot, or a unit that does not exist or is not a player."),
+};
+static const Game::Doc::Function kGetInventoryItemID{
+    "Returns the item ID of the item in a unit's inventory slot.", kArgs, kRets, "ItemGlobals"};
+
 static void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("GetInventoryItemID", &Script_GetInventoryItemID);
+    Game::Lua::RegisterGlobalFunction("GetInventoryItemID", &Script_GetInventoryItemID,
+                                      &kGetInventoryItemID);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

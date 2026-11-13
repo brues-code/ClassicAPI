@@ -123,8 +123,22 @@ int __fastcall Script_C_Item_GetItemLink(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kGetItemLinkArgs[] = {
+    Game::Doc::Req("itemLocation", "ItemLocation", "An item location or an item GUID."),
+};
+const Game::Doc::Field kGetItemLinkRets[] = {
+    Game::Doc::Opt("itemLink", "string", nullptr,
+                   "Nil for an empty slot or a location that names no item."),
+};
+const Game::Doc::Function kGetItemLink{
+    "Returns the link of the item at a location, with its enchant and random suffix.",
+    kGetItemLinkArgs, kGetItemLinkRets};
+
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterTableFunction("C_Item", "GetItemLink", &Script_C_Item_GetItemLink);
+    Game::Lua::RegisterTableFunction("C_Item", "GetItemLink", &Script_C_Item_GetItemLink,
+                                     &kGetItemLink);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

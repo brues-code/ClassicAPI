@@ -296,22 +296,79 @@ constexpr Game::Lua::EnumIntegerEntry kItemQualityEntries[] = {
     {"Artifact", 6},
 };
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kClassInfoArgs[] = {
+    Game::Doc::Req("itemClassID", "number"),
+};
+const Game::Doc::Field kClassInfoRets[] = {
+    Game::Doc::Opt("className", "cstring", nullptr, "Nil when no item class has the ID."),
+};
+const Game::Doc::Function kGetItemClassInfoGlobal{
+    "Returns the name of an item class.", kClassInfoArgs, kClassInfoRets, "ItemGlobals"};
+const Game::Doc::Function kGetItemClassInfo{
+    "Returns the name of an item class.", kClassInfoArgs, kClassInfoRets};
+
+const Game::Doc::Field kSubClassInfoArgs[] = {
+    Game::Doc::Req("itemClassID", "number"),
+    Game::Doc::Req("itemSubClassID", "number"),
+};
+const Game::Doc::Field kSubClassInfoGlobalRets[] = {
+    Game::Doc::Opt("subClassName", "cstring", nullptr,
+                   "Nil when the class has no such subclass."),
+    Game::Doc::Opt("isArmorType", "bool", nullptr,
+                   "True for the armor materials: Miscellaneous, Cloth, Leather, Mail and "
+                   "Plate."),
+};
+const Game::Doc::Function kGetItemSubClassInfoGlobal{
+    "Returns the name of an item subclass and whether it is an armor material.",
+    kSubClassInfoArgs, kSubClassInfoGlobalRets, "ItemGlobals"};
+const Game::Doc::Field kSubClassInfoRets[] = {
+    Game::Doc::Opt("subClassName", "cstring", nullptr,
+                   "Nil when the class has no such subclass."),
+    Game::Doc::Opt("subClassUsesInvType", "bool", nullptr,
+                   "True when items of the subclass are named by their slot: the armor "
+                   "materials."),
+};
+const Game::Doc::Function kGetItemSubClassInfo{
+    "Returns the name of an item subclass and whether its items are named by their slot.",
+    kSubClassInfoArgs, kSubClassInfoRets};
+
+const Game::Doc::Field kInventorySlotArgs[] = {
+    Game::Doc::Req("inventorySlot", "InventoryType"),
+};
+const Game::Doc::Field kInventorySlotKeyRets[] = {
+    Game::Doc::Opt("result", "cstring", nullptr,
+                   "An INVTYPE_* key; nil for IndexNonEquipType or a value out of range."),
+};
+const Game::Doc::Function kGetItemInventorySlotKey{
+    "Returns the INVTYPE_* key of an inventory type.", kInventorySlotArgs,
+    kInventorySlotKeyRets};
+const Game::Doc::Field kInventorySlotInfoRets[] = {
+    Game::Doc::Opt("result", "cstring", nullptr,
+                   "Nil for IndexNonEquipType or a value out of range."),
+};
+const Game::Doc::Function kGetItemInventorySlotInfo{
+    "Returns the localized name of an inventory type, such as \"Head\".", kInventorySlotArgs,
+    kInventorySlotInfoRets};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("GetItemClassInfo",
-                                      &Script_GetItemClassInfo);
+                                      &Script_GetItemClassInfo, &kGetItemClassInfoGlobal);
     Game::Lua::RegisterGlobalFunction("GetItemSubClassInfo",
-                                      &Script_GetItemSubClassInfo);
+                                      &Script_GetItemSubClassInfo, &kGetItemSubClassInfoGlobal);
     Game::Lua::RegisterTableFunction("C_Item", "GetItemClassInfo",
-                                     &Script_GetItemClassInfo);
+                                     &Script_GetItemClassInfo, &kGetItemClassInfo);
     Game::Lua::RegisterTableFunction("C_Item", "GetItemSubClassInfo",
-                                     &Script_GetItemSubClassInfo);
+                                     &Script_GetItemSubClassInfo, &kGetItemSubClassInfo);
     Game::Lua::RegisterTableFunction("C_Item", "GetItemInventorySlotKey",
-                                     &Script_GetItemInventorySlotKey);
+                                     &Script_GetItemInventorySlotKey, &kGetItemInventorySlotKey);
     Game::Lua::RegisterTableFunction("C_Item", "GetItemInventorySlotInfo",
-                                     &Script_GetItemInventorySlotInfo);
-    Game::Lua::RegisterIntegerEnum("Enum", "InventoryType", kInventoryTypeEntries);
-    Game::Lua::RegisterIntegerEnum("Enum", "ItemClass", kItemClassEntries);
-    Game::Lua::RegisterIntegerEnum("Enum", "ItemQuality", kItemQualityEntries);
+                                     &Script_GetItemInventorySlotInfo,
+                                     &kGetItemInventorySlotInfo);
+    Game::Lua::RegisterIntegerEnum("Enum", "InventoryType", kInventoryTypeEntries, "Item");
+    Game::Lua::RegisterIntegerEnum("Enum", "ItemClass", kItemClassEntries, "Item");
+    Game::Lua::RegisterIntegerEnum("Enum", "ItemQuality", kItemQualityEntries, "Item");
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

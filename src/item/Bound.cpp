@@ -41,8 +41,16 @@ static int __fastcall Script_IsBound(void *L) {
     return 1;
 }
 
+static const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("itemLocation", "ItemLocation", "An item location or an item GUID."),
+};
+static const Game::Doc::Field kRets[] = {
+    Game::Doc::Req("isBound", "bool", "False for an empty slot or a location that names no item."),
+};
+static const Game::Doc::Function kIsBound{"Returns whether the item is soulbound.", kArgs, kRets};
+
 static void RegisterLuaFunctions() {
-    Game::Lua::RegisterTableFunction("C_Item", "IsBound", &Script_IsBound);
+    Game::Lua::RegisterTableFunction("C_Item", "IsBound", &Script_IsBound, &kIsBound);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

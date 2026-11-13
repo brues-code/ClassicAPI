@@ -127,10 +127,43 @@ int __fastcall Script_GetItemStatDelta(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kGetItemStatsArgs[] = {
+    Game::Doc::Req("itemLink", "ItemInfo",
+                   "An item link or an item ID; the random suffix of a link counts."),
+    Game::Doc::Opt("statTable", "table", nullptr,
+                   "A table to fill and return instead of a new one; it is not cleared first."),
+};
+const Game::Doc::Field kGetItemStatsRets[] = {
+    Game::Doc::Opt("statTable", "table", nullptr,
+                   "Stat values keyed by ITEM_MOD_* and RESISTANCE*_NAME global-string names; "
+                   "nil when the item is not cached."),
+};
+const Game::Doc::Function kGetItemStats{
+    "Returns the stats an item gives, with its equip effects and random suffix.",
+    kGetItemStatsArgs, kGetItemStatsRets};
+
+const Game::Doc::Field kGetItemStatDeltaArgs[] = {
+    Game::Doc::Req("itemLink1", "ItemInfo", "An item link or an item ID."),
+    Game::Doc::Req("itemLink2", "ItemInfo", "An item link or an item ID."),
+    Game::Doc::Opt("statTable", "table", nullptr,
+                   "A table to fill and return instead of a new one; it is not cleared first."),
+};
+const Game::Doc::Field kGetItemStatDeltaRets[] = {
+    Game::Doc::Opt("statTable", "table", nullptr,
+                   "The first item's stats minus the second's, only stats that differ; nil when "
+                   "either item is not cached."),
+};
+const Game::Doc::Function kGetItemStatDelta{
+    "Returns how the stats of the first item differ from those of the second.",
+    kGetItemStatDeltaArgs, kGetItemStatDeltaRets};
+
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterTableFunction("C_Item", "GetItemStats", &Script_GetItemStats);
+    Game::Lua::RegisterTableFunction("C_Item", "GetItemStats", &Script_GetItemStats,
+                                     &kGetItemStats);
     Game::Lua::RegisterTableFunction("C_Item", "GetItemStatDelta",
-                                     &Script_GetItemStatDelta);
+                                     &Script_GetItemStatDelta, &kGetItemStatDelta);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

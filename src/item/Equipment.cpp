@@ -274,7 +274,7 @@ const Game::Doc::Field kIsDualWieldingRets[] = {
                    "True when the player can dual wield and has a weapon in the off hand."),
 };
 const Game::Doc::Function kIsDualWielding{
-    "Whether the player is holding a weapon in each hand.", {}, kIsDualWieldingRets,
+    "Returns whether the player is holding a weapon in each hand.", {}, kIsDualWieldingRets,
     "ItemGlobals"};
 
 const Game::Doc::Field kIsEquippableLegacyArgs[] = {
@@ -285,7 +285,7 @@ const Game::Doc::Field kIsEquippableLegacyRets[] = {
                    "1 when the item goes in an equipment slot, else nil."),
 };
 const Game::Doc::Function kIsEquippableItem{
-    "Whether the item goes in an equipment slot, bag slots and the ammo slot included.",
+    "Returns whether the item goes in an equipment slot, bag slots and the ammo slot included.",
     kIsEquippableLegacyArgs, kIsEquippableLegacyRets, "ItemGlobals"};
 
 const Game::Doc::Field kIsEquippedTypeArgs[] = {
@@ -298,7 +298,7 @@ const Game::Doc::Field kIsEquippedTypeRets[] = {
                    "1 when an equipped item that is not broken is of that type, else nil."),
 };
 const Game::Doc::Function kIsEquippedItemType{
-    "Whether the player has an item of the given type equipped.", kIsEquippedTypeArgs,
+    "Returns whether the player has an item of the given type equipped.", kIsEquippedTypeArgs,
     kIsEquippedTypeRets, "ItemGlobals"};
 
 const Game::Doc::Field kIsEquippableArgs[] = {
@@ -308,8 +308,29 @@ const Game::Doc::Field kIsEquippableRets[] = {
     Game::Doc::Req("isEquippable", "bool", "True when the item goes in an equipment slot."),
 };
 const Game::Doc::Function kCIsEquippableItem{
-    "Whether the item goes in an equipment slot, bag slots and the ammo slot included.",
+    "Returns whether the item goes in an equipment slot, bag slots and the ammo slot included.",
     kIsEquippableArgs, kIsEquippableRets};
+
+const Game::Doc::Field kIsEquippedItemArgs[] = {
+    Game::Doc::Req("itemInfo", "ItemInfo",
+                   "An item ID, an item link, or an item name; a name ignores case."),
+};
+const Game::Doc::Field kIsEquippedItemRets[] = {
+    Game::Doc::Req("result", "bool", "True when an equipment slot holds a matching item."),
+};
+const Game::Doc::Function kCIsEquippedItem{
+    "Returns whether the player wears the item.", kIsEquippedItemArgs, kIsEquippedItemRets};
+
+const Game::Doc::Field kEquipItemByNameArgs[] = {
+    Game::Doc::Req("itemInfo", "ItemInfo",
+                   "An item ID, an item link, or the name of an item in the bags; or an item "
+                   "location or item GUID."),
+    Game::Doc::Opt("dstSlot", "luaIndex", nullptr,
+                   "The equipment slot, from 1 to 19; nil lets the game pick the slot."),
+};
+const Game::Doc::Function kEquipItemByName{
+    "Equips the item, and does nothing when the player does not have it or cannot equip it.",
+    kEquipItemByNameArgs, {}};
 
 } // namespace
 
@@ -319,10 +340,12 @@ static void RegisterLuaFunctions() {
                                       &kIsEquippableItem);
     Game::Lua::RegisterTableFunction("C_Item", "IsEquippableItem",
                                      &Script_C_Item_IsEquippableItem, &kCIsEquippableItem);
-    Game::Lua::RegisterTableFunction("C_Item", "IsEquippedItem", &Script_C_Item_IsEquippedItem);
+    Game::Lua::RegisterTableFunction("C_Item", "IsEquippedItem", &Script_C_Item_IsEquippedItem,
+                                     &kCIsEquippedItem);
     Game::Lua::RegisterGlobalFunction("IsEquippedItemType", &Script_IsEquippedItemType,
                                       &kIsEquippedItemType);
-    Game::Lua::RegisterTableFunction("C_Item", "EquipItemByName", &Script_C_Item_EquipItemByName);
+    Game::Lua::RegisterTableFunction("C_Item", "EquipItemByName", &Script_C_Item_EquipItemByName,
+                                     &kEquipItemByName);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

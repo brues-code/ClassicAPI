@@ -41,9 +41,24 @@ int __fastcall Script_GetTradeSkillReagentItemID(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("index", "luaIndex", "A recipe of the open trade skill window."),
+    Game::Doc::Req("reagentIndex", "luaIndex"),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Opt("itemID", "number", nullptr,
+                   "Nil when the recipe has no reagent at that index."),
+};
+const Game::Doc::Function kGetTradeSkillReagentItemID{
+    "Returns a reagent item of a trade skill recipe.", kArgs, kRets,
+    "ItemGlobals", true};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("GetTradeSkillReagentItemID",
-                                      &Script_GetTradeSkillReagentItemID);
+                                      &Script_GetTradeSkillReagentItemID,
+                                      &kGetTradeSkillReagentItemID);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

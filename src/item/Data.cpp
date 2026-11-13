@@ -55,8 +55,25 @@ using GetItemRecord_t = const uint8_t *(__thiscall *)(void *cache, uint32_t item
 // our entries identically to its own.
 static constexpr const char *kItemDataLoadResult = "ITEM_DATA_LOAD_RESULT";
 static constexpr const char *kGetItemInfoReceived = "GET_ITEM_INFO_RECEIVED";
-static const Event::Custom::AutoReserve _reserveItemDataLoadResult{kItemDataLoadResult};
-static const Event::Custom::AutoReserve _reserveGetItemInfoReceived{kGetItemInfoReceived};
+static const Game::Doc::Field kLoadResultPayload[] = {
+    Game::Doc::Req("itemID", "number"),
+    Game::Doc::Opt("success", "number", nullptr,
+                   "1 when the data loaded, nil when the server did not send it."),
+};
+static const Game::Doc::Event kItemDataLoadResultDoc{
+    "Item",
+    "Fires when item data asked for with C_Item.RequestLoadItemData or "
+    "C_Item.RequestLoadItemDataByID loads or fails to load.",
+    kLoadResultPayload};
+static const Game::Doc::Event kGetItemInfoReceivedDoc{
+    "Item",
+    "Fires when item data that GetItemInfo or another item reader asked for loads or fails "
+    "to load.",
+    kLoadResultPayload};
+static const Event::Custom::AutoReserve _reserveItemDataLoadResult{kItemDataLoadResult,
+                                                                   &kItemDataLoadResultDoc};
+static const Event::Custom::AutoReserve _reserveGetItemInfoReceived{kGetItemInfoReceived,
+                                                                    &kGetItemInfoReceivedDoc};
 
 static void FireGetItemInfoReceived(int itemID, bool success) {
     Event::Custom::FireIdSuccess(_reserveGetItemInfoReceived.Slot(), itemID,
@@ -645,6 +662,33 @@ static int __fastcall Script_RequestLoadItemData(void *L) {
     return 1;
 }
 
+static const Game::Doc::Field kByIDArgs[] = {
+    Game::Doc::Req("itemInfo", "ItemInfo", "An item ID or an item link."),
+};
+static const Game::Doc::Field kLocationArgs[] = {
+    Game::Doc::Req("itemLocation", "ItemLocation", "An item location or an item GUID."),
+};
+static const Game::Doc::Field kIsCachedRets[] = {
+    Game::Doc::Req("isCached", "bool"),
+};
+static const Game::Doc::Field kRequestRets[] = {
+    Game::Doc::Req("accepted", "bool",
+                   "False when the input names no item or too many requests already wait."),
+};
+static const Game::Doc::Function kIsItemDataCachedByID{
+    "Returns whether the item's data is loaded, without asking the server for it.", kByIDArgs,
+    kIsCachedRets};
+static const Game::Doc::Function kIsItemDataCached{
+    "Returns whether the data of the item at a location is loaded, without asking the server "
+    "for it.",
+    kLocationArgs, kIsCachedRets};
+static const Game::Doc::Function kRequestLoadItemDataByID{
+    "Asks the server for the item's data, then fires ITEM_DATA_LOAD_RESULT.", kByIDArgs,
+    kRequestRets};
+static const Game::Doc::Function kRequestLoadItemData{
+    "Asks the server for the data of the item at a location, then fires ITEM_DATA_LOAD_RESULT.",
+    kLocationArgs, kRequestRets};
+
 static void RegisterLuaFunctions() {
     // Re-arm the proactive carried-item prefetch for this enter-world
     // session. Fires on login and /reload (this callback runs per in-game
@@ -653,11 +697,13 @@ static void RegisterLuaFunctions() {
     // does nothing.
     g_ownedPrefetched = false;
     Game::Lua::RegisterTableFunction("C_Item", "IsItemDataCachedByID",
-                                     &Script_IsItemDataCachedByID);
-    Game::Lua::RegisterTableFunction("C_Item", "IsItemDataCached", &Script_IsItemDataCached);
+                                     &Script_IsItemDataCachedByID, &kIsItemDataCachedByID);
+    Game::Lua::RegisterTableFunction("C_Item", "IsItemDataCached", &Script_IsItemDataCached,
+                                     &kIsItemDataCached);
     Game::Lua::RegisterTableFunction("C_Item", "RequestLoadItemDataByID",
-                                     &Script_RequestLoadItemDataByID);
-    Game::Lua::RegisterTableFunction("C_Item", "RequestLoadItemData", &Script_RequestLoadItemData);
+                                     &Script_RequestLoadItemDataByID, &kRequestLoadItemDataByID);
+    Game::Lua::RegisterTableFunction("C_Item", "RequestLoadItemData", &Script_RequestLoadItemData,
+                                     &kRequestLoadItemData);
     // Event names are reserved at file scope via `AutoReserve`; nothing
     // to do here for events.
 }

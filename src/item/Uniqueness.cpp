@@ -104,11 +104,42 @@ static int __fastcall Script_GetItemUniquenessByID(void *L) {
     return 4;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+static const Game::Doc::Field kUniquenessArgs[] = {
+    Game::Doc::Req("itemLocation", "ItemLocation", "An item location or an item GUID."),
+};
+static const Game::Doc::Field kUniquenessRets[] = {
+    Game::Doc::Opt("limitCategory", "number", nullptr,
+                   "Always 0; nil for an empty slot or an item that is not cached."),
+    Game::Doc::Opt("limitMax", "number", nullptr,
+                   "How many of the item you can have; 0 for no limit."),
+};
+static const Game::Doc::Function kGetItemUniqueness{
+    "Returns how many of the item at a location you can have.", kUniquenessArgs,
+    kUniquenessRets};
+
+static const Game::Doc::Field kUniquenessByIDArgs[] = {
+    Game::Doc::Req("itemID", "number", "An item ID; an item link is not accepted."),
+};
+static const Game::Doc::Field kUniquenessByIDRets[] = {
+    Game::Doc::Opt("isUnique", "bool", nullptr,
+                   "True when the number of the item you can have is limited; nil while the "
+                   "item is not cached."),
+    Game::Doc::Opt("limitCategoryName", "cstring", nullptr, "Always nil."),
+    Game::Doc::Opt("limitCategoryCount", "number", nullptr,
+                   "How many of the item you can have; nil when isUnique is false."),
+    Game::Doc::Opt("limitCategoryID", "number", nullptr, "Always nil."),
+};
+static const Game::Doc::Function kGetItemUniquenessByID{
+    "Returns whether an item is unique, and asks the server for an item that is not cached.",
+    kUniquenessByIDArgs, kUniquenessByIDRets};
+
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Item", "GetItemUniqueness",
-                                     &Script_GetItemUniqueness);
+                                     &Script_GetItemUniqueness, &kGetItemUniqueness);
     Game::Lua::RegisterTableFunction("C_Item", "GetItemUniquenessByID",
-                                     &Script_GetItemUniquenessByID);
+                                     &Script_GetItemUniquenessByID, &kGetItemUniquenessByID);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

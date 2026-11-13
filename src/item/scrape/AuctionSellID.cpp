@@ -57,8 +57,16 @@ static int __fastcall Script_GetAuctionSellItemID(void *L) {
     return 1;
 }
 
+static const Game::Doc::Field kRets[] = {
+    Game::Doc::Opt("itemID", "number", nullptr, "Nil when the sell slot is empty."),
+};
+static const Game::Doc::Function kGetAuctionSellItemID{
+    "Returns the item ID of the item in the auction house sell slot.", {}, kRets,
+    "ItemGlobals", true};
+
 static void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("GetAuctionSellItemID", &Script_GetAuctionSellItemID);
+    Game::Lua::RegisterGlobalFunction("GetAuctionSellItemID", &Script_GetAuctionSellItemID,
+                                      &kGetAuctionSellItemID);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

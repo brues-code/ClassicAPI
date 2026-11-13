@@ -128,7 +128,8 @@ static const Game::Doc::Field kGetItemIDForItemInfoArgs[] = {
     Game::Doc::Req("itemInfo", "ItemInfo"),
 };
 static const Game::Doc::Field kGetItemIDForItemInfoRets[] = {
-    Game::Doc::Req("itemID", "number"),
+    Game::Doc::Opt("itemID", "number", nullptr,
+                   "Nil for an item name or input that names no item."),
 };
 static const Game::Doc::Function kGetItemIDForItemInfo{
     "Returns the item ID of an item ID, item string or item link.", kGetItemIDForItemInfoArgs,
@@ -334,15 +335,95 @@ static int __fastcall Script_C_Item_GetItemInfo(void *L) {
     return 18;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+static const Game::Doc::Field kItemInfoArgs[] = {
+    Game::Doc::Req("itemInfo", "ItemInfo", "An item ID or an item link."),
+};
+
+static const Game::Doc::Field kGetItemInfoRets[] = {
+    Game::Doc::Req("itemName", "cstring", "With the random suffix of the link, if it has one."),
+    Game::Doc::Opt("itemLink", "cstring"),
+    Game::Doc::Req("itemQuality", "number", "An Enum.ItemQuality value."),
+    Game::Doc::Req("itemLevel", "number"),
+    Game::Doc::Req("itemMinLevel", "number"),
+    Game::Doc::Req("itemType", "cstring", "The localized item class name."),
+    Game::Doc::Req("itemSubType", "cstring", "The localized item subclass name."),
+    Game::Doc::Req("itemStackCount", "number"),
+    Game::Doc::Req("itemEquipLoc", "cstring",
+                   "An INVTYPE_ key, or \"\" when the item is not worn."),
+    Game::Doc::Req("itemTexture", "string", "The icon's texture path, not a file ID."),
+    Game::Doc::Req("sellPrice", "number", "In copper."),
+    Game::Doc::Req("classID", "number"),
+    Game::Doc::Req("subclassID", "number"),
+    Game::Doc::Req("bindType", "number"),
+    Game::Doc::Req("expansionID", "number", "Always 0."),
+    Game::Doc::Opt("setID", "number", nullptr, "Nil when the item is not part of a set."),
+    Game::Doc::Req("isCraftingReagent", "bool", "Always false."),
+    Game::Doc::Req("itemDescription", "cstring", "\"\" when the item has no description."),
+};
+static const Game::Doc::Function kGetItemInfo{
+    "Returns the item's static data; returns nothing and asks the server when the data is not "
+    "loaded.",
+    kItemInfoArgs, kGetItemInfoRets};
+
+static const Game::Doc::Field kGetItemInfoInstantRets[] = {
+    Game::Doc::Req("itemID", "number"),
+    Game::Doc::Opt("itemType", "cstring", nullptr,
+                   "The localized item class name; nil, like the fields after it, when the "
+                   "item's data is not loaded."),
+    Game::Doc::Opt("itemSubType", "cstring"),
+    Game::Doc::Opt("itemEquipLoc", "cstring", nullptr,
+                   "An INVTYPE_ key, or \"\" when the item is not worn."),
+    Game::Doc::Opt("icon", "string", nullptr, "The icon's texture path, not a file ID."),
+    Game::Doc::Opt("classID", "number"),
+    Game::Doc::Opt("subClassID", "number"),
+};
+static const Game::Doc::Function kGetItemInfoInstant{
+    "Returns the item's class, slot and icon without asking the server; returns nothing for "
+    "input that names no item.",
+    kItemInfoArgs, kGetItemInfoInstantRets};
+
+static const Game::Doc::Field kIconRets[] = {
+    Game::Doc::Opt("icon", "string", nullptr,
+                   "The icon's texture path; nil when the item's data is not loaded, which also "
+                   "asks the server for it."),
+};
+static const Game::Doc::Field kGetItemIconGlobalArgs[] = {
+    Game::Doc::Req("itemID", "number"),
+};
+static const Game::Doc::Function kGetItemIconGlobal{
+    "Returns the item's icon.", kGetItemIconGlobalArgs, kIconRets, "ItemGlobals"};
+static const Game::Doc::Field kLocationArgs[] = {
+    Game::Doc::Req("itemLocation", "ItemLocation", "An item location or an item GUID."),
+};
+static const Game::Doc::Function kGetItemIcon{"Returns the icon of the item at a location.",
+                                              kLocationArgs, kIconRets};
+static const Game::Doc::Function kGetItemIconByID{"Returns the item's icon.", kItemInfoArgs,
+                                                  kIconRets};
+
+static const Game::Doc::Field kGetItemFamilyRets[] = {
+    Game::Doc::Opt("result", "number", nullptr,
+                   "The bag family bitmask, 0 for none; nil when the item's data is not loaded, "
+                   "which also asks the server for it."),
+};
+static const Game::Doc::Function kGetItemFamily{
+    "Returns which kinds of special bag the item fits in.", kItemInfoArgs, kGetItemFamilyRets};
+
 static void RegisterLuaFunctions() {
-    Game::Lua::RegisterTableFunction("C_Item", "GetItemInfo", &Script_C_Item_GetItemInfo);
-    Game::Lua::RegisterTableFunction("C_Item", "GetItemInfoInstant", &Script_GetItemInfoInstant);
+    Game::Lua::RegisterTableFunction("C_Item", "GetItemInfo", &Script_C_Item_GetItemInfo,
+                                     &kGetItemInfo);
+    Game::Lua::RegisterTableFunction("C_Item", "GetItemInfoInstant", &Script_GetItemInfoInstant,
+                                     &kGetItemInfoInstant);
     Game::Lua::RegisterTableFunction("C_Item", "GetItemIDForItemInfo",
                                      &Script_GetItemIDForItemInfo, &kGetItemIDForItemInfo);
-    Game::Lua::RegisterGlobalFunction("GetItemIcon", &Script_GetItemIcon);
-    Game::Lua::RegisterTableFunction("C_Item", "GetItemIcon", &Script_C_Item_GetItemIcon);
-    Game::Lua::RegisterTableFunction("C_Item", "GetItemIconByID", &Script_C_Item_GetItemIconByID);
-    Game::Lua::RegisterTableFunction("C_Item", "GetItemFamily", &Script_C_Item_GetItemFamily);
+    Game::Lua::RegisterGlobalFunction("GetItemIcon", &Script_GetItemIcon, &kGetItemIconGlobal);
+    Game::Lua::RegisterTableFunction("C_Item", "GetItemIcon", &Script_C_Item_GetItemIcon,
+                                     &kGetItemIcon);
+    Game::Lua::RegisterTableFunction("C_Item", "GetItemIconByID", &Script_C_Item_GetItemIconByID,
+                                     &kGetItemIconByID);
+    Game::Lua::RegisterTableFunction("C_Item", "GetItemFamily", &Script_C_Item_GetItemFamily,
+                                     &kGetItemFamily);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

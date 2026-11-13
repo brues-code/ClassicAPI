@@ -205,11 +205,47 @@ int __fastcall Script_GetTemporaryEnchantmentInfo(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kGetWeaponEnchantInfoRets[] = {
+    Game::Doc::Req("hasMainHandEnchant", "bool"),
+    Game::Doc::Req("mainHandExpiration", "number",
+                   "Time left in milliseconds; 0 for an enchant with no time limit."),
+    Game::Doc::Req("mainHandCharges", "number"),
+    Game::Doc::Req("mainHandEnchantID", "number", "0 when the weapon has no temporary enchant."),
+    Game::Doc::Req("hasOffHandEnchant", "bool"),
+    Game::Doc::Req("offHandExpiration", "number"),
+    Game::Doc::Req("offHandCharges", "number"),
+    Game::Doc::Req("offHandEnchantID", "number"),
+    Game::Doc::Req("hasRangedEnchant", "bool"),
+    Game::Doc::Req("rangedExpiration", "number"),
+    Game::Doc::Req("rangedCharges", "number"),
+    Game::Doc::Req("rangedEnchantID", "number"),
+};
+const Game::Doc::Function kGetWeaponEnchantInfo{
+    "Returns the temporary enchant, such as a poison or an oil, on each equipped weapon.",
+    {}, kGetWeaponEnchantInfoRets};
+
+const Game::Doc::Field kGetItemTempEnchantInfoArgs[] = {
+    Game::Doc::Req("itemLocation", "ItemLocation", "An item location or an item GUID."),
+};
+const Game::Doc::Field kGetItemTempEnchantInfoRets[] = {
+    Game::Doc::Req("hasEnchant", "bool",
+                   "False for an empty slot or a location that names no item."),
+    Game::Doc::Req("expirationMs", "number",
+                   "Time left in milliseconds; 0 for an enchant with no time limit."),
+    Game::Doc::Req("charges", "number"),
+    Game::Doc::Req("enchantID", "number", "0 when the item has no temporary enchant."),
+};
+const Game::Doc::Function kGetItemTempEnchantInfo{
+    "Returns the temporary enchant, such as a poison or an oil, on the item at a location.",
+    kGetItemTempEnchantInfoArgs, kGetItemTempEnchantInfoRets, nullptr, true};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Item", "GetWeaponEnchantInfo",
-                                      &Script_C_Item_GetWeaponEnchantInfo);
+                                      &Script_C_Item_GetWeaponEnchantInfo,
+                                      &kGetWeaponEnchantInfo);
     Game::Lua::RegisterTableFunction("C_Item", "GetItemTempEnchantInfo",
-                                      &Script_C_Item_GetItemTempEnchantInfo);
+                                      &Script_C_Item_GetItemTempEnchantInfo,
+                                      &kGetItemTempEnchantInfo);
     Game::Lua::RegisterTableFunction("C_PaperDollInfo", "GetTemporaryEnchantmentInfo",
                                       &Script_GetTemporaryEnchantmentInfo,
                                       &kGetTemporaryEnchantmentInfo);

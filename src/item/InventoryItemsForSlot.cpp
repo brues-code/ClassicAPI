@@ -243,11 +243,26 @@ int __fastcall Script_GetInventoryItemsForSlot(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("slot", "luaIndex", "An equipment slot, from 1 to 19."),
+    Game::Doc::Req("returnTable", "table", "Gets the items added; nothing is removed from it."),
+    Game::Doc::Opt("transmogrify", "bool", nullptr, "Has no effect."),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Req("returnTable", "table",
+                   "The same table, with item links keyed by packed item location."),
+};
+const Game::Doc::Function kGetInventoryItemsForSlot{
+    "Adds each worn or carried item that the player can equip in the slot to a table; the bank "
+    "is not searched.",
+    kArgs, kRets, "ItemGlobals"};
+
 } // namespace
 
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("GetInventoryItemsForSlot",
-                                       &Script_GetInventoryItemsForSlot);
+                                       &Script_GetInventoryItemsForSlot,
+                                       &kGetInventoryItemsForSlot);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

@@ -75,11 +75,25 @@ int __fastcall Script_GetInventoryItemRepairCost(void *L) {
     return PushRepairCostForItem(L, Item::Location::ResolveEquipmentSlot(slot1Based));
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("invSlot", "luaIndex", "An equipment slot of the player, from 1 to 19."),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Req("repairCost", "number",
+                   "In copper; 0 for an empty slot or an item with nothing to repair. The "
+                   "merchant discount applies only while a merchant window is open."),
+};
+const Game::Doc::Function kGetInventoryItemRepairCost{
+    "Returns the cost to repair an item the player wears.", kArgs, kRets, "ItemGlobals", true};
+
 } // namespace
 
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("GetInventoryItemRepairCost",
-                                      &Script_GetInventoryItemRepairCost);
+                                      &Script_GetInventoryItemRepairCost,
+                                      &kGetInventoryItemRepairCost);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
