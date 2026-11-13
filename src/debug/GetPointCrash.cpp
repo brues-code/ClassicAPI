@@ -152,7 +152,7 @@ int __fastcall Script_ArmGetPointCrash(void *L) {
 
 void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("_classicapi_ArmGetPointCrash",
-                                      &Script_ArmGetPointCrash);
+                                      &Script_ArmGetPointCrash, nullptr);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

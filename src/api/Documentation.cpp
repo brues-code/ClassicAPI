@@ -646,7 +646,8 @@ void RegisterLuaFunctions() {
                                      &kGetSystems);
     Game::Lua::RegisterTableFunction("C_APIDocumentation", "GetSystem", &Script_GetSystem,
                                      &kGetSystem);
-    Game::Lua::RegisterGlobalFunction("_classicapi_UndocumentedAPI", &Script_UndocumentedAPI);
+    Game::Lua::RegisterGlobalFunction("_classicapi_UndocumentedAPI", &Script_UndocumentedAPI,
+                                      nullptr);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

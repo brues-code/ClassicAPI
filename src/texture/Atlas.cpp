@@ -658,7 +658,8 @@ void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Texture", "RegisterAtlas", &Script_RegisterAtlas,
                                      &kRegisterAtlas);
 
-    Game::Lua::RegisterGlobalFunction("_classicapi_DumpAtlasMisses", &Script_DumpAtlasMisses);
+    Game::Lua::RegisterGlobalFunction("_classicapi_DumpAtlasMisses", &Script_DumpAtlasMisses,
+                                      nullptr);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

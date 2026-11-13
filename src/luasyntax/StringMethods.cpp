@@ -233,12 +233,12 @@ void RegisterLuaFunctions() {
     g_glueSlot.mt = nullptr;
     CaptureFor(g_gameSlot);
     Game::Lua::RegisterGlobalFunction("_classicapi_SetStringMethods",
-                                      &Script_SetStringMethods);
+                                      &Script_SetStringMethods, nullptr);
 }
 void RegisterGlueFunctions() {
     CaptureFor(g_glueSlot);
     Game::Lua::RegisterGlueFunction("_classicapi_SetStringMethods",
-                                    &Script_SetStringMethods);
+                                    &Script_SetStringMethods, nullptr);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

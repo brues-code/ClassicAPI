@@ -990,9 +990,9 @@ void RegisterLuaFunctions() {
                                      &Script_GetBankAutosortDisabled,
                                      &kGetBankAutosortDisabled);
     Game::Lua::RegisterGlobalFunction("_classicapi_SortBagsStats",
-                                      &Script_SortBagsStats);
+                                      &Script_SortBagsStats, nullptr);
     Game::Lua::RegisterGlobalFunction("_classicapi_SortBagsBags",
-                                      &Script_SortBagsBags);
+                                      &Script_SortBagsBags, nullptr);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

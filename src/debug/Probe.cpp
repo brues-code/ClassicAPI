@@ -387,15 +387,15 @@ int __fastcall Script_SLADumpForSpell(void *L) {
 }
 
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("_classicapi_DescDump", &Script_DescDump);
-    Game::Lua::RegisterGlobalFunction("_classicapi_PlayerDump", &Script_PlayerDump);
-    Game::Lua::RegisterGlobalFunction("_classicapi_DescLog", &Script_DescLog);
-    Game::Lua::RegisterGlobalFunction("_classicapi_PlayerLog", &Script_PlayerLog);
-    Game::Lua::RegisterGlobalFunction("_classicapi_SnapAll", &Script_SnapAll);
-    Game::Lua::RegisterGlobalFunction("_classicapi_DiffAll", &Script_DiffAll);
-    Game::Lua::RegisterGlobalFunction("_classicapi_DiffAllLog", &Script_DiffAllLog);
+    Game::Lua::RegisterGlobalFunction("_classicapi_DescDump", &Script_DescDump, nullptr);
+    Game::Lua::RegisterGlobalFunction("_classicapi_PlayerDump", &Script_PlayerDump, nullptr);
+    Game::Lua::RegisterGlobalFunction("_classicapi_DescLog", &Script_DescLog, nullptr);
+    Game::Lua::RegisterGlobalFunction("_classicapi_PlayerLog", &Script_PlayerLog, nullptr);
+    Game::Lua::RegisterGlobalFunction("_classicapi_SnapAll", &Script_SnapAll, nullptr);
+    Game::Lua::RegisterGlobalFunction("_classicapi_DiffAll", &Script_DiffAll, nullptr);
+    Game::Lua::RegisterGlobalFunction("_classicapi_DiffAllLog", &Script_DiffAllLog, nullptr);
     Game::Lua::RegisterGlobalFunction("_classicapi_SLADumpForSpell",
-                                       &Script_SLADumpForSpell);
+                                       &Script_SLADumpForSpell, nullptr);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

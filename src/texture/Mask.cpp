@@ -622,7 +622,8 @@ void RegisterLuaFunctions() {
     Game::Lua::RegisterFrameMethods(
         reinterpret_cast<void *>(Offsets::VAR_FRAME_METHOD_REGISTRY), g_frameMethods,
         g_frameMethodDocs);
-    Game::Lua::RegisterGlobalFunction("_classicapi_TextureMaskEnable", &Script_TextureMaskEnable);
+    Game::Lua::RegisterGlobalFunction("_classicapi_TextureMaskEnable", &Script_TextureMaskEnable,
+                                      nullptr);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

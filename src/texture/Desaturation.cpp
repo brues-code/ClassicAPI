@@ -502,11 +502,12 @@ void RegisterLuaFunctions() {
         reinterpret_cast<void *>(Offsets::VAR_TEXTURE_METHOD_REGISTRY), g_methods, g_methodDocs);
     Game::Lua::RegisterGlobalFunction("IsDesaturateSupported", &Script_IsDesaturateSupported,
                                       &kIsDesaturateSupported);
-    Game::Lua::RegisterGlobalFunction("_classicapi_DesaturationInfo", &Script_DesaturationInfo);
+    Game::Lua::RegisterGlobalFunction("_classicapi_DesaturationInfo", &Script_DesaturationInfo,
+                                      nullptr);
     Game::Lua::RegisterGlobalFunction("_classicapi_DesaturationEnable",
-                                      &Script_DesaturationEnable);
+                                      &Script_DesaturationEnable, nullptr);
     Game::Lua::RegisterGlobalFunction("_classicapi_DesaturationForceProfile",
-                                      &Script_DesaturationForceProfile);
+                                      &Script_DesaturationForceProfile, nullptr);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

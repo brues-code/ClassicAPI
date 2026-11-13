@@ -1693,10 +1693,13 @@ const Game::Doc::Function kMod{
 void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("__len", &Script_Len, &kLen);
     Game::Lua::RegisterGlobalFunction("__mod", &Script_Mod, &kMod);
-    Game::Lua::RegisterGlobalFunction("_classicapi_Transpile", &Script_Transpile);
-    Game::Lua::RegisterGlobalFunction("_classicapi_TranspileStats", &Script_TranspileStats);
-    Game::Lua::RegisterGlobalFunction("_classicapi_SetTranspileOption", &Script_SetTranspileOption);
-    Game::Lua::RegisterGlobalFunction("_classicapi_GetTranspileOption", &Script_GetTranspileOption);
+    Game::Lua::RegisterGlobalFunction("_classicapi_Transpile", &Script_Transpile, nullptr);
+    Game::Lua::RegisterGlobalFunction("_classicapi_TranspileStats", &Script_TranspileStats,
+                                      nullptr);
+    Game::Lua::RegisterGlobalFunction("_classicapi_SetTranspileOption", &Script_SetTranspileOption,
+                                      nullptr);
+    Game::Lua::RegisterGlobalFunction("_classicapi_GetTranspileOption", &Script_GetTranspileOption,
+                                      nullptr);
 }
 
 // `__len` / `__mod` also on the glue state — the load hook is state-agnostic,

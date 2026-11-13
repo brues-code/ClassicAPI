@@ -2184,7 +2184,8 @@ int __fastcall Script_InlineTexEnable(void *L) {
 }
 
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("_classicapi_InlineTexEnable", &Script_InlineTexEnable);
+    Game::Lua::RegisterGlobalFunction("_classicapi_InlineTexEnable", &Script_InlineTexEnable,
+                                      nullptr);
     ApplyCopyMask();
 }
 
