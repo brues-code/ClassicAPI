@@ -98,6 +98,24 @@ int __fastcall Script_GetAllCommands(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kConsoleCommandInfoFields[] = {
+    Game::Doc::Req("command", "cstring", "The name typed in the console."),
+    Game::Doc::Req("help", "cstring", "Empty when the command has no description."),
+    Game::Doc::Req("category", "ConsoleCategory", "Always Debug through Gm."),
+    Game::Doc::Req("commandType", "ConsoleCommandType", "Always Cvar or Command."),
+    Game::Doc::Req("scriptContents", "cstring", "Always empty."),
+    Game::Doc::Req("scriptParameters", "cstring", "Always empty."),
+};
+const Game::Doc::Structure kConsoleCommandInfo{"ConsoleCommandInfo", "ConsoleGlobals",
+                                               kConsoleCommandInfoFields};
+
+const Game::Doc::Field kGetAllCommandsRets[] = {
+    Game::Doc::Req("commands", "table", "Array of ConsoleCommandInfo."),
+};
+const Game::Doc::Function kGetAllCommands{
+    "Returns every console command and console variable the client has.", {},
+    kGetAllCommandsRets, "ConsoleGlobals"};
+
 // Both enums are Blizzard's, stated in full rather than derived from the
 // engine's own category table. They are an API contract, not a description of
 // what this client happens to have: an addon asking for a value we can never
@@ -125,6 +143,15 @@ int __fastcall Script_ConsolePrintAllMatchingCommands(void *L) {
     return 0;
 }
 
+const Game::Doc::Field kPrintAllMatchingCommandsArgs[] = {
+    Game::Doc::Req("partialCommandText", "cstring",
+                   "The start of a command name, matched without regard to case; an empty "
+                   "string prints nothing."),
+};
+const Game::Doc::Function kPrintAllMatchingCommands{
+    "Writes every console command whose name begins with the given text to the console.",
+    kPrintAllMatchingCommandsArgs, {}, "ConsoleGlobals"};
+
 const Game::Lua::EnumIntegerEntry kCommandTypeEntries[] = {
     {"Cvar", kCommandTypeCvar},
     {"Command", kCommandTypeCommand},
@@ -142,11 +169,14 @@ const Game::Lua::EnumIntegerEntry kCategoryEntries[] = {
 };
 
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("ConsoleGetAllCommands", &Script_GetAllCommands);
+    Game::Lua::RegisterGlobalFunction("ConsoleGetAllCommands", &Script_GetAllCommands,
+                                      &kGetAllCommands);
     Game::Lua::RegisterGlobalFunction("ConsolePrintAllMatchingCommands",
-                                      &Script_ConsolePrintAllMatchingCommands);
-    Game::Lua::RegisterIntegerEnum("Enum", "ConsoleCommandType", kCommandTypeEntries);
-    Game::Lua::RegisterIntegerEnum("Enum", "ConsoleCategory", kCategoryEntries);
+                                      &Script_ConsolePrintAllMatchingCommands,
+                                      &kPrintAllMatchingCommands);
+    Game::Lua::RegisterIntegerEnum("Enum", "ConsoleCommandType", kCommandTypeEntries,
+                                   "ConsoleGlobals");
+    Game::Lua::RegisterIntegerEnum("Enum", "ConsoleCategory", kCategoryEntries, "ConsoleGlobals");
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

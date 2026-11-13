@@ -166,7 +166,7 @@ const Game::Doc::Field kIsDownRets[] = {
     Game::Doc::Req("isDown", "bool"),
 };
 const Game::Doc::Function kIsMouseButtonDown{
-    "Whether a mouse button is held now.", kIsDownArgs, kIsDownRets, "UIParent"};
+    "Returns whether a mouse button is held now.", kIsDownArgs, kIsDownRets, "InputGlobals"};
 
 const Game::Doc::Field kNameArgs[] = {
     Game::Doc::Req("button", "number", "A button ID from 1 (LeftButton) to 5 (Button5)."),
@@ -176,7 +176,7 @@ const Game::Doc::Field kNameRets[] = {
                    "The button name, or \"UNKNOWN\" for an ID that is not a button."),
 };
 const Game::Doc::Function kGetMouseButtonName{
-    "Returns the name of a mouse button from its ID.", kNameArgs, kNameRets, "UIParent"};
+    "Returns the name of a mouse button from its ID.", kNameArgs, kNameRets, "InputGlobals"};
 
 void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("IsMouseButtonDown", &Script_IsMouseButtonDown,

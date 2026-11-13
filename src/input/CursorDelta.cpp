@@ -79,7 +79,7 @@ const Game::Doc::Field kRets[] = {
     Game::Doc::Req("deltaY", "number"),
 };
 const Game::Doc::Function kDoc{"Returns how far the cursor moved since the last frame.", {},
-                               kRets, "Input"};
+                               kRets, "InputGlobals"};
 
 void RegisterInGame() {
     Game::Lua::RegisterGlobalFunction("GetCursorDelta", &Script_GetCursorDelta, &kDoc);

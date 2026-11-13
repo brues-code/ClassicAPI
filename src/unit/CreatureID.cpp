@@ -107,8 +107,21 @@ int __fastcall Script_UnitCreatureID(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("unit", "UnitToken"),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Opt("creatureID", "number", nullptr,
+                   "Nil for players, for a token with no unit, and for a pet out of view."),
+};
+const Game::Doc::Function kUnitCreatureID{
+    "Returns the NPC ID of a creature or pet unit.", kArgs, kRets, "UnitGlobals"};
+
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("UnitCreatureID", &Script_UnitCreatureID);
+    Game::Lua::RegisterGlobalFunction("UnitCreatureID", &Script_UnitCreatureID,
+                                      &kUnitCreatureID);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

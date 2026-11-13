@@ -43,12 +43,31 @@ namespace Player::InputEvents {
 
 namespace {
 
-const Event::Custom::AutoReserve _reserveStartedMoving{"PLAYER_STARTED_MOVING"};
-const Event::Custom::AutoReserve _reserveStoppedMoving{"PLAYER_STOPPED_MOVING"};
-const Event::Custom::AutoReserve _reserveStartedLooking{"PLAYER_STARTED_LOOKING"};
-const Event::Custom::AutoReserve _reserveStoppedLooking{"PLAYER_STOPPED_LOOKING"};
-const Event::Custom::AutoReserve _reserveStartedTurning{"PLAYER_STARTED_TURNING"};
-const Event::Custom::AutoReserve _reserveStoppedTurning{"PLAYER_STOPPED_TURNING"};
+const Game::Doc::Event kStartedMovingDoc{
+    "Unit", "Fires when the player starts to move with the movement keys, autorun, or both mouse buttons.",
+    {}};
+const Game::Doc::Event kStoppedMovingDoc{
+    "Unit", "Fires when the player releases all movement input, even while still in the air.", {}};
+const Game::Doc::Event kStartedLookingDoc{
+    "Unit", "Fires when the player first moves the camera while holding the left mouse button.", {}};
+const Game::Doc::Event kStoppedLookingDoc{
+    "Unit", "Fires when the player releases the left mouse button after moving the camera.", {}};
+const Game::Doc::Event kStartedTurningDoc{
+    "Unit", "Fires when the player first turns the character while holding the right mouse button.",
+    {}};
+const Game::Doc::Event kStoppedTurningDoc{
+    "Unit", "Fires when the player releases the right mouse button after turning the character.", {}};
+
+const Event::Custom::AutoReserve _reserveStartedMoving{"PLAYER_STARTED_MOVING", &kStartedMovingDoc};
+const Event::Custom::AutoReserve _reserveStoppedMoving{"PLAYER_STOPPED_MOVING", &kStoppedMovingDoc};
+const Event::Custom::AutoReserve _reserveStartedLooking{"PLAYER_STARTED_LOOKING",
+                                                        &kStartedLookingDoc};
+const Event::Custom::AutoReserve _reserveStoppedLooking{"PLAYER_STOPPED_LOOKING",
+                                                        &kStoppedLookingDoc};
+const Event::Custom::AutoReserve _reserveStartedTurning{"PLAYER_STARTED_TURNING",
+                                                        &kStartedTurningDoc};
+const Event::Custom::AutoReserve _reserveStoppedTurning{"PLAYER_STOPPED_TURNING",
+                                                        &kStoppedTurningDoc};
 
 // Below this per-frame delta, treat the yaw as stable. Picks up
 // real rotation (smallest user-perceptible RMB-drag is ~0.5°/frame

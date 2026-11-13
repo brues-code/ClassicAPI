@@ -133,11 +133,26 @@ const Game::Doc::Function kSetMacroItem{
     "Sets the item that a macro's action button shows, until the macro is edited.",
     kSetMacroItemArgs, kSetMacroValueRets, "MacroGlobals"};
 
+const Game::Doc::Field kSetMacroDisplayArgs[] = {
+    Game::Doc::Req("macroSlot", "luaIndex"),
+    Game::Doc::Opt("value", "string", nullptr,
+                   "Anything a #showtooltip line takes; false or \"\" shows the question mark, "
+                   "nil gives the macro back to #showtooltip."),
+    Game::Doc::Opt("unit", "UnitToken", nullptr,
+                   "The unit the button's range check follows instead of your target."),
+};
+const Game::Doc::Field kSetMacroDisplayRets[] = {
+    Game::Doc::Req("found", "bool", "True when the value named a spell or an item."),
+};
+const Game::Doc::Function kSetMacroDisplay{
+    "Sets the spell or item that a macro's action button shows until you change it.",
+    kSetMacroDisplayArgs, kSetMacroDisplayRets, nullptr, true};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("SetMacroSpell", &Script_SetMacroSpell, &kSetMacroSpell);
     Game::Lua::RegisterGlobalFunction("SetMacroItem", &Script_SetMacroItem, &kSetMacroItem);
     Game::Lua::RegisterTableFunction("C_Macro", "SetMacroDisplay",
-                                     &Script_C_Macro_SetMacroDisplay);
+                                     &Script_C_Macro_SetMacroDisplay, &kSetMacroDisplay);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

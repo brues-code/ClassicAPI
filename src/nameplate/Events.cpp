@@ -61,9 +61,28 @@ namespace NamePlate::Events {
 
 namespace {
 
-const Event::Custom::AutoReserve _evtCreated{"NAME_PLATE_CREATED"};
-const Event::Custom::AutoReserve _evtUnitAdded{"NAME_PLATE_UNIT_ADDED"};
-const Event::Custom::AutoReserve _evtUnitRemoved{"NAME_PLATE_UNIT_REMOVED"};
+const Game::Doc::Field kCreatedPayload[] = {
+    Game::Doc::Req("namePlateFrame", "SimpleFrame"),
+};
+const Game::Doc::Event kCreatedDoc{
+    "NamePlate",
+    "Fires once for each nameplate frame the game creates; a frame used again for another unit "
+    "does not fire it again.",
+    kCreatedPayload};
+
+const Game::Doc::Field kUnitPayload[] = {
+    Game::Doc::Req("unitToken", "UnitToken", "A \"nameplateN\" token for the unit."),
+};
+const Game::Doc::Event kUnitAddedDoc{"NamePlate", "Fires when a unit gets a nameplate.",
+                                     kUnitPayload};
+const Game::Doc::Event kUnitRemovedDoc{
+    "NamePlate",
+    "Fires when a unit loses its nameplate, while its token still names the unit.",
+    kUnitPayload};
+
+const Event::Custom::AutoReserve _evtCreated{"NAME_PLATE_CREATED", &kCreatedDoc};
+const Event::Custom::AutoReserve _evtUnitAdded{"NAME_PLATE_UNIT_ADDED", &kUnitAddedDoc};
+const Event::Custom::AutoReserve _evtUnitRemoved{"NAME_PLATE_UNIT_REMOVED", &kUnitRemovedDoc};
 
 // A nameplated unit and its nameplate frame.
 struct Plate {

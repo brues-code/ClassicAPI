@@ -63,11 +63,37 @@ static int __fastcall Script_C_Item_GetItemMaxStackSizeByID(void *L) {
     return PushMaxStackSizeForItemID(L, Item::Arg::ResolveItemID(L, 1));
 }
 
+// --- Documentation ----------------------------------------------------------
+
+static const Game::Doc::Field kLocationArgs[] = {
+    Game::Doc::Req("itemLocation", "ItemLocation", "An item location or an item GUID."),
+};
+static const Game::Doc::Field kByIDArgs[] = {
+    Game::Doc::Req("itemInfo", "ItemInfo", "An item ID or an item link."),
+};
+static const Game::Doc::Field kLocationRets[] = {
+    Game::Doc::Opt("stackSize", "number", nullptr,
+                   "1 for an item that does not stack; nil for an empty slot or an item that "
+                   "is not cached."),
+};
+static const Game::Doc::Field kByIDRets[] = {
+    Game::Doc::Opt("stackSize", "number", nullptr,
+                   "1 for an item that does not stack; nil while the item is not cached."),
+};
+static const Game::Doc::Function kGetItemMaxStackSize{
+    "Returns how many of the item at a location fit in one stack.", kLocationArgs,
+    kLocationRets};
+static const Game::Doc::Function kGetItemMaxStackSizeByID{
+    "Returns how many of an item fit in one stack, and asks the server for an item that is "
+    "not cached.",
+    kByIDArgs, kByIDRets};
+
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Item", "GetItemMaxStackSize",
-                                     &Script_C_Item_GetItemMaxStackSize);
+                                     &Script_C_Item_GetItemMaxStackSize, &kGetItemMaxStackSize);
     Game::Lua::RegisterTableFunction("C_Item", "GetItemMaxStackSizeByID",
-                                     &Script_C_Item_GetItemMaxStackSizeByID);
+                                     &Script_C_Item_GetItemMaxStackSizeByID,
+                                     &kGetItemMaxStackSizeByID);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

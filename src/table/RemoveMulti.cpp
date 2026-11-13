@@ -56,8 +56,21 @@ int __fastcall Script_table_removemulti(void *L) {
     return n;
 }
 
+const Game::Doc::Field kRemoveMultiArgs[] = {
+    Game::Doc::Req("t", "table"),
+    Game::Doc::Opt("pos", "number", nullptr, "The first position to remove; the last by default."),
+    Game::Doc::Opt("count", "number", "1"),
+};
+const Game::Doc::Field kRemoveMultiRets[] = {
+    Game::Doc::Vararg("any", "The removed elements, in order; nothing when t is empty."),
+};
+const Game::Doc::Function kRemoveMulti{
+    "Removes a run of elements from an array, moves the rest down, and returns the removed ones.",
+    kRemoveMultiArgs, kRemoveMultiRets};
+
 void Register() {
-    Game::Lua::RegisterTableFunction("table", "removemulti", &Script_table_removemulti);
+    Game::Lua::RegisterTableFunction("table", "removemulti", &Script_table_removemulti,
+                                     &kRemoveMulti);
 }
 
 const Game::ModuleAutoRegister _autoreg{&Register};

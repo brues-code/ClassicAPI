@@ -70,7 +70,7 @@ const Game::Doc::Field kRets[] = {
                    "The color for that class, or nil when the name is not a class."),
 };
 const Game::Doc::Function kGetClassColor{
-    "The color a class is drawn in.", kArgs, kRets};
+    "Returns the color a class is drawn in.", kArgs, kRets};
 
 } // namespace
 

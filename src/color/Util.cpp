@@ -264,23 +264,103 @@ int __fastcall Script_WrapTextInColorCode(void *L) {
     return 1;
 }
 
+// ---- documentation ----------------------------------------------------------
+
+const Game::Doc::Field kRgbArgs[] = {
+    Game::Doc::Req("rgbR", "number", "From 0 to 1."),
+    Game::Doc::Req("rgbG", "number"),
+    Game::Doc::Req("rgbB", "number"),
+};
+const Game::Doc::Field kRgbRets[] = {
+    Game::Doc::Req("rgbR", "number", "From 0 to 1."),
+    Game::Doc::Req("rgbG", "number"),
+    Game::Doc::Req("rgbB", "number"),
+};
+const Game::Doc::Field kHsvArgs[] = {
+    Game::Doc::Req("hsvH", "number", "Degrees from 0 to 360; -1 means no hue."),
+    Game::Doc::Req("hsvS", "number", "From 0 to 1."),
+    Game::Doc::Req("hsvV", "number", "From 0 to 1."),
+};
+const Game::Doc::Field kHsvRets[] = {
+    Game::Doc::Req("hsvH", "number", "Degrees from 0 to 360, or -1 for a gray."),
+    Game::Doc::Req("hsvS", "number"),
+    Game::Doc::Req("hsvV", "number"),
+};
+const Game::Doc::Field kHslArgs[] = {
+    Game::Doc::Req("hslH", "number", "Degrees from 0 to 360; -1 means no hue."),
+    Game::Doc::Req("hslS", "number", "From 0 to 1."),
+    Game::Doc::Req("hslL", "number", "From 0 to 1."),
+};
+const Game::Doc::Field kHslRets[] = {
+    Game::Doc::Req("hslH", "number", "The hue, unchanged."),
+    Game::Doc::Req("hslS", "number"),
+    Game::Doc::Req("hslL", "number"),
+};
+const Game::Doc::Field kHsvFromHslRets[] = {
+    Game::Doc::Req("hsvH", "number", "The hue, unchanged."),
+    Game::Doc::Req("hsvS", "number"),
+    Game::Doc::Req("hsvV", "number"),
+};
+
+const Game::Doc::Function kConvertRGBToHSV{"Converts an RGB color to hue, saturation and value.",
+                                           kRgbArgs, kHsvRets};
+const Game::Doc::Function kConvertHSVToRGB{"Converts a hue, saturation and value color to RGB.",
+                                           kHsvArgs, kRgbRets};
+const Game::Doc::Function kConvertHSVToHSL{
+    "Converts a hue, saturation and value color to hue, saturation and lightness.", kHsvArgs,
+    kHslRets};
+const Game::Doc::Function kConvertHSLToHSV{
+    "Converts a hue, saturation and lightness color to hue, saturation and value.", kHslArgs,
+    kHsvFromHslRets};
+const Game::Doc::Function kConvertHSLToRGB{
+    "Converts a hue, saturation and lightness color to RGB.", kHslArgs, kRgbRets, nullptr, true};
+
+const Game::Doc::Field kColorArg[] = {
+    Game::Doc::Req("color", "colorRGBA",
+                   "A table with r, g and b from 0 to 1, and an optional a that defaults to 1."),
+};
+const Game::Doc::Field kTextColorCodeRets[] = {
+    Game::Doc::Req("textColorCode", "string", "Eight hex digits, alpha first, without |c."),
+};
+const Game::Doc::Function kGenerateTextColorCode{"Returns the hex color code of a color.",
+                                                 kColorArg, kTextColorCodeRets};
+
+const Game::Doc::Field kWrapTextInColorArgs[] = {
+    Game::Doc::Req("text", "cstring"),
+    Game::Doc::Req("color", "colorRGBA",
+                   "A table with r, g and b from 0 to 1, and an optional a that defaults to 1."),
+};
+const Game::Doc::Field kColoredTextRets[] = {
+    Game::Doc::Req("coloredText", "string"),
+};
+const Game::Doc::Function kWrapTextInColor{"Returns text wrapped in the color code of a color.",
+                                           kWrapTextInColorArgs, kColoredTextRets};
+
+const Game::Doc::Field kWrapTextInColorCodeArgs[] = {
+    Game::Doc::Req("text", "cstring"),
+    Game::Doc::Req("textColorCode", "cstring",
+                   "Eight hex digits, as GenerateTextColorCode returns."),
+};
+const Game::Doc::Function kWrapTextInColorCode{"Returns text wrapped in a hex color code.",
+                                               kWrapTextInColorCodeArgs, kColoredTextRets};
+
 void RegisterFns() {
     Game::Lua::RegisterTableFunction("C_ColorUtil", "ConvertRGBToHSV",
-                                     &Script_ConvertRGBToHSV);
+                                     &Script_ConvertRGBToHSV, &kConvertRGBToHSV);
     Game::Lua::RegisterTableFunction("C_ColorUtil", "ConvertHSVToRGB",
-                                     &Script_ConvertHSVToRGB);
+                                     &Script_ConvertHSVToRGB, &kConvertHSVToRGB);
     Game::Lua::RegisterTableFunction("C_ColorUtil", "ConvertHSVToHSL",
-                                     &Script_ConvertHSVToHSL);
+                                     &Script_ConvertHSVToHSL, &kConvertHSVToHSL);
     Game::Lua::RegisterTableFunction("C_ColorUtil", "ConvertHSLToHSV",
-                                     &Script_ConvertHSLToHSV);
+                                     &Script_ConvertHSLToHSV, &kConvertHSLToHSV);
     Game::Lua::RegisterTableFunction("C_ColorUtil", "ConvertHSLToRGB",
-                                     &Script_ConvertHSLToRGB);
+                                     &Script_ConvertHSLToRGB, &kConvertHSLToRGB);
     Game::Lua::RegisterTableFunction("C_ColorUtil", "GenerateTextColorCode",
-                                     &Script_GenerateTextColorCode);
+                                     &Script_GenerateTextColorCode, &kGenerateTextColorCode);
     Game::Lua::RegisterTableFunction("C_ColorUtil", "WrapTextInColor",
-                                     &Script_WrapTextInColor);
+                                     &Script_WrapTextInColor, &kWrapTextInColor);
     Game::Lua::RegisterTableFunction("C_ColorUtil", "WrapTextInColorCode",
-                                     &Script_WrapTextInColorCode);
+                                     &Script_WrapTextInColorCode, &kWrapTextInColorCode);
 }
 
 // Pure helpers — useful on both the in-game and glue states.

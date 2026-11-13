@@ -67,32 +67,33 @@ const Game::Doc::Field kSentPayload[] = {
     Game::Doc::Opt("rank", "string", nullptr, "The spell's rank text, when it has one."),
 };
 
-const Game::Doc::Event kStartDoc{"Spell", "A unit began casting a spell.", kCastPayload};
+const Game::Doc::Event kStartDoc{"Spell", "Fires when a unit begins casting a spell.",
+                                 kCastPayload};
 const Game::Doc::Event kStopDoc{"Spell",
-    "A cast ended, for any reason. It follows every START.", kCastPayload};
+    "Fires when a cast ends for any reason; it follows every START.", kCastPayload};
 const Game::Doc::Event kDelayedDoc{"Spell",
-    "A cast's finish time moved. Read the times again.", kCastPayload};
-const Game::Doc::Event kChannelStartDoc{"Spell", "A unit began channeling a spell.",
+    "Fires when a cast's finish time moves; read the times again.", kCastPayload};
+const Game::Doc::Event kChannelStartDoc{"Spell", "Fires when a unit begins channeling a spell.",
                                         kCastPayload};
 const Game::Doc::Event kChannelStopDoc{"Spell",
-    "A channel ended, whether it finished or was cut short.", kCastPayload};
+    "Fires when a channel ends, whether it finished or was cut short.", kCastPayload};
 const Game::Doc::Event kChannelUpdateDoc{"Spell",
-    "A channel's finish time moved. Read the times again.", kCastPayload};
-const Game::Doc::Event kSucceededDoc{"Spell", "A spell took effect.", kCastPayload};
+    "Fires when a channel's finish time moves; read the times again.", kCastPayload};
+const Game::Doc::Event kSucceededDoc{"Spell", "Fires when a spell takes effect.", kCastPayload};
 const Game::Doc::Event kInterruptedDoc{"Spell",
-    "A cast was cut short. Channels do not fire this.", kCastPayload};
+    "Fires when a cast is cut short; channels do not fire it.", kCastPayload};
 const Game::Doc::Event kFailedDoc{"Spell",
-    "A cast was refused before it began, such as out of range or short of power.",
+    "Fires when a cast is refused before it begins, such as out of range or short of power.",
     kCastPayload};
 const Game::Doc::Event kFailedQuietDoc{"Spell",
-    "A cast was refused and the client showed no error.", kCastPayload};
+    "Fires when a cast is refused and the client shows no error.", kCastPayload};
 const Game::Doc::Event kSentDoc{"Spell",
-    "The player asked the server to cast a spell. It is the first event of a cast.",
+    "Fires when the player asks the server to cast a spell; it is the first event of a cast.",
     kSentPayload};
 const Game::Doc::Event kReticleTargetDoc{"Spell",
-    "A spell is waiting for the player to choose a ground target.", kReticlePayload};
+    "Fires when a spell waits for the player to choose a ground target.", kReticlePayload};
 const Game::Doc::Event kReticleClearDoc{"Spell",
-    "The player cancelled a spell that was waiting for a ground target.", kReticlePayload};
+    "Fires when the player cancels a spell that waits for a ground target.", kReticlePayload};
 
 // The reservations double as the fire handles (`k*.Slot()` — O(1)).
 const Event::Custom::AutoReserve kStart{"UNIT_SPELLCAST_START", &kStartDoc};
@@ -113,10 +114,10 @@ const Game::Doc::Field kUnitPayload[] = {
     Game::Doc::Req("unitTarget", "UnitToken", "The unit that is casting."),
 };
 const Game::Doc::Event kInterruptibleDoc{"Spell",
-    "The unit's current cast can be interrupted again. Read UnitCastingInfo or UnitChannelInfo.",
+    "Fires when a unit's current cast can be interrupted again.",
     kUnitPayload};
 const Game::Doc::Event kNotInterruptibleDoc{"Spell",
-    "The unit's current cast can no longer be interrupted. Read UnitCastingInfo or UnitChannelInfo.",
+    "Fires when a unit's current cast can no longer be interrupted.",
     kUnitPayload};
 const Event::Custom::AutoReserve kInterruptible{"UNIT_SPELLCAST_INTERRUPTIBLE", &kInterruptibleDoc};
 const Event::Custom::AutoReserve kNotInterruptible{"UNIT_SPELLCAST_NOT_INTERRUPTIBLE",

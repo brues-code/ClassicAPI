@@ -94,8 +94,21 @@ static int __fastcall Script_GetAuctionItemID(void *L) {
     return 1;
 }
 
+static const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("type", "cstring", "\"list\", \"owner\" or \"bidder\"; case does not matter."),
+    Game::Doc::Req("index", "luaIndex"),
+};
+static const Game::Doc::Field kRets[] = {
+    Game::Doc::Opt("itemID", "number", nullptr,
+                   "Nil for an unknown type, an index out of range, or an entry not loaded yet."),
+};
+static const Game::Doc::Function kGetAuctionItemID{
+    "Returns the item ID of an auction house entry, the ID that GetAuctionItemLink shows.",
+    kArgs, kRets, "ItemGlobals", true};
+
 static void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("GetAuctionItemID", &Script_GetAuctionItemID);
+    Game::Lua::RegisterGlobalFunction("GetAuctionItemID", &Script_GetAuctionItemID,
+                                      &kGetAuctionItemID);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

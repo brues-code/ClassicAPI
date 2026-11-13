@@ -414,20 +414,131 @@ const Game::Doc::Function kGetBindingByKey{"Returns the command that a key press
                                            kGetBindingByKeyArgs, kGetBindingByKeyRets,
                                            "BindingsGlobals"};
 
+const Game::Doc::Field kSetBindingRets[] = {
+    Game::Doc::Opt("ok", "number", nullptr, "1 when the binding changed, otherwise nil."),
+};
+const Game::Doc::Field kSetBindingSpellArgs[] = {
+    Game::Doc::Req("key", "string"),
+    Game::Doc::Req("spell", "string", "A spell name."),
+};
+const Game::Doc::Function kSetBindingSpell{
+    "Binds a key in the current binding set to cast a spell.", kSetBindingSpellArgs,
+    kSetBindingRets, "BindingsGlobals"};
+const Game::Doc::Field kSetBindingItemArgs[] = {
+    Game::Doc::Req("key", "string"),
+    Game::Doc::Req("item", "string", "An item name."),
+};
+const Game::Doc::Function kSetBindingItem{
+    "Binds a key in the current binding set to use an item.", kSetBindingItemArgs,
+    kSetBindingRets, "BindingsGlobals"};
+const Game::Doc::Field kSetBindingMacroArgs[] = {
+    Game::Doc::Req("key", "string"),
+    Game::Doc::Req("macro", "string", "A macro name, or a macro index as a number."),
+};
+const Game::Doc::Function kSetBindingMacro{
+    "Binds a key in the current binding set to run a macro.", kSetBindingMacroArgs,
+    kSetBindingRets, "BindingsGlobals"};
+const Game::Doc::Field kSetBindingClickArgs[] = {
+    Game::Doc::Req("key", "string"),
+    Game::Doc::Req("buttonName", "string", "The global name of the button."),
+    Game::Doc::Opt("mouseButton", "string", "\"LeftButton\""),
+};
+const Game::Doc::Function kSetBindingClick{
+    "Binds a key in the current binding set to click a button.", kSetBindingClickArgs,
+    kSetBindingRets, "BindingsGlobals"};
+
+const Game::Doc::Field kSetOverrideBindingArgs[] = {
+    Game::Doc::Req("owner", "SimpleFrame"),
+    Game::Doc::Req("isPriority", "bool"),
+    Game::Doc::Req("key", "string",
+                   "Not case sensitive; write the modifiers in the order ALT-CTRL-SHIFT."),
+    Game::Doc::Opt("command", "string", nullptr,
+                   "Nil or an empty string removes the owner's override for the key."),
+};
+const Game::Doc::Function kSetOverrideBinding{
+    "Sets a temporary binding for a key that replaces its saved binding until it is removed.",
+    kSetOverrideBindingArgs, {}, "BindingsGlobals"};
+const Game::Doc::Field kSetOverrideBindingSpellArgs[] = {
+    Game::Doc::Req("owner", "SimpleFrame"),
+    Game::Doc::Req("isPriority", "bool"),
+    Game::Doc::Req("key", "string"),
+    Game::Doc::Req("spell", "string", "A spell name."),
+};
+const Game::Doc::Function kSetOverrideBindingSpell{
+    "Sets a temporary binding for a key that casts a spell.", kSetOverrideBindingSpellArgs, {},
+    "BindingsGlobals"};
+const Game::Doc::Field kSetOverrideBindingItemArgs[] = {
+    Game::Doc::Req("owner", "SimpleFrame"),
+    Game::Doc::Req("isPriority", "bool"),
+    Game::Doc::Req("key", "string"),
+    Game::Doc::Req("item", "string", "An item name."),
+};
+const Game::Doc::Function kSetOverrideBindingItem{
+    "Sets a temporary binding for a key that uses an item.", kSetOverrideBindingItemArgs, {},
+    "BindingsGlobals"};
+const Game::Doc::Field kSetOverrideBindingMacroArgs[] = {
+    Game::Doc::Req("owner", "SimpleFrame"),
+    Game::Doc::Req("isPriority", "bool"),
+    Game::Doc::Req("key", "string"),
+    Game::Doc::Req("macro", "string", "A macro name, or a macro index as a number."),
+};
+const Game::Doc::Function kSetOverrideBindingMacro{
+    "Sets a temporary binding for a key that runs a macro.", kSetOverrideBindingMacroArgs, {},
+    "BindingsGlobals"};
+const Game::Doc::Field kSetOverrideBindingClickArgs[] = {
+    Game::Doc::Req("owner", "SimpleFrame"),
+    Game::Doc::Req("isPriority", "bool"),
+    Game::Doc::Req("key", "string"),
+    Game::Doc::Req("buttonName", "string", "The global name of the button."),
+    Game::Doc::Opt("mouseButton", "string", "\"LeftButton\""),
+};
+const Game::Doc::Function kSetOverrideBindingClick{
+    "Sets a temporary binding for a key that clicks a button.", kSetOverrideBindingClickArgs,
+    {}, "BindingsGlobals"};
+const Game::Doc::Field kClearOverrideBindingsArgs[] = {
+    Game::Doc::Req("owner", "SimpleFrame"),
+};
+const Game::Doc::Function kClearOverrideBindings{"Removes all override bindings of an owner.",
+                                                 kClearOverrideBindingsArgs, {},
+                                                 "BindingsGlobals"};
+
+const Game::Doc::Field kGetBindingActionArgs[] = {
+    Game::Doc::Req("key", "string"),
+    Game::Doc::Opt("checkOverride", "bool", "false",
+                   "True returns an active override binding first."),
+};
+const Game::Doc::Field kGetBindingActionRets[] = {
+    Game::Doc::Req("action", "string", "An empty string when nothing is bound."),
+};
+const Game::Doc::Function kGetBindingAction{"Returns the command bound to a key.",
+                                            kGetBindingActionArgs, kGetBindingActionRets,
+                                            "BindingsGlobals"};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("GetBindingByKey", &Script_GetBindingByKey,
                                       &kGetBindingByKey);
-    Game::Lua::RegisterGlobalFunction("SetBindingSpell", &Script_SetBindingSpell);
-    Game::Lua::RegisterGlobalFunction("SetBindingItem", &Script_SetBindingItem);
-    Game::Lua::RegisterGlobalFunction("SetBindingMacro", &Script_SetBindingMacro);
-    Game::Lua::RegisterGlobalFunction("SetBindingClick", &Script_SetBindingClick);
-    Game::Lua::RegisterGlobalFunction("SetOverrideBinding", &Script_SetOverrideBinding);
-    Game::Lua::RegisterGlobalFunction("SetOverrideBindingSpell", &Script_SetOverrideBindingSpell);
-    Game::Lua::RegisterGlobalFunction("SetOverrideBindingItem", &Script_SetOverrideBindingItem);
-    Game::Lua::RegisterGlobalFunction("SetOverrideBindingMacro", &Script_SetOverrideBindingMacro);
-    Game::Lua::RegisterGlobalFunction("SetOverrideBindingClick", &Script_SetOverrideBindingClick);
-    Game::Lua::RegisterGlobalFunction("ClearOverrideBindings", &Script_ClearOverrideBindings);
-    Game::Lua::RegisterGlobalFunction("GetBindingAction", &Script_GetBindingAction);
+    Game::Lua::RegisterGlobalFunction("SetBindingSpell", &Script_SetBindingSpell,
+                                      &kSetBindingSpell);
+    Game::Lua::RegisterGlobalFunction("SetBindingItem", &Script_SetBindingItem,
+                                      &kSetBindingItem);
+    Game::Lua::RegisterGlobalFunction("SetBindingMacro", &Script_SetBindingMacro,
+                                      &kSetBindingMacro);
+    Game::Lua::RegisterGlobalFunction("SetBindingClick", &Script_SetBindingClick,
+                                      &kSetBindingClick);
+    Game::Lua::RegisterGlobalFunction("SetOverrideBinding", &Script_SetOverrideBinding,
+                                      &kSetOverrideBinding);
+    Game::Lua::RegisterGlobalFunction("SetOverrideBindingSpell", &Script_SetOverrideBindingSpell,
+                                      &kSetOverrideBindingSpell);
+    Game::Lua::RegisterGlobalFunction("SetOverrideBindingItem", &Script_SetOverrideBindingItem,
+                                      &kSetOverrideBindingItem);
+    Game::Lua::RegisterGlobalFunction("SetOverrideBindingMacro", &Script_SetOverrideBindingMacro,
+                                      &kSetOverrideBindingMacro);
+    Game::Lua::RegisterGlobalFunction("SetOverrideBindingClick", &Script_SetOverrideBindingClick,
+                                      &kSetOverrideBindingClick);
+    Game::Lua::RegisterGlobalFunction("ClearOverrideBindings", &Script_ClearOverrideBindings,
+                                      &kClearOverrideBindings);
+    Game::Lua::RegisterGlobalFunction("GetBindingAction", &Script_GetBindingAction,
+                                      &kGetBindingAction);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

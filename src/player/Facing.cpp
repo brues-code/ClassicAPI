@@ -36,8 +36,16 @@ int __fastcall Script_GetPlayerFacing(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kFacingRets[] = {
+    Game::Doc::Opt("result", "number", nullptr,
+                   "Radians from 0 to 2*pi, counter-clockwise from north; nil when there is no player."),
+};
+const Game::Doc::Function kGetPlayerFacing{
+    "Returns the direction the player faces.", {}, kFacingRets, "PlayerGlobals"};
+
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("GetPlayerFacing", &Script_GetPlayerFacing);
+    Game::Lua::RegisterGlobalFunction("GetPlayerFacing", &Script_GetPlayerFacing,
+                                      &kGetPlayerFacing);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

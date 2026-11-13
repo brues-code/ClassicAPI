@@ -381,11 +381,33 @@ int __fastcall Script_DeserializeCBOR(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kSerializeArgs[] = {
+    Game::Doc::Opt("value", "any", nullptr,
+                   "Nil, a boolean, number or string, or a table of these; map keys are "
+                   "written in sorted order."),
+};
+const Game::Doc::Field kSerializeRets[] = {
+    Game::Doc::Opt("output", "string", nullptr,
+                   "Nothing when the value holds a function or userdata, or tables nested "
+                   "64 deep."),
+};
+const Game::Doc::Function kSerializeCBOR{"Encodes a Lua value as CBOR.", kSerializeArgs,
+                                         kSerializeRets};
+
+const Game::Doc::Field kDeserializeArgs[] = {
+    Game::Doc::Req("source", "string"),
+};
+const Game::Doc::Field kDeserializeRets[] = {
+    Game::Doc::Opt("value", "any", nullptr, "Nothing when the source is not valid CBOR."),
+};
+const Game::Doc::Function kDeserializeCBOR{"Decodes a CBOR string into a Lua value.",
+                                           kDeserializeArgs, kDeserializeRets};
+
 void Register() {
     Game::Lua::RegisterTableFunction("C_EncodingUtil", "SerializeCBOR",
-                                     &Script_SerializeCBOR);
+                                     &Script_SerializeCBOR, &kSerializeCBOR);
     Game::Lua::RegisterTableFunction("C_EncodingUtil", "DeserializeCBOR",
-                                     &Script_DeserializeCBOR);
+                                     &Script_DeserializeCBOR, &kDeserializeCBOR);
 }
 
 } // namespace

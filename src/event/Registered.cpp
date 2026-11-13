@@ -82,9 +82,20 @@ int __fastcall Script_GetFramesRegisteredForEvent(void *L) {
     return pushed;
 }
 
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("event", "cstring"),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Vararg("SimpleFrame",
+                      "Nothing when no frame is registered or the event name is unknown."),
+};
+const Game::Doc::Function kGetFramesRegisteredForEvent{
+    "Returns the frames registered for an event.", kArgs, kRets, "FrameGlobals"};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("GetFramesRegisteredForEvent",
-                                      &Script_GetFramesRegisteredForEvent);
+                                      &Script_GetFramesRegisteredForEvent,
+                                      &kGetFramesRegisteredForEvent);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

@@ -171,10 +171,17 @@ int __fastcall Script_PlayVocalErrorSound(void *L) {
     return 0;
 }
 
+const Game::Doc::Field kPlayVocalErrorSoundArgs[] = {
+    Game::Doc::Req("vocalErrorSoundID", "Vocalerrorsounds"),
+};
+const Game::Doc::Function kPlayVocalErrorSound{
+    "Plays the character's spoken complaint for an error, in the voice of their race and sex.",
+    kPlayVocalErrorSoundArgs, {}};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Sound", "PlayVocalErrorSound",
-                                     &Script_PlayVocalErrorSound);
-    Game::Lua::RegisterIntegerEnum("Enum", "Vocalerrorsounds", kVocalErrorEntries);
+                                     &Script_PlayVocalErrorSound, &kPlayVocalErrorSound);
+    Game::Lua::RegisterIntegerEnum("Enum", "Vocalerrorsounds", kVocalErrorEntries, "Sound");
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

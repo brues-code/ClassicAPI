@@ -121,7 +121,7 @@ const Game::Doc::Field kGetSpellCooldownRets[] = {
                    "Nil when the spell cannot be resolved."),
 };
 const Game::Doc::Function kGetSpellCooldown{
-    "When a spell's cooldown began and how long it lasts.",
+    "Returns when a spell's cooldown began and how long it lasts.",
     kGetSpellCooldownArgs, kGetSpellCooldownRets};
 
 } // namespace

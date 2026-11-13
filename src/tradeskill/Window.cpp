@@ -341,6 +341,35 @@ const Game::Doc::Function kIsCraftLinked{
     "Returns whether the craft window shows a profession from a link, and whose.", {},
     kLinkedRets, "TradeSkillGlobals", true};
 
+const Game::Doc::Field kSkillLineRets[] = {
+    Game::Doc::Req("skillLineName", "string"),
+    Game::Doc::Req("skillLineRank", "number", "The linked player's rank while the window shows "
+                                               "a link."),
+    Game::Doc::Req("skillLineMaxRank", "number"),
+};
+const Game::Doc::Function kGetTradeSkillLine{
+    "Returns the profession the trade-skill window shows, with its rank and maximum rank.", {},
+    kSkillLineRets, "TradeSkillGlobals"};
+
+const Game::Doc::Field kCraftSkillLineRets[] = {
+    Game::Doc::Opt("name", "string", nullptr,
+                   "Nil, with the rest, for a craft window that shows no rank bar."),
+    Game::Doc::Opt("rank", "number", nullptr,
+                   "The linked player's rank while the window shows a link."),
+    Game::Doc::Opt("maxRank", "number"),
+};
+const Game::Doc::Function kGetCraftDisplaySkillLine{
+    "Returns the skill line the craft window's rank bar shows, with its rank and maximum "
+    "rank.",
+    {}, kCraftSkillLineRets, "TradeSkillGlobals"};
+
+const Game::Doc::Field kCraftNameRets[] = {
+    Game::Doc::Req("name", "string"),
+};
+const Game::Doc::Function kGetCraftName{
+    "Returns the name of the profession the craft window shows, also for a linked one.", {},
+    kCraftNameRets, "TradeSkillGlobals"};
+
 void Register() {
     static const uint8_t kRankRead[33] = {
         0xE8, 0xC3, 0xD7, 0x0E, 0x00,             // call FindSkillIndex
@@ -386,9 +415,11 @@ void Register() {
     Game::Lua::RegisterGlobalFunction("IsTradeSkillLinked", &Script_IsTradeSkillLinked,
                                       &kIsTradeSkillLinked);
     Game::Lua::RegisterGlobalFunction("IsCraftLinked", &Script_IsCraftLinked, &kIsCraftLinked);
-    Game::Lua::RegisterGlobalFunction("GetTradeSkillLine", &Script_GetTradeSkillLine);
-    Game::Lua::RegisterGlobalFunction("GetCraftDisplaySkillLine", &Script_GetCraftDisplaySkillLine);
-    Game::Lua::RegisterGlobalFunction("GetCraftName", &Script_GetCraftName);
+    Game::Lua::RegisterGlobalFunction("GetTradeSkillLine", &Script_GetTradeSkillLine,
+                                      &kGetTradeSkillLine);
+    Game::Lua::RegisterGlobalFunction("GetCraftDisplaySkillLine", &Script_GetCraftDisplaySkillLine,
+                                      &kGetCraftDisplaySkillLine);
+    Game::Lua::RegisterGlobalFunction("GetCraftName", &Script_GetCraftName, &kGetCraftName);
 }
 
 const Game::ModuleAutoRegister _autoreg{&Register};

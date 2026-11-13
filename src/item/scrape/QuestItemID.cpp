@@ -49,8 +49,23 @@ static int __fastcall Script_GetQuestItemID(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+static const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("type", "cstring", "\"reward\" or \"choice\"."),
+    Game::Doc::Req("index", "luaIndex"),
+};
+static const Game::Doc::Field kRets[] = {
+    Game::Doc::Opt("itemID", "number", nullptr,
+                   "Nil when no quest is offered or the slot is empty."),
+};
+static const Game::Doc::Function kGetQuestItemID{
+    "Returns a reward item of the quest that the quest window offers.", kArgs, kRets,
+    "ItemGlobals", true};
+
 static void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("GetQuestItemID", &Script_GetQuestItemID);
+    Game::Lua::RegisterGlobalFunction("GetQuestItemID", &Script_GetQuestItemID,
+                                      &kGetQuestItemID);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

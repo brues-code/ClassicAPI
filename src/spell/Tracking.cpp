@@ -191,11 +191,45 @@ static int __fastcall Script_SetTracking(void *L) {
     return castSpell(L);
 }
 
+// --- Documentation ----------------------------------------------------------
+
+static const Game::Doc::Field kNumTrackingRets[] = {
+    Game::Doc::Req("numTrackingTypes", "number"),
+};
+static const Game::Doc::Function kGetNumTrackingTypes{
+    "Returns the number of tracking spells in your spellbook.", {}, kNumTrackingRets,
+    "MinimapGlobals"};
+
+static const Game::Doc::Field kTrackingIndexArgs[] = {
+    Game::Doc::Req("index", "luaIndex", "Counts tracking spells in spellbook order."),
+};
+static const Game::Doc::Field kTrackingInfoRets[] = {
+    Game::Doc::Opt("name", "string", nullptr, "Nil, with the rest, for an index out of range."),
+    Game::Doc::Opt("texture", "string", nullptr,
+                   "Icon texture path; the active tracker shows its active icon when it has "
+                   "one."),
+    Game::Doc::Opt("active", "number", nullptr, "1 when this tracker is on, else nil."),
+    Game::Doc::Opt("category", "string", nullptr, "Always \"spell\"."),
+    Game::Doc::Opt("spellID", "number", nullptr, "ClassicAPI extension."),
+};
+static const Game::Doc::Function kGetTrackingInfo{
+    "Returns the name, icon and state of one tracking spell in your spellbook.",
+    kTrackingIndexArgs, kTrackingInfoRets, "MinimapGlobals"};
+
+static const Game::Doc::Field kSetTrackingArgs[] = {
+    Game::Doc::Opt("index", "luaIndex", nullptr,
+                   "The tracking spell to cast; leave it out to turn the active tracker off."),
+};
+static const Game::Doc::Function kSetTracking{
+    "Turns on a tracking spell by casting it, or turns the active tracker off.",
+    kSetTrackingArgs, {}, "MinimapGlobals"};
+
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("GetNumTrackingTypes",
-                                      &Script_GetNumTrackingTypes);
-    Game::Lua::RegisterGlobalFunction("GetTrackingInfo", &Script_GetTrackingInfo);
-    Game::Lua::RegisterGlobalFunction("SetTracking", &Script_SetTracking);
+                                      &Script_GetNumTrackingTypes, &kGetNumTrackingTypes);
+    Game::Lua::RegisterGlobalFunction("GetTrackingInfo", &Script_GetTrackingInfo,
+                                      &kGetTrackingInfo);
+    Game::Lua::RegisterGlobalFunction("SetTracking", &Script_SetTracking, &kSetTracking);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

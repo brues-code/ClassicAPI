@@ -404,7 +404,7 @@ const Game::Doc::Field kLevelLearnedRets[] = {
                    "level requirement."),
 };
 const Game::Doc::Function kGetSpellLevelLearned{
-    "The level at which a spell becomes available.", kSpellIDArgs, kLevelLearnedRets};
+    "Returns the level at which a spell becomes available.", kSpellIDArgs, kLevelLearnedRets};
 
 const Game::Doc::Field kCurrentLevelSpellsArgs[] = {
     Game::Doc::Opt("level", "number", nullptr,
@@ -415,7 +415,7 @@ const Game::Doc::Field kCurrentLevelSpellsRets[] = {
                    "A 1-based array of spell IDs, empty when nothing matches."),
 };
 const Game::Doc::Function kGetCurrentLevelSpells{
-    "The spells the player's class and race can train at a given level.",
+    "Returns the spells the player's class and race can train at a given level.",
     kCurrentLevelSpellsArgs, kCurrentLevelSpellsRets};
 
 const Game::Doc::Field kRequiredTargetLevelRets[] = {
@@ -424,8 +424,8 @@ const Game::Doc::Field kRequiredTargetLevelRets[] = {
                    "nil for an unknown spell."),
 };
 const Game::Doc::Function kGetSpellRequiredTargetLevel{
-    "The lowest level a target must be for this rank of the spell to apply to it.",
-    kSpellIDArgs, kRequiredTargetLevelRets, "SpellGlobals"};
+    "Returns the lowest level a target must be for this rank of the spell to apply to it.",
+    kSpellIDArgs, kRequiredTargetLevelRets, "SpellGlobals", true};
 
 const Game::Doc::Field kLevelInfoRets[] = {
     Game::Doc::Opt("spellLevel", "number", nullptr,
@@ -435,8 +435,8 @@ const Game::Doc::Field kLevelInfoRets[] = {
                    "The level at which per-level scaling stops, or 0 for no cap."),
 };
 const Game::Doc::Function kGetSpellLevelInfo{
-    "The three level values of a spell: its rank level, base level, and scaling cap.",
-    kSpellIDArgs, kLevelInfoRets};
+    "Returns the three level values of a spell: its rank level, base level, and scaling cap.",
+    kSpellIDArgs, kLevelInfoRets, nullptr, true};
 
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_SpellBook", "GetSpellLevelLearned",

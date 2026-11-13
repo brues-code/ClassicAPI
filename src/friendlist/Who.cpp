@@ -203,6 +203,18 @@ static const Game::HookAutoRegister _hookreg{
 // a follow-up — would need a hook on `FrameScript_SignalEvent` or
 // the SMSG_WHO handler, both higher-risk than the surface we have
 // today.)
+const Game::Doc::Field kSendWhoQueryByNameArgs[] = {
+    Game::Doc::Req("name", "string"),
+};
+const Game::Doc::Field kSendWhoQueryByNameRets[] = {
+    Game::Doc::Req("sent", "bool",
+                   "False when the name is empty, within 5 seconds of the last query, or "
+                   "before login."),
+};
+const Game::Doc::Function kSendWhoQueryByName{
+    "Sends a /who query for one player name without a chat message.", kSendWhoQueryByNameArgs,
+    kSendWhoQueryByNameRets, nullptr, true};
+
 int __fastcall Script_C_FriendList_SendWhoQueryByName(void *L) {
     if (!Game::Lua::IsString(L, 1)) {
         Game::Lua::Error(L,
@@ -268,6 +280,13 @@ int __fastcall Script_C_FriendList_SendWhoQueryByName(void *L) {
 // Counter has a 10-second safety net (`ResetIfStuck` at next send)
 // for the rare case where a response packet is lost; in normal play
 // the engine responds within hundreds of milliseconds.
+const Game::Doc::Field kIsWhoQueryPendingRets[] = {
+    Game::Doc::Req("isPending", "bool"),
+};
+const Game::Doc::Function kIsWhoQueryPending{
+    "Returns whether a query from SendWhoQueryByName still waits for its results.", {},
+    kIsWhoQueryPendingRets, nullptr, true};
+
 int __fastcall Script_C_FriendList_IsWhoQueryPending(void *L) {
     Game::Lua::PushBoolean(L, IsPending());
     return 1;
@@ -275,9 +294,11 @@ int __fastcall Script_C_FriendList_IsWhoQueryPending(void *L) {
 
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_FriendList", "SendWhoQueryByName",
-                                     &Script_C_FriendList_SendWhoQueryByName);
+                                     &Script_C_FriendList_SendWhoQueryByName,
+                                     &kSendWhoQueryByName);
     Game::Lua::RegisterTableFunction("C_FriendList", "IsWhoQueryPending",
-                                     &Script_C_FriendList_IsWhoQueryPending);
+                                     &Script_C_FriendList_IsWhoQueryPending,
+                                     &kIsWhoQueryPending);
 }
 
 // Clear transient /who state on every in-game Lua (re)build — login OR

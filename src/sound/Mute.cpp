@@ -217,12 +217,49 @@ int __fastcall Script_GetRecentSoundFiles(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kFileArgs[] = {
+    Game::Doc::Req("file", "string",
+                   "The path of the audio file; case does not matter, and / works in place of \\."),
+};
+
+const Game::Doc::Field kMuteRets[] = {
+    Game::Doc::Req("isMuted", "bool", "False only when the path is missing or empty."),
+};
+const Game::Doc::Function kMuteSoundFile{
+    "Stops an audio file from playing, for every sound that uses it, until the client exits or "
+    "UnmuteSoundFile is called.",
+    kFileArgs, kMuteRets, "SoundGlobals"};
+
+const Game::Doc::Field kUnmuteRets[] = {
+    Game::Doc::Req("wasMuted", "bool", "True when the path had been muted."),
+};
+const Game::Doc::Function kUnmuteSoundFile{"Lets a muted audio file play again.", kFileArgs,
+                                           kUnmuteRets, "SoundGlobals"};
+
+const Game::Doc::Field kRecentSoundFileFields[] = {
+    Game::Doc::Req("file", "string", "The path of the audio file."),
+    Game::Doc::Req("time", "number",
+                   "When it last played, in milliseconds on the GetTime() clock."),
+    Game::Doc::Req("muted", "bool"),
+};
+const Game::Doc::Structure kRecentSoundFile{"RecentSoundFile", "Sound", kRecentSoundFileFields,
+                                            "An audio file that played recently."};
+
+const Game::Doc::Field kRecentRets[] = {
+    Game::Doc::Req("recentFiles", "table",
+                   "An array of RecentSoundFile, newest first, of up to 64 different files."),
+};
+const Game::Doc::Function kGetRecentSoundFiles{
+    "Returns the audio files that played most recently, muted ones included.", {}, kRecentRets,
+    nullptr, true};
+
 void RegisterLuaFunctions() {
     // Blizzard's own names are plain globals, so these are too.
-    Game::Lua::RegisterGlobalFunction("MuteSoundFile", &Script_MuteSoundFile);
-    Game::Lua::RegisterGlobalFunction("UnmuteSoundFile", &Script_UnmuteSoundFile);
+    Game::Lua::RegisterGlobalFunction("MuteSoundFile", &Script_MuteSoundFile, &kMuteSoundFile);
+    Game::Lua::RegisterGlobalFunction("UnmuteSoundFile", &Script_UnmuteSoundFile,
+                                      &kUnmuteSoundFile);
     Game::Lua::RegisterTableFunction("C_Sound", "GetRecentSoundFiles",
-                                     &Script_GetRecentSoundFiles);
+                                     &Script_GetRecentSoundFiles, &kGetRecentSoundFiles);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

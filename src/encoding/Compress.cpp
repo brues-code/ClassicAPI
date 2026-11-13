@@ -294,18 +294,46 @@ int __fastcall Script_DecompressString(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kCompressArgs[] = {
+    Game::Doc::Req("source", "string"),
+    Game::Doc::Opt("method", "CompressionMethod", "Zlib"),
+    Game::Doc::Opt("level", "number", "-1",
+                   "From 0, no compression, to 9, the smallest output; -1 is a balanced "
+                   "default."),
+};
+const Game::Doc::Field kCompressRets[] = {
+    Game::Doc::Opt("output", "string", nullptr, "Nothing when compression fails."),
+};
+const Game::Doc::Function kCompressString{"Compresses a string.", kCompressArgs,
+                                          kCompressRets};
+
+const Game::Doc::Field kDecompressArgs[] = {
+    Game::Doc::Req("source", "string"),
+    Game::Doc::Opt("method", "CompressionMethod", nullptr,
+                   "When omitted, Zlib or Gzip data is detected; Deflate data must name its "
+                   "method."),
+};
+const Game::Doc::Field kDecompressRets[] = {
+    Game::Doc::Opt("output", "string", nullptr,
+                   "Nothing when the source is not valid for the method or would decompress "
+                   "past 64 MB."),
+};
+const Game::Doc::Function kDecompressString{"Decompresses a string.", kDecompressArgs,
+                                            kDecompressRets};
+
 void Register() {
     Game::Lua::RegisterTableFunction("C_EncodingUtil", "CompressString",
-                                     &Script_CompressString);
+                                     &Script_CompressString, &kCompressString);
     Game::Lua::RegisterTableFunction("C_EncodingUtil", "DecompressString",
-                                     &Script_DecompressString);
+                                     &Script_DecompressString, &kDecompressString);
 
     static const Game::Lua::EnumIntegerEntry kCompressionMethod[] = {
         {"Deflate", static_cast<int>(Method::Deflate)},
         {"Zlib",    static_cast<int>(Method::Zlib)},
         {"Gzip",    static_cast<int>(Method::Gzip)},
     };
-    Game::Lua::RegisterIntegerEnum("Enum", "CompressionMethod", kCompressionMethod);
+    Game::Lua::RegisterIntegerEnum("Enum", "CompressionMethod", kCompressionMethod,
+                                   "EncodingUtil");
 }
 
 } // namespace

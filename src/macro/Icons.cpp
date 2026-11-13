@@ -371,14 +371,35 @@ int __fastcall Script_GetLooseMacroItemIcons(void *L) {
     return 0;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kIconListArgs[] = {
+    Game::Doc::Req("list", "table",
+                   "Gets the icon names appended, upper case, without path or extension, sorted."),
+};
+const Game::Doc::Function kGetMacroIcons{
+    "Appends the Ability_ and Spell_ icons in the game archives to a table.",
+    kIconListArgs, {}, "MacroGlobals"};
+const Game::Doc::Function kGetMacroItemIcons{
+    "Appends the INV_ icons in the game archives to a table.",
+    kIconListArgs, {}, "MacroGlobals"};
+const Game::Doc::Function kGetLooseMacroIcons{
+    "Appends the Ability_ and Spell_ icons added as loose files under Interface\\Icons to a "
+    "table.",
+    kIconListArgs, {}, "MacroGlobals"};
+const Game::Doc::Function kGetLooseMacroItemIcons{
+    "Appends the INV_ icons added as loose files under Interface\\Icons to a table.",
+    kIconListArgs, {}, "MacroGlobals"};
+
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("GetMacroIcons", &Script_GetMacroIcons);
+    Game::Lua::RegisterGlobalFunction("GetMacroIcons", &Script_GetMacroIcons, &kGetMacroIcons);
     Game::Lua::RegisterGlobalFunction("GetMacroItemIcons",
-                                       &Script_GetMacroItemIcons);
+                                       &Script_GetMacroItemIcons, &kGetMacroItemIcons);
     Game::Lua::RegisterGlobalFunction("GetLooseMacroIcons",
-                                       &Script_GetLooseMacroIcons);
+                                       &Script_GetLooseMacroIcons, &kGetLooseMacroIcons);
     Game::Lua::RegisterGlobalFunction("GetLooseMacroItemIcons",
-                                       &Script_GetLooseMacroItemIcons);
+                                       &Script_GetLooseMacroItemIcons,
+                                       &kGetLooseMacroItemIcons);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

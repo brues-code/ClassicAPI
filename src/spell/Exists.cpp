@@ -50,7 +50,7 @@ static const Game::Doc::Field kDoesSpellExistRets[] = {
     Game::Doc::Req("exists", "bool", "True when the client holds data for that spell ID."),
 };
 static const Game::Doc::Function kDoesSpellExist{
-    "Whether a spell ID names a real spell, as a check before you read more about it.",
+    "Returns whether a spell ID names a real spell, as a check before you read more about it.",
     kDoesSpellExistArgs, kDoesSpellExistRets};
 
 static void RegisterLuaFunctions() {

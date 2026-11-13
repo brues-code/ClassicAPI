@@ -94,10 +94,24 @@ int __fastcall Script_C_Item_UseItemByName(void *L) {
     return 0;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kUseItemByNameArgs[] = {
+    Game::Doc::Req("itemInfo", "ItemInfo",
+                   "An item ID, an item link, the name of a carried item, or an item location."),
+    Game::Doc::Opt("target", "cstring", nullptr,
+                   "A unit token to use the item on; a string that is no unit token means no "
+                   "target."),
+};
+const Game::Doc::Function kUseItemByName{
+    "Uses an item you carry; does nothing when you do not have it or it cannot be used now.",
+    kUseItemByNameArgs, {}};
+
 } // namespace
 
 static void RegisterLuaFunctions() {
-    Game::Lua::RegisterTableFunction("C_Item", "UseItemByName", &Script_C_Item_UseItemByName);
+    Game::Lua::RegisterTableFunction("C_Item", "UseItemByName", &Script_C_Item_UseItemByName,
+                                     &kUseItemByName);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

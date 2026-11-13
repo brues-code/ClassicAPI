@@ -55,8 +55,19 @@ static int __fastcall Script_GetInboxItemID(void *L) {
     return 1;
 }
 
+static const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("mailID", "luaIndex"),
+};
+static const Game::Doc::Field kRets[] = {
+    Game::Doc::Opt("itemID", "number", nullptr,
+                   "Nil for a mail index out of range or a mail with no attached item."),
+};
+static const Game::Doc::Function kGetInboxItemID{
+    "Returns the item ID of the item attached to an inbox mail.", kArgs, kRets, "ItemGlobals",
+    true};
+
 static void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("GetInboxItemID", &Script_GetInboxItemID);
+    Game::Lua::RegisterGlobalFunction("GetInboxItemID", &Script_GetInboxItemID, &kGetInboxItemID);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

@@ -51,9 +51,20 @@ int __fastcall Script_C_Item_PickupItem(void *L) {
     return 0;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kPickupItemArgs[] = {
+    Game::Doc::Req("itemInfo", "ItemInfo",
+                   "An item ID, an item link, or the name of an item you wear or carry."),
+};
+const Game::Doc::Function kPickupItem{
+    "Puts the first matching item from your equipment or bags on the cursor; does nothing when "
+    "the cursor holds something or the item is locked.",
+    kPickupItemArgs, {}};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Item", "PickupItem",
-                                     &Script_C_Item_PickupItem);
+                                     &Script_C_Item_PickupItem, &kPickupItem);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

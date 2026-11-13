@@ -204,7 +204,7 @@ const Game::Doc::Field kLegacyRets[] = {
     Game::Doc::Opt("noMana", "number", nullptr, "1 when power is the only block, else nil."),
 };
 const Game::Doc::Function kIsUsableSpell{
-    "Whether the player can cast the spell now, in 1/nil pairs like IsUsableAction; "
+    "Returns whether the player can cast the spell now, in 1/nil pairs like IsUsableAction; "
     "cooldown is not part of the answer.",
     kLegacyArgs, kLegacyRets, "SpellGlobals"};
 
@@ -216,7 +216,7 @@ const Game::Doc::Field kModernRets[] = {
     Game::Doc::Req("insufficientPower", "bool", "True when power is the only block."),
 };
 const Game::Doc::Function kIsSpellUsable{
-    "Whether the player can cast the spell now; cooldown is not part of the answer.",
+    "Returns whether the player can cast the spell now; cooldown is not part of the answer.",
     kModernArgs, kModernRets};
 
 } // namespace

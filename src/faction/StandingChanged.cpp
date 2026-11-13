@@ -50,7 +50,15 @@ using GetStanding_t = int(__fastcall *)(int factionID);
 
 constexpr const char *kEventName = "FACTION_STANDING_CHANGED";
 
-const Event::Custom::AutoReserve _reserve{kEventName};
+const Game::Doc::Field kPayload[] = {
+    Game::Doc::Req("factionID", "number"),
+    Game::Doc::Req("newStanding", "number", "The faction's standing after the change."),
+    Game::Doc::Req("repGained", "number", "Negative for a loss."),
+};
+const Game::Doc::Event kEventDoc{"Reputation", "Fires when the player's reputation changes.",
+                                 kPayload};
+
+const Event::Custom::AutoReserve _reserve{kEventName, &kEventDoc};
 
 // In-flight snapshot of the current rep change. Set on hook entry,
 // cleared on hook exit. WoW's main thread is the only one that runs
@@ -67,9 +75,22 @@ int __fastcall Script_C_Reputation_GetLastStandingChange(void *L) {
     return 3;
 }
 
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Opt("factionID", "number", nullptr,
+                   "Nil, with the rest, outside a FACTION_STANDING_CHANGED or "
+                   "CHAT_MSG_COMBAT_FACTION_CHANGE handler."),
+    Game::Doc::Opt("newStanding", "number", nullptr, "The faction's standing after the change."),
+    Game::Doc::Opt("repGained", "number", nullptr, "Negative for a loss."),
+};
+const Game::Doc::Function kGetLastStandingChange{
+    "Returns the reputation change that FACTION_STANDING_CHANGED and "
+    "CHAT_MSG_COMBAT_FACTION_CHANGE report, while their handlers run.",
+    {}, kRets, nullptr, true};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Reputation", "GetLastStandingChange",
-                                     &Script_C_Reputation_GetLastStandingChange);
+                                     &Script_C_Reputation_GetLastStandingChange,
+                                     &kGetLastStandingChange);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

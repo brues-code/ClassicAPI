@@ -372,22 +372,79 @@ const Game::Doc::Function kGetBuybackItemLink{
     "Returns the item link of an item in the buyback list of the vendor.",
     kSlotArgs, kLinkRets, "MerchantGlobals"};
 
+const Game::Doc::Field kGetBuybackItemIDRets[] = {
+    Game::Doc::Opt("buybackItemID", "number", nullptr, "Nil when the slot is empty."),
+};
+const Game::Doc::Function kGetBuybackItemID{
+    "Returns the item ID of an item in the buyback list of the vendor.", kSlotArgs,
+    kGetBuybackItemIDRets};
+
+const Game::Doc::Field kMerchantItemInfoFields[] = {
+    Game::Doc::Req("itemID", "number"),
+    Game::Doc::Req("price", "number", "In copper, for one purchase of stackCount items."),
+    Game::Doc::Req("stackCount", "number", "The number of items that one purchase gives."),
+    Game::Doc::Req("numAvailable", "number", "-1 when the stock is not limited."),
+    Game::Doc::Req("isPurchasable", "bool", "Always true."),
+    Game::Doc::Req("isThrottled", "bool", "Always false."),
+    Game::Doc::Req("hasExtendedCost", "bool", "Always false."),
+};
+const Game::Doc::Structure kMerchantItemInfo{"MerchantItemInfo", "MerchantFrame",
+                                             kMerchantItemInfoFields,
+                                             "One item that the vendor sells."};
+
+const Game::Doc::Field kGetItemInfoArgs[] = {
+    Game::Doc::Req("index", "luaIndex"),
+};
+const Game::Doc::Field kGetItemInfoRets[] = {
+    Game::Doc::Opt("info", "MerchantItemInfo", nullptr,
+                   "Nil when no vendor window is open or the slot is out of range."),
+};
+const Game::Doc::Function kGetItemInfo{"Returns an item that the open vendor sells.",
+                                       kGetItemInfoArgs, kGetItemInfoRets};
+
+const Game::Doc::Field kGetNumJunkItemsRets[] = {
+    Game::Doc::Req("numJunkItems", "number", "0 when no vendor window is open."),
+};
+const Game::Doc::Function kGetNumJunkItems{
+    "Returns the number of poor-quality items in the player's bags.", {}, kGetNumJunkItemsRets};
+
+const Game::Doc::Field kIsMerchantItemRefundableArgs[] = {
+    Game::Doc::Req("index", "luaIndex"),
+};
+const Game::Doc::Field kIsMerchantItemRefundableRets[] = {
+    Game::Doc::Req("refundable", "bool", "Always false."),
+};
+const Game::Doc::Function kIsMerchantItemRefundable{
+    "Returns whether an item that the vendor sells can be refunded.",
+    kIsMerchantItemRefundableArgs, kIsMerchantItemRefundableRets};
+
+const Game::Doc::Field kIsSellAllJunkEnabledRets[] = {
+    Game::Doc::Req("enabled", "bool", "Always true."),
+};
+const Game::Doc::Function kIsSellAllJunkEnabled{
+    "Returns whether SellAllJunkItems is available.", {}, kIsSellAllJunkEnabledRets};
+
+const Game::Doc::Function kSellAllJunkItems{
+    "Sells every poor-quality item in the player's bags to the open vendor, one per frame.", {},
+    {}};
+
 void Register() {
     Game::Lua::RegisterGlobalFunction("GetBuybackItemLink", &Script_GetBuybackItemLink,
                                       &kGetBuybackItemLink);
     Game::Lua::RegisterTableFunction("C_MerchantFrame", "GetBuybackItemID",
-                                     &Script_GetBuybackItemID);
+                                     &Script_GetBuybackItemID, &kGetBuybackItemID);
     Game::Lua::RegisterTableFunction("C_MerchantFrame", "GetItemInfo",
-                                     &Script_GetItemInfo);
+                                     &Script_GetItemInfo, &kGetItemInfo);
     Game::Lua::RegisterTableFunction("C_MerchantFrame", "GetNumJunkItems",
-                                     &Script_GetNumJunkItems);
+                                     &Script_GetNumJunkItems, &kGetNumJunkItems);
     Game::Lua::RegisterTableFunction("C_MerchantFrame",
                                      "IsMerchantItemRefundable",
-                                     &Script_IsMerchantItemRefundable);
+                                     &Script_IsMerchantItemRefundable,
+                                     &kIsMerchantItemRefundable);
     Game::Lua::RegisterTableFunction("C_MerchantFrame", "IsSellAllJunkEnabled",
-                                     &Script_IsSellAllJunkEnabled);
+                                     &Script_IsSellAllJunkEnabled, &kIsSellAllJunkEnabled);
     Game::Lua::RegisterTableFunction("C_MerchantFrame", "SellAllJunkItems",
-                                     &Script_SellAllJunkItems);
+                                     &Script_SellAllJunkItems, &kSellAllJunkItems);
 }
 
 } // namespace

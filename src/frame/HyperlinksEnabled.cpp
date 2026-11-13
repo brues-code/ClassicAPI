@@ -92,10 +92,29 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"GetHyperlinksEnabled", &Script_GetHyperlinksEnabled},
 };
 
+const Game::Doc::Field kSetHyperlinksEnabledArgs[] = {
+    Game::Doc::Opt("enabled", "bool", "true", "An explicit nil is false."),
+};
+const Game::Doc::Function kSetHyperlinksEnabled{
+    "Sets whether the frame runs its OnHyperlinkEnter and OnHyperlinkClick scripts.",
+    kSetHyperlinksEnabledArgs, {}};
+
+const Game::Doc::Field kGetHyperlinksEnabledRets[] = {
+    Game::Doc::Req("enabled", "bool"),
+};
+const Game::Doc::Function kGetHyperlinksEnabled{
+    "Returns whether the frame runs its hyperlink scripts.", {}, kGetHyperlinksEnabledRets};
+
+const Game::Doc::Method g_methodDocs[] = {
+    {"SetHyperlinksEnabled", &kSetHyperlinksEnabled},
+    {"GetHyperlinksEnabled", &kGetHyperlinksEnabled},
+};
+
 void RegisterLuaFunctions() {
     for (const uintptr_t registry : {static_cast<uintptr_t>(Offsets::VAR_SCROLLINGMESSAGEFRAME_METHOD_REGISTRY),
                                      static_cast<uintptr_t>(Offsets::VAR_SIMPLEHTML_METHOD_REGISTRY)}) {
-        Game::Lua::RegisterFrameMethods(reinterpret_cast<void *>(registry), g_methods);
+        Game::Lua::RegisterFrameMethods(reinterpret_cast<void *>(registry), g_methods,
+                                        g_methodDocs);
     }
 }
 

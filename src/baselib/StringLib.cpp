@@ -385,7 +385,7 @@ const Game::Doc::Field kStrlenutf8Rets[] = {
     Game::Doc::Req("length", "number", "The number of characters; strlen counts bytes."),
 };
 const Game::Doc::Function kStrlenutf8{
-    "The number of characters in a UTF-8 string, not the number of bytes.",
+    "Returns the number of characters in a UTF-8 string, not the number of bytes.",
     kStrlenutf8Args, kStrlenutf8Rets, "LuaGlobals"};
 
 const Game::Doc::Field kStrcmputf8iArgs[] = {
@@ -425,14 +425,107 @@ const Game::Doc::Function kStrconcat{
     "Joins every argument into one string with nothing between them.",
     kStrconcatArgs, kStrconcatRets, "LuaGlobals"};
 
+// The `string.*` entries and their global twins share a descriptor; the
+// system names the global's, and the table entry takes the table's.
+const Game::Doc::Field kMatchArgs[] = {
+    Game::Doc::Req("s", "string"),
+    Game::Doc::Req("pattern", "string"),
+    Game::Doc::Opt("init", "number", "1",
+                   "The position where the search starts; a negative one counts from the end."),
+};
+const Game::Doc::Field kMatchRets[] = {
+    Game::Doc::Vararg("string",
+                      "The captures of the first match, or the whole match when the pattern has "
+                      "no captures; nil when nothing matches."),
+};
+const Game::Doc::Function kMatch{"Finds the first match of a pattern in a string.", kMatchArgs,
+                                 kMatchRets, "LuaGlobals"};
+
+const Game::Doc::Field kGmatchArgs[] = {
+    Game::Doc::Req("s", "string"),
+    Game::Doc::Req("pattern", "string"),
+};
+const Game::Doc::Field kGmatchRets[] = {
+    Game::Doc::Req("iterator", "function",
+                   "Each call returns the captures of the next match, or the whole match when "
+                   "the pattern has no captures."),
+};
+const Game::Doc::Function kGmatch{
+    "Returns an iterator over the matches of a pattern in a string, for a generic for loop.",
+    kGmatchArgs, kGmatchRets, "LuaGlobals"};
+
+const Game::Doc::Field kReverseArgs[] = {
+    Game::Doc::Req("s", "string"),
+};
+const Game::Doc::Field kReverseRets[] = {
+    Game::Doc::Req("reversed", "string"),
+};
+const Game::Doc::Function kReverse{"Returns a string with its bytes in reverse order.",
+                                   kReverseArgs, kReverseRets, "LuaGlobals"};
+
+const Game::Doc::Field kByteArgs[] = {
+    Game::Doc::Req("s", "string"),
+    Game::Doc::Opt("i", "number", "1",
+                   "The first position; a negative one counts back from the end."),
+    Game::Doc::Opt("j", "number", nullptr, "The last position; i by default."),
+};
+const Game::Doc::Field kByteRets[] = {
+    Game::Doc::Vararg("number", "The code of each byte; nothing when the range is empty."),
+};
+const Game::Doc::Function kByte{"Returns the numeric codes of the bytes from position i to j.",
+                                kByteArgs, kByteRets, "LuaGlobals"};
+
+const Game::Doc::Field kSplitRets[] = {
+    Game::Doc::Vararg("string", "The pieces, in order."),
+};
+const Game::Doc::Function kSplit{
+    "Splits a string on delimiter characters and returns the pieces as separate values.",
+    kStrsplittableArgs, kSplitRets, "LuaGlobals"};
+
+const Game::Doc::Field kJoinArgs[] = {
+    Game::Doc::Req("delimiter", "string"),
+    Game::Doc::Vararg("string", "The pieces; a value that is not a string or number counts as "
+                                "an empty string."),
+};
+const Game::Doc::Field kJoinRets[] = {
+    Game::Doc::Req("result", "string"),
+};
+const Game::Doc::Function kJoin{"Joins the pieces into one string with delimiter between them.",
+                                kJoinArgs, kJoinRets, "LuaGlobals"};
+
+const Game::Doc::Field kTrimArgs[] = {
+    Game::Doc::Req("str", "string"),
+    Game::Doc::Opt("chars", "string", nullptr,
+                   "The characters to remove, as a plain set and not a pattern; whitespace by "
+                   "default."),
+};
+const Game::Doc::Field kTrimRets[] = {
+    Game::Doc::Req("trimmed", "string"),
+};
+const Game::Doc::Function kTrim{"Removes the given characters from both ends of a string.",
+                                kTrimArgs, kTrimRets, "LuaGlobals"};
+
+const Game::Doc::Field kStrreplaceArgs[] = {
+    Game::Doc::Req("str", "string"),
+    Game::Doc::Req("find", "string", "Plain text, not a pattern."),
+    Game::Doc::Req("replace", "string"),
+};
+const Game::Doc::Field kStrreplaceRets[] = {
+    Game::Doc::Req("result", "string"),
+    Game::Doc::Req("count", "number", "The number of replacements; 0 when find is empty."),
+};
+const Game::Doc::Function kStrreplace{
+    "Replaces every occurrence of a plain substring in a string.",
+    kStrreplaceArgs, kStrreplaceRets, "LuaGlobals", true};
+
 void RegisterFns() {
-    Game::Lua::RegisterTableFunction("string", "match", &Script_string_match);
-    Game::Lua::RegisterTableFunction("string", "gmatch", Script_string_gmatch);
-    Game::Lua::RegisterTableFunction("string", "reverse", &Script_string_reverse);
-    Game::Lua::RegisterTableFunction("string", "byte", &Script_string_byte);
-    Game::Lua::RegisterTableFunction("string", "split", &Script_strsplit);
-    Game::Lua::RegisterTableFunction("string", "trim", &Script_strtrim);
-    Game::Lua::RegisterTableFunction("string", "join", &Script_strjoin);
+    Game::Lua::RegisterTableFunction("string", "match", &Script_string_match, &kMatch);
+    Game::Lua::RegisterTableFunction("string", "gmatch", Script_string_gmatch, &kGmatch);
+    Game::Lua::RegisterTableFunction("string", "reverse", &Script_string_reverse, &kReverse);
+    Game::Lua::RegisterTableFunction("string", "byte", &Script_string_byte, &kByte);
+    Game::Lua::RegisterTableFunction("string", "split", &Script_strsplit, &kSplit);
+    Game::Lua::RegisterTableFunction("string", "trim", &Script_strtrim, &kTrim);
+    Game::Lua::RegisterTableFunction("string", "join", &Script_strjoin, &kJoin);
     Game::Lua::RegisterTableFunction("string", "concat", &Script_strconcat, &kStrconcat);
     // 4.3.4's compat.lua binds each short global and its string-table twin
     // to ONE function by assignment (`gmatch = str.gmatch`, `strmatch =
@@ -443,15 +536,15 @@ void RegisterFns() {
     // half is what lets `(" x "):trim()` work and libraries capture it at
     // file scope (AceConfigCmd-3.0: `strtrim = string.trim`). 1.12's own
     // compat.lua set `strbyte` from the old string.byte, so it is re-aliased.
-    Game::Lua::RegisterGlobalAlias("gmatch", "string", "gmatch");
-    Game::Lua::RegisterGlobalAlias("strmatch", "string", "match");
-    Game::Lua::RegisterGlobalAlias("strsplit", "string", "split");
-    Game::Lua::RegisterGlobalAlias("strjoin", "string", "join");
-    Game::Lua::RegisterGlobalAlias("strtrim", "string", "trim");
-    Game::Lua::RegisterGlobalAlias("strrev", "string", "reverse");
-    Game::Lua::RegisterGlobalAlias("strbyte", "string", "byte");
+    Game::Lua::RegisterGlobalAlias("gmatch", "string", "gmatch", &kGmatch);
+    Game::Lua::RegisterGlobalAlias("strmatch", "string", "match", &kMatch);
+    Game::Lua::RegisterGlobalAlias("strsplit", "string", "split", &kSplit);
+    Game::Lua::RegisterGlobalAlias("strjoin", "string", "join", &kJoin);
+    Game::Lua::RegisterGlobalAlias("strtrim", "string", "trim", &kTrim);
+    Game::Lua::RegisterGlobalAlias("strrev", "string", "reverse", &kReverse);
+    Game::Lua::RegisterGlobalAlias("strbyte", "string", "byte", &kByte);
     Game::Lua::RegisterGlobalAlias("strconcat", "string", "concat", &kStrconcat);
-    Game::Lua::RegisterGlobalFunction("strreplace", &Script_strreplace);
+    Game::Lua::RegisterGlobalFunction("strreplace", &Script_strreplace, &kStrreplace);
     Game::Lua::RegisterGlobalFunction("strlenutf8", &Script_strlenutf8, &kStrlenutf8);
     Game::Lua::RegisterGlobalFunction("strcmputf8i", &Script_strcmputf8i, &kStrcmputf8i);
     Game::Lua::RegisterGlobalFunction("strsplittable", &Script_strsplittable,

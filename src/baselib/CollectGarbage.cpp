@@ -119,6 +119,23 @@ bool Stash(void *L, const char *name, const char *key) {
     return true;
 }
 
+const Game::Doc::Field kCollectgarbageArgs[] = {
+    Game::Doc::Opt("opt", "string", nullptr,
+                   "\"collect\", \"count\", \"step\", \"stop\", \"restart\", \"setpause\" or "
+                   "\"setstepmul\"; a number or nothing sets the KB threshold for the next "
+                   "collection, 0 collects now."),
+    Game::Doc::Opt("arg", "number", nullptr, "Has no effect."),
+};
+const Game::Doc::Field kCollectgarbageRets[] = {
+    Game::Doc::Opt("result", "any", nullptr,
+                   "The KB of Lua memory in use for \"count\", true for \"step\", 0 for the other "
+                   "options, nothing for a threshold."),
+};
+const Game::Doc::Function kCollectgarbage{
+    "Runs a garbage collection or returns the memory in use; the other options are accepted "
+    "and do nothing.",
+    kCollectgarbageArgs, kCollectgarbageRets, "LuaGlobals"};
+
 void DoRegister(bool glue) {
     void *L = Game::Lua::State();
     if (L == nullptr)
@@ -129,9 +146,11 @@ void DoRegister(bool glue) {
         return;
     Stash(L, "gcinfo", kOrigGcInfo); // optional; "count" degrades to 0
     if (glue)
-        Game::Lua::RegisterGlueFunction("collectgarbage", &Script_collectgarbage);
+        Game::Lua::RegisterGlueFunction("collectgarbage", &Script_collectgarbage,
+                                        &kCollectgarbage);
     else
-        Game::Lua::RegisterGlobalFunction("collectgarbage", &Script_collectgarbage);
+        Game::Lua::RegisterGlobalFunction("collectgarbage", &Script_collectgarbage,
+                                          &kCollectgarbage);
 }
 
 void RegisterInGame() { DoRegister(false); }

@@ -30,15 +30,54 @@ namespace CVar::Glue {
 
 namespace {
 
+const Game::Doc::Field kRegisterArgs[] = {
+    Game::Doc::Req("name", "cstring"),
+    Game::Doc::Opt("value", "cstring", "\"0\"", "The default value."),
+};
+const Game::Doc::Function kRegisterCVar{
+    "Registers a console variable for scripts, which is saved like any other.", kRegisterArgs, {},
+    "CVarGlobals"};
+
+const Game::Doc::Field kGetArgs[] = {
+    Game::Doc::Req("name", "cstring"),
+};
+const Game::Doc::Field kGetRets[] = {
+    Game::Doc::Opt("value", "string", nullptr, "Nothing when no cvar has that name."),
+};
+const Game::Doc::Function kGetCVar{"Returns the value of a console variable.", kGetArgs,
+                                   kGetRets, "CVarGlobals"};
+
+const Game::Doc::Field kSetArgs[] = {
+    Game::Doc::Req("name", "cstring"),
+    Game::Doc::Opt("value", "cstring", "\"0\"", "A number is set as its text."),
+    Game::Doc::Opt("eventName", "string", nullptr,
+                   "When given, CVAR_UPDATE fires with this name and the new value."),
+};
+const Game::Doc::Function kSetCVar{
+    "Sets a console variable and saves it; raises an error for an unknown or read-only cvar.",
+    kSetArgs, {}, "CVarGlobals"};
+
+const Game::Doc::Field kGetDefaultArgs[] = {
+    Game::Doc::Req("name", "cstring"),
+};
+const Game::Doc::Field kGetDefaultRets[] = {
+    Game::Doc::Opt("defaultValue", "string", nullptr,
+                   "Nil when the cvar has no default; nothing when no cvar has that name."),
+};
+const Game::Doc::Function kGetCVarDefault{"Returns the default value of a console variable.",
+                                          kGetDefaultArgs, kGetDefaultRets, "CVarGlobals"};
+
 void RegisterGlueFunctions() {
     Game::Lua::RegisterGlueFunction("RegisterCVar",
-        reinterpret_cast<Game::Lua::CFunction>(Offsets::FUN_SCRIPT_REGISTER_CVAR));
+        reinterpret_cast<Game::Lua::CFunction>(Offsets::FUN_SCRIPT_REGISTER_CVAR),
+        &kRegisterCVar);
     Game::Lua::RegisterGlueFunction("GetCVar",
-        reinterpret_cast<Game::Lua::CFunction>(Offsets::FUN_SCRIPT_GET_CVAR));
+        reinterpret_cast<Game::Lua::CFunction>(Offsets::FUN_SCRIPT_GET_CVAR), &kGetCVar);
     Game::Lua::RegisterGlueFunction("SetCVar",
-        reinterpret_cast<Game::Lua::CFunction>(Offsets::FUN_SCRIPT_SET_CVAR));
+        reinterpret_cast<Game::Lua::CFunction>(Offsets::FUN_SCRIPT_SET_CVAR), &kSetCVar);
     Game::Lua::RegisterGlueFunction("GetCVarDefault",
-        reinterpret_cast<Game::Lua::CFunction>(Offsets::FUN_SCRIPT_GET_CVAR_DEFAULT));
+        reinterpret_cast<Game::Lua::CFunction>(Offsets::FUN_SCRIPT_GET_CVAR_DEFAULT),
+        &kGetCVarDefault);
 }
 
 const Game::GlueModuleAutoRegister _autoreg{&RegisterGlueFunctions};

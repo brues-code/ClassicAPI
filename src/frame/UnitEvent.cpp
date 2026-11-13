@@ -349,9 +349,40 @@ const Game::Lua::FrameMethodEntry g_frameMethods[] = {
     {"IsEventRegistered", &Script_IsEventRegistered},
 };
 
+const Game::Doc::Field kRegisterUnitEventArgs[] = {
+    Game::Doc::Req("eventName", "cstring"),
+    Game::Doc::Vararg("UnitToken",
+                      "The script runs only when the event's unit is one of these; with none, "
+                      "this is RegisterEvent."),
+};
+const Game::Doc::Field kRegisterUnitEventRets[] = {
+    Game::Doc::Req("registered", "bool"),
+};
+const Game::Doc::Function kRegisterUnitEvent{
+    "Registers the frame for an event that its OnEvent script receives only for the given "
+    "units.",
+    kRegisterUnitEventArgs, kRegisterUnitEventRets};
+
+const Game::Doc::Field kIsEventRegisteredArgs[] = {
+    Game::Doc::Req("eventName", "cstring"),
+};
+const Game::Doc::Field kIsEventRegisteredRets[] = {
+    Game::Doc::Req("isRegistered", "bool"),
+    Game::Doc::Vararg("UnitToken", "The units given to RegisterUnitEvent, in their order."),
+};
+const Game::Doc::Function kIsEventRegistered{
+    "Returns whether the frame is registered for an event.",
+    kIsEventRegisteredArgs, kIsEventRegisteredRets};
+
+const Game::Doc::Method g_frameMethodDocs[] = {
+    {"RegisterUnitEvent", &kRegisterUnitEvent},
+    {"IsEventRegistered", &kIsEventRegistered},
+};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterFrameMethods(
-        reinterpret_cast<void *>(Offsets::VAR_FRAME_METHOD_REGISTRY), g_frameMethods);
+        reinterpret_cast<void *>(Offsets::VAR_FRAME_METHOD_REGISTRY), g_frameMethods,
+        g_frameMethodDocs);
 }
 
 // Frames survive /reload but the engine rebuilds the event table with empty

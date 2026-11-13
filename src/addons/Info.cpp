@@ -368,6 +368,81 @@ constexpr Game::Lua::EnumIntegerEntry kAddOnSecurityStatusEntries[] = {
     {"NotAvailable", 3},
 };
 
+const Game::Doc::Field kNameArg[] = {
+    Game::Doc::Req("name", "uiAddon", "An addon index or folder name."),
+};
+
+const Game::Doc::Field kGetNameRets[] = {
+    Game::Doc::Opt("name", "cstring", nullptr,
+                   "The folder name; a name argument is returned as given. Nil for an unknown "
+                   "addon."),
+};
+const Game::Doc::Function kGetAddOnName{"Returns the folder name of an addon.", kNameArg,
+                                        kGetNameRets};
+
+const Game::Doc::Field kGetTitleRets[] = {
+    Game::Doc::Opt("title", "cstring", nullptr,
+                   "Nil for an unknown addon or one without a title."),
+};
+const Game::Doc::Function kGetAddOnTitle{"Returns the ## Title: of an addon's TOC file.",
+                                         kNameArg, kGetTitleRets};
+
+const Game::Doc::Field kGetNotesRets[] = {
+    Game::Doc::Opt("notes", "cstring", nullptr,
+                   "Nil for an unknown addon or one without notes."),
+};
+const Game::Doc::Function kGetAddOnNotes{"Returns the ## Notes: of an addon's TOC file.",
+                                         kNameArg, kGetNotesRets};
+
+const Game::Doc::Field kLoadableArgs[] = {
+    Game::Doc::Req("name", "uiAddon", "An addon index or folder name."),
+    Game::Doc::Opt("character", "cstring", nullptr, "Ignored."),
+    Game::Doc::Opt("demandLoaded", "bool", nullptr, "Ignored."),
+};
+const Game::Doc::Field kLoadableRets[] = {
+    Game::Doc::Req("loadable", "bool", "True for an addon that is already loaded."),
+    Game::Doc::Opt("reason", "cstring", nullptr,
+                   "Why it cannot load, such as \"DISABLED\" or \"INTERFACE_VERSION\"; nil "
+                   "when it can, or when no addon has that name."),
+};
+const Game::Doc::Function kIsAddOnLoadable{"Returns whether an addon can be loaded, and why "
+                                           "not when it cannot.",
+                                           kLoadableArgs, kLoadableRets};
+
+const Game::Doc::Field kSecurityRets[] = {
+    Game::Doc::Req("security", "AddOnSecurityStatus", "NotAvailable for an unknown addon."),
+};
+const Game::Doc::Function kGetAddOnSecurity{"Returns the security status of an addon.",
+                                            kNameArg, kSecurityRets};
+
+const Game::Doc::Field kExistsRets[] = {
+    Game::Doc::Req("exists", "bool"),
+};
+const Game::Doc::Function kDoesAddOnExist{"Returns whether an addon is installed.", kNameArg,
+                                          kExistsRets};
+
+const Game::Doc::Field kLoadedRets[] = {
+    Game::Doc::Req("loadedOrLoading", "bool"),
+    Game::Doc::Req("loaded", "bool", "False while the addon's own files are still running."),
+};
+const Game::Doc::Function kIsAddOnLoaded{"Returns whether an addon has started loading and "
+                                         "whether it has finished.",
+                                         kNameArg, kLoadedRets};
+
+const Game::Doc::Field kLoadRets[] = {
+    Game::Doc::Opt("loaded", "number", nullptr,
+                   "1 when the addon loaded or was already loaded; nil otherwise."),
+    Game::Doc::Opt("value", "string", nullptr,
+                   "Why the load failed, such as \"DISABLED\"; nil on success."),
+};
+const Game::Doc::Function kLoadAddOn{"Loads a load-on-demand addon.", kNameArg, kLoadRets};
+
+const Game::Doc::Field kOptionalDepsRets[] = {
+    Game::Doc::Vararg("cstring", "The ## OptionalDeps: names, in order."),
+};
+const Game::Doc::Function kGetAddOnOptionalDependencies{
+    "Returns the optional dependencies of an addon.", kNameArg, kOptionalDepsRets};
+
 const Game::Doc::Field kInterfaceVersionArgs[] = {
     Game::Doc::Req("name", "uiAddon", "An addon index or folder name."),
 };
@@ -384,31 +459,34 @@ const Game::Doc::Function kGetAddOnInterfaceVersion{
 
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_AddOns", "GetAddOnName",
-                                     &Script_GetAddOnName);
+                                     &Script_GetAddOnName, &kGetAddOnName);
     Game::Lua::RegisterTableFunction("C_AddOns", "GetAddOnTitle",
-                                     &Script_GetAddOnTitle);
+                                     &Script_GetAddOnTitle, &kGetAddOnTitle);
     Game::Lua::RegisterTableFunction("C_AddOns", "GetAddOnNotes",
-                                     &Script_GetAddOnNotes);
+                                     &Script_GetAddOnNotes, &kGetAddOnNotes);
     Game::Lua::RegisterTableFunction("C_AddOns", "IsAddOnLoadable",
-                                     &Script_IsAddOnLoadable);
+                                     &Script_IsAddOnLoadable, &kIsAddOnLoadable);
     Game::Lua::RegisterTableFunction("C_AddOns", "GetAddOnSecurity",
-                                     &Script_GetAddOnSecurity);
+                                     &Script_GetAddOnSecurity, &kGetAddOnSecurity);
     Game::Lua::RegisterTableFunction("C_AddOns", "DoesAddOnExist",
-                                     &Script_DoesAddOnExist);
+                                     &Script_DoesAddOnExist, &kDoesAddOnExist);
     Game::Lua::RegisterTableFunction("C_AddOns", "IsAddOnLoaded",
-                                     &Script_IsAddOnLoaded);
+                                     &Script_IsAddOnLoaded, &kIsAddOnLoaded);
     // The stock global, mirrored into the namespace — the engine's own
     // handler already has the Lua C ABI and the modern return shape.
     Game::Lua::RegisterTableFunction(
         "C_AddOns", "LoadAddOn",
         reinterpret_cast<Game::Lua::CFunction>(
-            static_cast<uintptr_t>(Offsets::FUN_SCRIPT_LOAD_ADDON)));
+            static_cast<uintptr_t>(Offsets::FUN_SCRIPT_LOAD_ADDON)),
+        &kLoadAddOn);
     Game::Lua::RegisterTableFunction("C_AddOns", "GetAddOnOptionalDependencies",
-                                     &Script_GetAddOnOptionalDependencies);
+                                     &Script_GetAddOnOptionalDependencies,
+                                     &kGetAddOnOptionalDependencies);
     Game::Lua::RegisterTableFunction("C_AddOns", "GetAddOnInterfaceVersion",
                                      &Script_GetAddOnInterfaceVersion,
                                      &kGetAddOnInterfaceVersion);
-    Game::Lua::RegisterIntegerEnum("Enum", "AddOnSecurityStatus", kAddOnSecurityStatusEntries);
+    Game::Lua::RegisterIntegerEnum("Enum", "AddOnSecurityStatus", kAddOnSecurityStatusEntries,
+                                   "AddOns");
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

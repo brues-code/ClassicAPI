@@ -71,9 +71,21 @@ static const Game::Lua::FrameMethodEntry g_methods[] = {
     {"GetOwner", &Script_GameTooltipGetOwner},
 };
 
+static const Game::Doc::Field kGetOwnerRets[] = {
+    Game::Doc::Opt("owner", "SimpleFrame", nullptr,
+                   "Nil when the tooltip has no owner since it was last cleared or hidden."),
+};
+static const Game::Doc::Function kGetOwner{"Returns the frame the tooltip belongs to.", {},
+                                           kGetOwnerRets};
+
+static const Game::Doc::Method g_methodDocs[] = {
+    {"GetOwner", &kGetOwner},
+};
+
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterFrameMethods(
-        reinterpret_cast<void *>(Offsets::VAR_GAMETOOLTIP_METHOD_REGISTRY), g_methods);
+        reinterpret_cast<void *>(Offsets::VAR_GAMETOOLTIP_METHOD_REGISTRY), g_methods,
+        g_methodDocs);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

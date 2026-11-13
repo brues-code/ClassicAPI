@@ -746,13 +746,40 @@ int __fastcall Script_C_PlayerCache_IsEnabled(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kRememberPlayerArgs[] = {
+    Game::Doc::Req("guid", "WOWGUID"),
+    Game::Doc::Req("name", "string", "The name, or \"Name-Realm\" for a player from another realm."),
+    Game::Doc::Req("classToken", "string", "For example \"WARRIOR\"; an unknown token keeps the stored class."),
+    Game::Doc::Opt("raceToken", "string", nullptr, "For example \"NIGHTELF\"; nil keeps the stored race."),
+    Game::Doc::Opt("sex", "number", nullptr, "0 for male, 1 for female; nil or 0 keeps the stored sex."),
+};
+const Game::Doc::Field kRememberPlayerRets[] = {
+    Game::Doc::Req("success", "bool", "False when the cache is off or the GUID or name is not valid."),
+};
+const Game::Doc::Function kRememberPlayer{
+    "Adds a player to the persistent name cache.", kRememberPlayerArgs, kRememberPlayerRets,
+    nullptr, true};
+
+const Game::Doc::Field kSetEnabledArgs[] = {
+    Game::Doc::Req("enabled", "bool", "A number is also accepted; 0 turns the cache off."),
+};
+const Game::Doc::Function kSetEnabled{
+    "Turns the persistent name cache on or off for the account.", kSetEnabledArgs, {}, nullptr,
+    true};
+
+const Game::Doc::Field kIsEnabledRets[] = {
+    Game::Doc::Req("enabled", "bool"),
+};
+const Game::Doc::Function kIsEnabled{
+    "Returns whether the persistent name cache is on.", {}, kIsEnabledRets, nullptr, true};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_PlayerCache", "RememberPlayer",
-                                     &Script_C_PlayerCache_RememberPlayer);
+                                     &Script_C_PlayerCache_RememberPlayer, &kRememberPlayer);
     Game::Lua::RegisterTableFunction("C_PlayerCache", "SetEnabled",
-                                     &Script_C_PlayerCache_SetEnabled);
+                                     &Script_C_PlayerCache_SetEnabled, &kSetEnabled);
     Game::Lua::RegisterTableFunction("C_PlayerCache", "IsEnabled",
-                                     &Script_C_PlayerCache_IsEnabled);
+                                     &Script_C_PlayerCache_IsEnabled, &kIsEnabled);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

@@ -94,8 +94,8 @@ const Game::Doc::Field kRets[] = {
                    "The English mechanic name, nil when the mechanic has none."),
 };
 const Game::Doc::Function kGetSpellMechanicByID{
-    "The crowd-control mechanic a spell applies, with its English name.",
-    kArgs, kRets};
+    "Returns the crowd-control mechanic a spell applies, with its English name.",
+    kArgs, kRets, nullptr, true};
 
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Spell", "GetSpellMechanicByID",

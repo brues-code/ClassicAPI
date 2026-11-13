@@ -87,7 +87,7 @@ const Game::Doc::Function kWipe{"Removes every key from a table.", kWipeArgs, kW
 // to `tinsert` / `tremove` (`wipe = tab.wipe`). 1.12's preamble predates
 // table.wipe, so the alias is registered here; retail FrameXML calls it.
 static void RegisterLuaFunctions() {
-    Game::Lua::RegisterTableFunction("table", "wipe", &Script_table_wipe);
+    Game::Lua::RegisterTableFunction("table", "wipe", &Script_table_wipe, &kWipe);
     Game::Lua::RegisterGlobalFunction("wipe", &Script_table_wipe, &kWipe);
 }
 

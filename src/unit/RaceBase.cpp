@@ -78,8 +78,22 @@ int __fastcall Script_UnitRaceBase(void *L) {
     return 2;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("unit", "UnitToken"),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Opt("raceFilename", "cstring", nullptr,
+                   "For example \"NightElf\"; nil, with raceID, when the race is unknown."),
+    Game::Doc::Opt("raceID", "number"),
+};
+const Game::Doc::Function kUnitRaceBase{
+    "Returns the locale-independent race token and race ID of a unit.", kArgs, kRets,
+    "UnitGlobals", true};
+
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("UnitRaceBase", &Script_UnitRaceBase);
+    Game::Lua::RegisterGlobalFunction("UnitRaceBase", &Script_UnitRaceBase, &kUnitRaceBase);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

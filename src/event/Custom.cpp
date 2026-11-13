@@ -557,11 +557,11 @@ int __fastcall Script_ForceEventGrow(void *) {
 }
 
 void RegisterDiagnostics() {
-    Game::Lua::RegisterGlobalFunction("_classicapi_DumpSlot", &Script_DumpSlot);
-    Game::Lua::RegisterGlobalFunction("_classicapi_DumpAllEvents",
-                                      &Script_DumpAllEvents);
-    Game::Lua::RegisterGlobalFunction("_classicapi_ForceEventGrow",
-                                      &Script_ForceEventGrow);
+    Game::Lua::RegisterGlobalFunction("_classicapi_DumpSlot", &Script_DumpSlot, nullptr);
+    Game::Lua::RegisterGlobalFunction("_classicapi_DumpAllEvents", &Script_DumpAllEvents,
+                                      nullptr);
+    Game::Lua::RegisterGlobalFunction("_classicapi_ForceEventGrow", &Script_ForceEventGrow,
+                                      nullptr);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterDiagnostics};

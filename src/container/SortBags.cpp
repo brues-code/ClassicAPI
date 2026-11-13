@@ -940,7 +940,7 @@ const Game::Doc::Field kRightToLeftRets[] = {
 const Game::Doc::Function kSetSortBagsRightToLeft{
     "Sets the direction in which a sort fills the bags.", kRightToLeftArgs, {}};
 const Game::Doc::Function kGetSortBagsRightToLeft{
-    "Whether a sort fills the bags from the last slot of the last bag.", {},
+    "Returns whether a sort fills the bags from the last slot of the last bag.", {},
     kRightToLeftRets};
 
 const Game::Doc::Field kDisableArgs[] = {
@@ -952,11 +952,11 @@ const Game::Doc::Field kDisableRets[] = {
 const Game::Doc::Function kSetBackpackAutosortDisabled{
     "Sets whether SortBags leaves the backpack alone.", kDisableArgs, {}};
 const Game::Doc::Function kGetBackpackAutosortDisabled{
-    "Whether SortBags leaves the backpack alone.", {}, kDisableRets};
+    "Returns whether SortBags leaves the backpack alone.", {}, kDisableRets};
 const Game::Doc::Function kSetBankAutosortDisabled{
     "Sets whether SortBankBags leaves the main bank container alone.", kDisableArgs, {}};
 const Game::Doc::Function kGetBankAutosortDisabled{
-    "Whether SortBankBags leaves the main bank container alone.", {}, kDisableRets};
+    "Returns whether SortBankBags leaves the main bank container alone.", {}, kDisableRets};
 
 void RegisterLuaFunctions() {
     // Dedups by name, so re-registering each reload is harmless.
@@ -990,9 +990,9 @@ void RegisterLuaFunctions() {
                                      &Script_GetBankAutosortDisabled,
                                      &kGetBankAutosortDisabled);
     Game::Lua::RegisterGlobalFunction("_classicapi_SortBagsStats",
-                                      &Script_SortBagsStats);
+                                      &Script_SortBagsStats, nullptr);
     Game::Lua::RegisterGlobalFunction("_classicapi_SortBagsBags",
-                                      &Script_SortBagsBags);
+                                      &Script_SortBagsBags, nullptr);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

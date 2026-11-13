@@ -161,6 +161,12 @@ bool IsActiveQuest(uint32_t status) {
 // greeting session, "" when neither is open. Both buffers persist
 // after close, so the gates keep stale text from the previous NPC
 // out.
+const Game::Doc::Field kGetTextRets[] = {
+    Game::Doc::Req("gossipText", "cstring", "Empty when no questgiver window is open."),
+};
+const Game::Doc::Function kGetText{
+    "Returns the greeting text of the open gossip or quest greeting window.", {}, kGetTextRets};
+
 int __fastcall Script_C_GossipInfo_GetText(void *L) {
     uintptr_t buf = 0;
     if (GossipSessionActive())
@@ -187,6 +193,26 @@ int __fastcall Script_C_GossipInfo_GetText(void *L) {
 //   flags           — bit 0 = boxCoded (password-protected option).
 //   orderIndex      — 1-based position in the emitted list (matches
 //                     `SelectGossipOption`'s expected 1-based arg).
+const Game::Doc::Field kGossipOptionFields[] = {
+    Game::Doc::Req("gossipOptionID", "number", "The ID that SelectOption takes."),
+    Game::Doc::Req("name", "string"),
+    Game::Doc::Req("icon", "number",
+                   "The icon type that the server sends, 0 to 10 for the default types; not a "
+                   "fileID."),
+    Game::Doc::Req("flags", "number", "1 when the option asks for confirmation text, else 0."),
+    Game::Doc::Req("orderIndex", "number", "The 1-based position in the list."),
+};
+const Game::Doc::Structure kGossipOptionUIInfo{"GossipOptionUIInfo", "GossipInfo",
+                                               kGossipOptionFields, "One gossip option."};
+
+const Game::Doc::Field kGetOptionsRets[] = {
+    Game::Doc::Req("info", "table",
+                   "Array of GossipOptionUIInfo in display order; empty when no gossip window "
+                   "is open."),
+};
+const Game::Doc::Function kGetOptions{"Returns the options of the open gossip window.", {},
+                                      kGetOptionsRets};
+
 int __fastcall Script_C_GossipInfo_GetOptions(void *L) {
     Game::Lua::SetTop(L, 0);
     Game::Lua::NewTable(L);
@@ -299,6 +325,29 @@ int PushQuestList(void *L, bool wantActive) {
     return 1;
 }
 
+const Game::Doc::Field kGossipQuestFields[] = {
+    Game::Doc::Req("questID", "number"),
+    Game::Doc::Req("title", "string"),
+    Game::Doc::Req("questLevel", "number"),
+    Game::Doc::Opt("isComplete", "bool", nullptr,
+                   "True when the quest is ready to turn in; nil on an available quest."),
+};
+const Game::Doc::Structure kGossipQuestUIInfo{"GossipQuestUIInfo", "GossipInfo",
+                                              kGossipQuestFields,
+                                              "One quest in a questgiver window."};
+
+const Game::Doc::Field kQuestListRets[] = {
+    Game::Doc::Req("info", "table",
+                   "Array of GossipQuestUIInfo in display order; empty when no questgiver "
+                   "window is open."),
+};
+const Game::Doc::Function kGetAvailableQuests{
+    "Returns the quests that the open gossip or quest greeting window offers.", {},
+    kQuestListRets};
+const Game::Doc::Function kGetActiveQuests{
+    "Returns the quests that the open gossip or quest greeting window can take back.", {},
+    kQuestListRets};
+
 int __fastcall Script_C_GossipInfo_GetAvailableQuests(void *L) {
     return PushQuestList(L, /*wantActive=*/false);
 }
@@ -306,6 +355,12 @@ int __fastcall Script_C_GossipInfo_GetAvailableQuests(void *L) {
 int __fastcall Script_C_GossipInfo_GetActiveQuests(void *L) {
     return PushQuestList(L, /*wantActive=*/true);
 }
+
+const Game::Doc::Field kNumOptionsRets[] = {
+    Game::Doc::Req("numOptions", "number", nullptr),
+};
+const Game::Doc::Function kGetNumOptions{
+    "Returns the number of options that GetOptions returns.", {}, kNumOptionsRets};
 
 int __fastcall Script_C_GossipInfo_GetNumOptions(void *L) {
     int count = 0;
@@ -334,6 +389,14 @@ int CountQuests(bool wantActive) {
     return count;
 }
 
+const Game::Doc::Field kNumQuestsRets[] = {
+    Game::Doc::Req("numQuests", "number"),
+};
+const Game::Doc::Function kGetNumAvailableQuests{
+    "Returns the number of quests that GetAvailableQuests returns.", {}, kNumQuestsRets};
+const Game::Doc::Function kGetNumActiveQuests{
+    "Returns the number of quests that GetActiveQuests returns.", {}, kNumQuestsRets};
+
 int __fastcall Script_C_GossipInfo_GetNumAvailableQuests(void *L) {
     Game::Lua::PushNumber(L, static_cast<double>(CountQuests(false)));
     return 1;
@@ -351,6 +414,13 @@ int __fastcall Script_C_GossipInfo_GetNumActiveQuests(void *L) {
 // as on later clients; a questgiver without a menu is counted by vanilla's
 // own GetNumAvailableQuests / GetNumActiveQuests (QUEST_GREETING).
 using GossipCount_t = uint32_t(__cdecl *)();
+
+const Game::Doc::Function kGetNumGossipAvailableQuests{
+    "Returns the number of quests that GetGossipAvailableQuests returns.", {}, kNumQuestsRets,
+    "GossipGlobals"};
+const Game::Doc::Function kGetNumGossipActiveQuests{
+    "Returns the number of quests that GetGossipActiveQuests returns.", {}, kNumQuestsRets,
+    "GossipGlobals"};
 
 int __fastcall Script_GetNumGossipAvailableQuests(void *L) {
     auto count = reinterpret_cast<GossipCount_t>(Offsets::FUN_GOSSIP_NUM_AVAILABLE_QUESTS);
@@ -379,9 +449,6 @@ int __fastcall Script_GetNumGossipOptions(void *L) {
     return 1;
 }
 
-const Game::Doc::Field kNumOptionsRets[] = {
-    Game::Doc::Req("numOptions", "number", nullptr),
-};
 const Game::Doc::Function kGetNumGossipOptions{
     "Returns the number of options GetGossipOptions returns.", {}, kNumOptionsRets, "GossipGlobals"};
 
@@ -427,6 +494,14 @@ void EngineSelectGreetingQuest(bool wantActive, int idx0Based) {
 // `SelectGossipOption(slotIndex)`. `text` is the boxCoded password,
 // passed through to the engine helper which gates on the
 // password-required flag internally.
+const Game::Doc::Field kSelectOptionArgs[] = {
+    Game::Doc::Req("gossipOptionID", "number", "The gossipOptionID of a GetOptions entry."),
+    Game::Doc::Opt("text", "cstring", nullptr,
+                   "The text to send with an option that asks for it."),
+};
+const Game::Doc::Function kSelectOption{"Selects a gossip option by its ID.", kSelectOptionArgs,
+                                        {}};
+
 int __fastcall Script_C_GossipInfo_SelectOption(void *L) {
     if (!Game::Lua::IsNumber(L, 1)) {
         Game::Lua::Error(L,
@@ -457,6 +532,12 @@ int __fastcall Script_C_GossipInfo_SelectOption(void *L) {
 // entry). Slots with a negative index are hidden and skipped, so the
 // display position is walked back to the 0-based array slot the engine
 // helper takes, the same way `GetOptions()` numbered it.
+const Game::Doc::Field kSelectOptionByIndexArgs[] = {
+    Game::Doc::Req("orderIndex", "number", "The orderIndex of a GetOptions entry."),
+};
+const Game::Doc::Function kSelectOptionByIndex{"Selects a gossip option by its display position.",
+                                               kSelectOptionByIndexArgs, {}};
+
 int __fastcall Script_C_GossipInfo_SelectOptionByIndex(void *L) {
     if (!Game::Lua::IsNumber(L, 1)) {
         Game::Lua::Error(L,
@@ -526,6 +607,14 @@ int SelectQuestByID(void *L, bool wantActive, const char *errUsage) {
     return 0;
 }
 
+const Game::Doc::Field kSelectQuestArgs[] = {
+    Game::Doc::Req("questID", "number"),
+};
+const Game::Doc::Function kSelectAvailableQuest{
+    "Selects a quest that the open questgiver window offers.", kSelectQuestArgs, {}};
+const Game::Doc::Function kSelectActiveQuest{
+    "Selects a quest that the open questgiver window can take back.", kSelectQuestArgs, {}};
+
 int __fastcall Script_C_GossipInfo_SelectAvailableQuest(void *L) {
     return SelectQuestByID(L, /*wantActive=*/false,
         "Usage: C_GossipInfo.SelectAvailableQuest(questID)");
@@ -536,6 +625,8 @@ int __fastcall Script_C_GossipInfo_SelectActiveQuest(void *L) {
         "Usage: C_GossipInfo.SelectActiveQuest(questID)");
 }
 
+const Game::Doc::Function kCloseGossip{"Closes the gossip window.", {}, {}};
+
 int __fastcall Script_C_GossipInfo_CloseGossip(void *L) {
     return reinterpret_cast<EngineScriptFn>(
         Offsets::FUN_SCRIPT_CLOSE_GOSSIP)(L);
@@ -543,35 +634,43 @@ int __fastcall Script_C_GossipInfo_CloseGossip(void *L) {
 
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_GossipInfo", "GetText",
-                                     &Script_C_GossipInfo_GetText);
+                                     &Script_C_GossipInfo_GetText, &kGetText);
     Game::Lua::RegisterTableFunction("C_GossipInfo", "GetOptions",
-                                     &Script_C_GossipInfo_GetOptions);
+                                     &Script_C_GossipInfo_GetOptions, &kGetOptions);
     Game::Lua::RegisterTableFunction("C_GossipInfo", "GetAvailableQuests",
-                                     &Script_C_GossipInfo_GetAvailableQuests);
+                                     &Script_C_GossipInfo_GetAvailableQuests,
+                                     &kGetAvailableQuests);
     Game::Lua::RegisterTableFunction("C_GossipInfo", "GetActiveQuests",
-                                     &Script_C_GossipInfo_GetActiveQuests);
+                                     &Script_C_GossipInfo_GetActiveQuests, &kGetActiveQuests);
     Game::Lua::RegisterTableFunction("C_GossipInfo", "GetNumOptions",
-                                     &Script_C_GossipInfo_GetNumOptions);
+                                     &Script_C_GossipInfo_GetNumOptions, &kGetNumOptions);
     Game::Lua::RegisterTableFunction("C_GossipInfo", "GetNumAvailableQuests",
-                                     &Script_C_GossipInfo_GetNumAvailableQuests);
+                                     &Script_C_GossipInfo_GetNumAvailableQuests,
+                                     &kGetNumAvailableQuests);
     Game::Lua::RegisterTableFunction("C_GossipInfo", "GetNumActiveQuests",
-                                     &Script_C_GossipInfo_GetNumActiveQuests);
+                                     &Script_C_GossipInfo_GetNumActiveQuests,
+                                     &kGetNumActiveQuests);
     Game::Lua::RegisterGlobalFunction("GetNumGossipAvailableQuests",
-                                      &Script_GetNumGossipAvailableQuests);
+                                      &Script_GetNumGossipAvailableQuests,
+                                      &kGetNumGossipAvailableQuests);
     Game::Lua::RegisterGlobalFunction("GetNumGossipActiveQuests",
-                                      &Script_GetNumGossipActiveQuests);
+                                      &Script_GetNumGossipActiveQuests,
+                                      &kGetNumGossipActiveQuests);
     Game::Lua::RegisterGlobalFunction("GetNumGossipOptions", &Script_GetNumGossipOptions,
                                       &kGetNumGossipOptions);
     Game::Lua::RegisterTableFunction("C_GossipInfo", "SelectOption",
-                                     &Script_C_GossipInfo_SelectOption);
+                                     &Script_C_GossipInfo_SelectOption, &kSelectOption);
     Game::Lua::RegisterTableFunction("C_GossipInfo", "SelectOptionByIndex",
-                                     &Script_C_GossipInfo_SelectOptionByIndex);
+                                     &Script_C_GossipInfo_SelectOptionByIndex,
+                                     &kSelectOptionByIndex);
     Game::Lua::RegisterTableFunction("C_GossipInfo", "SelectAvailableQuest",
-                                     &Script_C_GossipInfo_SelectAvailableQuest);
+                                     &Script_C_GossipInfo_SelectAvailableQuest,
+                                     &kSelectAvailableQuest);
     Game::Lua::RegisterTableFunction("C_GossipInfo", "SelectActiveQuest",
-                                     &Script_C_GossipInfo_SelectActiveQuest);
+                                     &Script_C_GossipInfo_SelectActiveQuest,
+                                     &kSelectActiveQuest);
     Game::Lua::RegisterTableFunction("C_GossipInfo", "CloseGossip",
-                                     &Script_C_GossipInfo_CloseGossip);
+                                     &Script_C_GossipInfo_CloseGossip, &kCloseGossip);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

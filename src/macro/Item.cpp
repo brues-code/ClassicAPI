@@ -67,8 +67,22 @@ int __fastcall Script_GetMacroItem(void *L) {
     return 0;
 }
 
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("macroSlot", "luaIndex"),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Opt("name", "string", nullptr,
+                   "Nil, with the link, when the macro shows a spell or nothing."),
+    Game::Doc::Opt("link", "string", nullptr,
+                   "Your own item's link, with suffix and enchant, when you carry it."),
+};
+const Game::Doc::Function kGetMacroItem{
+    "Returns the item a macro shows, from its #showtooltip or #show line or else its first "
+    "action line.",
+    kArgs, kRets, "MacroGlobals"};
+
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("GetMacroItem", &Script_GetMacroItem);
+    Game::Lua::RegisterGlobalFunction("GetMacroItem", &Script_GetMacroItem, &kGetMacroItem);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

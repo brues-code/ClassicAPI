@@ -280,10 +280,44 @@ int __fastcall Script_C_Timer_NewTicker(void *L) {
                   "Usage: local cbObject = C_Timer.NewTicker(seconds, callback [, iterations])");
 }
 
+const Game::Doc::Field kAfterArgs[] = {
+    Game::Doc::Req("seconds", "number", "0 fires on the next frame."),
+    Game::Doc::Req("callback", "function",
+                   "Called with no arguments; an error in it is discarded."),
+};
+const Game::Doc::Function kAfter{"Calls a function once after a delay.", kAfterArgs, {}};
+
+const Game::Doc::Field kNewTimerArgs[] = {
+    Game::Doc::Req("seconds", "number"),
+    Game::Doc::Req("callback", "function",
+                   "Called with no arguments; an error in it is discarded."),
+};
+const Game::Doc::Field kHandleRets[] = {
+    Game::Doc::Req("cbObject", "table",
+                   "Has a Cancel method, and an IsCancelled method that is also true once the "
+                   "timer is done."),
+};
+const Game::Doc::Function kNewTimer{"Calls a function once after a delay and returns a handle "
+                                    "that can cancel it.",
+                                    kNewTimerArgs, kHandleRets};
+
+const Game::Doc::Field kNewTickerArgs[] = {
+    Game::Doc::Req("seconds", "number", "The period."),
+    Game::Doc::Req("callback", "function",
+                   "Called with no arguments; an error in it is discarded."),
+    Game::Doc::Opt("iterations", "number", nullptr,
+                   "How many times to call it; nil or less than 1 repeats until cancelled."),
+};
+const Game::Doc::Function kNewTicker{"Calls a function repeatedly at an interval and returns a "
+                                     "handle that can cancel it.",
+                                     kNewTickerArgs, kHandleRets};
+
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterTableFunction("C_Timer", "After", &Script_C_Timer_After);
-    Game::Lua::RegisterTableFunction("C_Timer", "NewTimer", &Script_C_Timer_NewTimer);
-    Game::Lua::RegisterTableFunction("C_Timer", "NewTicker", &Script_C_Timer_NewTicker);
+    Game::Lua::RegisterTableFunction("C_Timer", "After", &Script_C_Timer_After, &kAfter);
+    Game::Lua::RegisterTableFunction("C_Timer", "NewTimer", &Script_C_Timer_NewTimer,
+                                     &kNewTimer);
+    Game::Lua::RegisterTableFunction("C_Timer", "NewTicker", &Script_C_Timer_NewTicker,
+                                     &kNewTicker);
 }
 
 } // namespace

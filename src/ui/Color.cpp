@@ -122,10 +122,22 @@ int __fastcall Script_GetColors(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kDBColorExportFields[] = {
+    Game::Doc::Req("baseTag", "cstring",
+                   "The global name of the color, such as ACHIEVEMENT_COLOR."),
+    Game::Doc::Req("color", "colorRGBA"),
+};
+const Game::Doc::Structure kDBColorExport{"DBColorExport", "UIColor", kDBColorExportFields};
+
+const Game::Doc::Field kGetColorsRets[] = {
+    Game::Doc::Req("colors", "table", "An array of DBColorExport."),
+};
+const Game::Doc::Function kGetColors{"Returns the named interface colors.", {}, kGetColorsRets};
+
 } // namespace
 
 static void RegisterLuaFunctions() {
-    Game::Lua::RegisterTableFunction("C_UIColor", "GetColors", &Script_GetColors);
+    Game::Lua::RegisterTableFunction("C_UIColor", "GetColors", &Script_GetColors, &kGetColors);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

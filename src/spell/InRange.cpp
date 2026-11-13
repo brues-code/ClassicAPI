@@ -70,7 +70,7 @@ const Game::Doc::Field kRets[] = {
                    "cannot be cast at the unit."),
 };
 const Game::Doc::Function kIsSpellInRange{
-    "Whether the player is close enough to the unit to cast the spell on it.",
+    "Returns whether the player is close enough to the unit to cast the spell on it.",
     kArgs, kRets};
 
 void RegisterLuaFunctions() {

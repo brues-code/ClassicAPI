@@ -374,9 +374,117 @@ int __fastcall Script_GetItemData(void *L) {
     return PushDataForItemID(L, Item::ID::FromCGItem(Item::Location::Resolve(L, 1)));
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kSpellFields[] = {
+    Game::Doc::Req("id", "number", "The spell ID."),
+    Game::Doc::Req("trigger", "number",
+                   "0 on use, 1 on equip, 2 chance on hit, 4 soulstone, 5 learns the spell."),
+    Game::Doc::Req("charges", "number",
+                   "0 for unlimited; negative when the item is used up with the last charge."),
+    Game::Doc::Req("cooldown", "number", "In milliseconds."),
+    Game::Doc::Req("category", "number"),
+    Game::Doc::Req("categoryCooldown", "number", "In milliseconds."),
+};
+const Game::Doc::Structure kItemDataSpell{"ItemDataSpell", "Item", kSpellFields,
+                                          "One spell of an item."};
+
+const Game::Doc::Field kDataFields[] = {
+    Game::Doc::Req("itemID", "number"),
+    Game::Doc::Req("name", "string"),
+    Game::Doc::Opt("description", "string", nullptr, "Nil when the item has no description."),
+    Game::Doc::Req("displayInfoID", "number"),
+    Game::Doc::Opt("icon", "string", nullptr, "The icon's texture path; nil when it has none."),
+    Game::Doc::Req("quality", "number", "An Enum.ItemQuality value."),
+    Game::Doc::Req("classID", "number"),
+    Game::Doc::Req("subclassID", "number"),
+    Game::Doc::Req("className", "string"),
+    Game::Doc::Req("subclassName", "string"),
+    Game::Doc::Req("inventoryType", "number", "An Enum.InventoryType value."),
+    Game::Doc::Req("equipLoc", "string", "An INVTYPE_ key, or \"\" when the item is not worn."),
+    Game::Doc::Req("bindType", "number",
+                   "0 none, 1 on pickup, 2 on equip, 3 on use, 4 quest item."),
+    Game::Doc::Req("flags", "number"),
+    Game::Doc::Req("isConjured", "bool"),
+    Game::Doc::Req("isOpenable", "bool"),
+    Game::Doc::Req("isLootable", "bool", "True when the item holds loot."),
+    Game::Doc::Req("isWrapper", "bool", "True when the item can wrap a gift."),
+    Game::Doc::Req("maxStackSize", "number"),
+    Game::Doc::Req("maxCount", "number", "How many one character can own; 0 for no limit."),
+    Game::Doc::Req("containerSlots", "number", "0 for an item that is not a bag."),
+    Game::Doc::Req("bagFamily", "number", "The same bitmask as C_Item.GetItemFamily."),
+    Game::Doc::Req("buyPrice", "number", "In copper."),
+    Game::Doc::Req("sellPrice", "number", "In copper."),
+    Game::Doc::Req("itemLevel", "number"),
+    Game::Doc::Req("requiredLevel", "number"),
+    Game::Doc::Req("requiredSkill", "number", "0 for none."),
+    Game::Doc::Req("requiredSkillRank", "number"),
+    Game::Doc::Req("requiredSpell", "number", "0 for none."),
+    Game::Doc::Req("requiredHonorRank", "number", "0 for none."),
+    Game::Doc::Req("requiredCityRank", "number", "Always 0."),
+    Game::Doc::Req("requiredFaction", "number", "0 for none."),
+    Game::Doc::Req("requiredFactionRank", "number", "The standing the faction needs."),
+    Game::Doc::Req("allowableClass", "number",
+                   "A class bitmask; all bits set when every class can use it."),
+    Game::Doc::Req("allowableRace", "number",
+                   "A race bitmask; all bits set when every race can use it."),
+    Game::Doc::Req("armor", "number"),
+    Game::Doc::Req("block", "number"),
+    Game::Doc::Req("maxDurability", "number", "0 for an item with no durability."),
+    Game::Doc::Req("stats", "table",
+                   "The item's stats as value by stat type; empty when it has none."),
+    Game::Doc::Req("resistanceHoly", "number"),
+    Game::Doc::Req("resistanceFire", "number"),
+    Game::Doc::Req("resistanceNature", "number"),
+    Game::Doc::Req("resistanceFrost", "number"),
+    Game::Doc::Req("resistanceShadow", "number"),
+    Game::Doc::Req("resistanceArcane", "number"),
+    Game::Doc::Req("damageMin", "table", "An array of 5 numbers, one per damage part."),
+    Game::Doc::Req("damageMax", "table", "An array of 5 numbers, one per damage part."),
+    Game::Doc::Req("damageType", "table", "An array of 5 damage schools, one per damage part."),
+    Game::Doc::Req("delay", "number", "The weapon speed in milliseconds."),
+    Game::Doc::Req("ammoType", "number"),
+    Game::Doc::Req("rangedModRange", "number"),
+    Game::Doc::Req("spells", "table", "An array of ItemDataSpell, empty spell slots left out."),
+    Game::Doc::Opt("useSpellID", "number", nullptr,
+                   "The spell the item casts when used; nil when it has none."),
+    Game::Doc::Req("lockID", "number", "0 for none."),
+    Game::Doc::Req("itemSet", "number", "0 when the item is not part of a set."),
+    Game::Doc::Req("pageText", "number", "0 for an item that cannot be read."),
+    Game::Doc::Req("pageMaterial", "number"),
+    Game::Doc::Req("languageID", "number"),
+    Game::Doc::Req("startQuest", "number", "The quest the item starts; 0 for none."),
+    Game::Doc::Req("material", "number"),
+    Game::Doc::Req("sheath", "number"),
+    Game::Doc::Req("randomProperty", "number"),
+    Game::Doc::Req("area", "number", "The zone the item works in; 0 for any."),
+    Game::Doc::Req("map", "number", "The map the item works in; 0 for any."),
+};
+const Game::Doc::Structure kItemData{"ItemData", "Item", kDataFields,
+                                     "Every static field of an item's data."};
+
+const Game::Doc::Field kByIDArgs[] = {
+    Game::Doc::Req("itemInfo", "ItemInfo", "An item ID or an item link."),
+};
+const Game::Doc::Field kLocationArgs[] = {
+    Game::Doc::Req("itemLocation", "ItemLocation", "An item location or an item GUID."),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Opt("data", "ItemData", nullptr,
+                   "Nil when the input names no item or the item's data is not loaded."),
+};
+const Game::Doc::Function kGetItemDataByID{
+    "Returns all static data of an item in one table, without asking the server for it.",
+    kByIDArgs, kRets, nullptr, true};
+const Game::Doc::Function kGetItemData{
+    "Returns all static data of the item at a location in one table, without asking the server "
+    "for it.",
+    kLocationArgs, kRets, nullptr, true};
+
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterTableFunction("C_Item", "GetItemDataByID", &Script_GetItemDataByID);
-    Game::Lua::RegisterTableFunction("C_Item", "GetItemData", &Script_GetItemData);
+    Game::Lua::RegisterTableFunction("C_Item", "GetItemDataByID", &Script_GetItemDataByID,
+                                     &kGetItemDataByID);
+    Game::Lua::RegisterTableFunction("C_Item", "GetItemData", &Script_GetItemData, &kGetItemData);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

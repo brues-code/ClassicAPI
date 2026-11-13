@@ -123,12 +123,37 @@ int __fastcall Script_C_Item_IsUsableItem(void *L) {
     return 2;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("itemInfo", "ItemInfo", "An item ID or an item link."),
+};
+const Game::Doc::Field kLegacyRets[] = {
+    Game::Doc::Opt("usable", "number", nullptr,
+                   "1 when you can use the item now, else nil; nil for an item that is not "
+                   "cached."),
+    Game::Doc::Opt("noMana", "number", nullptr, "1 when power is the only block, else nil."),
+};
+const Game::Doc::Function kIsUsableItemGlobal{
+    "Returns whether the player can use a carried item now, in 1/nil pairs like IsUsableAction; "
+    "cooldown is not part of the answer.",
+    kArgs, kLegacyRets, "ItemGlobals"};
+
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Req("usable", "bool",
+                   "True when you can use the item now; false for an item that is not cached."),
+    Game::Doc::Req("noMana", "bool", "True when power is the only block."),
+};
+const Game::Doc::Function kIsUsableItem{
+    "Returns whether the player can use a carried item now; cooldown is not part of the answer.",
+    kArgs, kRets};
+
 } // namespace
 
 static void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("IsUsableItem", &Script_IsUsableItem);
+    Game::Lua::RegisterGlobalFunction("IsUsableItem", &Script_IsUsableItem, &kIsUsableItemGlobal);
     Game::Lua::RegisterTableFunction("C_Item", "IsUsableItem",
-                                     &Script_C_Item_IsUsableItem);
+                                     &Script_C_Item_IsUsableItem, &kIsUsableItem);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

@@ -57,6 +57,18 @@ bool IgnoredByGuidOrName(uint64_t guid, const char *name) {
 
 } // namespace
 
+const Game::Doc::Field kIsIgnoredRets[] = {
+    Game::Doc::Req("isIgnored", "bool"),
+};
+
+const Game::Doc::Field kIsIgnoredArgs[] = {
+    Game::Doc::Req("token", "cstring",
+                   "A GUID, or a character name; a name matches only a player seen this "
+                   "session."),
+};
+const Game::Doc::Function kIsIgnored{"Returns whether a player is on the ignore list.",
+                                     kIsIgnoredArgs, kIsIgnoredRets};
+
 // `IsIgnored(token)` — token is a character name or a GUID string.
 int __fastcall Script_IsIgnored(void *L) {
     const char *arg = Game::Lua::IsString(L, 1) ? Game::Lua::ToString(L, 1) : nullptr;
@@ -76,6 +88,13 @@ int __fastcall Script_IsIgnored(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kIsIgnoredByGuidArgs[] = {
+    Game::Doc::Req("guid", "WOWGUID"),
+};
+const Game::Doc::Function kIsIgnoredByGuid{
+    "Returns whether the player with a GUID is on the ignore list.", kIsIgnoredByGuidArgs,
+    kIsIgnoredRets};
+
 // `IsIgnoredByGuid(guid)` — GUID string only.
 int __fastcall Script_IsIgnoredByGuid(void *L) {
     const char *arg = Game::Lua::IsString(L, 1) ? Game::Lua::ToString(L, 1) : nullptr;
@@ -89,9 +108,10 @@ int __fastcall Script_IsIgnoredByGuid(void *L) {
 }
 
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterTableFunction("C_FriendList", "IsIgnored", &Script_IsIgnored);
+    Game::Lua::RegisterTableFunction("C_FriendList", "IsIgnored", &Script_IsIgnored,
+                                     &kIsIgnored);
     Game::Lua::RegisterTableFunction("C_FriendList", "IsIgnoredByGuid",
-                                     &Script_IsIgnoredByGuid);
+                                     &Script_IsIgnoredByGuid, &kIsIgnoredByGuid);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

@@ -138,9 +138,23 @@ int __fastcall Script_IsClassTalentSpellBookItem(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("spellBookItemSlotIndex", "luaIndex"),
+    Game::Doc::Opt("spellBookItemSpellBank", "SpellBookSpellBank", "0", "Player by default."),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Req("isClassTalent", "bool",
+                   "False for an empty slot and for every pet-book slot."),
+};
+const Game::Doc::Function kIsClassTalentSpellBookItem{
+    "Returns whether the spell in a spellbook slot comes from a talent, a trained higher "
+    "rank included.",
+    kArgs, kRets};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_SpellBook", "IsClassTalentSpellBookItem",
-                                     &Script_IsClassTalentSpellBookItem);
+                                     &Script_IsClassTalentSpellBookItem,
+                                     &kIsClassTalentSpellBookItem);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

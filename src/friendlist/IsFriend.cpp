@@ -28,6 +28,15 @@
 
 namespace FriendList::IsFriend {
 
+const Game::Doc::Field kIsFriendArgs[] = {
+    Game::Doc::Req("guid", "WOWGUID", "A character name also works."),
+};
+const Game::Doc::Field kIsFriendRets[] = {
+    Game::Doc::Req("isFriend", "bool"),
+};
+const Game::Doc::Function kIsFriend{"Returns whether a player is on the friends list.",
+                                    kIsFriendArgs, kIsFriendRets};
+
 int __fastcall Script_IsFriend(void *L) {
     const char *arg = Game::Lua::IsString(L, 1) ? Game::Lua::ToString(L, 1) : nullptr;
     if (arg == nullptr || *arg == '\0') {
@@ -44,7 +53,8 @@ int __fastcall Script_IsFriend(void *L) {
 }
 
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterTableFunction("C_FriendList", "IsFriend", &Script_IsFriend);
+    Game::Lua::RegisterTableFunction("C_FriendList", "IsFriend", &Script_IsFriend,
+                                     &kIsFriend);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

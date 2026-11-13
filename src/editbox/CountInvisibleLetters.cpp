@@ -124,9 +124,29 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"IsCountInvisibleLetters", &Script_IsCountInvisibleLetters},
 };
 
+const Game::Doc::Field kSetCountInvisibleLettersArgs[] = {
+    Game::Doc::Opt("countInvisibleLetters", "bool", "false"),
+};
+const Game::Doc::Function kSetCountInvisibleLetters{
+    "Sets whether the letter limit counts the characters of color codes and hidden link text.",
+    kSetCountInvisibleLettersArgs, {}};
+
+const Game::Doc::Field kIsCountInvisibleLettersRets[] = {
+    Game::Doc::Req("countInvisibleLetters", "bool"),
+};
+const Game::Doc::Function kIsCountInvisibleLetters{
+    "Returns whether the letter limit counts the characters of color codes and hidden link "
+    "text.",
+    {}, kIsCountInvisibleLettersRets};
+
+const Game::Doc::Method g_methodDocs[] = {
+    {"SetCountInvisibleLetters", &kSetCountInvisibleLetters},
+    {"IsCountInvisibleLetters", &kIsCountInvisibleLetters},
+};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterFrameMethods(
-        reinterpret_cast<void *>(Offsets::VAR_EDITBOX_METHOD_REGISTRY), g_methods);
+        reinterpret_cast<void *>(Offsets::VAR_EDITBOX_METHOD_REGISTRY), g_methods, g_methodDocs);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

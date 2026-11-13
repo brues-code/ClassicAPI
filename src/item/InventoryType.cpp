@@ -70,11 +70,28 @@ static int __fastcall Script_C_Item_GetItemInventoryTypeByID(void *L) {
     return PushInventoryTypeForItemID(L, Item::Arg::ResolveItemID(L, 1));
 }
 
+static const Game::Doc::Field kLocationArgs[] = {
+    Game::Doc::Req("itemLocation", "ItemLocation", "An item location or an item GUID."),
+};
+static const Game::Doc::Field kByIDArgs[] = {
+    Game::Doc::Req("itemInfo", "ItemInfo", "An item ID or an item link."),
+};
+static const Game::Doc::Field kRets[] = {
+    Game::Doc::Opt("inventoryType", "InventoryType", nullptr,
+                   "Nil when there is no item or its data is not loaded, which also asks the "
+                   "server for it."),
+};
+static const Game::Doc::Function kGetItemInventoryType{
+    "Returns the equip location of the item at a location.", kLocationArgs, kRets};
+static const Game::Doc::Function kGetItemInventoryTypeByID{
+    "Returns the item's equip location.", kByIDArgs, kRets};
+
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Item", "GetItemInventoryType",
-                                     &Script_C_Item_GetItemInventoryType);
+                                     &Script_C_Item_GetItemInventoryType, &kGetItemInventoryType);
     Game::Lua::RegisterTableFunction("C_Item", "GetItemInventoryTypeByID",
-                                     &Script_C_Item_GetItemInventoryTypeByID);
+                                     &Script_C_Item_GetItemInventoryTypeByID,
+                                     &kGetItemInventoryTypeByID);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

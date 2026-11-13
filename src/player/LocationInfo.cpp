@@ -218,12 +218,52 @@ int __fastcall Script_IsConnected(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kLocationArgs[] = {
+    Game::Doc::Req("playerLocation", "PlayerLocation",
+                   "Only unit and GUID locations resolve; others return nil."),
+};
+
+const Game::Doc::Field kNameRets[] = {
+    Game::Doc::Opt("name", "string", nullptr, "Nil when the player is not in range."),
+};
+const Game::Doc::Function kGetName{"Returns the name of a player.", kLocationArgs, kNameRets};
+
+const Game::Doc::Field kClassRets[] = {
+    Game::Doc::Opt("className", "cstring", nullptr,
+                   "Nil, with the rest, when the player is not in range."),
+    Game::Doc::Opt("classFilename", "cstring", nullptr, "For example \"WARRIOR\"."),
+    Game::Doc::Opt("classID", "number"),
+};
+const Game::Doc::Function kGetClass{"Returns the class of a player.", kLocationArgs, kClassRets};
+
+const Game::Doc::Field kRaceRets[] = {
+    Game::Doc::Opt("raceID", "number", nullptr, "Nil when the player is not in range."),
+};
+const Game::Doc::Function kGetRace{"Returns the race ID of a player.", kLocationArgs, kRaceRets};
+
+const Game::Doc::Field kSexRets[] = {
+    Game::Doc::Opt("sex", "number", nullptr,
+                   "2 for male, 3 for female; nil when the player is not in range."),
+};
+const Game::Doc::Function kGetSex{"Returns the sex of a player.", kLocationArgs, kSexRets};
+
+const Game::Doc::Field kConnectedArgs[] = {
+    Game::Doc::Opt("playerLocation", "PlayerLocation", nullptr,
+                   "Defaults to the player; only unit and GUID locations resolve."),
+};
+const Game::Doc::Field kConnectedRets[] = {
+    Game::Doc::Opt("isConnected", "bool", nullptr, "Nil when the location does not resolve."),
+};
+const Game::Doc::Function kIsConnected{"Returns whether a player is online.", kConnectedArgs,
+                                       kConnectedRets};
+
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterTableFunction("C_PlayerInfo", "GetName", &Script_GetName);
-    Game::Lua::RegisterTableFunction("C_PlayerInfo", "GetClass", &Script_GetClass);
-    Game::Lua::RegisterTableFunction("C_PlayerInfo", "GetRace", &Script_GetRace);
-    Game::Lua::RegisterTableFunction("C_PlayerInfo", "GetSex", &Script_GetSex);
-    Game::Lua::RegisterTableFunction("C_PlayerInfo", "IsConnected", &Script_IsConnected);
+    Game::Lua::RegisterTableFunction("C_PlayerInfo", "GetName", &Script_GetName, &kGetName);
+    Game::Lua::RegisterTableFunction("C_PlayerInfo", "GetClass", &Script_GetClass, &kGetClass);
+    Game::Lua::RegisterTableFunction("C_PlayerInfo", "GetRace", &Script_GetRace, &kGetRace);
+    Game::Lua::RegisterTableFunction("C_PlayerInfo", "GetSex", &Script_GetSex, &kGetSex);
+    Game::Lua::RegisterTableFunction("C_PlayerInfo", "IsConnected", &Script_IsConnected,
+                                     &kIsConnected);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

@@ -115,10 +115,33 @@ static int __fastcall Script_C_Item_IsItemGUIDInInventory(void *L) {
     return 1;
 }
 
+static const Game::Doc::Field kGetItemGUIDArgs[] = {
+    Game::Doc::Req("itemLocation", "ItemLocation", "An item location or an item GUID."),
+};
+static const Game::Doc::Field kGetItemGUIDRets[] = {
+    Game::Doc::Opt("itemGUID", "WOWGUID", nullptr,
+                   "Nil for an empty slot or a location that is not valid."),
+};
+static const Game::Doc::Function kGetItemGUID{
+    "Returns the GUID of the item at a location, which stays the same when the item moves.",
+    kGetItemGUIDArgs, kGetItemGUIDRets};
+
+static const Game::Doc::Field kIsItemGUIDInInventoryArgs[] = {
+    Game::Doc::Req("itemGUID", "WOWGUID"),
+};
+static const Game::Doc::Field kIsItemGUIDInInventoryRets[] = {
+    Game::Doc::Req("valid", "bool", "False also for a GUID that is not valid."),
+};
+static const Game::Doc::Function kIsItemGUIDInInventory{
+    "Returns whether the player wears the item or carries it in the bags; the bank does not count.",
+    kIsItemGUIDInInventoryArgs, kIsItemGUIDInInventoryRets};
+
 static void RegisterLuaFunctions() {
-    Game::Lua::RegisterTableFunction("C_Item", "GetItemGUID", &Script_C_Item_GetItemGUID);
+    Game::Lua::RegisterTableFunction("C_Item", "GetItemGUID", &Script_C_Item_GetItemGUID,
+                                     &kGetItemGUID);
     Game::Lua::RegisterTableFunction("C_Item", "IsItemGUIDInInventory",
-                                     &Script_C_Item_IsItemGUIDInInventory);
+                                     &Script_C_Item_IsItemGUIDInInventory,
+                                     &kIsItemGUIDInInventory);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

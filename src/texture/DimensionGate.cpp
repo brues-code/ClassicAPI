@@ -548,7 +548,7 @@ int __fastcall Script_TextureLimits(void *L) {
 
 void RegisterLuaFunctions() {
     ApplyGates();
-    Game::Lua::RegisterGlobalFunction("_classicapi_TextureLimits", &Script_TextureLimits);
+    Game::Lua::RegisterGlobalFunction("_classicapi_TextureLimits", &Script_TextureLimits, nullptr);
 }
 
 // The glue screen loads textures too, and this is the first registration that

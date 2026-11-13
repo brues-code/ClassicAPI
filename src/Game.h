@@ -518,14 +518,13 @@ void *ResolveDressUpModel(void *L, int idx = 1, bool raiseError = true);
 // each state records — later passes (every `/reload`) are no-ops — and a
 // registration made outside a `Run*Registrations` pass is not recorded at
 // all. The trailing `doc` argument is the descriptor (see `Game::Doc`
-// above); pass `nullptr` for a not-yet-documented registration and
-// `_classicapi_UndocumentedAPI()` lists it. The defaults exist only until
-// the sweep finishes; then they go and a missing descriptor stops compiling.
+// above). It has no default, so a registration without one does not
+// compile; only the `_classicapi_` debug functions, which the export skips,
+// pass `nullptr`.
 
 // Registers a single global Lua function (e.g. `GetSpellInfo`). The function
 // must use the WoW Lua C function ABI: `int __fastcall(void *L)`.
-void RegisterGlobalFunction(const char *name, CFunction func,
-                            const Doc::Function *doc = nullptr);
+void RegisterGlobalFunction(const char *name, CFunction func, const Doc::Function *doc);
 
 // Glue-state equivalent of `RegisterGlobalFunction`. Identical wire
 // (calls `FrameScript_RegisterFunction`); the engine routes the
@@ -535,8 +534,7 @@ void RegisterGlobalFunction(const char *name, CFunction func,
 // its own 109 glue functions, and `VAR_LUA_STATE` still points at the
 // glue state. Calling outside that window would silently target the
 // wrong state.
-void RegisterGlueFunction(const char *name, CFunction func,
-                          const Doc::Function *doc = nullptr);
+void RegisterGlueFunction(const char *name, CFunction func, const Doc::Function *doc);
 
 // Frame-method registration entry: { name, func } pairs walked by the engine's
 // per-frame-type method-table iterator. Layout matches what the engine expects
@@ -552,14 +550,14 @@ struct FrameMethodEntry {
 // `docs` are file-scope arrays; `docs` pairs descriptors to the entries by
 // NAME (any order, any subset).
 void RegisterFrameMethods(void *context, ArrayRef<FrameMethodEntry> methods,
-                          Doc::MethodList docs = {});
+                          Doc::MethodList docs);
 
 // Registers `func` at `_G[tableName][methodName]`, creating the namespace
 // table if it doesn't already exist. This is how modern WoW C_*-style APIs
 // are bound — the engine has no built-in support for table-bound Lua
 // functions, so we manipulate the globals table directly via the Lua C API.
 void RegisterTableFunction(const char *tableName, const char *methodName,
-                           CFunction func, const Doc::Function *doc = nullptr);
+                           CFunction func, const Doc::Function *doc);
 
 // Binds `_G[alias]` to the SAME closure as `_G[tableName][methodName]`, by
 // value — the way the engine's own Lua-init snippet binds its short aliases
@@ -568,7 +566,7 @@ void RegisterTableFunction(const char *tableName, const char *methodName,
 // captured, so the alias follows the replacement and `alias == table.method`
 // stays true. Mirrored under `_G.ClassicAPI` like every other registration.
 void RegisterGlobalAlias(const char *alias, const char *tableName, const char *methodName,
-                         const Doc::Function *doc = nullptr);
+                         const Doc::Function *doc);
 
 // Key/value pair for `RegisterIntegerEnum` and `RegisterConstants`. `key`
 // becomes a field name (PascalCase for Blizzard's `Enum.*`, UPPER_CASE for
@@ -585,7 +583,7 @@ struct EnumIntegerEntry {
 // ("SpellBook", "Item", …); the entries themselves are the documentation.
 // `entries` is a file-scope array.
 void RegisterIntegerEnum(const char *parent, const char *sub, ArrayRef<EnumIntegerEntry> entries,
-                         const char *docSystem = nullptr);
+                         const char *docSystem);
 
 // Registers `Constants[sub] = { entries }`, Blizzard's engine constant
 // tables (`Constants.MoneyFormattingConstants`). Documented as a "Constants"

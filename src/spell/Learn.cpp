@@ -44,7 +44,18 @@ namespace Spell::Learn {
 
 namespace {
 
-const Event::Custom::AutoReserve _evtLearned{"LEARNED_SPELL_IN_SKILL_LINE"};
+const Game::Doc::Field kLearnedPayload[] = {
+    Game::Doc::Req("spellID", "number"),
+    Game::Doc::Req("skillLineIndex", "luaIndex", "The spellbook tab that now holds the spell."),
+    Game::Doc::Opt("isGuildPerkSpell", "bool", nullptr, "Always nil."),
+};
+const Game::Doc::Event kLearnedDoc{
+    "SpellBook",
+    "Fires when the player learns a spell that gets a spellbook slot; spells restored at "
+    "login do not fire it.",
+    kLearnedPayload};
+
+const Event::Custom::AutoReserve _evtLearned{"LEARNED_SPELL_IN_SKILL_LINE", &kLearnedDoc};
 
 int PlayerBookCount() {
     return Game::Read<int>(Offsets::VAR_PLAYER_SPELLBOOK_COUNT);

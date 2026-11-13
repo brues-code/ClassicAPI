@@ -263,7 +263,7 @@ const Game::Doc::Field kColorRets[] = {
     Game::Doc::Req("alpha", "number", "Alpha, 0 to 1."),
 };
 const Game::Doc::Function kUnitSelectionColor{
-    "The colour of the unit's selection circle.", kArgs, kColorRets, "UnitGlobals"};
+    "Returns the color of the unit's selection circle.", kArgs, kColorRets, "UnitGlobals"};
 
 const Game::Doc::Field kTypeRets[] = {
     Game::Doc::Req("selectionType", "number",
@@ -271,7 +271,7 @@ const Game::Doc::Field kTypeRets[] = {
                    "(extended), 6 party, 7 party PvP, 8 friend, 9 dead."),
 };
 const Game::Doc::Function kUnitSelectionType{
-    "Which selection colour the unit takes.", kArgs, kTypeRets, "UnitGlobals"};
+    "Returns which selection color the unit takes.", kArgs, kTypeRets, "UnitGlobals"};
 
 void Register() {
     static const uint8_t kPvpLoad[5] = {0xA1, 0xB4, 0xD8, 0xC4, 0x00};

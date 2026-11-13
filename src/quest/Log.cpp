@@ -76,6 +76,52 @@ bool UnitHasQuest(const uint8_t *unit, int target) {
 
 } // namespace
 
+namespace {
+
+const Game::Doc::Field kGetQuestIDForLogIndexArgs[] = {
+    Game::Doc::Req("questLogIndex", "luaIndex", "Position in the quest log, headers included."),
+};
+const Game::Doc::Field kGetQuestIDForLogIndexRets[] = {
+    Game::Doc::Opt("questID", "number", nullptr,
+                   "0 for a header row; nil when the index is out of range."),
+};
+const Game::Doc::Function kGetQuestIDForLogIndex{
+    "Returns the quest ID of a row of the quest log.", kGetQuestIDForLogIndexArgs,
+    kGetQuestIDForLogIndexRets};
+
+const Game::Doc::Field kQuestIDArgs[] = {
+    Game::Doc::Req("questID", "number"),
+};
+const Game::Doc::Field kGetLogIndexForQuestIDRets[] = {
+    Game::Doc::Opt("questLogIndex", "luaIndex", nullptr,
+                   "Position in the quest log, headers included; nil when the quest is not in "
+                   "the log."),
+};
+const Game::Doc::Function kGetLogIndexForQuestID{
+    "Returns the quest log row of a quest.", kQuestIDArgs, kGetLogIndexForQuestIDRets};
+
+const Game::Doc::Field kGetHeaderIndexForQuestRets[] = {
+    Game::Doc::Opt("index", "luaIndex", nullptr, "Nil when the quest is not in the log."),
+};
+const Game::Doc::Function kGetHeaderIndexForQuest{
+    "Returns the quest log row of the header above a quest.", kQuestIDArgs,
+    kGetHeaderIndexForQuestRets};
+
+const Game::Doc::Field kIsOnQuestRets[] = {
+    Game::Doc::Req("isOnQuest", "bool"),
+};
+const Game::Doc::Function kIsOnQuest{"Returns whether a quest is in the player's quest log.",
+                                     kQuestIDArgs, kIsOnQuestRets};
+
+const Game::Doc::Field kIsUnitOnQuestArgs[] = {
+    Game::Doc::Req("unit", "UnitToken", "A player other than you must be near you."),
+    Game::Doc::Req("questID", "number"),
+};
+const Game::Doc::Function kIsUnitOnQuest{"Returns whether a player has a quest.",
+                                         kIsUnitOnQuestArgs, kIsOnQuestRets};
+
+} // namespace
+
 static int __fastcall Script_GetQuestIDForLogIndex(void *L) {
     if (!Game::Lua::IsNumber(L, 1)) {
         Game::Lua::Error(L, "Usage: GetQuestIDForLogIndex(index)");
@@ -197,15 +243,16 @@ static int __fastcall Script_IsUnitOnQuest(void *L) {
 
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_QuestLog", "GetQuestIDForLogIndex",
-                                     &Script_GetQuestIDForLogIndex);
+                                     &Script_GetQuestIDForLogIndex, &kGetQuestIDForLogIndex);
     Game::Lua::RegisterTableFunction("C_QuestLog", "GetLogIndexForQuestID",
-                                     &Script_GetLogIndexForQuestID);
+                                     &Script_GetLogIndexForQuestID, &kGetLogIndexForQuestID);
     Game::Lua::RegisterTableFunction("C_QuestLog", "GetHeaderIndexForQuest",
-                                     &Script_GetHeaderIndexForQuest);
+                                     &Script_GetHeaderIndexForQuest,
+                                     &kGetHeaderIndexForQuest);
     Game::Lua::RegisterTableFunction("C_QuestLog", "IsOnQuest",
-                                     &Script_IsOnQuest);
+                                     &Script_IsOnQuest, &kIsOnQuest);
     Game::Lua::RegisterTableFunction("C_QuestLog", "IsUnitOnQuest",
-                                     &Script_IsUnitOnQuest);
+                                     &Script_IsUnitOnQuest, &kIsUnitOnQuest);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

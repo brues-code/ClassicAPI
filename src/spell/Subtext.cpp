@@ -39,7 +39,7 @@ const Game::Doc::Field kRets[] = {
                    "The rank line, nil when the spell has none."),
 };
 const Game::Doc::Function kGetSpellSubtext{
-    "The rank text shown under a spell's name in the spellbook.", kArgs, kRets};
+    "Returns the rank text shown under a spell's name in the spellbook.", kArgs, kRets};
 
 } // namespace
 

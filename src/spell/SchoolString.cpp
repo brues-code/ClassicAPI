@@ -72,7 +72,7 @@ const Game::Doc::Field kRets[] = {
                    "more than one school."),
 };
 const Game::Doc::Function kGetSchoolString{
-    "The localized name of a damage school.", kArgs, kRets};
+    "Returns the localized name of a damage school.", kArgs, kRets};
 
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Spell", "GetSchoolString",

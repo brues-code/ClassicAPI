@@ -117,8 +117,21 @@ int __fastcall Script_CopyToClipboard(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("text", "cstring"),
+    Game::Doc::Opt("removeMarkup", "bool", "false",
+                   "True removes colors, links, textures and other escape codes, as Ctrl+C "
+                   "in an edit box does."),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Req("length", "number", "The length of the copied text in bytes."),
+};
+const Game::Doc::Function kCopyToClipboard{"Copies text to the system clipboard.", kArgs, kRets,
+                                           "OsGlobals"};
+
 void RegisterFns() {
-    Game::Lua::RegisterGlobalFunction("CopyToClipboard", &Script_CopyToClipboard);
+    Game::Lua::RegisterGlobalFunction("CopyToClipboard", &Script_CopyToClipboard,
+                                      &kCopyToClipboard);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterFns};

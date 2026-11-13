@@ -164,15 +164,50 @@ static int __fastcall Script_GetNamePlateForGUID(void *L) {
     return 1;
 }
 
+static const Game::Doc::Field kGetNamePlatesArgs[] = {
+    Game::Doc::Opt("includeForbidden", "bool", "false", "Ignored."),
+};
+static const Game::Doc::Field kGetNamePlatesRets[] = {
+    Game::Doc::Req("nameplates", "table",
+                   "An array of the nameplate frames that addons can reach, in no set order."),
+};
+static const Game::Doc::Function kGetNamePlates{"Returns the nameplate frames now in use.",
+                                                kGetNamePlatesArgs, kGetNamePlatesRets};
+
+static const Game::Doc::Field kGetNamePlateGUIDsRets[] = {
+    Game::Doc::Req("guids", "table",
+                   "An array of the GUIDs of every unit with a nameplate, in no set order."),
+};
+static const Game::Doc::Function kGetNamePlateGUIDs{
+    "Returns the GUIDs of the units that have a nameplate.", {}, kGetNamePlateGUIDsRets,
+    nullptr, true};
+
+static const Game::Doc::Field kGetNamePlateForUnitArgs[] = {
+    Game::Doc::Req("unitToken", "UnitToken"),
+    Game::Doc::Opt("includeForbidden", "bool", "false", "Ignored."),
+};
+static const Game::Doc::Field kNamePlateRets[] = {
+    Game::Doc::Opt("nameplate", "SimpleFrame", nullptr, "Nil when the unit has no nameplate."),
+};
+static const Game::Doc::Function kGetNamePlateForUnit{"Returns the nameplate frame of a unit.",
+                                                      kGetNamePlateForUnitArgs, kNamePlateRets};
+
+static const Game::Doc::Field kGetNamePlateForGUIDArgs[] = {
+    Game::Doc::Req("guid", "WOWGUID"),
+};
+static const Game::Doc::Function kGetNamePlateForGUID{
+    "Returns the nameplate frame of the unit with a GUID.", kGetNamePlateForGUIDArgs,
+    kNamePlateRets, nullptr, true};
+
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_NamePlate", "GetNamePlates",
-                                     &Script_GetNamePlates);
+                                     &Script_GetNamePlates, &kGetNamePlates);
     Game::Lua::RegisterTableFunction("C_NamePlate", "GetNamePlateGUIDs",
-                                     &Script_GetNamePlateGUIDs);
+                                     &Script_GetNamePlateGUIDs, &kGetNamePlateGUIDs);
     Game::Lua::RegisterTableFunction("C_NamePlate", "GetNamePlateForUnit",
-                                     &Script_GetNamePlateForUnit);
+                                     &Script_GetNamePlateForUnit, &kGetNamePlateForUnit);
     Game::Lua::RegisterTableFunction("C_NamePlate", "GetNamePlateForGUID",
-                                     &Script_GetNamePlateForGUID);
+                                     &Script_GetNamePlateForGUID, &kGetNamePlateForGUID);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

@@ -139,7 +139,15 @@ bool StillPlaying(const Owned &o) {
     return node != 0 && PathHash(node) == o.pathHash;
 }
 
-const Event::Custom::AutoReserve _soundkitFinished{"SOUNDKIT_FINISHED"};
+const Game::Doc::Field kSoundkitFinishedPayload[] = {
+    Game::Doc::Req("soundHandle", "number", "The handle the play function returned."),
+};
+const Game::Doc::Event kSoundkitFinishedDoc{
+    "Sound", "Fires when a sound played with runFinishCallback set ends or is stopped.",
+    kSoundkitFinishedPayload};
+
+const Event::Custom::AutoReserve _soundkitFinished{"SOUNDKIT_FINISHED",
+                                                   &kSoundkitFinishedDoc};
 
 void OnWorldTick() {
     if (g_owned.empty())
@@ -406,17 +414,118 @@ int __fastcall Script_IsPlaying(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kPlayRets[] = {
+    Game::Doc::Req("willPlay", "bool",
+                   "False when the sound is muted, unknown, a refused duplicate, or played while "
+                   "the interface loads or the world is entered or left."),
+    Game::Doc::Opt("soundHandle", "number", nullptr, "Nil when the sound does not play."),
+};
+
+const Game::Doc::Field kCSoundPlaySoundArgs[] = {
+    Game::Doc::Req("soundKitID", "number"),
+    Game::Doc::Opt("channel", "cstring", "\"SFX\"",
+                   "\"SFX\", \"Music\", \"Ambience\" or \"Master\", in any case; any other value "
+                   "is \"SFX\", and \"Ambience\" uses the sound volume."),
+    Game::Doc::Opt("forceNoDuplicates", "bool", "false",
+                   "True plays nothing while the same file is already playing."),
+    Game::Doc::Opt("runFinishCallback", "bool", "false",
+                   "True fires SOUNDKIT_FINISHED when the sound ends."),
+};
+const Game::Doc::Function kCSoundPlaySound{"Plays a sound by its SoundKit ID.",
+                                           kCSoundPlaySoundArgs, kPlayRets};
+
+const Game::Doc::Field kPlaySoundParamsFields[] = {
+    Game::Doc::Req("soundKitID", "number"),
+    Game::Doc::Opt("uiSoundSubType", "number", nullptr, "Accepted and ignored."),
+    Game::Doc::Opt("forceNoDuplicates", "bool", "false",
+                   "True plays nothing while the same file is already playing."),
+    Game::Doc::Opt("runFinishCallback", "bool", "false",
+                   "True fires SOUNDKIT_FINISHED when the sound ends."),
+    Game::Doc::Opt("overridePriority", "number", nullptr, "Accepted and ignored."),
+    Game::Doc::Opt("volumeOverride", "number", nullptr,
+                   "Scales the sound's own volume: 1 leaves it unchanged, 0 is silent."),
+};
+const Game::Doc::Structure kPlaySoundParams{"PlaySoundParams", "Sound", kPlaySoundParamsFields,
+                                            "The options of a sound to play."};
+
+const Game::Doc::Field kPlaySoundWithOptionsArgs[] = {
+    Game::Doc::Req("params", "PlaySoundParams"),
+};
+const Game::Doc::Field kPlaySoundWithOptionsRets[] = {
+    Game::Doc::Req("success", "bool",
+                   "False when the sound is muted, unknown, a refused duplicate, or played while "
+                   "the interface loads or the world is entered or left."),
+    Game::Doc::Opt("soundHandle", "number", nullptr, "Nil when the sound does not play."),
+};
+const Game::Doc::Function kPlaySoundWithOptions{
+    "Plays a sound by its SoundKit ID, with the options given in a table.",
+    kPlaySoundWithOptionsArgs, kPlaySoundWithOptionsRets};
+
+const Game::Doc::Field kSoundHandleArgs[] = {
+    Game::Doc::Req("soundHandle", "number"),
+};
+
+const Game::Doc::Field kScaledVolumeRets[] = {
+    Game::Doc::Opt("scaledVolume", "number", nullptr, "Nil once the sound has ended."),
+};
+const Game::Doc::Function kGetSoundScaledVolume{
+    "Returns the volume a sound is playing at, after any scaling.", kSoundHandleArgs,
+    kScaledVolumeRets};
+
+const Game::Doc::Field kIsPlayingRets[] = {
+    Game::Doc::Req("isPlaying", "bool"),
+};
+const Game::Doc::Function kIsPlaying{"Returns whether the sound for a handle is still playing.",
+                                     kSoundHandleArgs, kIsPlayingRets};
+
+const Game::Doc::Field kPlaySoundArgs[] = {
+    Game::Doc::Req("soundKitID", "number",
+                   "A sound entry name, such as \"igMainMenuOpen\", also works."),
+};
+const Game::Doc::Field kPlaySoundRets[] = {
+    Game::Doc::Opt("willPlay", "bool", nullptr,
+                   "Nil, with soundHandle, when a sound entry name is given; false when the "
+                   "sound does not play."),
+    Game::Doc::Opt("soundHandle", "number", nullptr, "Nil when the sound does not play."),
+};
+const Game::Doc::Function kPlaySound{"Plays a sound by its SoundKit ID or its sound entry name.",
+                                     kPlaySoundArgs, kPlaySoundRets, "SoundGlobals"};
+
+const Game::Doc::Field kPlaySoundFileArgs[] = {
+    Game::Doc::Req("file", "string", "The path of the audio file."),
+    Game::Doc::Opt("channel", "cstring", "\"SFX\"",
+                   "\"SFX\", \"Music\", \"Ambience\" or \"Master\", in any case; any other value "
+                   "is \"SFX\"."),
+};
+const Game::Doc::Field kPlaySoundFileRets[] = {
+    Game::Doc::Req("willPlay", "bool",
+                   "False when the file is muted, cannot open, or too many files already play."),
+    Game::Doc::Opt("soundHandle", "number", nullptr, "Nil when the file does not play."),
+};
+const Game::Doc::Function kPlaySoundFile{"Plays an audio file by its path.", kPlaySoundFileArgs,
+                                         kPlaySoundFileRets, "SoundGlobals"};
+
+const Game::Doc::Field kStopSoundArgs[] = {
+    Game::Doc::Req("soundHandle", "number"),
+    Game::Doc::Opt("fadeoutTime", "number", "0",
+                   "In milliseconds; below 100 the sound stops at once."),
+};
+const Game::Doc::Function kStopSound{
+    "Stops a sound that a sound play function started, with an optional fade-out.",
+    kStopSoundArgs, {}, "SoundGlobals"};
+
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterTableFunction("C_Sound", "PlaySound", &Script_C_Sound_PlaySound);
+    Game::Lua::RegisterTableFunction("C_Sound", "PlaySound", &Script_C_Sound_PlaySound,
+                                     &kCSoundPlaySound);
     Game::Lua::RegisterTableFunction("C_Sound", "PlaySoundWithOptions",
-                                     &Script_PlaySoundWithOptions);
+                                     &Script_PlaySoundWithOptions, &kPlaySoundWithOptions);
     Game::Lua::RegisterTableFunction("C_Sound", "GetSoundScaledVolume",
-                                     &Script_GetSoundScaledVolume);
-    Game::Lua::RegisterTableFunction("C_Sound", "IsPlaying", &Script_IsPlaying);
+                                     &Script_GetSoundScaledVolume, &kGetSoundScaledVolume);
+    Game::Lua::RegisterTableFunction("C_Sound", "IsPlaying", &Script_IsPlaying, &kIsPlaying);
     // Strict supersets of the engine's own globals — see each Script_*.
-    Game::Lua::RegisterGlobalFunction("PlaySound", &Script_PlaySound);
-    Game::Lua::RegisterGlobalFunction("PlaySoundFile", &Script_PlaySoundFile);
-    Game::Lua::RegisterGlobalFunction("StopSound", &Script_StopSound);
+    Game::Lua::RegisterGlobalFunction("PlaySound", &Script_PlaySound, &kPlaySound);
+    Game::Lua::RegisterGlobalFunction("PlaySoundFile", &Script_PlaySoundFile, &kPlaySoundFile);
+    Game::Lua::RegisterGlobalFunction("StopSound", &Script_StopSound, &kStopSound);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

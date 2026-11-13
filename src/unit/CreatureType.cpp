@@ -66,9 +66,22 @@ int __fastcall Script_UnitCreatureTypeID(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("unit", "UnitToken"),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Opt("creatureTypeID", "number", nullptr,
+                   "Players are 7 (Humanoid); nil when the unit has no type."),
+};
+const Game::Doc::Function kUnitCreatureTypeID{
+    "Returns the creature type ID of a unit, such as 1 for Beast.", kArgs, kRets,
+    "UnitGlobals", true};
+
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("UnitCreatureTypeID",
-                                      &Script_UnitCreatureTypeID);
+    Game::Lua::RegisterGlobalFunction("UnitCreatureTypeID", &Script_UnitCreatureTypeID,
+                                      &kUnitCreatureTypeID);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

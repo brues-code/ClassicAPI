@@ -178,6 +178,38 @@ bool BuildTaxiGraph(bool *endpoint, bool *dest, int size) {
 // `C_TaxiMap.GetTaxiNodesForMap([mapID])` — see module comment. A numeric
 // `mapID` filters to that continent; omitted / non-number returns every
 // flight master on every continent.
+const Game::Doc::Field kMapTaxiNodeFields[] = {
+    Game::Doc::Req("nodeID", "number"),
+    Game::Doc::Req("position", "table", "{x, y} from 0 to 1 on the continent map."),
+    Game::Doc::Req("name", "cstring"),
+    Game::Doc::Req("faction", "FlightPathFaction"),
+    Game::Doc::Req("reachable", "bool",
+                   "False when no flight path leads to the node; a ClassicAPI extension."),
+    Game::Doc::Req("mapID", "number", "The continent; a ClassicAPI extension."),
+    Game::Doc::Req("x", "number", "World position; a ClassicAPI extension."),
+    Game::Doc::Req("y", "number", "World position; a ClassicAPI extension."),
+    Game::Doc::Req("z", "number", "World position; a ClassicAPI extension."),
+    Game::Doc::Opt("areaID", "number", nullptr,
+                   "The zone or city map of the node; nil when not known. A ClassicAPI "
+                   "extension."),
+    Game::Doc::Opt("mapX", "number", nullptr,
+                   "0 to 100 across the areaID map; a ClassicAPI extension."),
+    Game::Doc::Opt("mapY", "number", nullptr,
+                   "0 to 100 down the areaID map; a ClassicAPI extension."),
+};
+const Game::Doc::Structure kMapTaxiNodeInfo{"MapTaxiNodeInfo", "TaxiMap", kMapTaxiNodeFields,
+                                            "One flight master."};
+
+const Game::Doc::Field kGetTaxiNodesForMapArgs[] = {
+    Game::Doc::Opt("mapID", "number", nullptr, "A continent; without it, every continent."),
+};
+const Game::Doc::Field kGetTaxiNodesForMapRets[] = {
+    Game::Doc::Req("mapTaxiNodes", "table", "Array of MapTaxiNodeInfo."),
+};
+const Game::Doc::Function kGetTaxiNodesForMap{
+    "Returns the flight masters on a continent, discovered or not.", kGetTaxiNodesForMapArgs,
+    kGetTaxiNodesForMapRets};
+
 int __fastcall Script_GetTaxiNodesForMap(void *L) {
     const bool filterMap = Game::Lua::IsNumber(L, 1);
     const int wantMap =
@@ -311,6 +343,27 @@ int StateFromType(const char *type) {
 // `C_TaxiMap.GetAllTaxiNodes([uiMapID])` — see module comment. The uiMapID
 // arg is accepted for retail signature parity but ignored (vanilla has a
 // single active taxi map — the open flight master's).
+const Game::Doc::Field kTaxiNodeFields[] = {
+    Game::Doc::Req("nodeID", "number", "0 when not known."),
+    Game::Doc::Req("position", "table", "{x, y} from 0 to 1 on the flight map."),
+    Game::Doc::Req("name", "cstring"),
+    Game::Doc::Req("state", "FlightPathState"),
+    Game::Doc::Req("slotIndex", "luaIndex", "The index that TakeTaxiNode takes."),
+};
+const Game::Doc::Structure kTaxiNodeInfo{"TaxiNodeInfo", "TaxiMap", kTaxiNodeFields,
+                                         "One node on the open flight map."};
+
+const Game::Doc::Field kGetAllTaxiNodesArgs[] = {
+    Game::Doc::Opt("uiMapID", "number", nullptr, "Ignored."),
+};
+const Game::Doc::Field kGetAllTaxiNodesRets[] = {
+    Game::Doc::Req("taxiNodes", "table",
+                   "Array of TaxiNodeInfo; empty when no flight map is open."),
+};
+const Game::Doc::Function kGetAllTaxiNodes{
+    "Returns the nodes on the flight map of the open flight master.", kGetAllTaxiNodesArgs,
+    kGetAllTaxiNodesRets};
+
 int __fastcall Script_GetAllTaxiNodes(void *L) {
     Game::Lua::SetTop(L, 0);
     Game::Lua::NewTable(L);
@@ -373,6 +426,18 @@ bool DirectEdge(int from, int to) {
 // without matching flight-map coordinates back to nodes. Returns nothing when
 // no taxi map is open, the slot is out of range, it is the current node, or no
 // route exists.
+const Game::Doc::Field kGetTaxiRouteArgs[] = {
+    Game::Doc::Req("slotIndex", "luaIndex", "The index that TakeTaxiNode takes."),
+};
+const Game::Doc::Field kGetTaxiRouteRets[] = {
+    Game::Doc::Opt("nodeIDs", "table", nullptr,
+                   "The node IDs in flight order, from the current node to the destination; "
+                   "nil when there is no route."),
+};
+const Game::Doc::Function kGetTaxiRoute{
+    "Returns the nodes that a flight to a slot of the open flight map passes through.",
+    kGetTaxiRouteArgs, kGetTaxiRouteRets, nullptr, true};
+
 int __fastcall Script_GetTaxiRoute(void *L) {
     if (!Game::Lua::IsNumber(L, 1))
         return 0;
@@ -434,21 +499,21 @@ void RegisterLuaFunctions() {
         {"Horde", FACTION_HORDE},
         {"Alliance", FACTION_ALLIANCE},
     };
-    Game::Lua::RegisterIntegerEnum("Enum", "FlightPathFaction", kFaction);
+    Game::Lua::RegisterIntegerEnum("Enum", "FlightPathFaction", kFaction, "TaxiMap");
 
     static const Game::Lua::EnumIntegerEntry kState[] = {
         {"Current", STATE_CURRENT},
         {"Reachable", STATE_REACHABLE},
         {"Unreachable", STATE_UNREACHABLE},
     };
-    Game::Lua::RegisterIntegerEnum("Enum", "FlightPathState", kState);
+    Game::Lua::RegisterIntegerEnum("Enum", "FlightPathState", kState, "TaxiMap");
 
     Game::Lua::RegisterTableFunction("C_TaxiMap", "GetTaxiNodesForMap",
-                                     &Script_GetTaxiNodesForMap);
+                                     &Script_GetTaxiNodesForMap, &kGetTaxiNodesForMap);
     Game::Lua::RegisterTableFunction("C_TaxiMap", "GetAllTaxiNodes",
-                                     &Script_GetAllTaxiNodes);
+                                     &Script_GetAllTaxiNodes, &kGetAllTaxiNodes);
     Game::Lua::RegisterTableFunction("C_TaxiMap", "GetTaxiRoute",
-                                     &Script_GetTaxiRoute);
+                                     &Script_GetTaxiRoute, &kGetTaxiRoute);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

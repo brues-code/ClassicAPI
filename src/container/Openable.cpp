@@ -37,9 +37,24 @@ int __fastcall Script_C_Container_IsContainerItemOpenable(void *L) {
         L, Item::Location::ResolveBag(L, bagID, slotIndex));
 }
 
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("containerIndex", "BagIndex"),
+    Game::Doc::Req("slotIndex", "luaIndex"),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Opt("isOpenable", "bool", nullptr,
+                   "Nil when the slot is empty or the item's data is not cached yet."),
+    Game::Doc::Opt("canOpen", "bool", nullptr, "False while the item is still locked."),
+};
+const Game::Doc::Function kIsContainerItemOpenable{
+    "Returns whether the item in a bag slot can be opened, and whether the player can "
+    "open it now.",
+    kArgs, kRets, nullptr, true};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Container", "IsContainerItemOpenable",
-                                     &Script_C_Container_IsContainerItemOpenable);
+                                     &Script_C_Container_IsContainerItemOpenable,
+                                     &kIsContainerItemOpenable);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

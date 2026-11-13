@@ -149,10 +149,33 @@ int __fastcall Script_UnitDistanceSquared(void *L) {
     return 2;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kUnitArgs[] = {
+    Game::Doc::Req("unit", "UnitToken"),
+};
+const Game::Doc::Field kInRangeRets[] = {
+    Game::Doc::Req("inRange", "bool", "True when the unit is within reach of a 40-yard heal."),
+    Game::Doc::Req("checkedRange", "bool",
+                   "False when the unit is not in view, and always false for \"player\"."),
+};
+const Game::Doc::Function kUnitInRange{
+    "Returns whether a unit is within 40 yards of you.", kUnitArgs, kInRangeRets,
+    "UnitGlobals"};
+
+const Game::Doc::Field kDistanceRets[] = {
+    Game::Doc::Req("distance", "number",
+                   "Squared distance in yards, center to center; 0 when checkedDistance is false."),
+    Game::Doc::Req("checkedDistance", "bool", "False when the unit is not in view."),
+};
+const Game::Doc::Function kUnitDistanceSquared{
+    "Returns the squared distance from you to a unit.", kUnitArgs, kDistanceRets,
+    "UnitGlobals"};
+
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("UnitInRange", &Script_UnitInRange);
-    Game::Lua::RegisterGlobalFunction("UnitDistanceSquared",
-                                      &Script_UnitDistanceSquared);
+    Game::Lua::RegisterGlobalFunction("UnitInRange", &Script_UnitInRange, &kUnitInRange);
+    Game::Lua::RegisterGlobalFunction("UnitDistanceSquared", &Script_UnitDistanceSquared,
+                                      &kUnitDistanceSquared);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

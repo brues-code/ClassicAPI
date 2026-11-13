@@ -46,7 +46,7 @@ const Game::Doc::Field kAfkRets[] = {
     Game::Doc::Req("isAFK", "bool", nullptr),
 };
 const Game::Doc::Function kIsChatAFK{
-    "Returns whether the player is marked AFK. Changes as soon as /afk is typed or AFK is cleared.",
+    "Returns whether the player is marked AFK, changing as soon as /afk is typed or cleared.",
     {}, kAfkRets, "ChatGlobals"};
 
 const Game::Doc::Field kDndRets[] = {

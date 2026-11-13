@@ -107,9 +107,35 @@ static int __fastcall Script_C_Item_GetItemNameByID(void *L) {
     return 0;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+static const Game::Doc::Field kGetItemNameArgs[] = {
+    Game::Doc::Req("itemLocation", "ItemLocation", "An item location or an item GUID."),
+};
+static const Game::Doc::Field kGetItemNameRets[] = {
+    Game::Doc::Opt("itemName", "string", nullptr,
+                   "Includes the random suffix; nil for an empty slot or an item that is not "
+                   "cached."),
+};
+static const Game::Doc::Function kGetItemName{
+    "Returns the name of the item at a location.", kGetItemNameArgs, kGetItemNameRets};
+
+static const Game::Doc::Field kGetItemNameByIDArgs[] = {
+    Game::Doc::Req("itemInfo", "ItemInfo", "An item ID or an item link."),
+};
+static const Game::Doc::Field kGetItemNameByIDRets[] = {
+    Game::Doc::Opt("itemName", "string", nullptr,
+                   "Includes the random suffix of a link; nil while the item is not cached."),
+};
+static const Game::Doc::Function kGetItemNameByID{
+    "Returns the name of an item, and asks the server for an item that is not cached.",
+    kGetItemNameByIDArgs, kGetItemNameByIDRets};
+
 static void RegisterLuaFunctions() {
-    Game::Lua::RegisterTableFunction("C_Item", "GetItemName", &Script_C_Item_GetItemName);
-    Game::Lua::RegisterTableFunction("C_Item", "GetItemNameByID", &Script_C_Item_GetItemNameByID);
+    Game::Lua::RegisterTableFunction("C_Item", "GetItemName", &Script_C_Item_GetItemName,
+                                     &kGetItemName);
+    Game::Lua::RegisterTableFunction("C_Item", "GetItemNameByID", &Script_C_Item_GetItemNameByID,
+                                     &kGetItemNameByID);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

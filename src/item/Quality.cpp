@@ -89,15 +89,39 @@ static int __fastcall Script_C_Item_GetItemQualityByID(void *L) {
     return PushQualityForItemID(L, Item::Arg::ResolveItemID(L, 1));
 }
 
+// --- Documentation ----------------------------------------------------------
+
+static const Game::Doc::Field kGetItemQualityArgs[] = {
+    Game::Doc::Req("itemLocation", "ItemLocation", "An item location or an item GUID."),
+};
+static const Game::Doc::Field kGetItemQualityRets[] = {
+    Game::Doc::Opt("itemQuality", "ItemQuality", nullptr,
+                   "Nil for an empty slot or an item that is not cached."),
+};
+static const Game::Doc::Function kGetItemQuality{
+    "Returns the quality of the item at a location.", kGetItemQualityArgs,
+    kGetItemQualityRets};
+
+static const Game::Doc::Field kGetItemQualityByIDArgs[] = {
+    Game::Doc::Req("itemInfo", "ItemInfo", "An item ID or an item link."),
+};
+static const Game::Doc::Field kGetItemQualityByIDRets[] = {
+    Game::Doc::Opt("itemQuality", "ItemQuality", nullptr, "Nil while the item is not cached."),
+};
+static const Game::Doc::Function kGetItemQualityByID{
+    "Returns the quality of an item, and asks the server for an item that is not cached.",
+    kGetItemQualityByIDArgs, kGetItemQualityByIDRets};
+
 static void RegisterLuaFunctions() {
     void *L = Game::Lua::State();
     if (L == nullptr)
         return;
     for (const auto &c : kQualityConstants)
         Game::Lua::SetGlobalNumber(L, c.name, static_cast<double>(c.value));
-    Game::Lua::RegisterTableFunction("C_Item", "GetItemQuality", &Script_C_Item_GetItemQuality);
+    Game::Lua::RegisterTableFunction("C_Item", "GetItemQuality", &Script_C_Item_GetItemQuality,
+                                     &kGetItemQuality);
     Game::Lua::RegisterTableFunction("C_Item", "GetItemQualityByID",
-                                     &Script_C_Item_GetItemQualityByID);
+                                     &Script_C_Item_GetItemQualityByID, &kGetItemQualityByID);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

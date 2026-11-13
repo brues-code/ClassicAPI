@@ -64,9 +64,32 @@ static int __fastcall Script_C_Item_DoesItemExistByID(void *L) {
     return 1;
 }
 
+static const Game::Doc::Field kDoesItemExistArgs[] = {
+    Game::Doc::Req("itemLocation", "ItemLocation", "An item location or an item GUID."),
+};
+static const Game::Doc::Field kDoesItemExistRets[] = {
+    Game::Doc::Req("itemExists", "bool",
+                   "False for an empty slot, a missing bag, or a location that is not valid."),
+};
+static const Game::Doc::Function kDoesItemExist{
+    "Returns whether an item is at the location.", kDoesItemExistArgs, kDoesItemExistRets};
+
+static const Game::Doc::Field kDoesItemExistByIDArgs[] = {
+    Game::Doc::Req("itemInfo", "ItemInfo", "An item ID or an item link."),
+};
+static const Game::Doc::Field kDoesItemExistByIDRets[] = {
+    Game::Doc::Req("itemExists", "bool",
+                   "True for any positive item ID, also one that names no real item."),
+};
+static const Game::Doc::Function kDoesItemExistByID{
+    "Returns whether the input is a valid item ID, loaded or not.", kDoesItemExistByIDArgs,
+    kDoesItemExistByIDRets};
+
 static void RegisterLuaFunctions() {
-    Game::Lua::RegisterTableFunction("C_Item", "DoesItemExist", &Script_C_Item_DoesItemExist);
-    Game::Lua::RegisterTableFunction("C_Item", "DoesItemExistByID", &Script_C_Item_DoesItemExistByID);
+    Game::Lua::RegisterTableFunction("C_Item", "DoesItemExist", &Script_C_Item_DoesItemExist,
+                                     &kDoesItemExist);
+    Game::Lua::RegisterTableFunction("C_Item", "DoesItemExistByID",
+                                     &Script_C_Item_DoesItemExistByID, &kDoesItemExistByID);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

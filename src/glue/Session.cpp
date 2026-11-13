@@ -66,14 +66,14 @@ const Game::Doc::Field kIsFirstLoadRets[] = {
                    "True only while the first login screen since launch is showing."),
 };
 const Game::Doc::Function kIsFirstLoadThisSession{
-    "Whether this is the first login screen since the game started.",
+    "Returns whether this is the first login screen since the game started.",
     {}, kIsFirstLoadRets};
 
 const Game::Doc::Field kIsOnGlueScreenRets[] = {
     Game::Doc::Req("isOnGlueScreen", "bool", "True on the login and character screens."),
 };
 const Game::Doc::Function kIsOnGlueScreen{
-    "Whether a login or character screen is showing rather than the world.",
+    "Returns whether a login or character screen is showing rather than the world.",
     {}, kIsOnGlueScreenRets};
 
 void RegisterGlue() {

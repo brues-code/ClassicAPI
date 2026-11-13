@@ -71,12 +71,40 @@ int __fastcall Script_math_tanh(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kFmodArgs[] = {
+    Game::Doc::Req("x", "number"),
+    Game::Doc::Req("y", "number"),
+};
+const Game::Doc::Field kFmodRets[] = {
+    Game::Doc::Req("remainder", "number", "Has the sign of x."),
+};
+const Game::Doc::Function kFmod{
+    "Returns the remainder of x divided by y, with the quotient rounded toward zero.",
+    kFmodArgs, kFmodRets};
+
+const Game::Doc::Field kXArgs[] = {
+    Game::Doc::Req("x", "number"),
+};
+const Game::Doc::Field kModfRets[] = {
+    Game::Doc::Req("integral", "number", "The whole-number part, rounded toward zero."),
+    Game::Doc::Req("fractional", "number", "The rest of x, with the sign of x."),
+};
+const Game::Doc::Function kModf{"Splits a number into its integral and fractional parts.",
+                                kXArgs, kModfRets};
+
+const Game::Doc::Field kResultRets[] = {
+    Game::Doc::Req("result", "number"),
+};
+const Game::Doc::Function kCosh{"Returns the hyperbolic cosine of x.", kXArgs, kResultRets};
+const Game::Doc::Function kSinh{"Returns the hyperbolic sine of x.", kXArgs, kResultRets};
+const Game::Doc::Function kTanh{"Returns the hyperbolic tangent of x.", kXArgs, kResultRets};
+
 void RegisterFns() {
-    Game::Lua::RegisterTableFunction("math", "fmod", Script_math_fmod);
-    Game::Lua::RegisterTableFunction("math", "modf", &Script_math_modf);
-    Game::Lua::RegisterTableFunction("math", "cosh", &Script_math_cosh);
-    Game::Lua::RegisterTableFunction("math", "sinh", &Script_math_sinh);
-    Game::Lua::RegisterTableFunction("math", "tanh", &Script_math_tanh);
+    Game::Lua::RegisterTableFunction("math", "fmod", Script_math_fmod, &kFmod);
+    Game::Lua::RegisterTableFunction("math", "modf", &Script_math_modf, &kModf);
+    Game::Lua::RegisterTableFunction("math", "cosh", &Script_math_cosh, &kCosh);
+    Game::Lua::RegisterTableFunction("math", "sinh", &Script_math_sinh, &kSinh);
+    Game::Lua::RegisterTableFunction("math", "tanh", &Script_math_tanh, &kTanh);
 
     // `math.huge` — a numeric constant, not a function. Fetch the (now
     // guaranteed-present) `math` table and set the field directly.

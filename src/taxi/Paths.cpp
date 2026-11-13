@@ -45,6 +45,21 @@ float FloatField(const uint8_t *rec, int off) {
 // `C_TaxiMap.GetTaxiPaths()` — every row of TaxiPath.dbc as
 // { pathID, fromNodeID, toNodeID, cost }. Directed: A->B and B->A are two
 // separate entries.
+const Game::Doc::Field kTaxiPathFields[] = {
+    Game::Doc::Req("pathID", "number", "The ID that GetTaxiPathWaypoints takes."),
+    Game::Doc::Req("fromNodeID", "number"),
+    Game::Doc::Req("toNodeID", "number"),
+    Game::Doc::Req("cost", "number", "In copper."),
+};
+const Game::Doc::Structure kTaxiPathInfo{"TaxiPathInfo", "TaxiMap", kTaxiPathFields,
+                                         "One flight path, in one direction."};
+
+const Game::Doc::Field kGetTaxiPathsRets[] = {
+    Game::Doc::Req("paths", "table", "Array of TaxiPathInfo."),
+};
+const Game::Doc::Function kGetTaxiPaths{"Returns every flight path.", {}, kGetTaxiPathsRets,
+                                        nullptr, true};
+
 int __fastcall Script_GetTaxiPaths(void *L) {
     Game::Lua::SetTop(L, 0);
     Game::Lua::NewTable(L);
@@ -73,6 +88,27 @@ int __fastcall Script_GetTaxiPaths(void *L) {
 // `C_TaxiMap.GetTaxiPathWaypoints(pathID)` — the path's waypoints as
 // { x, y, z, mapID }, ordered by node index (flight order). Returns nothing
 // for a missing / unknown pathID or an empty path.
+const Game::Doc::Field kTaxiPathWaypointFields[] = {
+    Game::Doc::Req("x", "number"),
+    Game::Doc::Req("y", "number"),
+    Game::Doc::Req("z", "number"),
+    Game::Doc::Req("mapID", "number", "The continent."),
+};
+const Game::Doc::Structure kTaxiPathWaypoint{"TaxiPathWaypoint", "TaxiMap",
+                                             kTaxiPathWaypointFields,
+                                             "One point of a flight path, in world yards."};
+
+const Game::Doc::Field kGetTaxiPathWaypointsArgs[] = {
+    Game::Doc::Req("pathID", "number"),
+};
+const Game::Doc::Field kGetTaxiPathWaypointsRets[] = {
+    Game::Doc::Opt("waypoints", "table", nullptr,
+                   "Array of TaxiPathWaypoint in flight order; nil for an unknown path."),
+};
+const Game::Doc::Function kGetTaxiPathWaypoints{
+    "Returns the points along a flight path.", kGetTaxiPathWaypointsArgs,
+    kGetTaxiPathWaypointsRets, nullptr, true};
+
 int __fastcall Script_GetTaxiPathWaypoints(void *L) {
     if (!Game::Lua::IsNumber(L, 1))
         return 0;
@@ -127,9 +163,9 @@ int __fastcall Script_GetTaxiPathWaypoints(void *L) {
 
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_TaxiMap", "GetTaxiPaths",
-                                     &Script_GetTaxiPaths);
+                                     &Script_GetTaxiPaths, &kGetTaxiPaths);
     Game::Lua::RegisterTableFunction("C_TaxiMap", "GetTaxiPathWaypoints",
-                                     &Script_GetTaxiPathWaypoints);
+                                     &Script_GetTaxiPathWaypoints, &kGetTaxiPathWaypoints);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

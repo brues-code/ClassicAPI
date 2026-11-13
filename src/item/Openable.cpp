@@ -92,9 +92,27 @@ int __fastcall Script_C_Item_IsItemOpenable(void *L) {
     return PushIsItemOpenable(L, Item::Location::Resolve(L, 1));
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kIsItemOpenableArgs[] = {
+    Game::Doc::Req("itemLocation", "ItemLocation", "An item location or an item GUID."),
+};
+const Game::Doc::Field kIsItemOpenableRets[] = {
+    Game::Doc::Opt("isOpenable", "bool", nullptr,
+                   "True for an item you open with a right-click; nil for an empty slot or an "
+                   "item that is not cached."),
+    Game::Doc::Opt("canOpen", "bool", nullptr,
+                   "True when you can open this item now, false while its lock is on; nil when "
+                   "isOpenable is nil."),
+};
+const Game::Doc::Function kIsItemOpenable{
+    "Returns whether the item at a location opens with a right-click, and whether it can be "
+    "opened now.",
+    kIsItemOpenableArgs, kIsItemOpenableRets, nullptr, true};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Item", "IsItemOpenable",
-                                     &Script_C_Item_IsItemOpenable);
+                                     &Script_C_Item_IsItemOpenable, &kIsItemOpenable);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

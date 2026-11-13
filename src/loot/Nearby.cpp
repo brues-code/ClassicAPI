@@ -99,9 +99,23 @@ int __fastcall Script_GetNearbyLootableUnits(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kLootableUnitFields[] = {
+    Game::Doc::Req("guid", "WOWGUID"),
+};
+const Game::Doc::Structure kLootableUnit{"LootableUnit", "Loot", kLootableUnitFields,
+                                         "A unit the player can loot."};
+
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Req("units", "table",
+                   "An array of LootableUnit; empty when none is in range or before login."),
+};
+const Game::Doc::Function kGetNearbyLootableUnits{
+    "Returns the units the player can loot that are within right-click loot range.", {}, kRets,
+    nullptr, true};
+
 void Register() {
     Game::Lua::RegisterTableFunction("C_Loot", "GetNearbyLootableUnits",
-                                     &Script_GetNearbyLootableUnits);
+                                     &Script_GetNearbyLootableUnits, &kGetNearbyLootableUnits);
 }
 
 } // namespace

@@ -73,7 +73,7 @@ const Game::Doc::Field kRets[] = {
                    "True while the spell is on the cast bar, queued, or channeling."),
 };
 const Game::Doc::Function kIsCurrentSpell{
-    "Whether the player is casting, channeling, or has queued this spell.",
+    "Returns whether the player is casting, channeling, or has queued this spell.",
     kArgs, kRets};
 
 } // namespace

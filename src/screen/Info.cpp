@@ -48,9 +48,17 @@ int __fastcall Script_GetPhysicalScreenSize(void *L) {
     return 2;
 }
 
+const Game::Doc::Field kGetPhysicalScreenSizeRets[] = {
+    Game::Doc::Req("sizeX", "number"),
+    Game::Doc::Req("sizeY", "number"),
+};
+const Game::Doc::Function kGetPhysicalScreenSize{
+    "Returns the size of the game window in pixels.", {}, kGetPhysicalScreenSizeRets,
+    "SystemGlobals"};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("GetPhysicalScreenSize",
-                                      &Script_GetPhysicalScreenSize);
+                                      &Script_GetPhysicalScreenSize, &kGetPhysicalScreenSize);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

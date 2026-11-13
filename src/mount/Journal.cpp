@@ -180,7 +180,7 @@ const Game::Doc::Field kGetMountFromSpellRets[] = {
                    "The mount's ID, which is its spell ID. Nil when the spell is not a mount."),
 };
 const Game::Doc::Function kGetMountFromSpell{
-    "The mount a spell summons. A mount's ID is the ID of the spell that summons it.",
+    "Returns the mount a spell summons; a mount's ID is the ID of that spell.",
     kGetMountFromSpellArgs, kGetMountFromSpellRets};
 
 const Game::Doc::Field kGetMountFromItemArgs[] = {
@@ -193,7 +193,7 @@ const Game::Doc::Field kGetMountFromItemRets[] = {
                    "the call starts loading it."),
 };
 const Game::Doc::Function kGetMountFromItem{
-    "The mount an item summons when used.", kGetMountFromItemArgs, kGetMountFromItemRets};
+    "Returns the mount an item summons when used.", kGetMountFromItemArgs, kGetMountFromItemRets};
 
 const Game::Doc::Field kGetMountInfoExtraByIDArgs[] = {
     Game::Doc::Req("mountID", "number", "A mount ID, which is the mount's spell ID."),
@@ -213,7 +213,8 @@ const Game::Doc::Field kGetMountInfoExtraByIDRets[] = {
     Game::Doc::Req("disablePlayerMountPreview", "bool", "Always false."),
 };
 const Game::Doc::Function kGetMountInfoExtraByID{
-    "Display and preview details of a mount. Returns nothing when the ID is not a mount.",
+    "Returns the display and preview details of a mount, or nothing for an ID that is not "
+    "a mount.",
     kGetMountInfoExtraByIDArgs, kGetMountInfoExtraByIDRets};
 
 void RegisterLuaFunctions() {

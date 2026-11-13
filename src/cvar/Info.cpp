@@ -127,21 +127,56 @@ int __fastcall Script_C_CVar_AreCVarsLoaded(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kInfoArgs[] = {
+    Game::Doc::Req("name", "cstring"),
+};
+const Game::Doc::Field kInfoRets[] = {
+    Game::Doc::Opt("value", "cstring", nullptr,
+                   "Nil, with the rest, when no cvar has that name."),
+    Game::Doc::Opt("defaultValue", "cstring"),
+    Game::Doc::Opt("isStoredServerAccount", "bool", nullptr, "Always false."),
+    Game::Doc::Opt("isStoredServerCharacter", "bool", nullptr, "Always false."),
+    Game::Doc::Opt("isLockedFromUser", "bool", nullptr, "Always false."),
+    Game::Doc::Opt("isSecure", "bool", nullptr, "Always false."),
+    Game::Doc::Opt("isReadOnly", "bool", nullptr, "True when SetCVar refuses to change it."),
+};
+const Game::Doc::Function kGetCVarInfo{
+    "Returns a console variable's value, its default, and what may be done to it.", kInfoArgs,
+    kInfoRets};
+
+const Game::Doc::Field kExistArgs[] = {
+    Game::Doc::Req("name", "cstring"),
+};
+const Game::Doc::Field kExistRets[] = {
+    Game::Doc::Req("exists", "bool", "False for anything that is not a string."),
+};
+const Game::Doc::Function kDoesCVarExist{
+    "Returns whether a console variable by that name can be read and written from Lua.",
+    kExistArgs, kExistRets, nullptr, true};
+
+const Game::Doc::Field kLoadedRets[] = {
+    Game::Doc::Req("loaded", "bool", "Always true by the time an addon runs."),
+};
+const Game::Doc::Function kAreCVarsLoaded{
+    "Returns whether the client has finished loading its console variables.", {}, kLoadedRets};
+
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterTableFunction("C_CVar", "GetCVarInfo", &Script_C_CVar_GetCVarInfo);
+    Game::Lua::RegisterTableFunction("C_CVar", "GetCVarInfo", &Script_C_CVar_GetCVarInfo,
+                                     &kGetCVarInfo);
     Game::Lua::RegisterTableFunction("C_CVar", "DoesCVarExist",
-                                     &Script_C_CVar_DoesCVarExist);
+                                     &Script_C_CVar_DoesCVarExist, &kDoesCVarExist);
     Game::Lua::RegisterTableFunction("C_CVar", "AreCVarsLoaded",
-                                     &Script_C_CVar_AreCVarsLoaded);
+                                     &Script_C_CVar_AreCVarsLoaded, &kAreCVarsLoaded);
 }
 
 // Cvar storage is process-global, so the same surface works pre-login.
 void RegisterGlueFunctions() {
-    Game::Lua::RegisterTableFunction("C_CVar", "GetCVarInfo", &Script_C_CVar_GetCVarInfo);
+    Game::Lua::RegisterTableFunction("C_CVar", "GetCVarInfo", &Script_C_CVar_GetCVarInfo,
+                                     &kGetCVarInfo);
     Game::Lua::RegisterTableFunction("C_CVar", "DoesCVarExist",
-                                     &Script_C_CVar_DoesCVarExist);
+                                     &Script_C_CVar_DoesCVarExist, &kDoesCVarExist);
     Game::Lua::RegisterTableFunction("C_CVar", "AreCVarsLoaded",
-                                     &Script_C_CVar_AreCVarsLoaded);
+                                     &Script_C_CVar_AreCVarsLoaded, &kAreCVarsLoaded);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

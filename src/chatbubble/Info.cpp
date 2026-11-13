@@ -63,9 +63,19 @@ static int __fastcall Script_GetAllChatBubbles(void *L) {
     return 1;
 }
 
+static const Game::Doc::Field kGetAllChatBubblesArgs[] = {
+    Game::Doc::Opt("includeForbidden", "bool", "false", "Ignored."),
+};
+static const Game::Doc::Field kGetAllChatBubblesRets[] = {
+    Game::Doc::Req("chatBubbles", "table", "An array of the chat bubble frames now showing."),
+};
+static const Game::Doc::Function kGetAllChatBubbles{
+    "Returns the speech bubbles above characters that are now showing.", kGetAllChatBubblesArgs,
+    kGetAllChatBubblesRets};
+
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_ChatBubbles", "GetAllChatBubbles",
-                                     &Script_GetAllChatBubbles);
+                                     &Script_GetAllChatBubbles, &kGetAllChatBubbles);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

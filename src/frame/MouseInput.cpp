@@ -449,8 +449,22 @@ const Game::Doc::Function kSetPassThrough{
     "Sets the mouse buttons the frame lets through. A click with one of them goes to the frame under it, or to the "
     "world. No names clears the list.",
     kPassThroughArgs, {}};
+const Game::Doc::Field kEnableMouseArgs[] = {
+    Game::Doc::Opt("enable", "bool", "false"),
+};
+const Game::Doc::Function kEnableMouse{"Sets whether the frame takes mouse clicks and motion.",
+                                       kEnableMouseArgs, {}};
+const Game::Doc::Field kIsMouseEnabledRets[] = {
+    Game::Doc::Opt("enabled", "number", nullptr,
+                   "1 when the frame takes both clicks and motion, otherwise nil."),
+};
+const Game::Doc::Function kIsMouseEnabled{
+    "Returns whether the frame takes both mouse clicks and mouse motion.", {},
+    kIsMouseEnabledRets};
 
 const Game::Doc::Method g_methodDocs[] = {
+    {"EnableMouse", &kEnableMouse},
+    {"IsMouseEnabled", &kIsMouseEnabled},
     {"SetMouseClickEnabled", &kSetClick},
     {"SetMouseMotionEnabled", &kSetMotion},
     {"IsMouseClickEnabled", &kIsClick},

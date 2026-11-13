@@ -69,10 +69,21 @@ int __fastcall Script_CanUseItem(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kCanUseItemArgs[] = {
+    Game::Doc::Req("itemID", "number", "An item ID or an item link."),
+};
+const Game::Doc::Field kCanUseItemRets[] = {
+    Game::Doc::Req("isUseable", "bool", "False for an item that is not cached yet."),
+};
+const Game::Doc::Function kCanUseItem{
+    "Returns whether the player meets the requirements to use or equip an item.",
+    kCanUseItemArgs, kCanUseItemRets};
+
 } // namespace
 
 static void RegisterLuaFunctions() {
-    Game::Lua::RegisterTableFunction("C_PlayerInfo", "CanUseItem", &Script_CanUseItem);
+    Game::Lua::RegisterTableFunction("C_PlayerInfo", "CanUseItem", &Script_CanUseItem,
+                                     &kCanUseItem);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

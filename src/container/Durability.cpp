@@ -40,9 +40,22 @@ int __fastcall Script_C_Container_GetContainerItemDurability(void *L) {
         L, Item::Location::ResolveBag(L, bagID, slotIndex));
 }
 
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("containerIndex", "BagIndex"),
+    Game::Doc::Req("slotIndex", "luaIndex"),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Opt("durability", "number", nullptr,
+                   "Nil when the slot is empty or the item has no durability."),
+    Game::Doc::Opt("maxDurability", "number"),
+};
+const Game::Doc::Function kGetContainerItemDurability{
+    "Returns the current and maximum durability of the item in a bag slot.", kArgs, kRets};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Container", "GetContainerItemDurability",
-                                     &Script_C_Container_GetContainerItemDurability);
+                                     &Script_C_Container_GetContainerItemDurability,
+                                     &kGetContainerItemDurability);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

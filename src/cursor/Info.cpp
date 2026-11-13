@@ -296,8 +296,20 @@ const Game::Doc::Function kCursorHasMacro{
     "Returns true if the cursor holds a macro.",
     {}, kCursorHasMacroRets, "CursorGlobals"};
 
+const Game::Doc::Field kGetCursorInfoRets[] = {
+    Game::Doc::Opt("cursorType", "cstring", nullptr,
+                   "\"item\", \"money\", \"spell\", \"macro\", \"merchant\", "
+                   "\"petaction\", \"pet\" or \"equipmentset\"; nothing when the cursor is "
+                   "empty."),
+    Game::Doc::Vararg("any",
+                      "item: itemID, itemLink; money: copper; spell: slot, bookType, spellID; "
+                      "macro, merchant and pet: a 1-based index; equipmentset: the set name."),
+};
+const Game::Doc::Function kGetCursorInfo{"Returns what the cursor holds.", {},
+                                         kGetCursorInfoRets, "CursorGlobals"};
+
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("GetCursorInfo", &Script_GetCursorInfo);
+    Game::Lua::RegisterGlobalFunction("GetCursorInfo", &Script_GetCursorInfo, &kGetCursorInfo);
     Game::Lua::RegisterGlobalFunction("CursorHasMacro", &Script_CursorHasMacro,
                                       &kCursorHasMacro);
 }

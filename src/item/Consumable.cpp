@@ -103,8 +103,8 @@ const Game::Doc::Field kLegacyRets[] = {
     Game::Doc::Opt("isConsumable", "number", nullptr, "1 when using the item uses it up, else nil."),
 };
 const Game::Doc::Function kIsConsumableItem{
-    "Whether using the item uses it up: ammo, thrown weapons, and items whose use has charges "
-    "that run out or costs reagents.",
+    "Returns whether using the item uses it up: ammo, thrown weapons, and items whose use "
+    "has charges that run out or costs reagents.",
     kLegacyArgs, kLegacyRets, "ItemGlobals"};
 
 const Game::Doc::Field kModernArgs[] = {
@@ -114,8 +114,8 @@ const Game::Doc::Field kModernRets[] = {
     Game::Doc::Req("isConsumable", "bool", "True when using the item uses it up."),
 };
 const Game::Doc::Function kCIsConsumableItem{
-    "Whether using the item uses it up: ammo, thrown weapons, and items whose use has charges "
-    "that run out or costs reagents.",
+    "Returns whether using the item uses it up: ammo, thrown weapons, and items whose use "
+    "has charges that run out or costs reagents.",
     kModernArgs, kModernRets};
 
 void RegisterLuaFunctions() {

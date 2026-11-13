@@ -47,9 +47,22 @@ int __fastcall Script_GetCraftReagentItemID(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("craftIndex", "luaIndex"),
+    Game::Doc::Req("reagentIndex", "luaIndex"),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Opt("itemID", "number", nullptr,
+                   "Nil when the craft or the reagent does not exist."),
+};
+const Game::Doc::Function kGetCraftReagentItemID{
+    "Returns the item ID of a reagent of a craft window recipe, the ID that "
+    "GetCraftReagentItemLink shows.",
+    kArgs, kRets, "ItemGlobals", true};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("GetCraftReagentItemID",
-                                      &Script_GetCraftReagentItemID);
+                                      &Script_GetCraftReagentItemID, &kGetCraftReagentItemID);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

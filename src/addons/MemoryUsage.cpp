@@ -175,8 +175,8 @@ static void RegisterLuaFunctions() {
                                       &kUpdateAddOnMemoryUsage);
     Game::Lua::RegisterGlobalFunction("GetAddOnMemoryUsage", &Script_GetAddOnMemoryUsage,
                                       &kGetAddOnMemoryUsage);
-    Game::Lua::RegisterGlobalFunction("_classicapi_LuaHeapAudit", &Script_LuaHeapAudit);
-    Game::Lua::RegisterGlobalFunction("_classicapi_GcTagOf", &Script_GcTagOf);
+    Game::Lua::RegisterGlobalFunction("_classicapi_LuaHeapAudit", &Script_LuaHeapAudit, nullptr);
+    Game::Lua::RegisterGlobalFunction("_classicapi_GcTagOf", &Script_GcTagOf, nullptr);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

@@ -62,8 +62,22 @@ static int __fastcall Script_GetLootSlotItemID(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+static const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("slot", "luaIndex", "A slot of the open loot window."),
+};
+static const Game::Doc::Field kRets[] = {
+    Game::Doc::Opt("itemID", "number", nullptr,
+                   "Nil when no loot window is open, the slot is empty, or it holds money."),
+};
+static const Game::Doc::Function kGetLootSlotItemID{
+    "Returns the item in a slot of the loot window.", kArgs, kRets,
+    "ItemGlobals", true};
+
 static void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("GetLootSlotItemID", &Script_GetLootSlotItemID);
+    Game::Lua::RegisterGlobalFunction("GetLootSlotItemID", &Script_GetLootSlotItemID,
+                                      &kGetLootSlotItemID);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

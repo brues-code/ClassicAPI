@@ -70,8 +70,21 @@ int __fastcall Script_UnitSubName(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("unit", "UnitToken"),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Opt("subName", "string", nullptr,
+                   "Nil for players, NPCs with no subtitle, and NPCs whose data has not loaded."),
+};
+const Game::Doc::Function kUnitSubName{
+    "Returns the subtitle shown under an NPC's name, such as \"Innkeeper\".", kArgs, kRets,
+    "UnitGlobals", true};
+
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("UnitSubName", &Script_UnitSubName);
+    Game::Lua::RegisterGlobalFunction("UnitSubName", &Script_UnitSubName, &kUnitSubName);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

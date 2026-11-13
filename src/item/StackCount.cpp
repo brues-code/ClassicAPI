@@ -48,9 +48,21 @@ static int __fastcall Script_GetStackCount(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+static const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("itemLocation", "ItemLocation", "An item location or an item GUID."),
+};
+static const Game::Doc::Field kRets[] = {
+    Game::Doc::Req("stackCount", "number",
+                   "0 for an empty slot or a location that names no item."),
+};
+static const Game::Doc::Function kGetStackCount{
+    "Returns how many items are in the stack at a location.", kArgs, kRets};
+
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Item", "GetStackCount",
-                                     &Script_GetStackCount);
+                                     &Script_GetStackCount, &kGetStackCount);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

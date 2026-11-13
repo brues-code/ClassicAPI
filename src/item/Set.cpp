@@ -159,13 +159,65 @@ static int __fastcall Script_C_Item_GetItemSetInfo(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+static const Game::Doc::Field kLocationArgs[] = {
+    Game::Doc::Req("itemLocation", "ItemLocation", "An item location or an item GUID."),
+};
+static const Game::Doc::Field kByIDArgs[] = {
+    Game::Doc::Req("itemInfo", "ItemInfo", "An item ID or an item link."),
+};
+static const Game::Doc::Field kLocationRets[] = {
+    Game::Doc::Opt("setID", "number", nullptr,
+                   "Nil when the item is in no set, the slot is empty, or the item is not "
+                   "cached."),
+};
+static const Game::Doc::Field kByIDRets[] = {
+    Game::Doc::Opt("setID", "number", nullptr,
+                   "Nil when the item is in no set or is not cached."),
+};
+static const Game::Doc::Function kGetItemSetID{
+    "Returns the item set that the item at a location belongs to.", kLocationArgs,
+    kLocationRets, nullptr, true};
+static const Game::Doc::Function kGetItemSetIDByID{
+    "Returns the item set that an item belongs to, and asks the server for an item that is "
+    "not cached.",
+    kByIDArgs, kByIDRets, nullptr, true};
+
+static const Game::Doc::Field kItemSetBonusFields[] = {
+    Game::Doc::Req("spellID", "number", "The spell that the bonus gives."),
+    Game::Doc::Req("threshold", "number", "How many pieces of the set must be equipped."),
+};
+static const Game::Doc::Structure kItemSetBonus{"ItemSetBonus", "Item", kItemSetBonusFields,
+                                                "One bonus of an item set."};
+
+static const Game::Doc::Field kItemSetInfoFields[] = {
+    Game::Doc::Req("setID", "number"),
+    Game::Doc::Req("name", "string"),
+    Game::Doc::Req("requiredSkill", "number", "The skill line the set needs; 0 for none."),
+    Game::Doc::Req("requiredSkillRank", "number", "0 when the set needs no skill."),
+    Game::Doc::Req("items", "table", "An array of the item IDs in the set."),
+    Game::Doc::Req("bonuses", "table", "An array of ItemSetBonus."),
+};
+static const Game::Doc::Structure kItemSetInfo{"ItemSetInfo", "Item", kItemSetInfoFields};
+
+static const Game::Doc::Field kGetItemSetInfoArgs[] = {
+    Game::Doc::Req("setID", "number"),
+};
+static const Game::Doc::Field kGetItemSetInfoRets[] = {
+    Game::Doc::Opt("info", "ItemSetInfo", nullptr, "Nil when no item set has the ID."),
+};
+static const Game::Doc::Function kGetItemSetInfo{
+    "Returns the name, items and bonuses of an item set.", kGetItemSetInfoArgs,
+    kGetItemSetInfoRets};
+
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Item", "GetItemSetID",
-                                     &Script_C_Item_GetItemSetID);
+                                     &Script_C_Item_GetItemSetID, &kGetItemSetID);
     Game::Lua::RegisterTableFunction("C_Item", "GetItemSetIDByID",
-                                     &Script_C_Item_GetItemSetIDByID);
+                                     &Script_C_Item_GetItemSetIDByID, &kGetItemSetIDByID);
     Game::Lua::RegisterTableFunction("C_Item", "GetItemSetInfo",
-                                     &Script_C_Item_GetItemSetInfo);
+                                     &Script_C_Item_GetItemSetInfo, &kGetItemSetInfo);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

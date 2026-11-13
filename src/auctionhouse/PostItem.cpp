@@ -68,9 +68,22 @@ namespace AuctionHouse::PostItem {
 
 namespace {
 
-const Event::Custom::AutoReserve _evtStart{"AUCTION_MULTISELL_START"};
-const Event::Custom::AutoReserve _evtUpdate{"AUCTION_MULTISELL_UPDATE"};
-const Event::Custom::AutoReserve _evtFailure{"AUCTION_MULTISELL_FAILURE"};
+const Game::Doc::Event kStartDoc{
+    "AuctionHouse", "Fires when C_AuctionHouse.PostItem accepts a job and starts to post.", {}};
+const Game::Doc::Field kUpdatePayload[] = {
+    Game::Doc::Req("createdCount", "number", "The auctions posted so far."),
+    Game::Doc::Req("totalToCreate", "number"),
+};
+const Game::Doc::Event kUpdateDoc{
+    "AuctionHouse", "Fires after each auction that C_AuctionHouse.PostItem posts.",
+    kUpdatePayload};
+const Game::Doc::Event kFailureDoc{
+    "AuctionHouse", "Fires when a C_AuctionHouse.PostItem job stops before it posts all auctions.",
+    {}};
+
+const Event::Custom::AutoReserve _evtStart{"AUCTION_MULTISELL_START", &kStartDoc};
+const Event::Custom::AutoReserve _evtUpdate{"AUCTION_MULTISELL_UPDATE", &kUpdateDoc};
+const Event::Custom::AutoReserve _evtFailure{"AUCTION_MULTISELL_FAILURE", &kFailureDoc};
 
 // Generous per-step abort bound. A split or a post is one server round-trip
 // (~tens of frames); 600 frames (~10s at 60fps) means "something's wrong"
@@ -402,9 +415,26 @@ int __fastcall Script_C_AuctionHouse_PostItem(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kPostItemArgs[] = {
+    Game::Doc::Req("itemLocation", "ItemLocation", "A bag slot: {bagID = B, slotIndex = S}."),
+    Game::Doc::Req("duration", "number",
+                   "1, 2 or 3 for 2, 8 or 24 hours; 120, 480 or 1440 also work."),
+    Game::Doc::Req("quantity", "number", "Items in each auction, 1 to 255."),
+    Game::Doc::Req("numStacks", "number", "The number of auctions."),
+    Game::Doc::Req("bid", "number", "In copper, for each auction."),
+    Game::Doc::Opt("buyout", "number", "0", "In copper, for each auction; 0 for no buyout."),
+};
+const Game::Doc::Field kPostItemRets[] = {
+    Game::Doc::Req("accepted", "bool"),
+    Game::Doc::Opt("reason", "string", nullptr, "Why the job was refused; nil when accepted."),
+};
+const Game::Doc::Function kPostItem{
+    "Starts to post several auctions of one size from one bag slot.", kPostItemArgs,
+    kPostItemRets};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_AuctionHouse", "PostItem",
-                                     &Script_C_AuctionHouse_PostItem);
+                                     &Script_C_AuctionHouse_PostItem, &kPostItem);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

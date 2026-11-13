@@ -467,12 +467,26 @@ int __fastcall Script_GetModernScriptArgs(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kSetModernScriptArgsArgs[] = {
+    Game::Doc::Opt("enable", "bool", "false"),
+};
+const Game::Doc::Field kModernScriptArgsRets[] = {
+    Game::Doc::Req("enabled", "bool"),
+};
+const Game::Doc::Function kSetModernScriptArgs{
+    "Sets whether script handlers also get their values as positional arguments, and returns "
+    "the new state.",
+    kSetModernScriptArgsArgs, kModernScriptArgsRets, "FrameScriptGlobals", true};
+const Game::Doc::Function kGetModernScriptArgs{
+    "Returns whether script handlers also get their values as positional arguments.", {},
+    kModernScriptArgsRets, "FrameScriptGlobals", true};
+
 void RegisterLuaFunctions() {
     PatchCode();
     Game::Lua::RegisterGlobalFunction("SetModernScriptArgs",
-                                      &Script_SetModernScriptArgs);
+                                      &Script_SetModernScriptArgs, &kSetModernScriptArgs);
     Game::Lua::RegisterGlobalFunction("GetModernScriptArgs",
-                                      &Script_GetModernScriptArgs);
+                                      &Script_GetModernScriptArgs, &kGetModernScriptArgs);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

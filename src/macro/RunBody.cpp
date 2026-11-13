@@ -152,7 +152,7 @@ int __fastcall Script_GetRunningMacro(void *L) {
 }
 
 const Game::Doc::Function kStopMacro{
-    "Stop running the rest of the macro body that is executing now. Does "
+    "Stops running the rest of the macro body that is executing now; does "
     "nothing when no macro is running.",
     {}, {}, "MacroGlobals"};
 

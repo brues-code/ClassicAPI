@@ -92,7 +92,7 @@ const Game::Doc::Field kRets[] = {
                    "1 when the item, or the item a recipe makes, can be equipped, else nil."),
 };
 const Game::Doc::Function kIsDressableItem{
-    "Whether the item can be tried on in the dressing room.", kArgs, kRets, "ItemGlobals"};
+    "Returns whether the item can be tried on in the dressing room.", kArgs, kRets, "ItemGlobals"};
 
 void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("IsDressableItem", &Script_IsDressableItem,

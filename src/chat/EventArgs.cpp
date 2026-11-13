@@ -197,12 +197,20 @@ const Game::Doc::Field kChatEventRets[] = {
     Game::Doc::Opt("channelBaseName", "string"),
     Game::Doc::Opt("unused", "number"),
     Game::Doc::Opt("lineID", "number"),
-    Game::Doc::Opt("guid", "string"),
+    Game::Doc::Opt("guid", "WOWGUID"),
 };
 const Game::Doc::Function kGetCurrentChatEvent{
     "Returns the name and arguments of the CHAT_MSG_* event being handled now, or nothing "
     "outside one.",
     {}, kChatEventRets, "ChatGlobals", true};
+
+const Game::Doc::Field kGetCurrentChatGUIDRets[] = {
+    Game::Doc::Opt("guid", "WOWGUID", nullptr,
+                   "Nil when the sender is not a player, or outside a chat event."),
+};
+const Game::Doc::Function kGetCurrentChatGUID{
+    "Returns the sender GUID of the CHAT_MSG_* event being handled now.", {},
+    kGetCurrentChatGUIDRets, "ChatGlobals", true};
 
 // Once per process; a patched site no longer reaches FUN_FIRE_EVENT, so a
 // second pass would refuse anyway.
@@ -227,7 +235,8 @@ void Apply() {
 }
 
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("GetCurrentChatGUID", &Script_GetCurrentChatGUID);
+    Game::Lua::RegisterGlobalFunction("GetCurrentChatGUID", &Script_GetCurrentChatGUID,
+                                      &kGetCurrentChatGUID);
     Game::Lua::RegisterGlobalFunction("GetCurrentChatEvent", &Script_GetCurrentChatEvent,
                                       &kGetCurrentChatEvent);
     Apply();

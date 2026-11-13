@@ -361,13 +361,51 @@ int __fastcall Script_TargetDirectionFinished(void * /*L*/) {
     return 0;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kReverseArgs[] = {
+    Game::Doc::Opt("reverse", "bool", "false", "Cycles the other way."),
+};
+const Game::Doc::Function kTargetNearest{
+    "Targets the next nearest unit of any kind, cycling on each call like TargetNearestEnemy.",
+    kReverseArgs, {}, "TargetGlobals"};
+const Game::Doc::Function kTargetNearestEnemyPlayer{
+    "Targets the next nearest enemy player, cycling on each call.", kReverseArgs, {},
+    "TargetGlobals"};
+const Game::Doc::Function kTargetNearestFriendPlayer{
+    "Targets the next nearest friendly player, cycling on each call.", kReverseArgs, {},
+    "TargetGlobals"};
+
+const Game::Doc::Field kDirectionArgs[] = {
+    Game::Doc::Req("facing", "number",
+                   "A direction on the screen in radians, clockwise: 0 up, pi/2 right."),
+    Game::Doc::Opt("coneAngle", "number", nullptr,
+                   "The cone width in radians; it is never narrower than 22.5 degrees."),
+};
+const Game::Doc::Function kTargetDirectionEnemy{
+    "Targets the enemy in a direction on the screen from your target, or from you.",
+    kDirectionArgs, {}, "TargetGlobals"};
+const Game::Doc::Function kTargetDirectionFriend{
+    "Targets the friendly unit in a direction on the screen from your target, or from you.",
+    kDirectionArgs, {}, "TargetGlobals"};
+const Game::Doc::Function kTargetDirectionFinished{
+    "Ends the lock that a TargetDirectionEnemy or TargetDirectionFriend hit sets, so the next "
+    "call can target again.",
+    {}, {}, "TargetGlobals"};
+
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("TargetNearest", &Script_TargetNearest);
-    Game::Lua::RegisterGlobalFunction("TargetNearestEnemyPlayer", &Script_TargetNearestEnemyPlayer);
-    Game::Lua::RegisterGlobalFunction("TargetNearestFriendPlayer", &Script_TargetNearestFriendPlayer);
-    Game::Lua::RegisterGlobalFunction("TargetDirectionEnemy", &Script_TargetDirectionEnemy);
-    Game::Lua::RegisterGlobalFunction("TargetDirectionFriend", &Script_TargetDirectionFriend);
-    Game::Lua::RegisterGlobalFunction("TargetDirectionFinished", &Script_TargetDirectionFinished);
+    Game::Lua::RegisterGlobalFunction("TargetNearest", &Script_TargetNearest, &kTargetNearest);
+    Game::Lua::RegisterGlobalFunction("TargetNearestEnemyPlayer", &Script_TargetNearestEnemyPlayer,
+                                      &kTargetNearestEnemyPlayer);
+    Game::Lua::RegisterGlobalFunction("TargetNearestFriendPlayer",
+                                      &Script_TargetNearestFriendPlayer,
+                                      &kTargetNearestFriendPlayer);
+    Game::Lua::RegisterGlobalFunction("TargetDirectionEnemy", &Script_TargetDirectionEnemy,
+                                      &kTargetDirectionEnemy);
+    Game::Lua::RegisterGlobalFunction("TargetDirectionFriend", &Script_TargetDirectionFriend,
+                                      &kTargetDirectionFriend);
+    Game::Lua::RegisterGlobalFunction("TargetDirectionFinished", &Script_TargetDirectionFinished,
+                                      &kTargetDirectionFinished);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

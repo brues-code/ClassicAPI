@@ -212,23 +212,98 @@ int __fastcall Script_GetServerTimeLocal(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kCalendarTimeFields[] = {
+    Game::Doc::Req("year", "number", "The full year, such as 2026."),
+    Game::Doc::Req("month", "luaIndex"),
+    Game::Doc::Req("monthDay", "luaIndex"),
+    Game::Doc::Req("weekday", "luaIndex", "1 is Sunday. Ignored in an argument."),
+    Game::Doc::Req("hour", "number", "0 to 23. 0 when missing from an argument."),
+    Game::Doc::Req("minute", "number", "0 to 59. 0 when missing from an argument."),
+};
+const Game::Doc::Structure kCalendarTime{"CalendarTime", "DateAndTime", kCalendarTimeFields};
+
+const Game::Doc::Field kAdjustByDaysArgs[] = {
+    Game::Doc::Req("date", "CalendarTime", "Out-of-range fields are normalized."),
+    Game::Doc::Req("days", "number", "Negative goes back in time."),
+};
+const Game::Doc::Field kAdjustRets[] = {
+    Game::Doc::Opt("newDate", "CalendarTime", nullptr,
+                   "Nothing when date lacks year, month or monthDay."),
+};
+const Game::Doc::Function kAdjustTimeByDays{
+    "Returns a calendar time moved by a number of days.", kAdjustByDaysArgs, kAdjustRets};
+
+const Game::Doc::Field kAdjustByMinutesArgs[] = {
+    Game::Doc::Req("date", "CalendarTime", "Out-of-range fields are normalized."),
+    Game::Doc::Req("minutes", "number", "Negative goes back in time."),
+};
+const Game::Doc::Function kAdjustTimeByMinutes{
+    "Returns a calendar time moved by a number of minutes.", kAdjustByMinutesArgs,
+    kAdjustRets};
+
+const Game::Doc::Field kCompareArgs[] = {
+    Game::Doc::Req("lhsCalendarTime", "CalendarTime"),
+    Game::Doc::Req("rhsCalendarTime", "CalendarTime"),
+};
+const Game::Doc::Field kCompareRets[] = {
+    Game::Doc::Opt("comparison", "number", nullptr,
+                   "-1 when lhsCalendarTime is earlier, 0 when equal, 1 when later; nothing "
+                   "when either lacks year, month or monthDay."),
+};
+const Game::Doc::Function kCompareCalendarTime{"Compares two calendar times.", kCompareArgs,
+                                               kCompareRets};
+
+const Game::Doc::Field kFromEpochArgs[] = {
+    Game::Doc::Req("epoch", "number", "Seconds since 1970-01-01 UTC."),
+};
+const Game::Doc::Field kFromEpochRets[] = {
+    Game::Doc::Req("date", "CalendarTime", "In UTC."),
+};
+const Game::Doc::Function kGetCalendarTimeFromEpoch{
+    "Converts a Unix timestamp to a calendar time.", kFromEpochArgs, kFromEpochRets};
+
+const Game::Doc::Field kCurrentRets[] = {
+    Game::Doc::Opt("date", "CalendarTime", nullptr, "Nothing before login."),
+};
+const Game::Doc::Function kGetCurrentCalendarTime{
+    "Returns the realm's current date and time, which agree with GetGameTime.", {},
+    kCurrentRets};
+
+const Game::Doc::Field kDailyResetRets[] = {
+    Game::Doc::Opt("seconds", "number", nullptr, "Nothing before login."),
+};
+const Game::Doc::Function kGetSecondsUntilDailyReset{
+    "Returns the seconds until the next daily reset, at midnight UTC.", {}, kDailyResetRets};
+
+const Game::Doc::Field kServerTimeLocalRets[] = {
+    Game::Doc::Opt("serverTimeLocal", "number", nullptr,
+                   "A display value, not an instant: formatted as UTC it shows the realm's "
+                   "clock. Nothing before login."),
+};
+const Game::Doc::Function kGetServerTimeLocal{
+    "Returns the server time shifted by the realm's time zone, for display.", {},
+    kServerTimeLocalRets};
+
 } // namespace
 
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_DateAndTime", "AdjustTimeByDays",
-                                     &Script_AdjustTimeByDays);
+                                     &Script_AdjustTimeByDays, &kAdjustTimeByDays);
     Game::Lua::RegisterTableFunction("C_DateAndTime", "AdjustTimeByMinutes",
-                                     &Script_AdjustTimeByMinutes);
+                                     &Script_AdjustTimeByMinutes, &kAdjustTimeByMinutes);
     Game::Lua::RegisterTableFunction("C_DateAndTime", "CompareCalendarTime",
-                                     &Script_CompareCalendarTime);
+                                     &Script_CompareCalendarTime, &kCompareCalendarTime);
     Game::Lua::RegisterTableFunction("C_DateAndTime", "GetCalendarTimeFromEpoch",
-                                     &Script_GetCalendarTimeFromEpoch);
+                                     &Script_GetCalendarTimeFromEpoch,
+                                     &kGetCalendarTimeFromEpoch);
     Game::Lua::RegisterTableFunction("C_DateAndTime", "GetCurrentCalendarTime",
-                                     &Script_GetCurrentCalendarTime);
+                                     &Script_GetCurrentCalendarTime,
+                                     &kGetCurrentCalendarTime);
     Game::Lua::RegisterTableFunction("C_DateAndTime", "GetSecondsUntilDailyReset",
-                                     &Script_GetSecondsUntilDailyReset);
+                                     &Script_GetSecondsUntilDailyReset,
+                                     &kGetSecondsUntilDailyReset);
     Game::Lua::RegisterTableFunction("C_DateAndTime", "GetServerTimeLocal",
-                                     &Script_GetServerTimeLocal);
+                                     &Script_GetServerTimeLocal, &kGetServerTimeLocal);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

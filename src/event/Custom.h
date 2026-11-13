@@ -21,7 +21,7 @@ namespace Event::Custom {
 // Reserve an event name to be claimed in the engine's event table at
 // the next safe opportunity. Place a static instance at file scope:
 //
-//   static const Event::Custom::AutoReserve _r{"MY_EVENT"};
+//   static const Event::Custom::AutoReserve _r{"MY_EVENT", &kMyEventDoc};
 //
 // Static-init chains the name onto an internal list *before* `DllMain`
 // runs. After the engine and any other DLLs have finished writing to
@@ -54,10 +54,10 @@ namespace Event::Custom {
 //
 // `doc` is the event's API documentation (its System, a summary, and the
 // payload fields — see `Game::Doc::Event`); `Api::Documentation` exports it
-// under the System's `Events`. A reservation without one is listed by
-// `_classicapi_UndocumentedAPI()`.
+// under the System's `Events`. It has no default: every reservation is
+// documented.
 struct AutoReserve {
-    explicit AutoReserve(const char *name, const Game::Doc::Event *doc = nullptr);
+    explicit AutoReserve(const char *name, const Game::Doc::Event *doc);
     int Slot() const;
 
 private:

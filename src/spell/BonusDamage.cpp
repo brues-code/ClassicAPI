@@ -331,9 +331,29 @@ int __fastcall Script_GetSpellBonusHealing(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kBonusDamageArgs[] = {
+    Game::Doc::Req("school", "luaIndex", "1 Physical, 2 Holy, 3 Fire, 4 Nature, 5 Frost, "
+                                         "6 Shadow, 7 Arcane."),
+};
+const Game::Doc::Field kBonusRets[] = {
+    Game::Doc::Req("result", "number"),
+};
+const Game::Doc::Function kGetSpellBonusDamage{
+    "Returns your bonus spell damage for one magic school, with gear, buffs and talents "
+    "included.",
+    kBonusDamageArgs, kBonusRets, "PlayerGlobals"};
+const Game::Doc::Function kGetSpellBonusHealing{
+    "Returns your bonus healing from gear, enchants, set bonuses, buffs and Spirit-to-healing "
+    "talents.",
+    {}, kBonusRets, "PlayerGlobals"};
+
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("GetSpellBonusDamage", &Script_GetSpellBonusDamage);
-    Game::Lua::RegisterGlobalFunction("GetSpellBonusHealing", &Script_GetSpellBonusHealing);
+    Game::Lua::RegisterGlobalFunction("GetSpellBonusDamage", &Script_GetSpellBonusDamage,
+                                      &kGetSpellBonusDamage);
+    Game::Lua::RegisterGlobalFunction("GetSpellBonusHealing", &Script_GetSpellBonusHealing,
+                                      &kGetSpellBonusHealing);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

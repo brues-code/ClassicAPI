@@ -117,7 +117,7 @@ const Game::Doc::Field kRets[] = {
                    "nothing or is unknown."),
 };
 const Game::Doc::Function kGetSpellPowerCost{
-    "What one cast of the spell costs the player in power.", kArgs, kRets};
+    "Returns what one cast of the spell costs the player in power.", kArgs, kRets};
 
 } // namespace
 

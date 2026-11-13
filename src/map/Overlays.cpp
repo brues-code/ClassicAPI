@@ -681,9 +681,64 @@ void PushZoneOverlays(void *L, int wmaRow, Filter filter) {
 }
 
 namespace {
+const Game::Doc::Field kMapOverlayTileFields[] = {
+    Game::Doc::Req("file", "string", "The tile's texture path, ready for SetTexture."),
+    Game::Doc::Req("width", "number", "The draw width in map canvas pixels."),
+    Game::Doc::Req("height", "number", "The draw height in map canvas pixels."),
+    Game::Doc::Req("texCoordX", "number", "The right texture coordinate."),
+    Game::Doc::Req("texCoordY", "number", "The bottom texture coordinate."),
+    Game::Doc::Req("offsetX", "number", "The tile's left edge on the map canvas."),
+    Game::Doc::Req("offsetY", "number", "The tile's top edge on the map canvas."),
+};
+const Game::Doc::Structure kMapOverlayTile{
+    "MapOverlayTile", "Map", kMapOverlayTileFields,
+    "One texture tile of a map overlay, placed for drawing."};
+
+const Game::Doc::Field kMapOverlayInfoFields[] = {
+    Game::Doc::Req("textureName", "string", "Empty for an overlay with no art."),
+    Game::Doc::Req("texturePath", "string",
+                   "The texture path without the tile number; empty for an overlay with no art."),
+    Game::Doc::Req("textureWidth", "number", "0 for an overlay with no art."),
+    Game::Doc::Req("textureHeight", "number", "0 for an overlay with no art."),
+    Game::Doc::Req("offsetX", "number", "The overlay's left edge on the 1002 by 668 map canvas."),
+    Game::Doc::Req("offsetY", "number", "The overlay's top edge on the map canvas."),
+    Game::Doc::Req("mapPointX", "number"),
+    Game::Doc::Req("mapPointY", "number"),
+    Game::Doc::Req("hitRectTop", "number",
+                   "The top edge of the overlay's landmass on the map canvas."),
+    Game::Doc::Req("hitRectLeft", "number"),
+    Game::Doc::Req("hitRectBottom", "number"),
+    Game::Doc::Req("hitRectRight", "number"),
+    Game::Doc::Req("areaIDs", "table", "Every area the overlay reveals."),
+    Game::Doc::Req("areaID", "number", "The first area the overlay reveals."),
+    Game::Doc::Opt("tileCols", "number", nullptr, "Nil for an overlay with no art."),
+    Game::Doc::Opt("tileRows", "number", nullptr, "Nil for an overlay with no art."),
+    Game::Doc::Opt("upscaled", "bool", nullptr,
+                   "True when the art has more tiles than its size needs because it was "
+                   "exported at a higher resolution; nil for an overlay with no art."),
+    Game::Doc::Req("tiles", "table",
+                   "An array of MapOverlayTile; empty for an overlay with no art."),
+    Game::Doc::Req("fileDataIDs", "table", "The tile texture paths, in the order of tiles."),
+};
+const Game::Doc::Structure kMapOverlayInfo{
+    "MapOverlayInfo", "Map", kMapOverlayInfoFields,
+    "A zone map overlay: its art, placement, and the areas it reveals."};
+
+const Game::Doc::Field kMapOverlaysArgs[] = {
+    Game::Doc::Opt("areaID", "number", nullptr,
+                   "The zone; defaults to the zone the world map shows."),
+};
+const Game::Doc::Field kMapOverlaysRets[] = {
+    Game::Doc::Req("overlays", "table",
+                   "An array of MapOverlayInfo; empty when the zone has no map."),
+};
+const Game::Doc::Function kGetMapOverlays{
+    "Returns every overlay of a zone map, explored or not.", kMapOverlaysArgs, kMapOverlaysRets,
+    nullptr, true};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Map", "GetMapOverlays",
-                                     &Script_GetMapOverlays);
+                                     &Script_GetMapOverlays, &kGetMapOverlays);
 }
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 } // namespace

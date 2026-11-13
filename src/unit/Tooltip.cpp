@@ -432,7 +432,54 @@ static const Game::Doc::Field kIsUnitRets[] = {
 static const Game::Doc::Function kIsUnit{"Returns whether the tooltip shows the given unit.",
                                          kIsUnitArgs, kIsUnitRets};
 
+static const Game::Doc::Field kSetUnitAuraArgs[] = {
+    Game::Doc::Req("unit", "UnitToken"),
+    Game::Doc::Req("index", "luaIndex",
+                   "The aura's index among the unit's helpful or harmful auras, as "
+                   "C_UnitAuras counts them."),
+    Game::Doc::Opt("filter", "cstring", "\"HELPFUL\"",
+                   "HARMFUL counts harmful auras; anything else counts helpful ones."),
+};
+static const Game::Doc::Function kSetUnitAura{
+    "Shows the tooltip of an aura on a unit.", kSetUnitAuraArgs, {}};
+
+static const Game::Doc::Field kSetUnitArgs[] = {
+    Game::Doc::Req("unit", "UnitToken"),
+};
+static const Game::Doc::Function kSetUnit{"Shows the tooltip of a unit.", kSetUnitArgs, {}};
+
+static const Game::Doc::Field kGetUnitRets[] = {
+    Game::Doc::Opt("name", "cstring", nullptr, "nil when the unit's name is not known."),
+    Game::Doc::Opt("unit", "UnitToken", nullptr,
+                   "The token given to SetUnit, or \"mouseover\" for the world unit under "
+                   "the cursor; nil when that token no longer names the unit."),
+};
+static const Game::Doc::Function kGetUnit{
+    "Returns the name and unit token of the unit the tooltip shows. Returns nothing when it "
+    "shows no unit.",
+    {}, kGetUnitRets};
+
+static const Game::Doc::Field kGetUnitGUIDRets[] = {
+    Game::Doc::Opt("name", "cstring", nullptr, "nil when the unit's name is not known."),
+    Game::Doc::Opt("guid", "WOWGUID"),
+};
+static const Game::Doc::Function kGetUnitGUID{
+    "Returns the name and GUID of the unit the tooltip shows. Returns nothing when it shows "
+    "no unit.",
+    {}, kGetUnitGUIDRets, nullptr, true};
+
+static const Game::Doc::Field kHasUnitRets[] = {
+    Game::Doc::Req("hasUnit", "bool"),
+};
+static const Game::Doc::Function kHasUnit{"Returns whether the tooltip shows a unit.", {},
+                                          kHasUnitRets, nullptr, true};
+
 static const Game::Doc::Method g_methodDocs[] = {
+    {"SetUnitAura", &kSetUnitAura},
+    {"SetUnit", &kSetUnit},
+    {"GetUnit", &kGetUnit},
+    {"GetUnitGUID", &kGetUnitGUID},
+    {"HasUnit", &kHasUnit},
     {"IsUnit", &kIsUnit},
 };
 

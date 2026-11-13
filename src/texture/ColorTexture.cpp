@@ -29,9 +29,25 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
      reinterpret_cast<Game::Lua::CFunction>(Offsets::FUN_SCRIPT_TEXTURE_SET_TEXTURE)},
 };
 
+const Game::Doc::Field kSetColorTextureArgs[] = {
+    Game::Doc::Req("colorR", "number", "From 0 to 1; values outside are clamped."),
+    Game::Doc::Req("colorG", "number"),
+    Game::Doc::Req("colorB", "number"),
+    Game::Doc::Opt("a", "number", "1"),
+};
+const Game::Doc::Field kSetColorTextureRets[] = {
+    Game::Doc::Req("success", "number", "Always 1."),
+};
+const Game::Doc::Function kSetColorTexture{"Fills the texture with a solid color.",
+                                           kSetColorTextureArgs, kSetColorTextureRets};
+
+const Game::Doc::Method g_methodDocs[] = {
+    {"SetColorTexture", &kSetColorTexture},
+};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterFrameMethods(
-        reinterpret_cast<void *>(Offsets::VAR_TEXTURE_METHOD_REGISTRY), g_methods);
+        reinterpret_cast<void *>(Offsets::VAR_TEXTURE_METHOD_REGISTRY), g_methods, g_methodDocs);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

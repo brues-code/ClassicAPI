@@ -51,8 +51,22 @@ static int __fastcall Script_GetMerchantItemID(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+static const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("index", "luaIndex", "An item of the open merchant."),
+};
+static const Game::Doc::Field kRets[] = {
+    Game::Doc::Opt("itemID", "number", nullptr,
+                   "Nil when no merchant window is open or the index is out of range."),
+};
+static const Game::Doc::Function kGetMerchantItemID{
+    "Returns the item that the merchant sells at an index.", kArgs, kRets,
+    "ItemGlobals"};
+
 static void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("GetMerchantItemID", &Script_GetMerchantItemID);
+    Game::Lua::RegisterGlobalFunction("GetMerchantItemID", &Script_GetMerchantItemID,
+                                      &kGetMerchantItemID);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

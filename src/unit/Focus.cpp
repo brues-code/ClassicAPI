@@ -58,7 +58,9 @@ namespace Unit::Focus {
 namespace {
 
 constexpr const char *kEventName = "PLAYER_FOCUS_CHANGED";
-const Event::Custom::AutoReserve _reserve{kEventName};
+const Game::Doc::Event kFocusChangedDoc{
+    "Unit", "Fires when the focus changes or clears. Read UnitGUID(\"focus\").", {}};
+const Event::Custom::AutoReserve _reserve{kEventName, &kFocusChangedDoc};
 
 uint64_t g_focusGUID = 0;
 
@@ -194,9 +196,19 @@ int __fastcall Script_ClearFocus(void *L) {
     return 0;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kFocusUnitArgs[] = {
+    Game::Doc::Opt("unit", "UnitToken", "\"target\"",
+                   "A token that names no unit clears the focus."),
+};
+const Game::Doc::Function kFocusUnit{
+    "Makes a unit your focus.", kFocusUnitArgs, {}, "TargetGlobals"};
+const Game::Doc::Function kClearFocus{"Clears your focus.", {}, {}, "TargetGlobals"};
+
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("FocusUnit", &Script_FocusUnit);
-    Game::Lua::RegisterGlobalFunction("ClearFocus", &Script_ClearFocus);
+    Game::Lua::RegisterGlobalFunction("FocusUnit", &Script_FocusUnit, &kFocusUnit);
+    Game::Lua::RegisterGlobalFunction("ClearFocus", &Script_ClearFocus, &kClearFocus);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

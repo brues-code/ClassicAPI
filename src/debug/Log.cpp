@@ -234,10 +234,10 @@ int __fastcall Script_HexDump(void *L) {
 }
 
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("_classicapi_LogClear", &Script_LogClear);
-    Game::Lua::RegisterGlobalFunction("_classicapi_LogAppend", &Script_LogAppend);
-    Game::Lua::RegisterGlobalFunction("_classicapi_LogPrintf", &Script_LogPrintf);
-    Game::Lua::RegisterGlobalFunction("_classicapi_HexDump", &Script_HexDump);
+    Game::Lua::RegisterGlobalFunction("_classicapi_LogClear", &Script_LogClear, nullptr);
+    Game::Lua::RegisterGlobalFunction("_classicapi_LogAppend", &Script_LogAppend, nullptr);
+    Game::Lua::RegisterGlobalFunction("_classicapi_LogPrintf", &Script_LogPrintf, nullptr);
+    Game::Lua::RegisterGlobalFunction("_classicapi_HexDump", &Script_HexDump, nullptr);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

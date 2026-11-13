@@ -93,8 +93,19 @@ static int __fastcall Script_GetClickFrame(void *L) {
     return 1;
 }
 
+static const Game::Doc::Field kGetClickFrameArgs[] = {
+    Game::Doc::Req("name", "cstring"),
+};
+static const Game::Doc::Field kGetClickFrameRets[] = {
+    Game::Doc::Opt("frame", "SimpleFrame", nullptr,
+                   "Nil unless _G[name] is a frame whose GetName() equals name."),
+};
+static const Game::Doc::Function kGetClickFrame{"Returns the frame with a global name.",
+                                                kGetClickFrameArgs, kGetClickFrameRets,
+                                                "FrameGlobals"};
+
 static void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("GetClickFrame", &Script_GetClickFrame);
+    Game::Lua::RegisterGlobalFunction("GetClickFrame", &Script_GetClickFrame, &kGetClickFrame);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

@@ -92,12 +92,44 @@ int __fastcall Script_C_Item_ItemHasRange(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kItemArgs[] = {
+    Game::Doc::Req("itemInfo", "ItemInfo", "An item ID or an item link."),
+};
+
+const Game::Doc::Field kIsItemInRangeArgs[] = {
+    Game::Doc::Req("itemInfo", "ItemInfo", "An item ID or an item link."),
+    Game::Doc::Req("targetToken", "UnitToken"),
+};
+const Game::Doc::Field kIsItemInRangeRets[] = {
+    Game::Doc::Opt("result", "bool", nullptr,
+                   "Nil when the item has no ranged use effect, its data is not loaded, or the "
+                   "effect cannot target the unit."),
+};
+const Game::Doc::Function kIsItemInRange{
+    "Returns whether the unit is in range of the item's use effect; line of sight is not checked.",
+    kIsItemInRangeArgs, kIsItemInRangeRets};
+
+const Game::Doc::Field kItemHasRangeLegacyRets[] = {
+    Game::Doc::Opt("hasRange", "number", nullptr,
+                   "1 when the item's use effect has a range, else nil."),
+};
+const Game::Doc::Function kItemHasRangeGlobal{
+    "Returns whether the item's use effect has a range.", kItemArgs, kItemHasRangeLegacyRets,
+    "ItemGlobals"};
+
+const Game::Doc::Field kItemHasRangeRets[] = {
+    Game::Doc::Req("result", "bool", "False also when the item's data is not loaded."),
+};
+const Game::Doc::Function kItemHasRange{"Returns whether the item's use effect has a range.",
+                                        kItemArgs, kItemHasRangeRets};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Item", "IsItemInRange",
-                                     &Script_C_Item_IsItemInRange);
-    Game::Lua::RegisterGlobalFunction("ItemHasRange", &Script_ItemHasRange);
+                                     &Script_C_Item_IsItemInRange, &kIsItemInRange);
+    Game::Lua::RegisterGlobalFunction("ItemHasRange", &Script_ItemHasRange,
+                                      &kItemHasRangeGlobal);
     Game::Lua::RegisterTableFunction("C_Item", "ItemHasRange",
-                                     &Script_C_Item_ItemHasRange);
+                                     &Script_C_Item_ItemHasRange, &kItemHasRange);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

@@ -79,7 +79,8 @@ const Game::Doc::Field kRets[] = {
                    "none; nil for an unknown spell."),
 };
 const Game::Doc::Function kGetSpellReagents{
-    "The items a spell consumes each time you cast it.", kArgs, kRets};
+    "Returns the items a spell consumes each time you cast it.", kArgs, kRets, nullptr,
+    true};
 
 } // namespace
 

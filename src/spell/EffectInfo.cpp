@@ -143,8 +143,8 @@ const Game::Doc::Field kGetSpellEffectInfoRets[] = {
                    "an unused slot has every field 0. Nil for an unknown spell."),
 };
 const Game::Doc::Function kGetSpellEffectInfo{
-    "The stored fields of each of the spell's three effects.",
-    kGetSpellEffectInfoArgs, kGetSpellEffectInfoRets};
+    "Returns the stored fields of each of the spell's three effects.",
+    kGetSpellEffectInfoArgs, kGetSpellEffectInfoRets, nullptr, true};
 
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Spell", "GetSpellEffectInfo",

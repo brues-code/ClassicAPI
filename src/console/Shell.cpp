@@ -59,6 +59,13 @@ int __fastcall Script_ConsoleExec(void *L) {
     return 0;
 }
 
+const Game::Doc::Field kConsoleExecArgs[] = {
+    Game::Doc::Req("command", "cstring", "A command line, as typed into the console."),
+};
+const Game::Doc::Function kConsoleExec{
+    "Runs a console command line, the same way typing it into the console does.",
+    kConsoleExecArgs, {}, "ConsoleGlobals"};
+
 // `ConsoleEcho(message [, colorType])` — write one line to the console.
 //
 // The engine no-ops cleanly when the graphics device is not up, so this is safe
@@ -77,6 +84,14 @@ int __fastcall Script_ConsoleEcho(void *L) {
                          static_cast<Game::Console::Color>(colorType));
     return 0;
 }
+
+const Game::Doc::Field kConsoleEchoArgs[] = {
+    Game::Doc::Req("message", "cstring", "The text to write."),
+    Game::Doc::Opt("colorType", "number", "0",
+                   "The line colour, 0 to 8 as ConsoleGetColorFromType takes; other values use 0."),
+};
+const Game::Doc::Function kConsoleEcho{"Writes one line to the console in a chosen colour.",
+                                       kConsoleEchoArgs, {}, "ConsoleGlobals"};
 
 // `ConsoleAddMessage(message)` — 4.3.4's Script_ConsoleAddMessage
 // (0x008C38B0): a usage error for a non-string, else ConsolePrintf("%s")
@@ -110,6 +125,13 @@ int __fastcall Script_ConsoleIsActive(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kConsoleIsActiveRets[] = {
+    Game::Doc::Req("consoleIsActive", "bool",
+                   "Always false when the client was started without -console."),
+};
+const Game::Doc::Function kConsoleIsActive{"Returns whether the console is open.", {},
+                                           kConsoleIsActiveRets, "ConsoleGlobals"};
+
 // `ConsoleGetColorFromType(colorType)` -> r, g, b, a
 //
 // The colour the console draws that type of line in, as four 0..1 components to
@@ -133,12 +155,32 @@ int __fastcall Script_ConsoleGetColorFromType(void *L) {
     return 4;
 }
 
+const Game::Doc::Field kConsoleGetColorFromTypeArgs[] = {
+    Game::Doc::Req("colorType", "number", "From 0 to 8."),
+};
+const Game::Doc::Field kConsoleGetColorFromTypeRets[] = {
+    Game::Doc::Opt("r", "number", nullptr,
+                   "From 0 to 1; nil, with the rest, when colorType is not 0 to 8."),
+    Game::Doc::Opt("g", "number", nullptr, "From 0 to 1."),
+    Game::Doc::Opt("b", "number", nullptr, "From 0 to 1."),
+    Game::Doc::Opt("a", "number", nullptr, "From 0 to 1."),
+};
+const Game::Doc::Function kConsoleGetColorFromType{
+    "Returns the colour the console draws one type of line in.",
+    kConsoleGetColorFromTypeArgs, kConsoleGetColorFromTypeRets, "ConsoleGlobals"};
+
 // `ConsoleGetFontHeight()` — the console's text height, as a fraction of the
 // screen height.
 int __fastcall Script_ConsoleGetFontHeight(void *L) {
     Game::Lua::PushNumber(L, *reinterpret_cast<const float *>(Offsets::VAR_CONSOLE_FONT_HEIGHT));
     return 1;
 }
+
+const Game::Doc::Field kConsoleGetFontHeightRets[] = {
+    Game::Doc::Req("fontHeight", "number", "A fraction of the screen height, not pixels."),
+};
+const Game::Doc::Function kConsoleGetFontHeight{"Returns the height of the console's text.", {},
+                                                kConsoleGetFontHeightRets, "ConsoleGlobals"};
 
 // There is deliberately no ConsoleSetFontHeight. Writing the height global
 // alone changes nothing, since the font was already built at the old size, and
@@ -165,6 +207,12 @@ int __fastcall Script_SetConsoleKey(void *L) {
         static_cast<int>(Game::Lua::ToNumber(L, 1)));
     return 0;
 }
+
+const Game::Doc::Field kSetConsoleKeyArgs[] = {
+    Game::Doc::Req("keyCode", "number", "The client's numeric key code, not a key name."),
+};
+const Game::Doc::Function kSetConsoleKey{"Sets the key that opens and closes the console.",
+                                         kSetConsoleKeyArgs, {}, "ConsoleGlobals"};
 
 // `CalculateStringEditDistance(a, b)` — Levenshtein distance, the number of
 // single-character insertions, deletions or substitutions between two strings.
@@ -226,32 +274,52 @@ int __fastcall Script_CalculateStringEditDistance(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kCalculateStringEditDistanceArgs[] = {
+    Game::Doc::Req("firstString", "string"),
+    Game::Doc::Req("secondString", "string"),
+};
+const Game::Doc::Field kCalculateStringEditDistanceRets[] = {
+    Game::Doc::Opt("distance", "number", nullptr,
+                   "Nil when an argument is not a string, or the shorter string is 256 "
+                   "characters or longer."),
+};
+const Game::Doc::Function kCalculateStringEditDistance{
+    "Returns how many single-character insertions, deletions or substitutions turn one "
+    "string into the other.",
+    kCalculateStringEditDistanceArgs, kCalculateStringEditDistanceRets, "ConsoleGlobals"};
+
 void Register() {
-    Game::Lua::RegisterGlobalFunction("ConsoleExec", &Script_ConsoleExec);
-    Game::Lua::RegisterGlobalFunction("ConsoleEcho", &Script_ConsoleEcho);
+    Game::Lua::RegisterGlobalFunction("ConsoleExec", &Script_ConsoleExec, &kConsoleExec);
+    Game::Lua::RegisterGlobalFunction("ConsoleEcho", &Script_ConsoleEcho, &kConsoleEcho);
     Game::Lua::RegisterGlobalFunction("ConsoleAddMessage", &Script_ConsoleAddMessage,
                                       &kConsoleAddMessage);
-    Game::Lua::RegisterGlobalFunction("ConsoleIsActive", &Script_ConsoleIsActive);
+    Game::Lua::RegisterGlobalFunction("ConsoleIsActive", &Script_ConsoleIsActive,
+                                      &kConsoleIsActive);
     Game::Lua::RegisterGlobalFunction("ConsoleGetColorFromType",
-                                      &Script_ConsoleGetColorFromType);
-    Game::Lua::RegisterGlobalFunction("ConsoleGetFontHeight", &Script_ConsoleGetFontHeight);
-    Game::Lua::RegisterGlobalFunction("SetConsoleKey", &Script_SetConsoleKey);
+                                      &Script_ConsoleGetColorFromType, &kConsoleGetColorFromType);
+    Game::Lua::RegisterGlobalFunction("ConsoleGetFontHeight", &Script_ConsoleGetFontHeight,
+                                      &kConsoleGetFontHeight);
+    Game::Lua::RegisterGlobalFunction("SetConsoleKey", &Script_SetConsoleKey, &kSetConsoleKey);
     Game::Lua::RegisterGlobalFunction("CalculateStringEditDistance",
-                                      &Script_CalculateStringEditDistance);
+                                      &Script_CalculateStringEditDistance,
+                                      &kCalculateStringEditDistance);
 }
 
 // The console exists before login, so the same surface is registered on the
 // glue state.
 void RegisterGlue() {
-    Game::Lua::RegisterGlueFunction("ConsoleExec", &Script_ConsoleExec);
-    Game::Lua::RegisterGlueFunction("ConsoleEcho", &Script_ConsoleEcho);
-    Game::Lua::RegisterGlueFunction("ConsoleIsActive", &Script_ConsoleIsActive);
+    Game::Lua::RegisterGlueFunction("ConsoleExec", &Script_ConsoleExec, &kConsoleExec);
+    Game::Lua::RegisterGlueFunction("ConsoleEcho", &Script_ConsoleEcho, &kConsoleEcho);
+    Game::Lua::RegisterGlueFunction("ConsoleIsActive", &Script_ConsoleIsActive,
+                                    &kConsoleIsActive);
     Game::Lua::RegisterGlueFunction("ConsoleGetColorFromType",
-                                    &Script_ConsoleGetColorFromType);
-    Game::Lua::RegisterGlueFunction("ConsoleGetFontHeight", &Script_ConsoleGetFontHeight);
-    Game::Lua::RegisterGlueFunction("SetConsoleKey", &Script_SetConsoleKey);
+                                    &Script_ConsoleGetColorFromType, &kConsoleGetColorFromType);
+    Game::Lua::RegisterGlueFunction("ConsoleGetFontHeight", &Script_ConsoleGetFontHeight,
+                                    &kConsoleGetFontHeight);
+    Game::Lua::RegisterGlueFunction("SetConsoleKey", &Script_SetConsoleKey, &kSetConsoleKey);
     Game::Lua::RegisterGlueFunction("CalculateStringEditDistance",
-                                    &Script_CalculateStringEditDistance);
+                                    &Script_CalculateStringEditDistance,
+                                    &kCalculateStringEditDistance);
 }
 
 const Game::ModuleAutoRegister _autoreg{&Register};

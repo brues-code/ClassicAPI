@@ -122,16 +122,16 @@ static const Game::Doc::Field kIsRangedRets[] = {
 };
 
 static const Game::Doc::Function kIsAutoAttackSpell{
-    "Whether the spell is the melee auto attack that drives your weapon swings.",
+    "Returns whether the spell is the melee auto attack that drives your weapon swings.",
     kSpellArgs, kIsMeleeRets};
 static const Game::Doc::Function kIsRangedAutoAttackSpell{
-    "Whether the spell is a repeating ranged attack, such as Auto Shot or a wand shot.",
+    "Returns whether the spell is a repeating ranged attack, such as Auto Shot or a wand shot.",
     kSpellArgs, kIsRangedRets};
 static const Game::Doc::Function kIsAutoAttackSpellBookItem{
-    "Whether the spellbook slot holds the melee auto attack.",
+    "Returns whether the spellbook slot holds the melee auto attack.",
     kSlotArgs, kIsMeleeRets};
 static const Game::Doc::Function kIsRangedAutoAttackSpellBookItem{
-    "Whether the spellbook slot holds a repeating ranged attack.",
+    "Returns whether the spellbook slot holds a repeating ranged attack.",
     kSlotArgs, kIsRangedRets};
 
 static void RegisterLuaFunctions() {

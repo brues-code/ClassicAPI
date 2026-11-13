@@ -85,7 +85,7 @@ const Game::Doc::Field kBySpellRets[] = {
                    "spell that needs no reagents."),
 };
 const Game::Doc::Function kGetSpellCastCount{
-    "How many times you can cast the spell with the reagents you carry.",
+    "Returns how many times you can cast the spell with the reagents you carry.",
     kBySpellArgs, kBySpellRets};
 
 const Game::Doc::Field kBySlotArgs[] = {
@@ -99,7 +99,7 @@ const Game::Doc::Field kBySlotRets[] = {
                    "spell that needs no reagents."),
 };
 const Game::Doc::Function kGetSpellBookItemCastCount{
-    "How many times you can cast the slot's spell with the reagents you carry.",
+    "Returns how many times you can cast the slot's spell with the reagents you carry.",
     kBySlotArgs, kBySlotRets};
 
 void RegisterLuaFunctions() {

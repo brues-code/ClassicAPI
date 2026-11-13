@@ -145,11 +145,24 @@ const Game::Doc::Function kGetShapeshiftForm{
     "Returns the stance-bar index of your active form or stance.", kGetShapeshiftFormArgs,
     kGetShapeshiftFormRets, "SpellBookGlobals"};
 
+const Game::Doc::Field kGetShapeshiftFormIDRets[] = {
+    Game::Doc::Req("formID", "number", "0 when you are not in a form."),
+};
+const Game::Doc::Function kGetShapeshiftFormID{
+    "Returns the ID of your current shapeshift form, such as 1 for Cat Form.", {},
+    kGetShapeshiftFormIDRets, "SpellBookGlobals"};
+
+const Game::Doc::Function kCancelShapeshiftForm{
+    "Cancels your current shapeshift form; warrior stances do not cancel.", {}, {},
+    "SpellBookGlobals"};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("GetShapeshiftForm", &Script_GetShapeshiftForm,
                                       &kGetShapeshiftForm);
-    Game::Lua::RegisterGlobalFunction("GetShapeshiftFormID", &Script_GetShapeshiftFormID);
-    Game::Lua::RegisterGlobalFunction("CancelShapeshiftForm", &Script_CancelShapeshiftForm);
+    Game::Lua::RegisterGlobalFunction("GetShapeshiftFormID", &Script_GetShapeshiftFormID,
+                                      &kGetShapeshiftFormID);
+    Game::Lua::RegisterGlobalFunction("CancelShapeshiftForm", &Script_CancelShapeshiftForm,
+                                      &kCancelShapeshiftForm);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
@@ -175,7 +188,9 @@ const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 // no-form" so transient resolve failures during login don't look
 // like leaving a form.
 constexpr const char *kEventName = "UPDATE_SHAPESHIFT_FORM";
-const Event::Custom::AutoReserve _reserve{kEventName};
+const Game::Doc::Event kShapeshiftFormDoc{
+    "SpellBook", "Fires when you enter or leave a shapeshift form or stance.", {}};
+const Event::Custom::AutoReserve _reserve{kEventName, &kShapeshiftFormDoc};
 
 int s_lastForm = -1;
 

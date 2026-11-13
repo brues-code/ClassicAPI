@@ -59,7 +59,7 @@ const Game::Doc::Field kRets[] = {
                    "1 while the player is casting the item's use spell, else nil."),
 };
 const Game::Doc::Function kIsCurrentItem{
-    "Whether the player is now using the item.", kArgs, kRets, "ItemGlobals"};
+    "Returns whether the player is now using the item.", kArgs, kRets, "ItemGlobals"};
 
 void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("IsCurrentItem", &Script_IsCurrentItem, &kIsCurrentItem);

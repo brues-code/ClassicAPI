@@ -93,7 +93,7 @@ const Game::Doc::Field kRets[] = {
                    "True when every effect of the spell targets the caster alone."),
 };
 const Game::Doc::Function kIsSelfBuff{
-    "Whether the spell only ever applies to the caster.", kArgs, kRets};
+    "Returns whether the spell only ever applies to the caster.", kArgs, kRets};
 
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Spell", "IsSelfBuff",

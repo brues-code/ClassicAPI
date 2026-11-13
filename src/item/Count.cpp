@@ -107,9 +107,24 @@ int InInventory(int itemID) {
     return CountByID(Offsets::FUN_INVMGR_COUNT_STACKS_BY_ID, itemID, 0);
 }
 
+static const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("itemInfo", "ItemInfo",
+                   "An item ID, an item link, or the full name of a carried item."),
+    Game::Doc::Opt("includeBank", "bool", "false",
+                   "Also counts the bank and the bank bags, open or not."),
+    Game::Doc::Opt("includeUses", "bool", "false",
+                   "For an item that does not stack, returns its charges or the casts its "
+                   "reagents allow."),
+};
+static const Game::Doc::Field kRets[] = {
+    Game::Doc::Req("count", "number", "Equipped and carried items; broken items do not count."),
+};
+static const Game::Doc::Function kGetItemCount{
+    "Returns how many of the item the player has.", kArgs, kRets};
+
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Item", "GetItemCount",
-                                     &Script_C_Item_GetItemCount);
+                                     &Script_C_Item_GetItemCount, &kGetItemCount);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

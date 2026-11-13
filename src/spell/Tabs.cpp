@@ -110,16 +110,76 @@ int __fastcall Script_GetSkillLineIndexByID(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kNumSkillLinesRets[] = {
+    Game::Doc::Req("numSpellBookSkillLines", "number"),
+};
+const Game::Doc::Function kGetNumSpellBookSkillLines{
+    "Returns the number of tabs in the player spellbook, General included.",
+    {}, kNumSkillLinesRets};
+
+const Game::Doc::Field kSkillLineInfoFields[] = {
+    Game::Doc::Req("name", "string"),
+    Game::Doc::Req("iconID", "string", "Icon texture path; give it to texture:SetTexture."),
+    Game::Doc::Req("itemIndexOffset", "number",
+                   "This value + 1 is the first spellbook slot of the tab."),
+    Game::Doc::Req("numSpellBookItems", "number"),
+    Game::Doc::Req("isGuild", "bool", "Always false."),
+    Game::Doc::Req("shouldHide", "bool", "Always false."),
+    Game::Doc::Opt("specID", "number", nullptr, "Always nil."),
+    Game::Doc::Opt("offSpecID", "number", nullptr, "Always nil."),
+};
+const Game::Doc::Structure kSkillLineInfo{"SpellBookSkillLineInfo", "SpellBook",
+                                          kSkillLineInfoFields,
+                                          "One tab of the player spellbook."};
+
+const Game::Doc::Field kSkillLineInfoArgs[] = {
+    Game::Doc::Req("skillLineIndex", "luaIndex"),
+};
+const Game::Doc::Field kSkillLineInfoRets[] = {
+    Game::Doc::Opt("skillLineInfo", "SpellBookSkillLineInfo", nullptr,
+                   "Nil for an index past the last tab."),
+};
+const Game::Doc::Function kGetSpellBookSkillLineInfo{
+    "Returns a table describing one tab of the player spellbook.",
+    kSkillLineInfoArgs, kSkillLineInfoRets};
+
+const Game::Doc::Field kItemSkillLineArgs[] = {
+    Game::Doc::Req("spellBookItemSlotIndex", "luaIndex"),
+    Game::Doc::Opt("spellBookItemSpellBank", "SpellBookSpellBank", "0", "Player by default."),
+};
+const Game::Doc::Field kItemSkillLineRets[] = {
+    Game::Doc::Opt("skillLineIndex", "luaIndex", nullptr,
+                   "Nil for a slot past the last spell and for every pet-book slot."),
+};
+const Game::Doc::Function kGetSpellBookItemSkillLineIndex{
+    "Returns the spellbook tab that holds a spellbook slot.",
+    kItemSkillLineArgs, kItemSkillLineRets};
+
+const Game::Doc::Field kIndexByIDArgs[] = {
+    Game::Doc::Req("skillLineID", "number"),
+};
+const Game::Doc::Field kIndexByIDRets[] = {
+    Game::Doc::Opt("skillIndex", "luaIndex", nullptr,
+                   "Nil when no tab of yours belongs to that skill line."),
+};
+const Game::Doc::Function kGetSkillLineIndexByID{
+    "Returns the spellbook tab for a skill line ID.", kIndexByIDArgs, kIndexByIDRets};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_SpellBook", "GetNumSpellBookSkillLines",
-                                     &Script_GetNumSpellBookSkillLines);
+                                     &Script_GetNumSpellBookSkillLines,
+                                     &kGetNumSpellBookSkillLines);
     Game::Lua::RegisterTableFunction("C_SpellBook", "GetSpellBookSkillLineInfo",
-                                     &Script_GetSpellBookSkillLineInfo);
+                                     &Script_GetSpellBookSkillLineInfo,
+                                     &kGetSpellBookSkillLineInfo);
     Game::Lua::RegisterTableFunction("C_SpellBook",
                                      "GetSpellBookItemSkillLineIndex",
-                                     &Script_GetSpellBookItemSkillLineIndex);
+                                     &Script_GetSpellBookItemSkillLineIndex,
+                                     &kGetSpellBookItemSkillLineIndex);
     Game::Lua::RegisterTableFunction("C_SpellBook", "GetSkillLineIndexByID",
-                                     &Script_GetSkillLineIndexByID);
+                                     &Script_GetSkillLineIndexByID, &kGetSkillLineIndexByID);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

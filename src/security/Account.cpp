@@ -149,12 +149,62 @@ int __fastcall Script_LoginWithSavedAccount(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kSaveArgs[] = {
+    Game::Doc::Req("name", "string", "The account name."),
+    Game::Doc::Req("password", "string"),
+};
+const Game::Doc::Field kSaveRets[] = {
+    Game::Doc::Req("success", "bool",
+                   "False when either argument is empty, no realmlist is set, or Windows "
+                   "refuses the write."),
+};
+const Game::Doc::Function kSaveAccount{
+    "Saves an account's credentials, encrypted in the Windows Credential Manager, under the "
+    "current realmlist.",
+    kSaveArgs, kSaveRets, "AccountGlobals", true};
+
+const Game::Doc::Field kNameArgs[] = {
+    Game::Doc::Req("name", "string", "The account name."),
+};
+const Game::Doc::Field kDeleteRets[] = {
+    Game::Doc::Req("deleted", "bool", "False when no such account is saved."),
+};
+const Game::Doc::Function kDeleteAccount{
+    "Deletes the saved credentials of an account under the current realmlist.", kNameArgs,
+    kDeleteRets, "AccountGlobals", true};
+
+const Game::Doc::Field kSavedAccountFields[] = {
+    Game::Doc::Req("name", "string", "The account name, as saved."),
+    Game::Doc::Req("lastUsed", "number",
+                   "When the account was last saved or logged in with, in seconds since "
+                   "1970-01-01 UTC; 0 when unknown."),
+};
+const Game::Doc::Structure kSavedAccount{"SavedAccountInfo", "AccountGlobals",
+                                         kSavedAccountFields};
+
+const Game::Doc::Field kListRets[] = {
+    Game::Doc::Req("accounts", "table",
+                   "An array of SavedAccountInfo for the current realmlist; empty when no "
+                   "realmlist is set."),
+};
+const Game::Doc::Function kGetSavedAccounts{
+    "Returns the accounts saved under the current realmlist.", {}, kListRets, "AccountGlobals",
+    true};
+
+const Game::Doc::Field kLoginRets[] = {
+    Game::Doc::Req("started", "bool", "False when no such account is saved."),
+};
+const Game::Doc::Function kLoginWithSavedAccount{
+    "Logs in with an account's saved credentials without exposing the password to Lua.",
+    kNameArgs, kLoginRets, "AccountGlobals", true};
+
 void RegisterGlueFunctions() {
-    Game::Lua::RegisterGlueFunction("SaveAccount", &Script_SaveAccount);
-    Game::Lua::RegisterGlueFunction("DeleteAccount", &Script_DeleteAccount);
-    Game::Lua::RegisterGlueFunction("GetSavedAccounts", &Script_GetSavedAccounts);
+    Game::Lua::RegisterGlueFunction("SaveAccount", &Script_SaveAccount, &kSaveAccount);
+    Game::Lua::RegisterGlueFunction("DeleteAccount", &Script_DeleteAccount, &kDeleteAccount);
+    Game::Lua::RegisterGlueFunction("GetSavedAccounts", &Script_GetSavedAccounts,
+                                    &kGetSavedAccounts);
     Game::Lua::RegisterGlueFunction("LoginWithSavedAccount",
-                                    &Script_LoginWithSavedAccount);
+                                    &Script_LoginWithSavedAccount, &kLoginWithSavedAccount);
 }
 
 const Game::GlueModuleAutoRegister _autoreg{&RegisterGlueFunctions};

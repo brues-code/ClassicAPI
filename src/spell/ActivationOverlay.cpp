@@ -360,9 +360,9 @@ const Game::Doc::Field kRets[] = {
     Game::Doc::Req("isSpellOverlayed", "bool", "True while the spell glows on the action bar."),
 };
 const Game::Doc::Function kIsSpellOverlayedGlobal{
-    "Whether the spell glows on the action bar now.", kArgs, kRets, "SpellGlobals"};
+    "Returns whether the spell glows on the action bar now.", kArgs, kRets, "SpellGlobals"};
 const Game::Doc::Function kIsSpellOverlayed{
-    "Whether the spell glows on the action bar now.", kArgs, kRets};
+    "Returns whether the spell glows on the action bar now.", kArgs, kRets};
 
 const Game::Lua::EnumIntegerEntry kScreenLocationEntries[] = {
     {"Center", CENTER},

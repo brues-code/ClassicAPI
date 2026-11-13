@@ -372,7 +372,68 @@ const Game::Doc::Field kSetTextToFitArgs[] = {
 const Game::Doc::Function kSetTextToFit{"Sets the text and makes the font string as wide as the text.",
                                         kSetTextToFitArgs, {}};
 
+const Game::Doc::Field kHeightRets[] = {
+    Game::Doc::Req("height", "uiUnit", "0 for empty text."),
+};
+const Game::Doc::Function kGetStringHeight{
+    "Returns the height of the text as it wraps, line spacing included.", {}, kHeightRets};
+
+const Game::Doc::Field kWidthRets[] = {
+    Game::Doc::Req("width", "uiUnit", "0 for empty text."),
+};
+const Game::Doc::Function kGetUnboundedStringWidth{
+    "Returns the width of the text on one line, with no wrap.", {}, kWidthRets};
+const Game::Doc::Function kGetWrappedWidth{
+    "Returns the width of the widest line of the text as it wraps.", {}, kWidthRets};
+
+const Game::Doc::Field kNumLinesRets[] = {
+    Game::Doc::Req("numLines", "number", "0 for empty text."),
+};
+const Game::Doc::Function kGetNumLines{"Returns the number of lines the text wraps to.", {},
+                                       kNumLinesRets};
+
+const Game::Doc::Field kLineHeightRets[] = {
+    Game::Doc::Req("lineHeight", "uiUnit"),
+};
+const Game::Doc::Function kGetLineHeight{
+    "Returns the height of one line of text, without the line spacing.", {}, kLineHeightRets};
+
+const Game::Doc::Field kTruncatedRets[] = {
+    Game::Doc::Req("isTruncated", "bool"),
+};
+const Game::Doc::Function kIsTruncated{
+    "Returns whether the text ended in an ellipsis the last time it was drawn.", {},
+    kTruncatedRets};
+
+const Game::Doc::Field kSetMaxLinesArgs[] = {
+    Game::Doc::Opt("maxLines", "number", "0", "0 or less removes the limit."),
+};
+const Game::Doc::Function kSetMaxLines{
+    "Sets the most lines the text can wrap to. Text past the last line ends in an ellipsis.",
+    kSetMaxLinesArgs, {}};
+
+const Game::Doc::Field kMaxLinesRets[] = {
+    Game::Doc::Req("maxLines", "number", "0 when there is no limit."),
+};
+const Game::Doc::Function kGetMaxLines{"Returns the most lines the text can wrap to.", {},
+                                       kMaxLinesRets};
+
+const Game::Doc::Field kFieldSizeRets[] = {
+    Game::Doc::Req("fieldSize", "number", "Infinity when there is no limit."),
+};
+const Game::Doc::Function kGetFieldSize{
+    "Returns the number of bytes of text the font string can hold.", {}, kFieldSizeRets};
+
 const Game::Doc::Method g_methodDocs[] = {
+    {"GetStringHeight", &kGetStringHeight},
+    {"GetUnboundedStringWidth", &kGetUnboundedStringWidth},
+    {"GetWrappedWidth", &kGetWrappedWidth},
+    {"GetNumLines", &kGetNumLines},
+    {"GetLineHeight", &kGetLineHeight},
+    {"IsTruncated", &kIsTruncated},
+    {"SetMaxLines", &kSetMaxLines},
+    {"GetMaxLines", &kGetMaxLines},
+    {"GetFieldSize", &kGetFieldSize},
     {"SetTextToFit", &kSetTextToFit},
 };
 

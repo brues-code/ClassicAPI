@@ -130,8 +130,21 @@ int __fastcall Script_GetMacroIcon(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kGetMacroIconArgs[] = {
+    Game::Doc::Req("macroSlot", "luaIndex"),
+};
+const Game::Doc::Field kGetMacroIconRets[] = {
+    Game::Doc::Opt("icon", "string", nullptr,
+                   "Icon texture path; nil for an empty slot."),
+};
+const Game::Doc::Function kGetMacroIcon{
+    "Returns the icon a macro shows on its action button, the shown spell's or item's when "
+    "its own icon is the question mark.",
+    kGetMacroIconArgs, kGetMacroIconRets, nullptr, true};
+
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterTableFunction("C_Macro", "GetMacroIcon", &Script_GetMacroIcon);
+    Game::Lua::RegisterTableFunction("C_Macro", "GetMacroIcon", &Script_GetMacroIcon,
+                                     &kGetMacroIcon);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

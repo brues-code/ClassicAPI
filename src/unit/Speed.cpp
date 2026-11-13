@@ -89,8 +89,22 @@ static int __fastcall Script_GetUnitSpeed(void *L) {
     return 4;
 }
 
+static const Game::Doc::Field kGetUnitSpeedArgs[] = {
+    Game::Doc::Req("unit", "UnitToken"),
+};
+static const Game::Doc::Field kGetUnitSpeedRets[] = {
+    Game::Doc::Req("currentSpeed", "number",
+                   "Speed of the current movement; 0 when standing still or not in view."),
+    Game::Doc::Req("runSpeed", "number", "Forward run speed with all modifiers."),
+    Game::Doc::Req("flightSpeed", "number", "Always 0."),
+    Game::Doc::Req("swimSpeed", "number", "Forward swim speed."),
+};
+static const Game::Doc::Function kGetUnitSpeed{
+    "Returns a unit's movement speeds in yards per second.", kGetUnitSpeedArgs,
+    kGetUnitSpeedRets, "UnitGlobals"};
+
 static void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("GetUnitSpeed", &Script_GetUnitSpeed);
+    Game::Lua::RegisterGlobalFunction("GetUnitSpeed", &Script_GetUnitSpeed, &kGetUnitSpeed);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

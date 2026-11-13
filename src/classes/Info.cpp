@@ -74,11 +74,25 @@ int __fastcall Script_FillLocalizedClassList(void *L) {
     return 1; // return the same table the caller passed in
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("classTable", "table", "Gets a [classFile] = localized name pair per class."),
+    Game::Doc::Opt("isFemale", "bool", "false", "Ignored; the names are the same either way."),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Req("classTable", "table", "The same table."),
+};
+const Game::Doc::Function kFillLocalizedClassList{
+    "Fills a table with the localized name of every class, keyed by class file name.",
+    kArgs, kRets, "UnitGlobals"};
+
 } // namespace
 
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("FillLocalizedClassList",
-                                      &Script_FillLocalizedClassList);
+                                      &Script_FillLocalizedClassList,
+                                      &kFillLocalizedClassList);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

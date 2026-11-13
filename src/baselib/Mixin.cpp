@@ -70,9 +70,32 @@ int __fastcall Script_CreateFromMixins(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kMixinArgs[] = {
+    Game::Doc::Req("object", "table", "The table that receives the fields."),
+    Game::Doc::Vararg("table", "The mixins; a later one wins when two have the same key, and a "
+                               "value that is not a table is skipped."),
+};
+const Game::Doc::Field kMixinRets[] = {
+    Game::Doc::Req("object", "table", "The same table as the object argument."),
+};
+const Game::Doc::Function kMixin{"Copies every field of each mixin onto object.",
+                                 kMixinArgs, kMixinRets, "FrameScriptGlobals"};
+
+const Game::Doc::Field kCreateFromMixinsArgs[] = {
+    Game::Doc::Vararg("table", "The mixins; a later one wins when two have the same key, and a "
+                               "value that is not a table is skipped."),
+};
+const Game::Doc::Field kCreateFromMixinsRets[] = {
+    Game::Doc::Req("object", "table"),
+};
+const Game::Doc::Function kCreateFromMixins{
+    "Returns a new table with every field of each mixin copied onto it.",
+    kCreateFromMixinsArgs, kCreateFromMixinsRets, "FrameScriptGlobals"};
+
 void RegisterFns() {
-    Game::Lua::RegisterGlobalFunction("Mixin", &Script_Mixin);
-    Game::Lua::RegisterGlobalFunction("CreateFromMixins", &Script_CreateFromMixins);
+    Game::Lua::RegisterGlobalFunction("Mixin", &Script_Mixin, &kMixin);
+    Game::Lua::RegisterGlobalFunction("CreateFromMixins", &Script_CreateFromMixins,
+                                      &kCreateFromMixins);
 }
 
 // Pure table helpers — register on both the in-game and glue states so they're

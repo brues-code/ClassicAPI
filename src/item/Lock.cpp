@@ -190,14 +190,49 @@ int __fastcall Script_C_Item_UnlockAllItems(void *L) {
     return 0;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kLocationArgs[] = {
+    Game::Doc::Req("itemLocation", "ItemLocation", "An item location or an item GUID."),
+};
+const Game::Doc::Field kIsLockedRets[] = {
+    Game::Doc::Req("isLocked", "bool",
+                   "False for an empty slot or a location that names no item."),
+};
+const Game::Doc::Function kIsLocked{
+    "Returns whether the item is locked while a pickup, trade, mail or swap of it is in progress.",
+    kLocationArgs, kIsLockedRets};
+
+const Game::Doc::Function kLockItem{
+    "Locks the item at a location on this client only, and fires ITEM_LOCK_CHANGED.",
+    kLocationArgs, {}};
+
+const Game::Doc::Field kLockItemByGUIDArgs[] = {
+    Game::Doc::Req("itemGUID", "WOWGUID",
+                   "Any item the client has loaded, also one outside your bags."),
+};
+const Game::Doc::Function kLockItemByGUID{
+    "Locks the item with a GUID on this client only, and fires ITEM_LOCK_CHANGED.",
+    kLockItemByGUIDArgs, {}};
+
+const Game::Doc::Function kUnlockItem{
+    "Clears the lock on the item at a location on this client only, and fires "
+    "ITEM_LOCK_CHANGED.",
+    kLocationArgs, {}};
+
+const Game::Doc::Function kUnlockAllItems{
+    "Clears the lock on every item the client has loaded, and fires ITEM_LOCK_CHANGED once.",
+    {}, {}, nullptr, true};
+
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterTableFunction("C_Item", "IsLocked", &Script_C_Item_IsLocked);
-    Game::Lua::RegisterTableFunction("C_Item", "LockItem", &Script_C_Item_LockItem);
+    Game::Lua::RegisterTableFunction("C_Item", "IsLocked", &Script_C_Item_IsLocked, &kIsLocked);
+    Game::Lua::RegisterTableFunction("C_Item", "LockItem", &Script_C_Item_LockItem, &kLockItem);
     Game::Lua::RegisterTableFunction("C_Item", "LockItemByGUID",
-                                     &Script_C_Item_LockItemByGUID);
-    Game::Lua::RegisterTableFunction("C_Item", "UnlockItem", &Script_C_Item_UnlockItem);
+                                     &Script_C_Item_LockItemByGUID, &kLockItemByGUID);
+    Game::Lua::RegisterTableFunction("C_Item", "UnlockItem", &Script_C_Item_UnlockItem,
+                                     &kUnlockItem);
     Game::Lua::RegisterTableFunction("C_Item", "UnlockAllItems",
-                                     &Script_C_Item_UnlockAllItems);
+                                     &Script_C_Item_UnlockAllItems, &kUnlockAllItems);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

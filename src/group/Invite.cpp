@@ -131,13 +131,13 @@ const Game::Doc::Field kInviteArgs[] = {
     Game::Doc::Req("targetName", "string", "The name of the player to invite."),
 };
 const Game::Doc::Function kInviteUnit{
-    "Invites a player to your group by name.", kInviteArgs, {}, "PartyInfo"};
+    "Invites a player to your group by name.", kInviteArgs, {}, "PartyInfoGlobals"};
 
 const Game::Doc::Field kUninviteArgs[] = {
     Game::Doc::Req("name", "string", "A unit token or the name of a group member."),
 };
 const Game::Doc::Function kUninviteUnit{
-    "Removes a player from your group.", kUninviteArgs, {}, "PartyInfo"};
+    "Removes a player from your group.", kUninviteArgs, {}, "PartyInfoGlobals"};
 
 const Game::Doc::Field kPromoteArgs[] = {
     Game::Doc::Req("name", "string", "A unit token or the name of a group member."),
@@ -145,7 +145,7 @@ const Game::Doc::Field kPromoteArgs[] = {
                    "When a name is given, require the whole name instead of a prefix."),
 };
 const Game::Doc::Function kPromoteToLeader{
-    "Makes a group member the group leader.", kPromoteArgs, {}, "PartyInfo"};
+    "Makes a group member the group leader.", kPromoteArgs, {}, "PartyInfoGlobals"};
 
 void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("InviteUnit", &Script_InviteUnit, &kInviteUnit);

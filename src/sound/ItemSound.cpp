@@ -114,9 +114,21 @@ int __fastcall Script_PlayItemSound(void *L) {
     return 0;
 }
 
+const Game::Doc::Field kPlayItemSoundArgs[] = {
+    Game::Doc::Req("soundType", "ItemSoundType",
+                   "Only Pickup and Drop have sounds in the stock game data."),
+    Game::Doc::Req("itemLocation", "ItemLocation",
+                   "An item location, or an item GUID, item ID, item link, or the name of a "
+                   "carried item."),
+};
+const Game::Doc::Function kPlayItemSound{
+    "Plays the sound an item makes when it is handled, without doing the action.",
+    kPlayItemSoundArgs, {}};
+
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterTableFunction("C_Sound", "PlayItemSound", &Script_PlayItemSound);
-    Game::Lua::RegisterIntegerEnum("Enum", "ItemSoundType", kItemSoundTypeEntries);
+    Game::Lua::RegisterTableFunction("C_Sound", "PlayItemSound", &Script_PlayItemSound,
+                                     &kPlayItemSound);
+    Game::Lua::RegisterIntegerEnum("Enum", "ItemSoundType", kItemSoundTypeEntries, "Sound");
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

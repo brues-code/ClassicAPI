@@ -60,7 +60,18 @@ namespace Cursor::Changed {
 
 namespace {
 
-const Event::Custom::AutoReserve _evtCursorChanged{"CURSOR_CHANGED"};
+const Game::Doc::Field kCursorChangedPayload[] = {
+    Game::Doc::Opt("isDefault", "number", nullptr,
+                   "1 when the cursor is now empty, otherwise nil."),
+    Game::Doc::Req("newCursorType", "UICursorType"),
+    Game::Doc::Req("oldCursorType", "UICursorType"),
+    Game::Doc::Req("oldCursorVirtualID", "number",
+                   "The ID of what the cursor held before, such as an item or spell ID or a "
+                   "copper amount; 0 when it held nothing or a pet action."),
+};
+const Game::Doc::Event kCursorChangedDoc{"Cursor", "Fires when what the cursor holds changes.",
+                                         kCursorChangedPayload};
+const Event::Custom::AutoReserve _evtCursorChanged{"CURSOR_CHANGED", &kCursorChangedDoc};
 
 // The full modern enum, not just the values this client can produce. An
 // addon comparing against `Enum.UICursorType.BattlePet` should read a
@@ -119,7 +130,7 @@ void OnTick() {
 const Tick::WorldTick::AutoSubscribe _tick{&OnTick};
 
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterIntegerEnum("Enum", "UICursorType", kCursorTypeEntries);
+    Game::Lua::RegisterIntegerEnum("Enum", "UICursorType", kCursorTypeEntries, "Cursor");
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

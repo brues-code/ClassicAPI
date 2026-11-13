@@ -73,7 +73,7 @@ const Game::Doc::Field kRets[] = {
 };
 const Game::Doc::Function kGetQuestLogCompletionText{
     "Returns the text that the quest log shows when a quest is ready to turn in.",
-    kArgs, kRets, "QuestLog"};
+    kArgs, kRets, "QuestLogGlobals"};
 
 } // namespace
 

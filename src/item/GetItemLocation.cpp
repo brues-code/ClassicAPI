@@ -72,9 +72,20 @@ static int __fastcall Script_C_Item_GetItemLocation(void *L) {
     return 1;
 }
 
+static const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("itemGUID", "WOWGUID"),
+};
+static const Game::Doc::Field kRets[] = {
+    Game::Doc::Opt("itemLocation", "ItemLocation", nullptr,
+                   "A plain table, not an ItemLocation object; nil when the player does not "
+                   "wear the item or carry it in the bags."),
+};
+static const Game::Doc::Function kGetItemLocation{
+    "Returns where the item with that GUID is now.", kArgs, kRets};
+
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Item", "GetItemLocation",
-                                     &Script_C_Item_GetItemLocation);
+                                     &Script_C_Item_GetItemLocation, &kGetItemLocation);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

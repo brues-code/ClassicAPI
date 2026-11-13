@@ -78,12 +78,26 @@ int __fastcall Script_xpcall(void *L) {
     return Game::Lua::GetTop(L) - 1;
 }
 
+const Game::Doc::Field kXpcallArgs[] = {
+    Game::Doc::Req("f", "function"),
+    Game::Doc::Req("msgh", "function",
+                   "The message handler, called with the error when f fails."),
+    Game::Doc::Vararg("any", "The arguments for f."),
+};
+const Game::Doc::Field kXpcallRets[] = {
+    Game::Doc::Req("success", "bool", "False when f raised an error."),
+    Game::Doc::Vararg("any", "The results of f, or the return of msgh after an error."),
+};
+const Game::Doc::Function kXpcall{
+    "Calls a function with the given arguments in protected mode, with a message handler for errors.",
+    kXpcallArgs, kXpcallRets, "LuaGlobals"};
+
 void RegisterInGame() {
-    Game::Lua::RegisterGlobalFunction("xpcall", &Script_xpcall);
+    Game::Lua::RegisterGlobalFunction("xpcall", &Script_xpcall, &kXpcall);
 }
 
 void RegisterGlue() {
-    Game::Lua::RegisterGlueFunction("xpcall", &Script_xpcall);
+    Game::Lua::RegisterGlueFunction("xpcall", &Script_xpcall, &kXpcall);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterInGame};

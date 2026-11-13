@@ -200,9 +200,26 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"SetAction", &Script_SetAction},
 };
 
+const Game::Doc::Field kSetActionArgs[] = {
+    Game::Doc::Req("slot", "luaIndex",
+                   "For a macro with #showtooltip, the tooltip shows the spell or item it names."),
+};
+const Game::Doc::Field kSetActionRets[] = {
+    Game::Doc::Opt("refresh", "number", nullptr,
+                   "1 when the tooltip should be set again soon, for example while a cooldown "
+                   "runs; otherwise nil."),
+};
+const Game::Doc::Function kSetAction{"Shows the tooltip of an action bar slot.", kSetActionArgs,
+                                     kSetActionRets};
+
+const Game::Doc::Method g_methodDocs[] = {
+    {"SetAction", &kSetAction},
+};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterFrameMethods(
-        reinterpret_cast<void *>(Offsets::VAR_GAMETOOLTIP_METHOD_REGISTRY), g_methods);
+        reinterpret_cast<void *>(Offsets::VAR_GAMETOOLTIP_METHOD_REGISTRY), g_methods,
+        g_methodDocs);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

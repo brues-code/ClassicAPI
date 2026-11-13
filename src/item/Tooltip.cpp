@@ -364,9 +364,65 @@ static const Game::Lua::FrameMethodEntry g_methods[] = {
     {"HasItem", &Script_GameTooltipHasItem},
 };
 
+// --- Documentation ----------------------------------------------------------
+
+static const Game::Doc::Field kSetItemByIDArgs[] = {
+    Game::Doc::Req("itemID", "number"),
+};
+static const Game::Doc::Function kSetItemByID{
+    "Fills the tooltip with an item's tooltip, without enchant or random suffix, and asks the "
+    "server for an item that is not cached.",
+    kSetItemByIDArgs, {}};
+
+static const Game::Doc::Field kSetItemByGUIDArgs[] = {
+    Game::Doc::Req("itemGUID", "WOWGUID", "Does nothing when no loaded item has the GUID."),
+};
+static const Game::Doc::Function kSetItemByGUID{
+    "Fills the tooltip with the tooltip of one item copy, with its enchant and random suffix.",
+    kSetItemByGUIDArgs, {}};
+
+static const Game::Doc::Field kSetInventoryItemByIDArgs[] = {
+    Game::Doc::Req("itemID", "number",
+                   "Does nothing when you do not wear the item; the lowest matching slot wins."),
+};
+static const Game::Doc::Field kSetInventoryItemByIDRets[] = {
+    Game::Doc::Opt("hasItem", "number", nullptr,
+                   "1 when the tooltip shows the item; nil when you do not wear it."),
+    Game::Doc::Opt("hasCooldown", "number", nullptr,
+                   "1 when the item's cooldown is counting down, else nil."),
+    Game::Doc::Opt("repairCost", "number", nullptr, "The cost to repair the item, in copper."),
+};
+static const Game::Doc::Function kSetInventoryItemByID{
+    "Fills the tooltip with the tooltip of the item you wear that has this ID.",
+    kSetInventoryItemByIDArgs, kSetInventoryItemByIDRets};
+
+static const Game::Doc::Field kGetItemRets[] = {
+    Game::Doc::Opt("name", "string", nullptr,
+                   "Includes the random suffix; nil when the tooltip shows no item."),
+    Game::Doc::Opt("link", "string"),
+    Game::Doc::Opt("itemID", "number", nullptr, "A ClassicAPI addition to the standard returns."),
+};
+static const Game::Doc::Function kGetItem{
+    "Returns the item the tooltip shows.", {}, kGetItemRets};
+
+static const Game::Doc::Field kHasItemRets[] = {
+    Game::Doc::Req("hasItem", "bool", "True while the tooltip shows an item."),
+};
+static const Game::Doc::Function kHasItem{
+    "Returns whether the tooltip is showing an item.", {}, kHasItemRets, nullptr, true};
+
+static const Game::Doc::Method g_methodDocs[] = {
+    {"SetItemByID", &kSetItemByID},
+    {"SetItemByGUID", &kSetItemByGUID},
+    {"SetInventoryItemByID", &kSetInventoryItemByID},
+    {"GetItem", &kGetItem},
+    {"HasItem", &kHasItem},
+};
+
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterFrameMethods(
-        reinterpret_cast<void *>(Offsets::VAR_GAMETOOLTIP_METHOD_REGISTRY), g_methods);
+        reinterpret_cast<void *>(Offsets::VAR_GAMETOOLTIP_METHOD_REGISTRY), g_methods,
+        g_methodDocs);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

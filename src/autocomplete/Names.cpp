@@ -380,7 +380,7 @@ const Game::Doc::Field kResultsRets[] = {
     Game::Doc::Req("results", "table", "Array of AutoCompleteResult."),
 };
 const Game::Doc::Function kGetAutoCompleteResults{
-    "The known players whose names complete the typed text.", kResultsArgs, kResultsRets};
+    "Returns the known players whose names complete the typed text.", kResultsArgs, kResultsRets};
 
 const Game::Doc::Field kRecognizedArgs[] = {
     Game::Doc::Req("name", "string"),
@@ -392,7 +392,7 @@ const Game::Doc::Field kRecognizedArgs[] = {
 const Game::Doc::Field kRecognizedRets[] = {
     Game::Doc::Req("isRecognizedName", "bool"),
 };
-const Game::Doc::Function kIsRecognizedName{"Whether a known player has exactly this name.",
+const Game::Doc::Function kIsRecognizedName{"Returns whether a known player has exactly this name.",
                                             kRecognizedArgs, kRecognizedRets};
 
 const Game::Lua::EnumIntegerEntry kEntryFlagEntries[] = {

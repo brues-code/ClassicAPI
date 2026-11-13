@@ -26,8 +26,16 @@ static int __fastcall Script_InCombatLockdown(void *L) {
     return 1;
 }
 
+static const Game::Doc::Field kInCombatLockdownRets[] = {
+    Game::Doc::Req("inCombatLockdown", "bool", "Always false."),
+};
+static const Game::Doc::Function kInCombatLockdown{
+    "Returns whether protected frames are locked for combat; always false.", {},
+    kInCombatLockdownRets, "RestrictedActionsGlobals"};
+
 static void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("InCombatLockdown", &Script_InCombatLockdown);
+    Game::Lua::RegisterGlobalFunction("InCombatLockdown", &Script_InCombatLockdown,
+                                      &kInCombatLockdown);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

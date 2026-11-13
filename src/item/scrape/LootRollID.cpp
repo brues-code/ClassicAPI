@@ -50,8 +50,22 @@ static int __fastcall Script_GetLootRollItemID(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+static const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("rollID", "number", "A roll ID from START_LOOT_ROLL."),
+};
+static const Game::Doc::Field kRets[] = {
+    Game::Doc::Opt("itemID", "number", nullptr,
+                   "Nil when no roll in progress has the ID."),
+};
+static const Game::Doc::Function kGetLootRollItemID{
+    "Returns the item of a group loot roll.", kArgs, kRets,
+    "ItemGlobals", true};
+
 static void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("GetLootRollItemID", &Script_GetLootRollItemID);
+    Game::Lua::RegisterGlobalFunction("GetLootRollItemID", &Script_GetLootRollItemID,
+                                      &kGetLootRollItemID);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

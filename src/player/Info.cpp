@@ -221,6 +221,56 @@ int __fastcall Script_C_PlayerCache_GetPlayerInfoByName(void *L) {
     return 8;
 }
 
+const Game::Doc::Field kGuidArgs[] = {
+    Game::Doc::Req("guid", "WOWGUID"),
+};
+const Game::Doc::Field kPlayerInfoRets[] = {
+    Game::Doc::Opt("localizedClass", "cstring", nullptr,
+                   "Nil, with the rest, when no cache knows the player."),
+    Game::Doc::Opt("englishClass", "cstring", nullptr, "For example \"WARRIOR\"."),
+    Game::Doc::Opt("localizedRace", "cstring"),
+    Game::Doc::Opt("englishRace", "cstring", nullptr, "For example \"NightElf\"."),
+    Game::Doc::Opt("sex", "number", nullptr, "2 for male, 3 for female."),
+    Game::Doc::Opt("name", "string"),
+    Game::Doc::Opt("realmName", "cstring", nullptr,
+                   "Empty for a player whose name came with no realm."),
+};
+const Game::Doc::Function kGetPlayerInfoByGUID{
+    "Returns the class, race, sex, name and realm of a player the client has seen.",
+    kGuidArgs, kPlayerInfoRets, "PlayerGlobals"};
+
+const Game::Doc::Field kUnitNameFromGUIDArgs[] = {
+    Game::Doc::Req("unitGUID", "WOWGUID"),
+};
+const Game::Doc::Field kUnitNameFromGUIDRets[] = {
+    Game::Doc::Opt("unitName", "cstring", nullptr,
+                   "Nil, with unitServer, when the client has never seen the unit."),
+    Game::Doc::Opt("unitServer", "cstring", nullptr,
+                   "Empty when the name came with no realm or from the friends list."),
+};
+const Game::Doc::Function kUnitNameFromGUID{
+    "Returns the name and realm of a unit the client has seen.",
+    kUnitNameFromGUIDArgs, kUnitNameFromGUIDRets, "UnitGlobals"};
+
+const Game::Doc::Field kNameArgs[] = {
+    Game::Doc::Req("name", "string", "The full name; \"Name-Realm\" for a player from another realm."),
+};
+const Game::Doc::Field kPlayerInfoByNameRets[] = {
+    Game::Doc::Opt("localizedClass", "cstring", nullptr,
+                   "Nil, with the rest, when no source knows the name."),
+    Game::Doc::Opt("englishClass", "cstring", nullptr, "For example \"WARRIOR\"."),
+    Game::Doc::Opt("localizedRace", "cstring"),
+    Game::Doc::Opt("englishRace", "cstring", nullptr, "For example \"NightElf\"."),
+    Game::Doc::Opt("sex", "number", nullptr, "2 for male, 3 for female."),
+    Game::Doc::Opt("name", "string", nullptr, "The stored name, without the realm."),
+    Game::Doc::Opt("realmName", "cstring", nullptr,
+                   "Empty for a player whose name came with no realm."),
+    Game::Doc::Opt("guid", "WOWGUID"),
+};
+const Game::Doc::Function kGetPlayerInfoByName{
+    "Returns the class, race, sex, name, realm and GUID of a player the client knows by name.",
+    kNameArgs, kPlayerInfoByNameRets, nullptr, true};
+
 } // namespace
 
 // Resolution order matches vanilla's own `Script_UnitName` (0x00517020):
@@ -324,11 +374,12 @@ uint64_t GuidFromName(const char *name) {
 
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("GetPlayerInfoByGUID",
-                                       &Script_GetPlayerInfoByGUID);
+                                       &Script_GetPlayerInfoByGUID, &kGetPlayerInfoByGUID);
     Game::Lua::RegisterGlobalFunction("UnitNameFromGUID",
-                                       &Script_UnitNameFromGUID);
+                                       &Script_UnitNameFromGUID, &kUnitNameFromGUID);
     Game::Lua::RegisterTableFunction("C_PlayerCache", "GetPlayerInfoByName",
-                                     &Script_C_PlayerCache_GetPlayerInfoByName);
+                                     &Script_C_PlayerCache_GetPlayerInfoByName,
+                                     &kGetPlayerInfoByName);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
