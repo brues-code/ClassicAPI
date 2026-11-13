@@ -4135,3 +4135,143 @@ Larger, decide separately: mouse-motion / click split and propagation
 Line region type); texture slicing (`SetTextureSliceMargins` / `Mode`); Model
 camera / transform / alpha (~40 methods); `RegisterEventCallback`; EditBox
 secure-text and byte-limit options; MessageFrame fade power and message IDs.
+
+## 107. LuaLS annotations from the doc descriptors — medium
+
+Generate LuaLS / EmmyLua annotation files (`---@meta`) from the
+`Game::Doc` records, so editors get autocomplete and type checks for the
+whole ClassicAPI surface. Generate from the RECORDED registrations, never
+by parsing the C++ source: that keeps the files in step with what the DLL
+really registers.
+
+Plan (Layer 1, end to end):
+- A read-only accessor in `api/Documentation.h` (entries, `SystemOf`,
+  structures, sealed envs) so the writer is its own module.
+- `src/api/Annotations.cpp`: console command `ExportAPIAnnotations [dir]`
+  (same pattern and `CreateFileA` write path as `interface/Export.cpp`;
+  Lua can run it with `ConsoleExec`). Write ONE sorted file, so no stale
+  per-system files stay behind. Refuse, or warn, until the game pass is
+  sealed (export from the glue screen would miss every in-game entry).
+- Mapping: `bool` → `boolean`, `cstring` → `string`, `luaIndex` →
+  `integer`; `Enum.*` and structure names pass through; Nilable or
+  defaulted arg → `name?`; Vararg → `...`; structure → `---@class` +
+  `---@field`; enum → `---@enum`. Extension functions and env-only
+  functions get a note line. Undocumented entries become
+  `---@param ... any` / `---@return any ...` stubs. Skip `_classicapi_*`.
+- Do NOT emit `string = {}` (and so on) for the Lua std-lib tables we
+  extend (`coroutine math string table`); it would shadow LuaLS's
+  built-ins. Check with LuaLS whether `function C_X.Y() end` alone defines
+  the global `C_X`, or whether `C_X = {}` is needed.
+- Check with `lua-language-server --check`. LuaLS is installed at
+  `~/.vscode/extensions/sumneko.lua-3.19.2-win32-x64/server/bin/`. Run it on
+  Broodwatch and on one pfUI module; a deliberately wrong argument type
+  must be flagged.
+- Commit the output to `annotations/` with a short `.luarc.json` example
+  (`runtime.version = "Lua 5.1"`, the nearest mode, because LuaLS has no
+  5.0).
+
+Found while scoping (2026-11-12): descriptors on master use free-form type
+names (`UnitToken`, `SpellIdentifier`, `WOWGUID`, `vector2`, `colorRGB`,
+`uiUnit`, ...). Several look like doc sentences in the type slot,
+for example `"Kept with the message; GetMessageInfo returns them after its
+colour."`, `"Strings or numbers."` and `"The subevent's own values."`. Those
+are `Vararg(doc)` calls where `Vararg(type, doc)` was meant. Fix them at
+the source. The same is true of the 30 descriptors that say `boolean`
+where Blizzard says `bool`.
+
+Later layers: frame methods as classes with inheritance (first check whether
+1.12's method-table setup chains child → parent registries; if not, keep a
+small parent table next to `kWidgetSystems`); an event-name `---@alias`
+plus payload docs; untyped stubs for the stock 1.12 globals (read from the
+engine's own registration batches, see `docs/BlizzardScriptAPI.md`).
+Ketho's `wow-api` extension is installed too. Check that its retail
+definitions do not shadow ours in a 1.12 workspace.
+
+## 108. Developer tools — ideas, not scoped
+
+- **Lua debugger for VS Code**: a Debug Adapter Protocol server in the
+  DLL, built on the debug hook that `profile/` already installs. It gives
+  breakpoints, stepping and locals in addon code.
+- **Hot reload**: embedded addons are junctioned, so the DLL can watch
+  file times and re-run one changed file in its addon's environment
+  without `/reload`.
+- **Packet inspector**: `Net::PacketDispatch` already sees every incoming
+  opcode. Add outgoing CMSGs, per-opcode decoders, a filter, and export.
+- **Object manager browser**: every object with GUID, entry, type and
+  position. Click one to watch any descriptor field live, with a graph.
+- **Frame inspector, like browser devtools**: an anchor-graph view, live
+  property edits, drag to re-anchor, and the owning addon (the GC tags
+  know it).
+- **Flame graphs**: sampled call stacks from the profiler, drawn on the
+  same timeline as `/etrace`.
+- **In-client test runner**: a busted-style suite that runs at login, plus
+  frame snapshots, gives ClassicAPI and addons regression tests.
+- **Generic DBC query API**: all 151 tables are catalogued in
+  `docs/DBCs.md`; expose records with their schema
+  (`C_DBC.GetRecord("Spell", id)` and iterators).
+- **Localhost bridge**: a small HTTP / WebSocket server in the DLL that
+  streams events and data as JSON, for stream overlays, a second-screen
+  dashboard, or an external REPL over the same pipe as the debugger.
+
+## 109. Engine showpieces — ideas, not scoped
+
+- **Encounter replay** in a ModelScene: see #110.
+- **World-space drawing**: world → screen projection plus ground height,
+  so addons can draw circles, rings and lines on the real ground. Also a
+  line-of-sight ray query (the engine already traces for camera collision
+  and click-to-move). LOS and unit positions outside the group give a
+  gameplay edge: check the server's addon policy before shipping them.
+- **Second world camera**: render the world pass again from another
+  camera into a render target (a rear-view mirror, a spectator cam, a
+  fixed "security camera"). Open question: can the world render run twice
+  in one frame?
+- **ModelScene to texture**: a scene as a texture that any region (and
+  any mask) can use, for live 3D portraits and nameplate heads.
+- **Photo / machinima mode**: freeze and pose actors, keyframe the camera
+  with the animation `Path` type, then capture.
+- **Spell-visual browser**: play any SpellVisualKit from the DBC on a
+  dummy actor.
+- **Client-side doodads**: place M2s in the world on this client only.
+
+## 110. Advanced combat logging + encounter replay — large, layered
+
+Two layers. The replay needs the log first.
+
+**Layer 1: advanced combat logging (the `advancedCombatLogging` cvar).**
+Our combat log file (`combatlog/File.cpp`) writes 4.3.4's PackEvent line.
+Classic Era (1.15.7) writes `COMBAT_LOG_VERSION,9,ADVANCED_LOG_ENABLED,1,
+BUILD_VERSION,1.15.7,PROJECT_ID,2`, and it is the oracle: it has the same
+content and almost the same client knowledge. There are real Era logs at
+`C:\Program Files (x86)\World of Warcraft\_classic_era_\Logs\`.
+Observed (2026-11-12, BWL log `WoWCombatLog-052425_204021.txt`):
+- Timestamp `5/24/2025 20:40:21.890-5`: it includes the year and the UTC
+  offset. Our SLogWrite stamp has neither.
+- Advanced block, inserted after the spell prefix on damage / heal /
+  cast-success / energize / swing lines:
+  `infoGUID, ownerGUID, curHP, maxHP, 0,0,0,0,0, -1, 0,0,0, X, Y, 0,
+  facing, level`.
+  In Era, the attack power / spell power / armor / absorb slots, the power
+  slots (`-1,0,0,0`) and uiMapID (`0`) are EMPTY. Era fills only what a
+  client can know, so a 1.12 DLL can match it almost field for field
+  (HP from descriptors, position and facing from movement info, level).
+  Era writes player HP as a percent (`93,100`) and creature HP as raw values.
+- The info unit depends on the event: SPELL_DAMAGE → the DEST,
+  SWING_DAMAGE → the source, SWING_DAMAGE_LANDED → the dest. Map each
+  subevent from the log before coding. Do not guess.
+- Other line types: `ZONE_CHANGE,469,"Blackwing Lair",9`,
+  `ENCOUNTER_START,610,"Razorgore the Untamed",9,40,469,2`,
+  `ENCOUNTER_END,…,1` and `COMBATANT_INFO` (stats, talents, gear, auras).
+  Encounter IDs come from a DBC that 1.12 does not have, so how to detect
+  an engage is OPEN. COMBATANT_INFO is possible only for players we can
+  inspect.
+- If the format matches Era, existing classic log parsers may read
+  Turtle logs. Not checked.
+
+**Layer 2: replay in a ModelScene.** Density from the same log
+(Razorgore, 398 s, 57 units): median 150 position samples per unit, about
+one every 2.6 s, and at most about 2 per second. That is enough for a
+Warcraft Logs-style replay and too coarse for a smooth 3D one. OPEN: add
+a client-side position sampler (a ClassicAPI-only line type or a separate
+recording), or interpolate as WCL does. The viewer needs map geometry:
+there is already a WMO backdrop (ModelScene) and the `feat/scene-terrain`
+branch.
