@@ -79,7 +79,7 @@ PROFILER_STATE_SHOWN_HIDDEN = "shown, parent hidden"
 PROFILER_STATE_HIDDEN     = "hidden"
 
 PROFILER_MORE_LISTENERS   = "and %d more"
-PROFILER_CALLS_FORMAT     = " in %d calls"
+PROFILER_CALLS_FORMAT     = " in %s calls"
 
 PROFILER_LABEL_CLICK_SHOW_FRAMES = "Click: show its frames. Right-click: more."
 PROFILER_LABEL_RIGHT_CLICK_HINT  = "Right-click: highlight, inspect or copy."
