@@ -166,8 +166,15 @@ static int __fastcall Script_GetServerTime(void *L) {
 // every login and every `/reload`. The reachable name when that happens is
 // `ClassicAPI.GetServerTime`, which the registrar binds on its own — see
 // `MirrorRegistration` in Game.cpp.
+static const Game::Doc::Field kRets[] = {
+    Game::Doc::Opt("time", "number", nullptr,
+                   "Seconds since 1970-01-01 UTC. Nothing before login."),
+};
+static const Game::Doc::Function kGetServerTime{
+    "Returns the server's current time as a Unix timestamp.", {}, kRets, "SystemGlobals"};
+
 static void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("GetServerTime", &Script_GetServerTime);
+    Game::Lua::RegisterGlobalFunction("GetServerTime", &Script_GetServerTime, &kGetServerTime);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

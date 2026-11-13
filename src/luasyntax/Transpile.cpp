@@ -1667,9 +1667,32 @@ int __fastcall Script_GetTranspileOption(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kLenArgs[] = {
+    Game::Doc::Req("value", "any", "A string or a table; anything else raises an error."),
+};
+const Game::Doc::Field kLenRets[] = {
+    Game::Doc::Req("length", "number"),
+};
+const Game::Doc::Function kLen{
+    "Returns the length of a string or table as the # operator does; an internal helper of the "
+    "Lua 5.1 syntax support, not for direct calls.",
+    kLenArgs, kLenRets, "LuaGlobals", true};
+
+const Game::Doc::Field kModArgs[] = {
+    Game::Doc::Req("a", "number"),
+    Game::Doc::Req("b", "number"),
+};
+const Game::Doc::Field kModRets[] = {
+    Game::Doc::Req("remainder", "number", "Has the sign of b."),
+};
+const Game::Doc::Function kMod{
+    "Returns a modulo b as the % operator does; an internal helper of the Lua 5.1 syntax "
+    "support, not for direct calls.",
+    kModArgs, kModRets, "LuaGlobals", true};
+
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("__len", &Script_Len);
-    Game::Lua::RegisterGlobalFunction("__mod", &Script_Mod);
+    Game::Lua::RegisterGlobalFunction("__len", &Script_Len, &kLen);
+    Game::Lua::RegisterGlobalFunction("__mod", &Script_Mod, &kMod);
     Game::Lua::RegisterGlobalFunction("_classicapi_Transpile", &Script_Transpile);
     Game::Lua::RegisterGlobalFunction("_classicapi_TranspileStats", &Script_TranspileStats);
     Game::Lua::RegisterGlobalFunction("_classicapi_SetTranspileOption", &Script_SetTranspileOption);
@@ -1679,8 +1702,8 @@ void RegisterLuaFunctions() {
 // `__len` / `__mod` also on the glue state — the load hook is state-agnostic,
 // so a glue chunk with `#`/`%` (none ship today) still resolves the helpers.
 void RegisterGlueFunctions() {
-    Game::Lua::RegisterGlueFunction("__len", &Script_Len);
-    Game::Lua::RegisterGlueFunction("__mod", &Script_Mod);
+    Game::Lua::RegisterGlueFunction("__len", &Script_Len, &kLen);
+    Game::Lua::RegisterGlueFunction("__mod", &Script_Mod, &kMod);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

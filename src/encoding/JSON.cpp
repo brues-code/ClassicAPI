@@ -209,11 +209,33 @@ int __fastcall Script_DeserializeJSON(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kSerializeArgs[] = {
+    Game::Doc::Opt("value", "any", nullptr,
+                   "Nil, a boolean, number or string, or a table of these. A table with keys "
+                   "1 to n becomes an array; NaN and infinity become null."),
+};
+const Game::Doc::Field kSerializeRets[] = {
+    Game::Doc::Opt("output", "string", nullptr,
+                   "Nothing when the value holds a function or userdata, or tables nested "
+                   "64 deep."),
+};
+const Game::Doc::Function kSerializeJSON{"Encodes a Lua value as JSON.", kSerializeArgs,
+                                         kSerializeRets};
+
+const Game::Doc::Field kDeserializeArgs[] = {
+    Game::Doc::Req("source", "string"),
+};
+const Game::Doc::Field kDeserializeRets[] = {
+    Game::Doc::Opt("value", "any", nullptr, "Nothing when the source is not valid JSON."),
+};
+const Game::Doc::Function kDeserializeJSON{"Decodes a JSON string into a Lua value.",
+                                           kDeserializeArgs, kDeserializeRets};
+
 void Register() {
     Game::Lua::RegisterTableFunction("C_EncodingUtil", "SerializeJSON",
-                                     &Script_SerializeJSON);
+                                     &Script_SerializeJSON, &kSerializeJSON);
     Game::Lua::RegisterTableFunction("C_EncodingUtil", "DeserializeJSON",
-                                     &Script_DeserializeJSON);
+                                     &Script_DeserializeJSON, &kDeserializeJSON);
 }
 
 } // namespace

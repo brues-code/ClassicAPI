@@ -201,15 +201,74 @@ static int __fastcall Script_Coroutine_Running(void *L) {
     return 1;
 }
 
+static const Game::Doc::Field kCreateArgs[] = {
+    Game::Doc::Req("fn", "function", "A Lua function; a C function raises an error."),
+};
+static const Game::Doc::Field kCreateRets[] = {
+    Game::Doc::Req("co", "thread", "Suspended until the first resume."),
+};
+static const Game::Doc::Function kCreate{"Creates a coroutine with fn as its body.",
+                                         kCreateArgs, kCreateRets};
+
+static const Game::Doc::Field kResumeArgs[] = {
+    Game::Doc::Req("co", "thread"),
+    Game::Doc::Vararg("any", "Passed to the body on the first resume, else returned by yield."),
+};
+static const Game::Doc::Field kResumeRets[] = {
+    Game::Doc::Req("success", "bool"),
+    Game::Doc::Vararg("any",
+                      "The values the body yielded or returned; on failure, the error message."),
+};
+static const Game::Doc::Function kResume{"Starts or continues a suspended coroutine.",
+                                         kResumeArgs, kResumeRets};
+
+static const Game::Doc::Field kRunningRets[] = {
+    Game::Doc::Opt("co", "thread", nullptr, "Nil on the main thread."),
+};
+static const Game::Doc::Function kRunning{"Returns the coroutine that is running.", {},
+                                          kRunningRets};
+
+static const Game::Doc::Field kStatusArgs[] = {
+    Game::Doc::Req("co", "thread"),
+};
+static const Game::Doc::Field kStatusRets[] = {
+    Game::Doc::Req("status", "string",
+                   "\"running\", \"suspended\", \"normal\" (it resumed another coroutine) "
+                   "or \"dead\"."),
+};
+static const Game::Doc::Function kStatus{"Returns the state of a coroutine.", kStatusArgs,
+                                         kStatusRets};
+
+static const Game::Doc::Field kWrapArgs[] = {
+    Game::Doc::Req("fn", "function", "A Lua function; a C function raises an error."),
+};
+static const Game::Doc::Field kWrapRets[] = {
+    Game::Doc::Req("resume", "function",
+                   "Resumes the coroutine with its arguments and returns what it yields or "
+                   "returns; an error in the body is raised."),
+};
+static const Game::Doc::Function kWrap{
+    "Creates a coroutine and returns a function that resumes it.", kWrapArgs, kWrapRets};
+
+static const Game::Doc::Field kYieldArgs[] = {
+    Game::Doc::Vararg("any", "Returned by the resume call."),
+};
+static const Game::Doc::Field kYieldRets[] = {
+    Game::Doc::Vararg("any", "The extra arguments of the next resume."),
+};
+static const Game::Doc::Function kYield{"Suspends the running coroutine.", kYieldArgs,
+                                        kYieldRets};
+
 // Both states: 4.3.4 opens the library from FrameScript_Initialize, which
 // runs for the glue state (Client.cpp) and the world (GameUI.cpp).
 static void RegisterFunctions() {
-    Game::Lua::RegisterTableFunction("coroutine", "create", &Script_Coroutine_Create);
-    Game::Lua::RegisterTableFunction("coroutine", "resume", &Script_Coroutine_Resume);
-    Game::Lua::RegisterTableFunction("coroutine", "running", &Script_Coroutine_Running);
-    Game::Lua::RegisterTableFunction("coroutine", "status", &Script_Coroutine_Status);
-    Game::Lua::RegisterTableFunction("coroutine", "wrap", &Script_Coroutine_Wrap);
-    Game::Lua::RegisterTableFunction("coroutine", "yield", &Script_Coroutine_Yield);
+    Game::Lua::RegisterTableFunction("coroutine", "create", &Script_Coroutine_Create, &kCreate);
+    Game::Lua::RegisterTableFunction("coroutine", "resume", &Script_Coroutine_Resume, &kResume);
+    Game::Lua::RegisterTableFunction("coroutine", "running", &Script_Coroutine_Running,
+                                     &kRunning);
+    Game::Lua::RegisterTableFunction("coroutine", "status", &Script_Coroutine_Status, &kStatus);
+    Game::Lua::RegisterTableFunction("coroutine", "wrap", &Script_Coroutine_Wrap, &kWrap);
+    Game::Lua::RegisterTableFunction("coroutine", "yield", &Script_Coroutine_Yield, &kYield);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterFunctions};

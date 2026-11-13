@@ -207,17 +207,37 @@ int __fastcall Script_DecodeBase64(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kEncodeArgs[] = {
+    Game::Doc::Req("source", "string"),
+    Game::Doc::Opt("variant", "Base64Variant", "Standard",
+                   "UrlSafe output has no padding."),
+};
+const Game::Doc::Field kEncodeRets[] = {
+    Game::Doc::Req("output", "string"),
+};
+const Game::Doc::Function kEncodeBase64{"Encodes a string as Base64.", kEncodeArgs, kEncodeRets};
+
+const Game::Doc::Field kDecodeArgs[] = {
+    Game::Doc::Req("source", "string"),
+    Game::Doc::Opt("variant", "Base64Variant", nullptr,
+                   "When omitted, both alphabets are accepted and padding is optional."),
+};
+const Game::Doc::Field kDecodeRets[] = {
+    Game::Doc::Opt("output", "string", nullptr, "Nothing when the source is not valid Base64."),
+};
+const Game::Doc::Function kDecodeBase64{"Decodes a Base64 string.", kDecodeArgs, kDecodeRets};
+
 void Register() {
     Game::Lua::RegisterTableFunction("C_EncodingUtil", "EncodeBase64",
-                                     &Script_EncodeBase64);
+                                     &Script_EncodeBase64, &kEncodeBase64);
     Game::Lua::RegisterTableFunction("C_EncodingUtil", "DecodeBase64",
-                                     &Script_DecodeBase64);
+                                     &Script_DecodeBase64, &kDecodeBase64);
 
     static const Game::Lua::EnumIntegerEntry kBase64Variant[] = {
         {"Standard", static_cast<int>(Variant::Standard)},
         {"UrlSafe",  static_cast<int>(Variant::UrlSafe)},
     };
-    Game::Lua::RegisterIntegerEnum("Enum", "Base64Variant", kBase64Variant);
+    Game::Lua::RegisterIntegerEnum("Enum", "Base64Variant", kBase64Variant, "EncodingUtil");
 }
 
 } // namespace

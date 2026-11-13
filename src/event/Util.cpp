@@ -30,8 +30,18 @@ static int __fastcall Script_IsEventValid(void *L) {
     return 1;
 }
 
+static const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("eventName", "string"),
+};
+static const Game::Doc::Field kRets[] = {
+    Game::Doc::Req("valid", "bool", "True when frame:RegisterEvent accepts the name."),
+};
+static const Game::Doc::Function kIsEventValid{"Returns whether an event by that name exists.",
+                                               kArgs, kRets};
+
 static void RegisterLuaFunctions() {
-    Game::Lua::RegisterTableFunction("C_EventUtils", "IsEventValid", &Script_IsEventValid);
+    Game::Lua::RegisterTableFunction("C_EventUtils", "IsEventValid", &Script_IsEventValid,
+                                     &kIsEventValid);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

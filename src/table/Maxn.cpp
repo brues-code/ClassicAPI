@@ -46,14 +46,24 @@ int __fastcall Script_table_maxn(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kMaxnArgs[] = {
+    Game::Doc::Req("t", "table"),
+};
+const Game::Doc::Field kMaxnRets[] = {
+    Game::Doc::Req("max", "number", "0 when the table has no positive numeric key."),
+};
+const Game::Doc::Function kMaxn{
+    "Returns the largest positive numeric key of a table, looking past nil holes.", kMaxnArgs,
+    kMaxnRets};
+
 void RegisterInGame() {
-    Game::Lua::RegisterTableFunction("table", "maxn", &Script_table_maxn);
+    Game::Lua::RegisterTableFunction("table", "maxn", &Script_table_maxn, &kMaxn);
 }
 
 void RegisterGlue() {
     // RegisterTableFunction writes to whichever state VAR_LUA_STATE
     // references — the glue state inside this callback.
-    Game::Lua::RegisterTableFunction("table", "maxn", &Script_table_maxn);
+    Game::Lua::RegisterTableFunction("table", "maxn", &Script_table_maxn, &kMaxn);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterInGame};

@@ -84,11 +84,31 @@ int __fastcall Script_DecodeHex(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kEncodeArgs[] = {
+    Game::Doc::Req("source", "string"),
+};
+const Game::Doc::Field kEncodeRets[] = {
+    Game::Doc::Req("output", "string", "Two lowercase hex digits per byte."),
+};
+const Game::Doc::Function kEncodeHex{"Encodes a string as hexadecimal.", kEncodeArgs,
+                                     kEncodeRets};
+
+const Game::Doc::Field kDecodeArgs[] = {
+    Game::Doc::Req("source", "string", "Hex digits in either case."),
+};
+const Game::Doc::Field kDecodeRets[] = {
+    Game::Doc::Opt("output", "string", nullptr,
+                   "Nothing when the source has an odd length or a character that is not a "
+                   "hex digit."),
+};
+const Game::Doc::Function kDecodeHex{"Decodes a hexadecimal string.", kDecodeArgs,
+                                     kDecodeRets};
+
 void Register() {
     Game::Lua::RegisterTableFunction("C_EncodingUtil", "EncodeHex",
-                                     &Script_EncodeHex);
+                                     &Script_EncodeHex, &kEncodeHex);
     Game::Lua::RegisterTableFunction("C_EncodingUtil", "DecodeHex",
-                                     &Script_DecodeHex);
+                                     &Script_DecodeHex, &kDecodeHex);
 }
 
 } // namespace

@@ -85,9 +85,20 @@ int __fastcall Script_C_CVar_GetCVarBool(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("name", "cstring"),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Opt("value", "bool", nullptr,
+                   "True for \"true\" or a non-zero number, false for any other value; nil "
+                   "when no cvar has that name."),
+};
+const Game::Doc::Function kGetCVarBool{"Returns the value of a console variable as a boolean.",
+                                       kArgs, kRets};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_CVar", "GetCVarBool",
-                                      &Script_C_CVar_GetCVarBool);
+                                      &Script_C_CVar_GetCVarBool, &kGetCVarBool);
 }
 
 // Same surface on the glue Lua state — CVar storage is process-global
@@ -96,7 +107,7 @@ void RegisterLuaFunctions() {
 // the glue init hook points at the glue state.
 void RegisterGlueFunctions() {
     Game::Lua::RegisterTableFunction("C_CVar", "GetCVarBool",
-                                      &Script_C_CVar_GetCVarBool);
+                                      &Script_C_CVar_GetCVarBool, &kGetCVarBool);
 }
 
 const Game::ModuleAutoRegister     _autoreg{&RegisterLuaFunctions};

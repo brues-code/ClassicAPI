@@ -68,8 +68,20 @@ static int __fastcall Script_table_count(void *L) {
     return 3;
 }
 
+static const Game::Doc::Field kCountArgs[] = {
+    Game::Doc::Req("tbl", "table"),
+};
+static const Game::Doc::Field kCountRets[] = {
+    Game::Doc::Req("numTableNodes", "number", "The number of key/value pairs."),
+    Game::Doc::Req("numArrayNodes", "number",
+                   "How many keys are whole numbers from 1 to numTableNodes."),
+    Game::Doc::Req("maxArrayIndex", "number", "The largest positive whole-number key, or 0."),
+};
+static const Game::Doc::Function kCount{"Returns counts of the entries in a table.", kCountArgs,
+                                        kCountRets};
+
 static void RegisterLuaFunctions() {
-    Game::Lua::RegisterTableFunction("table", "count", &Script_table_count);
+    Game::Lua::RegisterTableFunction("table", "count", &Script_table_count, &kCount);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

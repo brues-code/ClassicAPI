@@ -66,8 +66,16 @@ int __fastcall Script_GetTimeCached(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Req("time", "number", "Seconds, on the same clock as GetTime."),
+};
+const Game::Doc::Function kGetTimeCached{
+    "Returns GetTime's value as of the start of the current frame, the same for every call in "
+    "that frame.",
+    {}, kRets, "SystemGlobals", true};
+
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("GetTimeCached", &Script_GetTimeCached);
+    Game::Lua::RegisterGlobalFunction("GetTimeCached", &Script_GetTimeCached, &kGetTimeCached);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

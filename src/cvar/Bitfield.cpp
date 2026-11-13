@@ -128,9 +128,36 @@ int __fastcall Script_SetCVarBitfield(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kGetArgs[] = {
+    Game::Doc::Req("name", "cstring"),
+    Game::Doc::Req("index", "luaIndex", "The bit, from 1 to 64."),
+};
+const Game::Doc::Field kGetRets[] = {
+    Game::Doc::Opt("value", "bool", nullptr,
+                   "Nil when no cvar has that name or the index is out of range."),
+};
+const Game::Doc::Function kGetCVarBitfield{
+    "Returns whether one bit of a console variable's numeric value is set.", kGetArgs, kGetRets};
+
+const Game::Doc::Field kSetArgs[] = {
+    Game::Doc::Req("name", "cstring"),
+    Game::Doc::Req("index", "luaIndex", "The bit, from 1 to 64."),
+    Game::Doc::Req("value", "bool", "True sets the bit, false clears it."),
+};
+const Game::Doc::Field kSetRets[] = {
+    Game::Doc::Req("success", "bool",
+                   "False when no cvar has that name, the cvar is read-only, or the index is "
+                   "out of range."),
+};
+const Game::Doc::Function kSetCVarBitfield{
+    "Sets or clears one bit of a console variable's numeric value and saves it.", kSetArgs,
+    kSetRets};
+
 void Register() {
-    Game::Lua::RegisterTableFunction("C_CVar", "GetCVarBitfield", &Script_GetCVarBitfield);
-    Game::Lua::RegisterTableFunction("C_CVar", "SetCVarBitfield", &Script_SetCVarBitfield);
+    Game::Lua::RegisterTableFunction("C_CVar", "GetCVarBitfield", &Script_GetCVarBitfield,
+                                     &kGetCVarBitfield);
+    Game::Lua::RegisterTableFunction("C_CVar", "SetCVarBitfield", &Script_SetCVarBitfield,
+                                     &kSetCVarBitfield);
 }
 
 const Game::ModuleAutoRegister _autoreg{&Register};

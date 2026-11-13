@@ -119,9 +119,20 @@ int __fastcall Script_GetAddOnLocalTable(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("name", "uiAddon", "The addon's folder name; an index is not accepted."),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Opt("table", "table", nullptr,
+                   "The table the addon's files receive as their second argument; nil unless "
+                   "the addon is loaded and its TOC sets ## AllowAddOnTableAccess: 1."),
+};
+const Game::Doc::Function kGetAddOnLocalTable{
+    "Returns the private table of another addon that allows access to it.", kArgs, kRets};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_AddOns", "GetAddOnLocalTable",
-                                     &Script_GetAddOnLocalTable);
+                                     &Script_GetAddOnLocalTable, &kGetAddOnLocalTable);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

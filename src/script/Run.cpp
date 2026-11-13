@@ -28,9 +28,15 @@ namespace Script::Run {
 
 namespace {
 
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("text", "cstring", "Lua source code."),
+};
+const Game::Doc::Function kRunScript{"Compiles and runs a string of Lua code.", kArgs, {},
+                                     "FrameScriptGlobals"};
+
 void RegisterGlueFunctions() {
     Game::Lua::RegisterGlueFunction("RunScript",
-        reinterpret_cast<Game::Lua::CFunction>(Offsets::FUN_SCRIPT_RUN_SCRIPT));
+        reinterpret_cast<Game::Lua::CFunction>(Offsets::FUN_SCRIPT_RUN_SCRIPT), &kRunScript);
 }
 
 const Game::GlueModuleAutoRegister _autoreg{&RegisterGlueFunctions};

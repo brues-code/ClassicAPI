@@ -288,9 +288,18 @@ int __fastcall LuaLGetN_h(void *L, int idx) {
 //     `table.*` registration (`table.wipe`, …) already relies on.
 // The glue state gets the same pair: the `luaL_getn` heal is a C-level hook
 // and applies there too, and the mark table lives in each state's registry.
+const Game::Doc::Field kInsertArgs[] = {
+    Game::Doc::Req("t", "table"),
+    Game::Doc::Opt("pos", "number", nullptr,
+                   "Where to insert; the elements from there move up. The end by default."),
+    Game::Doc::Req("value", "any"),
+};
+const Game::Doc::Function kInsert{"Inserts a value into an array.", kInsertArgs, {},
+                                  "LuaGlobals"};
+
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterTableFunction("table", "insert", &Script_TableInsert);
-    Game::Lua::RegisterGlobalAlias("tinsert", "table", "insert");
+    Game::Lua::RegisterTableFunction("table", "insert", &Script_TableInsert, &kInsert);
+    Game::Lua::RegisterGlobalAlias("tinsert", "table", "insert", &kInsert);
 }
 
 const Game::HookAutoRegister _hook{Offsets::LUAL_GETN,

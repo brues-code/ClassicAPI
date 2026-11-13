@@ -164,13 +164,26 @@ int __fastcall Script_HookSecureFunc(void *L) {
 
 } // namespace
 
+static const Game::Doc::Field kArgs[] = {
+    Game::Doc::Opt("table", "table", nullptr,
+                   "The table that holds the function; the global table when omitted."),
+    Game::Doc::Req("name", "string", "The key of the function to hook."),
+    Game::Doc::Req("hookfunc", "function",
+                   "Called after the original with the same arguments; its returns are "
+                   "discarded."),
+};
+static const Game::Doc::Function kHookSecureFunc{
+    "Hooks a function so another function runs after it, keeping the original's returns.",
+    kArgs, {}, "FrameScriptGlobals"};
+
 static void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("hooksecurefunc", &Script_HookSecureFunc);
+    Game::Lua::RegisterGlobalFunction("hooksecurefunc", &Script_HookSecureFunc,
+                                      &kHookSecureFunc);
 }
 // 4.3.4 registers it from FrameScript_Initialize, which runs for the glue
 // state (Client.cpp) as well as the world (GameUI.cpp).
 static void RegisterGlueFunctions() {
-    Game::Lua::RegisterGlueFunction("hooksecurefunc", &Script_HookSecureFunc);
+    Game::Lua::RegisterGlueFunction("hooksecurefunc", &Script_HookSecureFunc, &kHookSecureFunc);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
