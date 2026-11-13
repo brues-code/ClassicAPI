@@ -21,7 +21,7 @@ function ns.AddFrameStackLines(tooltip, region)
       local text = ns.OwnerLabel(ns.Owner(fn))
       if ns.profiling then
         local ms, calls = GetFunctionCPUUsage(fn)
-        text = text .. ns.GREY .. ns.MS(ms) .. format(PROFILER_CALLS_FORMAT, ns.Count(calls))
+        text = text .. ns.GREY .. "  " .. ns.MS(ms) .. format(PROFILER_CALLS_FORMAT, ns.Count(calls))
       end
       Line(tooltip, script, text)
     end

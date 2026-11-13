@@ -36,15 +36,8 @@ local function Tooltip(rec)
   GameTooltip:AddLine(rec.name)
   Line(PROFILER_LABEL_TYPE, frame:GetObjectType())
   Line(PROFILER_LABEL_OWNER, ns.OwnerLabel(rec.owner))
-  local state
-  if not frame:IsVisible() then
-    state = PROFILER_STATE_HIDDEN
-  elseif frame:IsShown() then
-    state = PROFILER_STATE_VISIBLE
-  else
-    state = PROFILER_STATE_SHOWN_HIDDEN
-  end
-  Line(PROFILER_LABEL_STATE, state)
+  Line(PROFILER_LABEL_STATE, frame:IsVisible() and PROFILER_STATE_VISIBLE
+    or frame:IsShown() and PROFILER_STATE_SHOWN_HIDDEN or PROFILER_STATE_HIDDEN)
 
   local source = frame:GetSourceLocation()
   if source then
@@ -58,7 +51,7 @@ local function Tooltip(rec)
       local text = ns.OwnerLabel(ns.Owner(fn))
       if ns.profiling then
         local ms, calls = GetFunctionCPUUsage(fn)
-        text = text .. ns.GREY .. ns.MS(ms) .. format(PROFILER_CALLS_FORMAT, ns.Count(calls))
+        text = text .. ns.GREY .. "  " .. ns.MS(ms) .. format(PROFILER_CALLS_FORMAT, ns.Count(calls))
       end
       Line(script, text)
     end
@@ -87,7 +80,7 @@ local function Tooltip(rec)
   GameTooltip:AddLine(PROFILER_LABEL_RIGHT_CLICK_HINT, .6, .6, .6)
 end
 
-local tab = ns.AddTab(PROFILER_TAB_FRAMES)
+local tab = ns.AddTab("Frames", PROFILER_TAB_FRAMES)
 
 tab.list = ns.CreateList(tab.frame, {
   sort = 3,

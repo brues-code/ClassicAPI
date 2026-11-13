@@ -301,7 +301,9 @@ function ns.SelectTab(tab)
   UpdateStatus()
 end
 
-function ns.AddTab(name)
+-- `name` is the stable key ns.ShowIn looks the tab up by; `label` is the
+-- localized button text
+function ns.AddTab(name, label)
   local tab = { name = name }
   local index = #tabs + 1
 
@@ -310,7 +312,7 @@ function ns.AddTab(name)
   tab.frame:SetPoint("BOTTOMRIGHT", -6, 24)
   tab.frame:Hide()
 
-  tab.button = ns.CreateButton("ClassicAPIProfilerWindowTab" .. index, window, 90, name, function() ns.SelectTab(tab) end)
+  tab.button = ns.CreateButton("ClassicAPIProfilerWindowTab" .. index, window, 90, label, function() ns.SelectTab(tab) end)
   tab.button:SetPoint("TOPLEFT", 8 + (index - 1) * 94, -32)
 
   tabs[index] = tab
@@ -355,18 +357,18 @@ Tooltip(reset, PROFILER_RESET_TIP)
 
 local deep = ns.CreateButton("ClassicAPIProfilerWindowDeep", window, 150, "", function(self)
   ns.track.EnableDeep()
-  self:SetText(PROFILER_DEEP_TRACKING_ON)
+  self:SetText(PROFILER_DEEP_TRACKING .. ns.ACCENT .. PROFILER_ON)
   self:Disable()
 end)
 deep:SetPoint("RIGHT", reset, "LEFT", -4, 0)
-deep:SetText(PROFILER_DEEP_TRACKING_OFF)
+deep:SetText(PROFILER_DEEP_TRACKING .. ns.GREY .. PROFILER_OFF)
 Tooltip(deep, PROFILER_DEEP_TRACKING_TIP)
 
 local profiling = ns.CreateButton("ClassicAPIProfilerWindowProfiling", window, 150, "", function()
   ns.SetProfiling(not ns.profiling)
 end)
 profiling:SetPoint("TOPRIGHT", -24, -32)
-profiling:SetText(ns.profiling and PROFILER_CPU_PROFILING_ON or PROFILER_CPU_PROFILING_OFF)
+profiling:SetText(PROFILER_CPU_PROFILING .. (ns.profiling and ns.ACCENT .. PROFILER_ON or ns.GREY .. PROFILER_OFF))
 Tooltip(profiling, function()
   return (ns.profiling and PROFILER_CPU_PROFILING_TIP_ON or PROFILER_CPU_PROFILING_TIP_OFF) .. PROFILER_CPU_PROFILING_TIP_BODY
 end)

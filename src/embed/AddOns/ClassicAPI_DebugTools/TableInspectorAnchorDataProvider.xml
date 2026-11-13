@@ -6,7 +6,7 @@
 		<Size x="400" y="16"/>
 		<Layers>
 			<Layer level="OVERLAY">
-				<FontString parentKey="Text" inherits="GameFontNormalLarge" justifyH="LEFT" text="$TI_ANCHORS_TITLE$">
+				<FontString parentKey="Text" inherits="GameFontNormalLarge" justifyH="LEFT" text="TI_ANCHORS_TITLE">
 					<Anchors>
 						<Anchor point="TOPLEFT" x="12" y="0"/>
 					</Anchors>

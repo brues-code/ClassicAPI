@@ -42,7 +42,7 @@ local function Tooltip(entry)
   end
 end
 
-local tab = ns.AddTab(PROFILER_TAB_GLOBALS)
+local tab = ns.AddTab("Globals", PROFILER_TAB_GLOBALS)
 tab.untagged = false
 
 tab.list = ns.CreateList(tab.frame, {

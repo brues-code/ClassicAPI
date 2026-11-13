@@ -53,7 +53,7 @@ local function Tooltip(ev)
   end
 end
 
-local tab = ns.AddTab(PROFILER_TAB_EVENTS)
+local tab = ns.AddTab("Events", PROFILER_TAB_EVENTS)
 
 tab.list = ns.CreateList(tab.frame, {
   sort = 2,

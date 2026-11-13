@@ -274,7 +274,7 @@ function ClassicAPIProfiler_HandleSlashCmd(msg)
     ns.Print(PROFILER_RESET_MSG)
   elseif cmd == "profile" and (arg == "on" or arg == "off") then
     ns.SetProfiling(arg == "on")
-  elseif cmd == "help" then
+  else
     ns.Print(PROFILER_SLASH_1)
     ns.Print(PROFILER_SLASH_2)
     ns.Print(PROFILER_SLASH_3)

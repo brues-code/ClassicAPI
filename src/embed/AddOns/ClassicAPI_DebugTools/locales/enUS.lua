@@ -33,12 +33,13 @@ PROFILER_COPY_TIP   = "Copy the shown rows to the clipboard as plain text."
 PROFILER_RESET      = "Reset"
 PROFILER_RESET_TIP  = "Set every CPU time, call count, allocation and event count to zero."
 
-PROFILER_DEEP_TRACKING_ON  = "Deep Tracking: ON"
-PROFILER_DEEP_TRACKING_OFF = "Deep Tracking: OFF"
+PROFILER_ON  = "ON"
+PROFILER_OFF = "OFF"
+
+PROFILER_DEEP_TRACKING     = "Deep Tracking: "
 PROFILER_DEEP_TRACKING_TIP = "Hooks the OnUpdate and OnEvent scripts of every frame to measure the Lua memory each frame allocates, and the CPU time and memory of each event. The hooks never replace a handler, but they add a little time to every script call. They stay until /reload."
 
-PROFILER_CPU_PROFILING_ON   = "CPU Profiling: ON"
-PROFILER_CPU_PROFILING_OFF  = "CPU Profiling: OFF"
+PROFILER_CPU_PROFILING      = "CPU Profiling: "
 PROFILER_CPU_PROFILING_TIP_ON  = "Turn CPU profiling off"
 PROFILER_CPU_PROFILING_TIP_OFF = "Turn CPU profiling on"
 PROFILER_CPU_PROFILING_TIP_BODY = " and reload the UI.\n\nProfiling measures the CPU time of every addon, frame, function and event. It makes each Lua call slower, so turn it off when you are done."
@@ -85,7 +86,7 @@ PROFILER_LABEL_CLICK_SHOW_FRAMES = "Click: show its frames. Right-click: more."
 PROFILER_LABEL_RIGHT_CLICK_HINT  = "Right-click: highlight, inspect or copy."
 PROFILER_LABEL_TURN_ON_PROFILING = "Turn on CPU profiling to see CPU times."
 PROFILER_LABEL_NOT_CLASSICAPI    = "Not ClassicAPI's function: something replaced or hooked it."
-PROFILER_LABEL_REPLACED          = "(replaced)"
+PROFILER_LABEL_REPLACED          = " (replaced)"
 
 -- [[ Profiler: Addons tab (Profiler/AddonsTab.lua) ]]
 -- column titles

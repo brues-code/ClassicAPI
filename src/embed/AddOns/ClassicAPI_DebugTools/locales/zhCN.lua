@@ -32,12 +32,13 @@ PROFILER_COPY_TIP   = "将当前显示的行以纯文本复制到剪贴板。"
 PROFILER_RESET      = "重置"
 PROFILER_RESET_TIP  = "将所有 CPU 时间、调用次数、内存分配和事件计数归零。"
 
-PROFILER_DEEP_TRACKING_ON  = "深度追踪: 开"
-PROFILER_DEEP_TRACKING_OFF = "深度追踪: 关"
+PROFILER_ON  = "开"
+PROFILER_OFF = "关"
+
+PROFILER_DEEP_TRACKING     = "深度追踪: "
 PROFILER_DEEP_TRACKING_TIP = "挂接每个 Frame 的 OnUpdate 和 OnEvent 脚本，测量该 Frame 分配的 Lua 内存，以及每个事件的 CPU 时间和内存占用。钩子不会替换原有处理函数，但每次脚本调用会增加少量开销，直到 /reload 才会移除。"
 
-PROFILER_CPU_PROFILING_ON   = "CPU 分析: 开"
-PROFILER_CPU_PROFILING_OFF  = "CPU 分析: 关"
+PROFILER_CPU_PROFILING      = "CPU 分析: "
 PROFILER_CPU_PROFILING_TIP_ON  = "关闭 CPU 分析"
 PROFILER_CPU_PROFILING_TIP_OFF = "开启 CPU 分析"
 PROFILER_CPU_PROFILING_TIP_BODY = " 并重载 UI。\n\n分析器会测量每个插件、Frame、函数和事件的 CPU 时间。这会让每次 Lua 调用变慢，完成后请及时关闭。"

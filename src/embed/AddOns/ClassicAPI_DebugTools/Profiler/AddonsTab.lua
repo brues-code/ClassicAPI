@@ -9,7 +9,7 @@ local function Profiled(fn)
   end
 end
 
-local tab = ns.AddTab(PROFILER_TAB_ADDONS)
+local tab = ns.AddTab("Addons", PROFILER_TAB_ADDONS)
 
 tab.list = ns.CreateList(tab.frame, {
   sort = 3,
