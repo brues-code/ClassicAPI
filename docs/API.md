@@ -27547,7 +27547,7 @@ The range tokens work as follows:
 - **`HELPFUL`** (default) / **`HARMFUL`** — pick buffs or debuffs by each
   aura's polarity flag. In `GetUnitAuras`, supplying neither returns both.
 
-### Caster & timing (`Aura::Source`)
+### Caster & timing
 
 `sourceUnit`, `sourceGUID`, and non-player `expirationTime` come from
 casts that the client observes. The unit's aura list stores only spell
@@ -27606,7 +27606,7 @@ This path is **spell-ID only**, because that is all the server sends:
 This is different from in-range cases where an aura drops from the unit's
 list (rogue stealth, nearby range changes). There the unit still exists
 and the observed cast data is the fallback — see
-[Caster & timing](#caster--timing-aurasource).
+[Caster & timing](#caster--timing).
 
 ### `C_UnitAuras.GetAuraDataByIndex(unit, index [, filter])`
 
