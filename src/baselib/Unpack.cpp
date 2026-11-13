@@ -70,12 +70,25 @@ int __fastcall Script_unpack(void *L) {
     return n;
 }
 
+const Game::Doc::Field kUnpackArgs[] = {
+    Game::Doc::Req("list", "table"),
+    Game::Doc::Opt("i", "number", "1", "The first index to return."),
+    Game::Doc::Opt("j", "number", nullptr,
+                   "The last index to return; the length of list, as table.getn gives it, by "
+                   "default."),
+};
+const Game::Doc::Field kUnpackRets[] = {
+    Game::Doc::Vararg("any", "list[i] through list[j]; nothing when i is greater than j."),
+};
+const Game::Doc::Function kUnpack{"Returns the elements of a table from index i to index j.",
+                                  kUnpackArgs, kUnpackRets, "LuaGlobals"};
+
 void RegisterInGame() {
-    Game::Lua::RegisterGlobalFunction("unpack", &Script_unpack);
+    Game::Lua::RegisterGlobalFunction("unpack", &Script_unpack, &kUnpack);
 }
 
 void RegisterGlue() {
-    Game::Lua::RegisterGlueFunction("unpack", &Script_unpack);
+    Game::Lua::RegisterGlueFunction("unpack", &Script_unpack, &kUnpack);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterInGame};

@@ -84,14 +84,29 @@ void Apply() {
                          reinterpret_cast<const void *>(&GetInfo));
 }
 
+const Game::Doc::Field kDebugstackArgs[] = {
+    Game::Doc::Opt("thread", "thread", nullptr,
+                   "A coroutine whose stack is shown instead of the caller's."),
+    Game::Doc::Opt("start", "number", nullptr,
+                   "The first call level to show; 1, the caller, by default, or 0, the "
+                   "innermost level, with a thread."),
+    Game::Doc::Opt("count1", "number", "12", "The number of levels to show from the top."),
+    Game::Doc::Opt("count2", "number", "10", "The number of levels to show from the bottom."),
+};
+const Game::Doc::Field kDebugstackRets[] = {
+    Game::Doc::Req("stack", "string", "One line for each call level."),
+};
+const Game::Doc::Function kDebugstack{"Returns the call stack as text, for an error report.",
+                                      kDebugstackArgs, kDebugstackRets, "LuaGlobals"};
+
 void RegisterInGame() {
     Apply();
-    Lua::RegisterGlobalFunction("debugstack", &Script_debugstack);
+    Lua::RegisterGlobalFunction("debugstack", &Script_debugstack, &kDebugstack);
 }
 
 void RegisterGlue() {
     Apply();
-    Lua::RegisterGlueFunction("debugstack", &Script_debugstack);
+    Lua::RegisterGlueFunction("debugstack", &Script_debugstack, &kDebugstack);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterInGame};

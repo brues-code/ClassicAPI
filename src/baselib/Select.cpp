@@ -71,12 +71,25 @@ int __fastcall Script_select(void *L) {
     return n - i;
 }
 
+const Game::Doc::Field kSelectArgs[] = {
+    Game::Doc::Req("index", "number",
+                   "The first argument to return, negative to count back from the last, or "
+                   "\"#\" for the count."),
+    Game::Doc::Vararg("any"),
+};
+const Game::Doc::Field kSelectRets[] = {
+    Game::Doc::Vararg("any", "The arguments from index onward, or their count when index is \"#\"."),
+};
+const Game::Doc::Function kSelect{
+    "Returns its extra arguments from a position onward, or the number of them.",
+    kSelectArgs, kSelectRets, "LuaGlobals"};
+
 void RegisterInGame() {
-    Game::Lua::RegisterGlobalFunction("select", &Script_select);
+    Game::Lua::RegisterGlobalFunction("select", &Script_select, &kSelect);
 }
 
 void RegisterGlue() {
-    Game::Lua::RegisterGlueFunction("select", &Script_select);
+    Game::Lua::RegisterGlueFunction("select", &Script_select, &kSelect);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterInGame};
