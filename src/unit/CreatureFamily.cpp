@@ -71,9 +71,22 @@ int __fastcall Script_UnitCreatureFamilyID(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("unit", "UnitToken"),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Opt("creatureFamilyID", "number", nullptr,
+                   "Nil for players, units with no family, and NPCs whose data has not loaded."),
+};
+const Game::Doc::Function kUnitCreatureFamilyID{
+    "Returns the creature family ID of a unit, such as 1 for Wolf.", kArgs, kRets,
+    "UnitGlobals", true};
+
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("UnitCreatureFamilyID",
-                                      &Script_UnitCreatureFamilyID);
+    Game::Lua::RegisterGlobalFunction("UnitCreatureFamilyID", &Script_UnitCreatureFamilyID,
+                                      &kUnitCreatureFamilyID);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

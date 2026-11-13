@@ -76,8 +76,21 @@ static int __fastcall Script_UnitHealthMissing(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("unit", "UnitToken"),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Req("result", "number",
+                   "0 at full health and for a token with no unit; never negative."),
+};
+const Game::Doc::Function kUnitHealthMissing{
+    "Returns how much health a unit is missing.", kArgs, kRets, "UnitGlobals"};
+
 static void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("UnitHealthMissing", &Script_UnitHealthMissing);
+    Game::Lua::RegisterGlobalFunction("UnitHealthMissing", &Script_UnitHealthMissing,
+                                      &kUnitHealthMissing);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

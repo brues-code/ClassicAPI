@@ -200,18 +200,51 @@ int __fastcall Script_IsOutdoors(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kResultRets[] = {
+    Game::Doc::Req("result", "bool"),
+};
+const Game::Doc::Function kIsMounted{
+    "Returns whether you are mounted.", {}, kResultRets, "PlayerGlobals"};
+const Game::Doc::Function kDismount{
+    "Dismounts you; does nothing when you are not mounted.", {}, {}, "PlayerGlobals"};
+const Game::Doc::Function kIsStealthed{
+    "Returns whether you are stealthed, for example in Stealth or Prowl.", {}, kResultRets,
+    "PlayerGlobals"};
+const Game::Doc::Function kIsFalling{
+    "Returns whether you are jumping or falling.", {}, kResultRets, "UnitGlobals"};
+const Game::Doc::Function kIsSwimming{
+    "Returns whether you are swimming.", {}, kResultRets, "UnitGlobals"};
+const Game::Doc::Function kIsAssistingRitual{
+    "Returns whether you are helping with a warlock's summoning ritual by clicking its portal.",
+    {}, kResultRets, "PlayerGlobals", true};
+
+const Game::Doc::Field kIndoorsRets[] = {
+    Game::Doc::Opt("result", "number", nullptr,
+                   "1 when you are inside a building, cave, or instance interior, else nil."),
+};
+const Game::Doc::Function kIsIndoors{
+    "Returns whether you are indoors.", {}, kIndoorsRets, "PlayerGlobals"};
+const Game::Doc::Field kOutdoorsRets[] = {
+    Game::Doc::Opt("result", "number", nullptr,
+                   "1 when you are outdoors, else nil; nil before you enter the world."),
+};
+const Game::Doc::Function kIsOutdoors{
+    "Returns whether you are outdoors.", {}, kOutdoorsRets, "PlayerGlobals"};
+
 } // namespace
 
 static void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("IsMounted", &Script_IsMounted);
-    Game::Lua::RegisterGlobalFunction("IsIndoors", &Script_IsIndoors);
-    Game::Lua::RegisterGlobalFunction("IsOutdoors", &Script_IsOutdoors);
-    Game::Lua::RegisterGlobalFunction("Dismount", &Script_Dismount);
-    Game::Lua::RegisterGlobalFunction("IsStealthed", &Script_IsStealthed);
-    Game::Lua::RegisterGlobalFunction("IsFalling", &Script_IsFalling);
-    Game::Lua::RegisterGlobalFunction("IsSwimming", &Script_IsSwimming);
-    Game::Lua::RegisterGlobalFunction("IsAssistingRitual",
-                                       &Script_IsAssistingRitual);
+    Game::Lua::RegisterGlobalFunction("IsMounted", &Script_IsMounted, &kIsMounted);
+    Game::Lua::RegisterGlobalFunction("IsIndoors", &Script_IsIndoors, &kIsIndoors);
+    Game::Lua::RegisterGlobalFunction("IsOutdoors", &Script_IsOutdoors, &kIsOutdoors);
+    Game::Lua::RegisterGlobalFunction("Dismount", &Script_Dismount, &kDismount);
+    Game::Lua::RegisterGlobalFunction("IsStealthed", &Script_IsStealthed, &kIsStealthed);
+    Game::Lua::RegisterGlobalFunction("IsFalling", &Script_IsFalling, &kIsFalling);
+    Game::Lua::RegisterGlobalFunction("IsSwimming", &Script_IsSwimming, &kIsSwimming);
+    Game::Lua::RegisterGlobalFunction("IsAssistingRitual", &Script_IsAssistingRitual,
+                                      &kIsAssistingRitual);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

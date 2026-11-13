@@ -52,9 +52,24 @@ int __fastcall Script_ClosestUnitPosition(void *L) {
     return 3;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("creatureID", "number", "The NPC ID to look for."),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Req("xPos", "number", "World X coordinate."),
+    Game::Doc::Req("yPos", "number", "World Y coordinate."),
+    Game::Doc::Req("distance", "number", "Yards from the player."),
+};
+const Game::Doc::Function kClosestUnitPosition{
+    "Returns the position of the nearest visible creature with an NPC ID, or nothing when none "
+    "is in view.",
+    kArgs, kRets, "UnitGlobals"};
+
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("ClosestUnitPosition",
-                                      &Script_ClosestUnitPosition);
+    Game::Lua::RegisterGlobalFunction("ClosestUnitPosition", &Script_ClosestUnitPosition,
+                                      &kClosestUnitPosition);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

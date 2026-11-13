@@ -146,9 +146,23 @@ int __fastcall Script_UnitInLineOfSight(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("unit", "UnitToken"),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Opt("inLineOfSight", "bool", nullptr,
+                   "False when terrain or a building blocks the view, or the unit is more than "
+                   "150 yards away; nil when the token names no unit."),
+};
+const Game::Doc::Function kUnitInLineOfSight{
+    "Returns whether the player has a clear line of sight to a unit.", kArgs, kRets,
+    "UnitGlobals", true};
+
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("UnitInLineOfSight",
-                                      &Script_UnitInLineOfSight);
+    Game::Lua::RegisterGlobalFunction("UnitInLineOfSight", &Script_UnitInLineOfSight,
+                                      &kUnitInLineOfSight);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

@@ -74,10 +74,27 @@ int __fastcall Script_UnitPosition(void *L) {
     return 4;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("unit", "UnitToken"),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Opt("posY", "number", nullptr,
+                   "World Y coordinate (west); nil, with the rest, when the unit is not in view."),
+    Game::Doc::Opt("posX", "number", nullptr, "World X coordinate (north)."),
+    Game::Doc::Opt("posZ", "number", nullptr, "Height."),
+    Game::Doc::Opt("instanceID", "number", nullptr, "The map you are on."),
+};
+const Game::Doc::Function kUnitPosition{
+    "Returns the world position of any unit in view.", kArgs, kRets, "UnitGlobals"};
+const Game::Doc::Function kPlayerInfoUnitPosition{
+    "Returns the world position of any unit in view.", kArgs, kRets, nullptr, true};
+
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("UnitPosition", &Script_UnitPosition);
-    Game::Lua::RegisterTableFunction("C_PlayerInfo", "UnitPosition",
-                                     &Script_UnitPosition);
+    Game::Lua::RegisterGlobalFunction("UnitPosition", &Script_UnitPosition, &kUnitPosition);
+    Game::Lua::RegisterTableFunction("C_PlayerInfo", "UnitPosition", &Script_UnitPosition,
+                                     &kPlayerInfoUnitPosition);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

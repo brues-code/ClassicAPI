@@ -467,10 +467,54 @@ static int __fastcall Script_UnitTokenFromName(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+namespace {
+
+const Game::Doc::Field kUnitGUIDArgs[] = {
+    Game::Doc::Req("unit", "UnitToken"),
+};
+const Game::Doc::Field kUnitGUIDRets[] = {
+    Game::Doc::Opt("result", "WOWGUID", nullptr,
+                   "A \"0x\" hex string; nil when the token names no unit."),
+};
+const Game::Doc::Function kUnitGUID{
+    "Returns the GUID of a unit, also for a group member out of range.", kUnitGUIDArgs,
+    kUnitGUIDRets, "UnitGlobals"};
+
+const Game::Doc::Field kTokenFromGUIDArgs[] = {
+    Game::Doc::Req("unitGUID", "WOWGUID"),
+};
+const Game::Doc::Field kTokenFromGUIDRets[] = {
+    Game::Doc::Opt("unitToken", "string", nullptr,
+                   "Nil when no unit token points at the GUID now."),
+};
+const Game::Doc::Function kUnitTokenFromGUID{
+    "Returns the first unit token that currently points at a GUID.", kTokenFromGUIDArgs,
+    kTokenFromGUIDRets, "UnitGlobals"};
+
+const Game::Doc::Field kTokenFromNameArgs[] = {
+    Game::Doc::Req("name", "string"),
+    Game::Doc::Opt("exactMatch", "bool", "false",
+                   "True requires the whole name; false matches the start of the name."),
+};
+const Game::Doc::Field kTokenFromNameRets[] = {
+    Game::Doc::Opt("unitToken", "string", nullptr,
+                   "A standard token when one fits, else the unit's GUID; nil when no unit "
+                   "matches."),
+};
+const Game::Doc::Function kUnitTokenFromName{
+    "Returns a unit token for the nearest unit with a name.", kTokenFromNameArgs,
+    kTokenFromNameRets, "UnitGlobals", true};
+
+} // namespace
+
 static void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("UnitGUID", &Script_UnitGUID);
-    Game::Lua::RegisterGlobalFunction("UnitTokenFromGUID", &Script_UnitTokenFromGUID);
-    Game::Lua::RegisterGlobalFunction("UnitTokenFromName", &Script_UnitTokenFromName);
+    Game::Lua::RegisterGlobalFunction("UnitGUID", &Script_UnitGUID, &kUnitGUID);
+    Game::Lua::RegisterGlobalFunction("UnitTokenFromGUID", &Script_UnitTokenFromGUID,
+                                      &kUnitTokenFromGUID);
+    Game::Lua::RegisterGlobalFunction("UnitTokenFromName", &Script_UnitTokenFromName,
+                                      &kUnitTokenFromName);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

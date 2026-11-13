@@ -49,8 +49,17 @@ static int __fastcall Script_GetSheathState(void *L) {
     return 1;
 }
 
+static const Game::Doc::Field kGetSheathStateRets[] = {
+    Game::Doc::Req("result", "number",
+                   "1 for weapons put away, 2 for a melee weapon drawn, 3 for a ranged weapon "
+                   "drawn."),
+};
+static const Game::Doc::Function kGetSheathState{
+    "Returns which weapon you have drawn.", {}, kGetSheathStateRets, "PlayerGlobals"};
+
 static void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("GetSheathState", &Script_GetSheathState);
+    Game::Lua::RegisterGlobalFunction("GetSheathState", &Script_GetSheathState,
+                                      &kGetSheathState);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

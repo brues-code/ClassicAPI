@@ -325,12 +325,49 @@ int __fastcall Script_UnitIsPossessed(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kUnitArgs[] = {
+    Game::Doc::Req("unit", "UnitToken"),
+};
+const Game::Doc::Field kPlayerFlagRets[] = {
+    Game::Doc::Req("result", "bool", "Always false for a unit that is not a player."),
+};
+const Game::Doc::Field kResultRets[] = {
+    Game::Doc::Req("result", "bool"),
+};
+const Game::Doc::Function kUnitIsAFK{
+    "Returns whether a player is away from keyboard.", kUnitArgs, kPlayerFlagRets,
+    "UnitGlobals"};
+const Game::Doc::Function kUnitIsDND{
+    "Returns whether a player is in Do Not Disturb mode.", kUnitArgs, kPlayerFlagRets,
+    "UnitGlobals"};
+const Game::Doc::Function kUnitIsFeignDeath{
+    "Returns whether a unit is feigning death.", kUnitArgs, kResultRets, "UnitGlobals"};
+const Game::Doc::Function kUnitIsPossessed{
+    "Returns whether a unit is possessed, for example by Mind Control.", kUnitArgs,
+    kResultRets, "UnitGlobals"};
+
+const Game::Doc::Field kInMyGuildArgs[] = {
+    Game::Doc::Req("unit", "cstring", "A unit token or a character name."),
+};
+const Game::Doc::Field kInMyGuildRets[] = {
+    Game::Doc::Opt("result", "number", nullptr,
+                   "1 when the character is in your guild, else nil."),
+};
+const Game::Doc::Function kUnitIsInMyGuild{
+    "Returns whether a unit or a named character is in your guild.", kInMyGuildArgs,
+    kInMyGuildRets, "UnitGlobals"};
+
 static void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("UnitIsAFK", &Script_UnitIsAFK);
-    Game::Lua::RegisterGlobalFunction("UnitIsDND", &Script_UnitIsDND);
-    Game::Lua::RegisterGlobalFunction("UnitIsFeignDeath", &Script_UnitIsFeignDeath);
-    Game::Lua::RegisterGlobalFunction("UnitIsPossessed", &Script_UnitIsPossessed);
-    Game::Lua::RegisterGlobalFunction("UnitIsInMyGuild", &Script_UnitIsInMyGuild);
+    Game::Lua::RegisterGlobalFunction("UnitIsAFK", &Script_UnitIsAFK, &kUnitIsAFK);
+    Game::Lua::RegisterGlobalFunction("UnitIsDND", &Script_UnitIsDND, &kUnitIsDND);
+    Game::Lua::RegisterGlobalFunction("UnitIsFeignDeath", &Script_UnitIsFeignDeath,
+                                      &kUnitIsFeignDeath);
+    Game::Lua::RegisterGlobalFunction("UnitIsPossessed", &Script_UnitIsPossessed,
+                                      &kUnitIsPossessed);
+    Game::Lua::RegisterGlobalFunction("UnitIsInMyGuild", &Script_UnitIsInMyGuild,
+                                      &kUnitIsInMyGuild);
 }
 
 } // namespace

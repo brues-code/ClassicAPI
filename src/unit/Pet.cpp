@@ -198,16 +198,50 @@ int __fastcall Script_UnitCreatedBySpell(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kUnitArgs[] = {
+    Game::Doc::Req("unit", "UnitToken"),
+};
+const Game::Doc::Field kResultRets[] = {
+    Game::Doc::Req("result", "bool", "False when the token names no unit."),
+};
+const Game::Doc::Function kUnitIsMinion{
+    "Returns whether a unit is a player's pet, guardian, totem, or charmed creature.",
+    kUnitArgs, kResultRets, "UnitGlobals"};
+const Game::Doc::Function kUnitIsPet{
+    "Returns whether a unit is a player's pet, not a guardian or totem.", kUnitArgs,
+    kResultRets, "UnitGlobals", true};
+const Game::Doc::Function kUnitIsOtherPlayersPet{
+    "Returns whether a unit is a pet, guardian, totem, or charmed creature of another player.",
+    kUnitArgs, kResultRets, "UnitGlobals"};
+
+const Game::Doc::Field kOwnerGUIDRets[] = {
+    Game::Doc::Opt("ownerGUID", "WOWGUID", nullptr,
+                   "Nil for a unit with no owner and when the token names no unit."),
+};
+const Game::Doc::Function kUnitOwnerGUID{
+    "Returns the GUID of the unit that summoned or charms a unit.", kUnitArgs, kOwnerGUIDRets,
+    "UnitGlobals"};
+
+const Game::Doc::Field kCreatedBySpellRets[] = {
+    Game::Doc::Opt("spellID", "number", nullptr,
+                   "Nil for a unit that no spell summoned and when the token names no unit."),
+};
+const Game::Doc::Function kUnitCreatedBySpell{
+    "Returns the spell that summoned a unit, such as the spell that dropped a totem.",
+    kUnitArgs, kCreatedBySpellRets, "UnitGlobals", true};
+
 } // namespace
 
 static void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("UnitIsMinion", &Script_UnitIsMinion);
-    Game::Lua::RegisterGlobalFunction("UnitIsPet", &Script_UnitIsPet);
-    Game::Lua::RegisterGlobalFunction("UnitIsOtherPlayersPet",
-                                      &Script_UnitIsOtherPlayersPet);
-    Game::Lua::RegisterGlobalFunction("UnitOwnerGUID", &Script_UnitOwnerGUID);
-    Game::Lua::RegisterGlobalFunction("UnitCreatedBySpell",
-                                      &Script_UnitCreatedBySpell);
+    Game::Lua::RegisterGlobalFunction("UnitIsMinion", &Script_UnitIsMinion, &kUnitIsMinion);
+    Game::Lua::RegisterGlobalFunction("UnitIsPet", &Script_UnitIsPet, &kUnitIsPet);
+    Game::Lua::RegisterGlobalFunction("UnitIsOtherPlayersPet", &Script_UnitIsOtherPlayersPet,
+                                      &kUnitIsOtherPlayersPet);
+    Game::Lua::RegisterGlobalFunction("UnitOwnerGUID", &Script_UnitOwnerGUID, &kUnitOwnerGUID);
+    Game::Lua::RegisterGlobalFunction("UnitCreatedBySpell", &Script_UnitCreatedBySpell,
+                                      &kUnitCreatedBySpell);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

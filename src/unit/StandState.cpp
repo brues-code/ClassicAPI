@@ -70,8 +70,23 @@ int __fastcall Script_UnitStandState(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("unit", "UnitToken"),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Req("standState", "number",
+                   "0 standing, 1 sitting, 2 and 4 to 6 on a chair, 3 sleeping, 7 dead, "
+                   "8 kneeling; 0 when the token names no unit."),
+};
+const Game::Doc::Function kUnitStandState{
+    "Returns the stand state of a unit, such as standing, sitting, or sleeping.", kArgs, kRets,
+    "UnitGlobals", true};
+
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("UnitStandState", &Script_UnitStandState);
+    Game::Lua::RegisterGlobalFunction("UnitStandState", &Script_UnitStandState,
+                                      &kUnitStandState);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

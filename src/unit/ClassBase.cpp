@@ -88,8 +88,22 @@ int __fastcall Script_UnitClassBase(void *L) {
     return 2;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("unit", "UnitToken"),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Opt("classFilename", "cstring", nullptr,
+                   "For example \"WARRIOR\"; nil, with classID, when the class is unknown."),
+    Game::Doc::Opt("classID", "number"),
+};
+const Game::Doc::Function kUnitClassBase{
+    "Returns the locale-independent class token and class ID of a unit.", kArgs, kRets,
+    "UnitGlobals"};
+
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("UnitClassBase", &Script_UnitClassBase);
+    Game::Lua::RegisterGlobalFunction("UnitClassBase", &Script_UnitClassBase, &kUnitClassBase);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

@@ -99,8 +99,19 @@ static int __fastcall Script_UnitSpellHaste(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("unit", "UnitToken"),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Req("result", "number",
+                   "A percentage: 0 for no haste or no unit, negative when casting is slowed."),
+};
+const Game::Doc::Function kUnitSpellHaste{
+    "Returns a unit's spell haste as a percentage.", kArgs, kRets, "UnitGlobals"};
+
 static void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("UnitSpellHaste", &Script_UnitSpellHaste);
+    Game::Lua::RegisterGlobalFunction("UnitSpellHaste", &Script_UnitSpellHaste,
+                                      &kUnitSpellHaste);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

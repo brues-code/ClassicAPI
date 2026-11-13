@@ -96,8 +96,22 @@ int __fastcall Script_IsUnitToken(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Opt("value", "string", nullptr,
+                   "Anything; a missing or non-string value returns false."),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Req("isUnitToken", "bool",
+                   "True for any token the client accepts, also when no unit is there."),
+};
+const Game::Doc::Function kIsUnitToken{
+    "Returns whether a value is a unit token rather than a name or other text.", kArgs, kRets,
+    "UnitGlobals", true};
+
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("IsUnitToken", &Script_IsUnitToken);
+    Game::Lua::RegisterGlobalFunction("IsUnitToken", &Script_IsUnitToken, &kIsUnitToken);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
