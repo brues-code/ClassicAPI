@@ -514,7 +514,7 @@ const Game::Doc::Field kByInstanceIDRets[] = {
     Game::Doc::Opt("aura", "AuraData", nullptr, "Nil when no aura on the unit has that ID."),
 };
 const Game::Doc::Function kGetAuraDataByAuraInstanceID{
-    "The aura with the given instance ID on a unit.", kByInstanceIDArgs, kByInstanceIDRets};
+    "Returns the aura with the given instance ID on a unit.", kByInstanceIDArgs, kByInstanceIDRets};
 
 // C_UnitAuras.GetAuraDataBySlot(unit, slot) -> AuraData | nil
 int __fastcall Script_GetAuraDataBySlot(void *L) {

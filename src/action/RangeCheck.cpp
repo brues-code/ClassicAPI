@@ -126,8 +126,8 @@ const Game::Doc::Field kEnableArgs[] = {
                    "ACTION_RANGE_CHECK_UPDATE. False if the action no longer needs the event."),
 };
 const Game::Doc::Function kEnableDoc{
-    "Used with ACTION_RANGE_CHECK_UPDATE to be informed when an action goes in or out of range "
-    "of its target.",
+    "Turns ACTION_RANGE_CHECK_UPDATE on or off for an action slot, which fires when the action "
+    "goes in or out of range of its target.",
     kEnableArgs};
 
 void RegisterLuaFunctions() {

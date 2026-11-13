@@ -46,7 +46,7 @@ constexpr int OPTION_TYPE_ITEM = 1;
 
 const Game::Doc::Event kChangedDoc{
     "DeathInfo",
-    "The player's self-resurrection spell changed. Read C_DeathInfo.GetSelfResurrectOptions.",
+    "Fires when the player's ways to resurrect themselves change.",
     {}};
 const Event::Custom::AutoReserve kChanged{"SELF_RES_SPELL_CHANGED", &kChangedDoc};
 
@@ -191,7 +191,7 @@ const Game::Doc::Field kGetRets[] = {
     Game::Doc::Req("options", "table", "Array of SelfResurrectOption; empty while alive."),
 };
 const Game::Doc::Function kGetSelfResurrectOptions{
-    "The ways the dead player can resurrect themselves.", {}, kGetRets};
+    "Returns the ways the dead player can resurrect themselves.", {}, kGetRets};
 
 const Game::Doc::Field kUseArgs[] = {
     Game::Doc::Req("optionType", "SelfResurrectOptionType"),

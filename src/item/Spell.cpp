@@ -129,7 +129,7 @@ const Game::Doc::Field kIsHelpfulRets[] = {
                    "1 when the item's use effect aims at a friend, else nil."),
 };
 const Game::Doc::Function kIsHelpfulItem{
-    "Whether the item's use effect aims at a friend.", kItemArgs, kIsHelpfulRets,
+    "Returns whether the item's use effect aims at a friend.", kItemArgs, kIsHelpfulRets,
     "ItemGlobals"};
 
 const Game::Doc::Field kIsHarmfulRets[] = {
@@ -137,7 +137,7 @@ const Game::Doc::Field kIsHarmfulRets[] = {
                    "1 when the item's use effect aims at an enemy, else nil."),
 };
 const Game::Doc::Function kIsHarmfulItem{
-    "Whether the item's use effect aims at an enemy.", kItemArgs, kIsHarmfulRets,
+    "Returns whether the item's use effect aims at an enemy.", kItemArgs, kIsHarmfulRets,
     "ItemGlobals"};
 
 } // namespace

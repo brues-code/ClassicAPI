@@ -120,7 +120,7 @@ const Game::Doc::Field kCIsStackableRets[] = {
     Game::Doc::Req("isStackableAction", "bool"),
 };
 const Game::Doc::Function kCIsStackableAction{
-    "Whether the action's item stacks.",
+    "Returns whether the action's item stacks.",
     kActionIDArgs, kCIsStackableRets};
 
 const Game::Doc::Field kOnEquipRets[] = {
@@ -128,7 +128,7 @@ const Game::Doc::Field kOnEquipRets[] = {
                    "Nil when the action has no item or its item has no on-equip spell."),
 };
 const Game::Doc::Function kGetItemActionOnEquipSpellID{
-    "The spell the action's item grants while equipped.",
+    "Returns the spell the action's item grants while equipped.",
     kActionIDArgs, kOnEquipRets};
 
 } // namespace

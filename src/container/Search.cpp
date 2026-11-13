@@ -308,7 +308,7 @@ const Game::Doc::Field kIsContainerFilteredRets[] = {
                    "True when a search is active and no item in the container matches it."),
 };
 const Game::Doc::Function kIsContainerFiltered{
-    "Whether the bag search hides every item in a container.", kIsContainerFilteredArgs,
+    "Returns whether the bag search hides every item in a container.", kIsContainerFilteredArgs,
     kIsContainerFilteredRets};
 
 void RegisterLuaFunctions() {

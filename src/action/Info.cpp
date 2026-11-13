@@ -172,7 +172,7 @@ const Game::Doc::Field kGetSpellRets[] = {
     Game::Doc::Req("spellID", "number"),
 };
 const Game::Doc::Function kGetSpellDoc{
-    "The spell an action stands for: a spell's own ID, a macro's spell, or an item's "
+    "Returns the spell an action stands for: a spell's own ID, a macro's spell, or an item's "
     "on-use spell; 0 when there is none.",
     kGetSpellArgs, kGetSpellRets};
 
@@ -180,7 +180,7 @@ const Game::Doc::Field kIsMacroActionWithShowTooltipRets[] = {
     Game::Doc::Req("isMacroActionWithShowTooltip", "bool"),
 };
 const Game::Doc::Function kIsMacroActionWithShowTooltipDoc{
-    "Whether the action is a macro with an explicit #showtooltip line.",
+    "Returns whether the action is a macro with an explicit #showtooltip line.",
     kGetSpellArgs, kIsMacroActionWithShowTooltipRets};
 
 const Game::Doc::Field kGetActionInfoArgs[] = {

@@ -815,7 +815,7 @@ static const Game::Doc::Field kGetSpellInfoRets[] = {
     Game::Doc::Opt("spellID", "number", nullptr, "The spell ID the arguments resolved to."),
 };
 static const Game::Doc::Function kGetSpellInfo{
-    "Name, rank, icon, cost, cast time and range for any spell, plus its ID.",
+    "Returns the name, rank, icon, cost, cast time and range of any spell, plus its ID.",
     kSpellOrSlotArgs, kGetSpellInfoRets, "SpellGlobals"};
 
 static const Game::Doc::Field kSpellInfoFields[] = {
@@ -842,7 +842,7 @@ static const Game::Doc::Field kCSpellInfoRets[] = {
     Game::Doc::Opt("info", "SpellInfo", nullptr, "Nil for an unknown spell."),
 };
 static const Game::Doc::Function kCSpellGetSpellInfo{
-    "A table of the spell's name, icon, cast time, range and cost.",
+    "Returns a table of the spell's name, icon, cast time, range and cost.",
     kSpellIdArgs, kCSpellInfoRets};
 
 static const Game::Doc::Field kSpellNameRets[] = {
@@ -850,14 +850,14 @@ static const Game::Doc::Field kSpellNameRets[] = {
                    "Nil for an unknown spell, or one with no name in this locale."),
 };
 static const Game::Doc::Function kCSpellGetSpellName{
-    "The localized name of a spell.", kSpellIdArgs, kSpellNameRets};
+    "Returns the localized name of a spell.", kSpellIdArgs, kSpellNameRets};
 
 static const Game::Doc::Field kSpellTextureRets[] = {
     Game::Doc::Opt("texture", "string", nullptr,
                    "Icon texture path; nil when the spell or its icon is unknown."),
 };
 static const Game::Doc::Function kCSpellGetSpellTexture{
-    "The icon texture path for a spell.", kSpellIdArgs, kSpellTextureRets};
+    "Returns the icon texture path for a spell.", kSpellIdArgs, kSpellTextureRets};
 
 static const Game::Doc::Field kGetSpellLinkRets[] = {
     Game::Doc::Opt("link", "string", nullptr,
@@ -865,7 +865,7 @@ static const Game::Doc::Field kGetSpellLinkRets[] = {
     Game::Doc::Opt("spellID", "number", nullptr, "The spell ID the arguments resolved to."),
 };
 static const Game::Doc::Function kGetSpellLink{
-    "The chat hyperlink for a spell, with the spell ID it resolves to.",
+    "Returns the chat hyperlink for a spell, with the spell ID it resolves to.",
     kSpellOrSlotArgs, kGetSpellLinkRets, "SpellGlobals"};
 
 static const Game::Doc::Field kCSpellLinkRets[] = {
@@ -873,7 +873,7 @@ static const Game::Doc::Field kCSpellLinkRets[] = {
                    "Chat hyperlink for the spell; nil for an unknown spell."),
 };
 static const Game::Doc::Function kCSpellGetSpellLink{
-    "The chat hyperlink for a spell.", kSpellIdArgs, kCSpellLinkRets};
+    "Returns the chat hyperlink for a spell.", kSpellIdArgs, kCSpellLinkRets};
 
 static const Game::Doc::Field kFindSlotArgs[] = {
     Game::Doc::Req("spellID", "number", "The spell to look for."),
@@ -884,7 +884,7 @@ static const Game::Doc::Field kFindSlotRets[] = {
     Game::Doc::Opt("bookType", "string", nullptr, "\"spell\" or \"pet\"."),
 };
 static const Game::Doc::Function kFindSpellBookSlotByID{
-    "The spellbook slot and book that hold a spell.",
+    "Returns the spellbook slot and book that hold a spell.",
     kFindSlotArgs, kFindSlotRets, "SpellGlobals"};
 
 static const Game::Doc::Field kIsPassiveRets[] = {
@@ -892,10 +892,10 @@ static const Game::Doc::Field kIsPassiveRets[] = {
                    "True when the spell applies itself with no cast; nil for an unknown spell."),
 };
 static const Game::Doc::Function kIsPassiveSpell{
-    "Whether a spell is passive, so it needs no cast.",
+    "Returns whether a spell is passive, so it needs no cast.",
     kSpellOrSlotArgs, kIsPassiveRets, "SpellGlobals"};
 static const Game::Doc::Function kCSpellIsSpellPassive{
-    "Whether a spell is passive, so it needs no cast.",
+    "Returns whether a spell is passive, so it needs no cast.",
     kSpellIdArgs, kIsPassiveRets};
 
 static const Game::Doc::Field kIsPlayerSpellArgs[] = {
@@ -905,14 +905,14 @@ static const Game::Doc::Field kIsPlayerSpellRets[] = {
     Game::Doc::Req("isKnown", "bool", "True when the player knows this exact spell ID."),
 };
 static const Game::Doc::Function kIsPlayerSpell{
-    "Whether the player knows the spell, talents, racials and recipes included.",
+    "Returns whether the player knows the spell, talents, racials and recipes included.",
     kIsPlayerSpellArgs, kIsPlayerSpellRets, "SpellGlobals"};
 
 static const Game::Doc::Field kCanDualWieldRets[] = {
     Game::Doc::Req("canDualWield", "bool", "True when the player has learned Dual Wield."),
 };
 static const Game::Doc::Function kCanDualWield{
-    "Whether the player can hold a weapon in the off hand.",
+    "Returns whether the player can hold a weapon in the off hand.",
     {}, kCanDualWieldRets, "SpellGlobals"};
 
 static const Game::Doc::Field kIsSpellKnownArgs[] = {
@@ -923,27 +923,27 @@ static const Game::Doc::Field kIsSpellKnownRets[] = {
     Game::Doc::Req("isKnown", "bool", "True when the chosen spellbook holds the spell."),
 };
 static const Game::Doc::Function kIsSpellKnown{
-    "Whether the spell has a button in the player's or the pet's spellbook.",
+    "Returns whether the spell has a button in the player's or the pet's spellbook.",
     kIsSpellKnownArgs, kIsSpellKnownRets, "SpellGlobals"};
 
 static const Game::Doc::Field kIsHarmfulRets[] = {
     Game::Doc::Req("isHarmful", "bool", "True when an effect of the spell aims at an enemy."),
 };
 static const Game::Doc::Function kIsHarmfulSpell{
-    "Whether the spell aims at an enemy.",
+    "Returns whether the spell aims at an enemy.",
     kSpellOrSlotArgs, kIsHarmfulRets, "SpellGlobals"};
 static const Game::Doc::Function kCSpellIsSpellHarmful{
-    "Whether the spell aims at an enemy.", kSpellIdArgs, kIsHarmfulRets};
+    "Returns whether the spell aims at an enemy.", kSpellIdArgs, kIsHarmfulRets};
 
 static const Game::Doc::Field kIsHelpfulRets[] = {
     Game::Doc::Req("isHelpful", "bool",
                    "True when an effect of the spell aims at yourself or a friendly unit."),
 };
 static const Game::Doc::Function kIsHelpfulSpell{
-    "Whether the spell aims at yourself or a friendly unit.",
+    "Returns whether the spell aims at yourself or a friendly unit.",
     kSpellOrSlotArgs, kIsHelpfulRets, "SpellGlobals"};
 static const Game::Doc::Function kCSpellIsSpellHelpful{
-    "Whether the spell aims at yourself or a friendly unit.",
+    "Returns whether the spell aims at yourself or a friendly unit.",
     kSpellIdArgs, kIsHelpfulRets};
 
 static const Game::Doc::Field kSpellBookItemInfoFields[] = {
@@ -971,7 +971,7 @@ static const Game::Doc::Field kGetSpellBookItemInfoRets[] = {
                    "Nil for an empty slot, or a slot past the end of the book."),
 };
 static const Game::Doc::Function kGetSpellBookItemInfo{
-    "A table describing the spell in a spellbook slot.",
+    "Returns a table that describes the spell in a spellbook slot.",
     kGetSpellBookItemInfoArgs, kGetSpellBookItemInfoRets};
 
 static const Game::Doc::Field kByAuraArgs[] = {
@@ -982,14 +982,14 @@ static const Game::Doc::Field kByAuraRets[] = {
                    "Spell IDs in ascending order; empty when no known spell applies the aura."),
 };
 static const Game::Doc::Function kGetPlayerSpellsByAura{
-    "Every spell the player knows that applies the given aura.",
+    "Returns every spell the player knows that applies the given aura.",
     kByAuraArgs, kByAuraRets};
 
 static const Game::Doc::Field kDisenchantRets[] = {
     Game::Doc::Req("hasDisenchant", "bool", "True when a known spell disenchants items."),
 };
 static const Game::Doc::Function kContainsAnyDisenchantSpell{
-    "Whether the player knows a spell that disenchants items.", {}, kDisenchantRets};
+    "Returns whether the player knows a spell that disenchants items.", {}, kDisenchantRets};
 
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("GetSpellInfo", &Script_GetSpellInfo, &kGetSpellInfo);

@@ -2168,7 +2168,9 @@ const Game::Doc::Function kAfter{
     "on the clock of the scene.",
     kTimerArgs, {}, nullptr, true};
 const Game::Doc::Function kNewTimer{
-    "As scene:After, and returns a handle that can cancel the timer.", kTimerArgs, kTimerRet, nullptr, true};
+    "Calls a function once after a delay, as scene:After does, and returns a handle that "
+    "can cancel the timer.",
+    kTimerArgs, kTimerRet, nullptr, true};
 const Game::Doc::Function kNewTicker{
     "Calls the callback each time the clock of the scene runs for the seconds. As C_Timer.NewTicker, "
     "on the clock of the scene.",

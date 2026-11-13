@@ -385,7 +385,7 @@ const Game::Doc::Field kStrlenutf8Rets[] = {
     Game::Doc::Req("length", "number", "The number of characters; strlen counts bytes."),
 };
 const Game::Doc::Function kStrlenutf8{
-    "The number of characters in a UTF-8 string, not the number of bytes.",
+    "Returns the number of characters in a UTF-8 string, not the number of bytes.",
     kStrlenutf8Args, kStrlenutf8Rets, "LuaGlobals"};
 
 const Game::Doc::Field kStrcmputf8iArgs[] = {

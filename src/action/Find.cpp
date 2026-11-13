@@ -137,21 +137,21 @@ const Game::Doc::Field kFindRets[] = {
                                      "holds the spell."),
 };
 const Game::Doc::Function kFindSpellActionButtons{
-    "The action slots that hold the spell as a spell action.",
+    "Returns the action slots that hold the spell as a spell action.",
     kArgs, kFindRets};
 
 const Game::Doc::Field kHasRets[] = {
     Game::Doc::Req("hasSpellActionButtons", "bool"),
 };
 const Game::Doc::Function kHasSpellActionButtons{
-    "Whether any action slot holds the spell as a spell action.",
+    "Returns whether any action slot holds the spell as a spell action.",
     kArgs, kHasRets};
 
 const Game::Doc::Field kOnBarRets[] = {
     Game::Doc::Req("isOnBarOrSpecialBar", "bool"),
 };
 const Game::Doc::Function kIsOnBarOrSpecialBar{
-    "Whether the spell is in an action slot, on the shapeshift bar, or on the pet bar.",
+    "Returns whether the spell is in an action slot, on the shapeshift bar, or on the pet bar.",
     kArgs, kOnBarRets};
 
 const Game::Lua::EnumIntegerEntry kActionBarSet[] = {

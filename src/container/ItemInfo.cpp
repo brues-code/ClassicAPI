@@ -217,7 +217,7 @@ const Game::Doc::Field kArgs[] = {
 const Game::Doc::Field kRets[] = {
     Game::Doc::Opt("containerInfo", "ContainerItemInfo", nullptr, "Nil when the slot is empty."),
 };
-const Game::Doc::Function kGetContainerItemInfo{"The item in a bag slot.", kArgs, kRets};
+const Game::Doc::Function kGetContainerItemInfo{"Returns the item in a bag slot.", kArgs, kRets};
 
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Container", "GetContainerItemInfo",

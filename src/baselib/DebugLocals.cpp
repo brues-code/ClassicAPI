@@ -202,7 +202,7 @@ const Game::Doc::Field kDebuglocalsRets[] = {
                    "error handler."),
 };
 const Game::Doc::Function kDebuglocals{
-    "The local variables and upvalues of a call level as text, for an error report.",
+    "Returns the local variables and upvalues of a call level as text, for an error report.",
     kDebuglocalsArgs, kDebuglocalsRets, "LuaGlobals"};
 
 void RegisterInGame() {

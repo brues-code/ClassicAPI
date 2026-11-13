@@ -1215,10 +1215,10 @@ static const Game::Doc::Field kCastingInfoRets[] = {
                    "Pushback the cast has taken so far, in milliseconds."),
 };
 static const Game::Doc::Function kUnitCastingInfo{
-    "The regular cast a unit has in progress, with its start and end times.",
+    "Returns the regular cast a unit has in progress, with its start and end times.",
     kUnitArgs, kCastingInfoRets};
 static const Game::Doc::Function kCastingInfo{
-    "The regular cast the player has in progress, with its start and end times.",
+    "Returns the regular cast the player has in progress, with its start and end times.",
     {}, kCastingInfoRets};
 
 // Both channel getters push the same 8 values, and nothing when there is no
@@ -1238,10 +1238,10 @@ static const Game::Doc::Field kChannelInfoRets[] = {
     Game::Doc::Opt("spellID", "number", nullptr, "The spell being channeled."),
 };
 static const Game::Doc::Function kUnitChannelInfo{
-    "The channel a unit has in progress, with its start and end times.",
+    "Returns the channel a unit has in progress, with its start and end times.",
     kUnitArgs, kChannelInfoRets};
 static const Game::Doc::Function kChannelInfo{
-    "The channel the player has in progress, with its start and end times.",
+    "Returns the channel the player has in progress, with its start and end times.",
     {}, kChannelInfoRets};
 
 static const Game::Doc::Field kCastingDurationRets[] = {
@@ -1250,15 +1250,16 @@ static const Game::Doc::Field kCastingDurationRets[] = {
                    "casting."),
 };
 static const Game::Doc::Function kUnitCastingDuration{
-    "The time span of the regular cast a unit has in progress.", kUnitArgs, kCastingDurationRets,
-    "UnitGlobals"};
+    "Returns the time span of the regular cast a unit has in progress.", kUnitArgs,
+    kCastingDurationRets, "UnitGlobals"};
 static const Game::Doc::Field kChannelDurationRets[] = {
     Game::Doc::Req("duration", "LuaDurationObject",
                    "A new object each call that keeps these times; nothing is returned when the unit is not "
                    "channeling, or for a unit whose channel you did not see begin."),
 };
 static const Game::Doc::Function kUnitChannelDuration{
-    "The time span of the channel a unit has in progress.", kUnitArgs, kChannelDurationRets, "UnitGlobals"};
+    "Returns the time span of the channel a unit has in progress.", kUnitArgs,
+    kChannelDurationRets, "UnitGlobals"};
 
 static const Game::Doc::Field kTargetNameRets[] = {
     Game::Doc::Opt("targetName", "string", nullptr,
@@ -1266,7 +1267,7 @@ static const Game::Doc::Field kTargetNameRets[] = {
                    "or the name cannot be resolved."),
 };
 static const Game::Doc::Function kUnitSpellTargetName{
-    "The name of the unit that a unit is casting or channeling a spell at.",
+    "Returns the name of the unit that a unit is casting or channeling a spell at.",
     kUnitArgs, kTargetNameRets, "SpellGlobals", true};
 
 static void RegisterLuaFunctions() {

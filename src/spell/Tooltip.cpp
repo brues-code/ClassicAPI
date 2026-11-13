@@ -222,13 +222,13 @@ static const Game::Doc::Field kGetSpellRets[] = {
     Game::Doc::Opt("spellID", "number"),
 };
 static const Game::Doc::Function kGetSpell{
-    "The spell the tooltip is showing. Aura tooltips report nothing.", {}, kGetSpellRets};
+    "Returns the spell the tooltip is showing; aura tooltips report nothing.", {}, kGetSpellRets};
 
 static const Game::Doc::Field kHasSpellRets[] = {
     Game::Doc::Req("hasSpell", "bool", "True while the tooltip shows a spell."),
 };
 static const Game::Doc::Function kHasSpell{
-    "Whether the tooltip is showing a spell. Aura tooltips report false.",
+    "Returns whether the tooltip is showing a spell; aura tooltips report false.",
     {}, kHasSpellRets};
 
 static const Game::Doc::Method g_methodDocs[] = {

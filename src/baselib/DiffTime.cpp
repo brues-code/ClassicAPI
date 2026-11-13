@@ -39,7 +39,7 @@ const Game::Doc::Field kDifftimeArgs[] = {
 const Game::Doc::Field kDifftimeRets[] = {
     Game::Doc::Req("seconds", "number", "time2 minus time1."),
 };
-const Game::Doc::Function kDifftime{"The number of seconds from time1 to time2.",
+const Game::Doc::Function kDifftime{"Returns the number of seconds from time1 to time2.",
                                     kDifftimeArgs, kDifftimeRets, "LuaGlobals"};
 
 void RegisterInGame() {

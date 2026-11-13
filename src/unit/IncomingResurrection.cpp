@@ -68,7 +68,7 @@ const Game::Doc::Field kChangedPayload[] = {
     Game::Doc::Req("unitTarget", "UnitToken", "The unit, or the player whose corpse it is."),
 };
 const Game::Doc::Event kChangedDoc{
-    "Unit", "A resurrection cast at the unit began or ended. Read UnitHasIncomingResurrection.",
+    "Unit", "Fires when a resurrection cast at the unit begins or ends.",
     kChangedPayload};
 const Event::Custom::AutoReserve kChanged{"INCOMING_RESURRECT_CHANGED", &kChangedDoc};
 
@@ -196,7 +196,8 @@ const Game::Doc::Field kRets[] = {
     Game::Doc::Req("hasIncomingResurrection", "bool"),
 };
 const Game::Doc::Function kUnitHasIncomingResurrection{
-    "Whether a resurrection is being cast at the unit, or at the corpse of a released player.",
+    "Returns whether a resurrection is being cast at the unit, or at the corpse of a released "
+    "player.",
     kArgs, kRets, "UnitGlobals"};
 
 void RegisterLuaFunctions() {

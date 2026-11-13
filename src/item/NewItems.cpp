@@ -579,7 +579,7 @@ const Game::Doc::Field kIsNewItemRets[] = {
     Game::Doc::Req("isNew", "bool", "True when the item in the slot is flagged new."),
 };
 const Game::Doc::Function kIsNewItem{
-    "Whether the item in a bag slot is new: looted, created, bought, rewarded, taken "
+    "Returns whether the item in a bag slot is new: looted, created, bought, rewarded, taken "
     "from mail or traded since login, and not yet cleared.",
     kSlotArgs, kIsNewItemRets};
 const Game::Doc::Function kRemoveNewItem{

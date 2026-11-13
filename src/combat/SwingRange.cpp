@@ -226,8 +226,8 @@ const Game::Doc::Field kEnableArgs[] = {
                    "needs the event."),
 };
 const Game::Doc::Function kEnableDoc{
-    "Used with PLAYER_SWING_RANGE_UPDATE to be informed when the current target "
-    "enters or leaves range for a swing type.",
+    "Turns PLAYER_SWING_RANGE_UPDATE on or off for a swing type, which fires when the "
+    "current target enters or leaves range for it.",
     kEnableArgs};
 
 const Game::Doc::Field kIsInRangeArgs[] = {
@@ -241,9 +241,8 @@ const Game::Doc::Field kIsInRangeRets[] = {
                    "of range."),
 };
 const Game::Doc::Function kIsInRangeDoc{
-    "Whether the current target is within range of the player's auto attack for "
-    "the given swing type. Auto attacks only ever apply to the current target, "
-    "so no other unit can be queried.",
+    "Returns whether the current target is within range of the player's auto attack "
+    "for the given swing type; only the current target can be checked.",
     kIsInRangeArgs, kIsInRangeRets};
 
 void RegisterLuaFunctions() {

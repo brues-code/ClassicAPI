@@ -122,7 +122,7 @@ const Game::Doc::Field kByIdentifierArgs[] = {
     Game::Doc::Req("spell", "SpellIdentifier", "A spell ID, spell link, or spell name."),
 };
 const Game::Doc::Function kC_SpellGetSpellRadius{
-    "The area a spell covers in yards, before and after the player's own changes to it.",
+    "Returns the area a spell covers in yards, before and after the player's own changes to it.",
     kByIdentifierArgs, kRadiusRets};
 
 const Game::Doc::Field kBySlotArgs[] = {
@@ -131,7 +131,7 @@ const Game::Doc::Field kBySlotArgs[] = {
                    "\"spell\" or \"pet\"; picks the book the slot belongs to."),
 };
 const Game::Doc::Function kGetSpellRadius{
-    "The area the spell in a spellbook slot covers in yards, before and after the "
+    "Returns the area the spell in a spellbook slot covers in yards, before and after the "
     "player's own changes to it.",
     kBySlotArgs, kRadiusRets, "SpellGlobals"};
 

@@ -86,7 +86,7 @@ static const Game::Doc::Field kGetSpellDescriptionRets[] = {
                    "your language."),
 };
 static const Game::Doc::Function kGetSpellDescription{
-    "The spell's description text, with its placeholders filled in at the base rank.",
+    "Returns the spell's description text, with its placeholders filled in at the base rank.",
     kGetSpellDescriptionArgs, kGetSpellDescriptionRets};
 
 static const Game::Doc::Field kForItemLocationArgs[] = {
@@ -94,7 +94,7 @@ static const Game::Doc::Field kForItemLocationArgs[] = {
     Game::Doc::Req("itemLocation", "ItemLocation", "The item that shows the spell."),
 };
 static const Game::Doc::Function kGetSpellDescriptionForItemLocation{
-    "The spell's description text as an item's tooltip shows it.",
+    "Returns the spell's description text as an item's tooltip shows it.",
     kForItemLocationArgs, kGetSpellDescriptionRets};
 
 static void RegisterLuaFunctions() {

@@ -70,7 +70,7 @@ const Game::Doc::Field kByIdentifierRets[] = {
                    "True when the spell's minimum or maximum range is above zero."),
 };
 const Game::Doc::Function kC_SpellHasRange{
-    "Whether the spell is cast at something at a distance rather than on the caster.",
+    "Returns whether the spell is cast at something at a distance rather than on the caster.",
     kByIdentifierArgs, kByIdentifierRets};
 
 const Game::Doc::Field kBySlotArgs[] = {
@@ -84,7 +84,7 @@ const Game::Doc::Field kBySlotRets[] = {
                    "false for an empty slot."),
 };
 const Game::Doc::Function kSpellHasRange{
-    "Whether the spellbook slot holds a spell you cast at a distance rather than on "
+    "Returns whether the spellbook slot holds a spell you cast at a distance rather than on "
     "the caster.",
     kBySlotArgs, kBySlotRets, "SpellGlobals"};
 

@@ -75,7 +75,7 @@ const Game::Doc::Field kGetSpellEffectMechanicsRets[] = {
                    "effect carries no mechanic. Nil for an unknown spell."),
 };
 const Game::Doc::Function kGetSpellEffectMechanics{
-    "The mechanic each of the spell's three effects applies, such as root or bleed.",
+    "Returns the mechanic each of the spell's three effects applies, such as root or bleed.",
     kGetSpellEffectMechanicsArgs, kGetSpellEffectMechanicsRets};
 
 } // namespace

@@ -49,7 +49,7 @@ const Game::Doc::Field kIsCachedRets[] = {
     Game::Doc::Req("isCached", "bool", "True when the client holds data for the spell."),
 };
 const Game::Doc::Function kIsSpellDataCached{
-    "Whether the data for a spell is loaded and ready to read.", kSpellArgs, kIsCachedRets};
+    "Returns whether the data for a spell is loaded and ready to read.", kSpellArgs, kIsCachedRets};
 const Game::Doc::Function kRequestLoadSpellData{
     "Asks for a spell's data to be loaded; SPELL_DATA_LOAD_RESULT reports when it is ready.",
     kSpellArgs, {}};
@@ -59,7 +59,8 @@ const Game::Doc::Field kLoadResultPayload[] = {
     Game::Doc::Req("success", "bool"),
 };
 const Game::Doc::Event kLoadResultDoc{
-    "Spell", "A spell data request finished; success is false when no such spell exists.",
+    "Spell",
+    "Fires when a spell data request finishes; success is false when no such spell exists.",
     kLoadResultPayload};
 const Event::Custom::AutoReserve _reserveLoadResult{"SPELL_DATA_LOAD_RESULT", &kLoadResultDoc};
 

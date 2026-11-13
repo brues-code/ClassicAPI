@@ -141,7 +141,8 @@ const Game::Doc::Field kIsTargetLooseRets[] = {
                    "True while the target was set by soft targeting, not chosen."),
 };
 const Game::Doc::Function kIsTargetLoose{
-    "Whether the current target is loose: set by soft targeting (SoftTargetForce), not chosen.",
+    "Returns whether the current target is loose: set by soft targeting (SoftTargetForce), "
+    "not chosen.",
     {}, kIsTargetLooseRets, "TargetScript"};
 
 void Register() {
