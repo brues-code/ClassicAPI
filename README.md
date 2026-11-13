@@ -11,28 +11,29 @@ self-contained.
 
 ## Highlights
 
-The headline features. Each one takes effect as soon as the DLL loads, so your
-existing addons benefit without any code changes. The complete per-function
-reference is in **[docs/API.md](docs/API.md)**.
+The headline features. The complete per-function reference is in
+**[docs/API.md](docs/API.md)**.
 
 | Feature | Effect |
 |---------|--------|
 | Lua 5.1 code | Addon code written for Lua 5.1 runs on the 1.12 Lua 5.0 VM. This includes the [5.1 syntax](docs/API.md#lua-51-syntax), [method calls on strings](docs/API.md#string-methods-supper-sformat), [more upvalues](docs/API.md#upvalue-limit) and [new `for` loop variables](docs/API.md#for-loop-variables-per-pass) on each pass. |
-| [Modern script handlers](docs/API.md#setmodernscriptargsenable--getmodernscriptargs) | Frame scripts get their values as arguments, for example `OnClick(self, button, down)`. [XML script bodies](docs/API.md#xml-script-bodies-see-self-and-their-arguments) see `self` and their arguments by name. The `this` / `arg1` globals stay set. |
-| Inline textures | Texture markup (`\|T…\|t`) and atlas markup (`\|A…\|a`) show as icons in font strings, chat and tooltips. `GetStringWidth` and `GetStringHeight` count the icons. |
+| [Retail-like `/reload`](docs/API.md#reload-picks-up-new-addons-and-new-files) | `/reload` loads new addon folders, new files in a TOC, and changes to `##` metadata such as `## SavedVariables:`. A deleted addon folder leaves the addon list. |
 | [Soft targeting](docs/API.md#soft-interact-softinteract--anyinteract) | Bind **Interact With Target** to a key to interact with the nearest NPC, corpse, chest or node in front of you. The [`softenemy` and `softfriend`](docs/API.md#soft-enemy-and-soft-friend-softenemy--softfriend--anyenemy--anyfriend) tokens point at the nearest enemy and friendly unit. |
-| [Animations](docs/API.md#animation) | Animation groups on frames, textures and font strings, made in Lua or XML, with `Alpha`, `Translation`, `Scale`, `Rotation` and `Path` animations. |
-| [Model scenes](docs/API.md#modelscene) | The `ModelScene` frame type shows many models in one 3D scene, with its own camera, light and fog. Each actor shows a creature, a model file or a copy of a unit, and can move through a WMO, for example a dungeon. |
-| Tooltip line cap | Removes the 30-line limit of `GameTooltip` and every other tooltip made from `GameTooltipTemplate`, so long tooltips keep all their lines. |
-| [XML attributes](docs/API.md#parentkey-in-xml) | Modern XML works. This includes `parentKey`, `parentArray`, `mixin`, `<KeyValues>`, `inherits` with more than one template, `method` and `function` script handlers, and `intrinsic` frame types. Frames, textures, font strings and other widgets also take many new attributes. |
 | [Macro conditions](docs/API.md#more-commands-with-conditions) | `[conditions]` and `@unit` work on 38 slash commands, from `/cast` and `/use` to `/target` and `/pet`. Addons read the same rules through `SecureCmdOptionParse`. |
 | [`#showtooltip`](docs/API.md#showtooltip-and-show) | A macro button shows the spell or item that its macro will use: icon, tooltip, cooldown, range and usable state. Action-bar addons get this with no change. |
+| Inline textures | Texture markup (`\|T…\|t`) and atlas markup (`\|A…\|a`) show as icons in font strings, chat and tooltips. `GetStringWidth` and `GetStringHeight` count the icons. |
+| [Model scenes](docs/API.md#modelscene) | Real 3D scenes inside the UI. Put a dungeon or a piece of the world around the models, and creatures or copies of players run, jump and swim through it, with a camera that follows them. This is enough to build a small game in the client. |
+| [Cooldown frames](docs/API.md#createframecooldown--name-parent-template) | `CreateFrame("Cooldown")` draws the modern cooldown sweep, edge and countdown numbers by itself. The addon does not need an `OnUpdate` script to animate it. |
+| [Timer bars](docs/API.md#statusbarsettimerdurationduration--interpolation--direction--statusbargettimerduration) | `statusBar:SetTimerDuration` fills a bar from a cast, channel or other duration, and `SetValue` can slide smoothly to a new value. The bar animates by itself, with no `OnUpdate` script. |
+| [Animations](docs/API.md#animation) | Animation groups on frames, textures and font strings, made in Lua or XML, with `Alpha`, `Translation`, `Scale`, `Rotation` and `Path` animations. |
 | [Event-driven nameplates](docs/API.md#nameplate) | The `C_NamePlate` API, with `NAME_PLATE_UNIT_ADDED` and `NAME_PLATE_UNIT_REMOVED` events. The `nameplateN` unit tokens work with every `UnitX` function and unit event. |
 | [Focus target](docs/API.md#focus) | `FocusUnit` sets a focus unit, `ClearFocus` clears it, and `PLAYER_FOCUS_CHANGED` fires on each change. The `focus` and `focustarget` tokens work with every `UnitX` function and unit event. |
 | [Combat log events](docs/API.md#combat_log_event_unfiltered--combat_log_event-events) | `COMBAT_LOG_EVENT_UNFILTERED` and `CombatLogGetCurrentEventInfo` give each combat event with GUIDs and flags. Damage meters do not need to parse chat text. |
-| [Retail-like `/reload`](docs/API.md#reload-picks-up-new-addons-and-new-files) | `/reload` loads new addon folders, new files in a TOC, and changes to `##` metadata such as `## SavedVariables:`. A deleted addon folder leaves the addon list. |
+| [Modern script handlers](docs/API.md#setmodernscriptargsenable--getmodernscriptargs) | Frame scripts get their values as arguments, for example `OnClick(self, button, down)`. [XML script bodies](docs/API.md#xml-script-bodies-see-self-and-their-arguments) see `self` and their arguments by name. The `this` / `arg1` globals stay set. |
 | [Multi-flavor & conditional TOC](docs/API.md#conditional-and-multi-flavor-toc-loading) | Loads addons that ship one folder for many game versions. This includes `<Name>_ClassicAPI.toc` and `<Name>_Turtle.toc`, version lists in `## Interface:`, and conditions on TOC lines. |
-| [Launch switches](docs/API.md#launch) | Options for the shortcut that starts the game. `-config <name>` selects a settings file in `WTF\`, and `-gluescript` / `-gamescript` run Lua at the login screen or in the world. |
+| [XML attributes](docs/API.md#parentkey-in-xml) | Modern XML works. This includes `parentKey`, `parentArray`, `mixin`, `<KeyValues>`, `inherits` with more than one template, `method` and `function` script handlers, and `intrinsic` frame types. Frames, textures, font strings and other widgets also take many new attributes. |
+| [Menus and dropdowns](docs/API.md#menus-and-dropdowns) | The modern menu system: `MenuUtil.CreateContextMenu` and `DropdownButton` build context menus and dropdowns with the retail API. |
+| Tooltip line cap | Removes the 30-line limit of `GameTooltip` and every other tooltip made from `GameTooltipTemplate`, so long tooltips keep all their lines. |
 | [Addon memory and CPU usage](docs/API.md#profiling) | `GetAddOnMemoryUsage` gives the Lua memory of each addon. When `scriptProfile` is `1`, the CPU functions give the time of each addon, function, frame and event. |
 | [Any texture size](docs/API.md#texture-size-and-shape) | Textures load at any width and height, not only powers of two. The only limit is the maximum texture size of the graphics card. |
 
