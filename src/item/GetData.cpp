@@ -287,8 +287,9 @@ void PushItemDataTable(void *L, uint32_t itemID, const uint8_t *record) {
     SetU32(L, record, "requiredCityRank", Offsets::OFF_ITEMSTATS_REQUIRED_CITY_RANK);
     SetU32(L, record, "requiredFaction", Offsets::OFF_ITEMSTATS_REQUIRED_FACTION);
     SetU32(L, record, "requiredFactionRank", Offsets::OFF_ITEMSTATS_REQUIRED_FACTION_RANK);
-    SetU32(L, record, "allowableClass", Offsets::OFF_ITEMSTATS_ALLOWABLE_CLASS);
-    SetU32(L, record, "allowableRace", Offsets::OFF_ITEMSTATS_ALLOWABLE_RACE);
+    // Signed: the record holds -1 for "all classes" / "all races".
+    SetI32(L, record, "allowableClass", Offsets::OFF_ITEMSTATS_ALLOWABLE_CLASS);
+    SetI32(L, record, "allowableRace", Offsets::OFF_ITEMSTATS_ALLOWABLE_RACE);
 
     // Equipment defenses
     SetU32(L, record, "armor", Offsets::OFF_ITEMSTATS_ARMOR);

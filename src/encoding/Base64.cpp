@@ -14,11 +14,12 @@
 // `C_EncodingUtil.EncodeBase64` / `DecodeBase64`, with `Base64Variant`
 // parity. Modern WoW's enum:
 //
-//   Enum.Base64Variant = { Standard = 0, UrlSafe = 1 }
+//   Enum.Base64Variant = { Standard = 0, StandardUrlSafe = 1 }
 //
 // - Standard (RFC 4648 §4): `+`/`/` alphabet, `=` padding required.
-// - UrlSafe (RFC 4648 §5): `-`/`_` alphabet, `=` padding omitted on
-//   encode but tolerated on decode.
+// - StandardUrlSafe (RFC 4648 §5): `-`/`_` alphabet. Encode pads with `=`
+//   as retail does (retail probe: EncodeBase64("a", StandardUrlSafe) is
+//   "YQ=="); decode accepts the padding or its absence.
 
 #include "Game.h"
 
@@ -90,7 +91,6 @@ int __fastcall Script_EncodeBase64(void *L) {
     }
     const Variant variant = static_cast<Variant>(variantInt);
     const char *alphabet = AlphabetFor(variant);
-    const bool padded = (variant == Variant::Standard);
 
     std::vector<char> out;
     out.reserve(((len + 2) / 3) * 4);
@@ -109,14 +109,15 @@ int __fastcall Script_EncodeBase64(void *L) {
         const uint32_t v = static_cast<uint32_t>(src[i]) << 16;
         out.push_back(alphabet[(v >> 18) & 0x3F]);
         out.push_back(alphabet[(v >> 12) & 0x3F]);
-        if (padded) { out.push_back('='); out.push_back('='); }
+        out.push_back('=');
+        out.push_back('=');
     } else if (rem == 2) {
         const uint32_t v = (static_cast<uint32_t>(src[i]) << 16) |
                            (static_cast<uint32_t>(src[i + 1]) << 8);
         out.push_back(alphabet[(v >> 18) & 0x3F]);
         out.push_back(alphabet[(v >> 12) & 0x3F]);
         out.push_back(alphabet[(v >> 6) & 0x3F]);
-        if (padded) out.push_back('=');
+        out.push_back('=');
     }
 
     Game::Lua::PushLString(L, out.data(),
@@ -209,8 +210,7 @@ int __fastcall Script_DecodeBase64(void *L) {
 
 const Game::Doc::Field kEncodeArgs[] = {
     Game::Doc::Req("source", "string"),
-    Game::Doc::Opt("variant", "Base64Variant", "Standard",
-                   "UrlSafe output has no padding."),
+    Game::Doc::Opt("variant", "Base64Variant", "Standard"),
 };
 const Game::Doc::Field kEncodeRets[] = {
     Game::Doc::Req("output", "string"),
@@ -235,7 +235,7 @@ void Register() {
 
     static const Game::Lua::EnumIntegerEntry kBase64Variant[] = {
         {"Standard", static_cast<int>(Variant::Standard)},
-        {"UrlSafe",  static_cast<int>(Variant::UrlSafe)},
+        {"StandardUrlSafe", static_cast<int>(Variant::UrlSafe)},
     };
     Game::Lua::RegisterIntegerEnum("Enum", "Base64Variant", kBase64Variant, "EncodingUtil");
 }

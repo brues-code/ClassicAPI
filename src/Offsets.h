@@ -7202,6 +7202,14 @@ enum Offsets {
     // +0x08. Either way it pushes nil,nil and returns 2 on a miss. Co-hooked by
     // unit/FactionGroup.cpp so "player" resolves while addons load.
     FUN_SCRIPT_UNIT_FACTION_GROUP = 0x00516630,
+    // `Script_UnitPowerType`: slot 31 of the same registration table
+    // (docs/raw_globals.txt). Pushes the power type and returns 1, or returns
+    // 0 on its usage-error path. unit/Power.cpp chains to it.
+    FUN_SCRIPT_UNIT_POWER_TYPE = 0x00517940,
+    // QuestInfo.dbc — the localized quest-type tags ("Dungeon", "Raid", ...).
+    // Records pointer + count globals from docs/DBCs.md (instance 0x00C0D9C4).
+    VAR_QUESTINFO_DBC_RECORDS = 0x00C0D9CC,
+    VAR_QUESTINFO_DBC_COUNT = 0x00C0D9D0,
     OFF_CHRRACES_FACTION_TEMPLATE = 0x08,
     VAR_FACTIONTEMPLATE_RECORDS = 0x00C0DD3C,
     VAR_FACTIONTEMPLATE_COUNT = 0x00C0DD40,

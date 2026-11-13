@@ -43,6 +43,7 @@
 #include "unit/Range.h"
 
 #include "Game.h"
+#include "baselib/Ascii.h"
 #include "object/Resolve.h"
 #include "unit/Position.h"
 #include "Offsets.h"
@@ -189,7 +190,8 @@ bool InRange(const char *token, bool *inRange) {
     // unit in range" checks; querying yourself is meaningless and
     // the API returns nil/false to flag that. We match the modern
     // behavior — no position read, no range check.
-    if (token == nullptr || std::strcmp(token, "player") == 0)
+    // Tokens resolve ignoring case, so the compare does too.
+    if (token == nullptr || Ascii::EqualCI(token, "player"))
         return false;
 
     float unitPos[3] = {};

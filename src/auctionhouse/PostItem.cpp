@@ -42,7 +42,7 @@
 // buyout normalization, runTime table check, auctioneer/"AH open" check.
 //
 // Events (retail multi-sell names, fired via Event::Custom):
-//   AUCTION_MULTISELL_START               — job accepted, posting begins
+//   AUCTION_MULTISELL_START(total)        — job accepted, posting begins
 //   AUCTION_MULTISELL_UPDATE(done, total) — after each stack lands
 //   AUCTION_MULTISELL_FAILURE             — aborted (source changed, no slot,
 //                                           AH closed, or a step timed out)
@@ -68,8 +68,12 @@ namespace AuctionHouse::PostItem {
 
 namespace {
 
+const Game::Doc::Field kStartPayload[] = {
+    Game::Doc::Req("numRepetitions", "number", "The auctions the job will post."),
+};
 const Game::Doc::Event kStartDoc{
-    "AuctionHouse", "Fires when C_AuctionHouse.PostItem accepts a job and starts to post.", {}};
+    "AuctionHouse", "Fires when C_AuctionHouse.PostItem accepts a job and starts to post.",
+    kStartPayload};
 const Game::Doc::Field kUpdatePayload[] = {
     Game::Doc::Req("createdCount", "number", "The auctions posted so far."),
     Game::Doc::Req("totalToCreate", "number"),
@@ -410,7 +414,7 @@ int __fastcall Script_C_AuctionHouse_PostItem(void *L) {
     g_job.runTime = runTime;
     g_job.phase = Phase::Idle;
 
-    Event::Custom::Fire(_evtStart.Slot(), "");
+    Event::Custom::Fire(_evtStart.Slot(), "%d", numStacks);
     Game::Lua::PushBool(L, true);
     return 1;
 }

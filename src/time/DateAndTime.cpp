@@ -138,9 +138,13 @@ int __fastcall Script_AdjustTimeByMinutes(void *L) {
     return AdjustAndPush(L, minutes * SECONDS_PER_MINUTE);
 }
 
-// `CompareCalendarTime(lhs, rhs)` — returns -1, 0, or 1. We compare
-// via epoch conversion rather than field-by-field tuple compare so
-// out-of-range inputs (e.g. month=13) normalize consistently.
+// `CompareCalendarTime(lhs, rhs)` — returns -1, 0, or 1, with retail's
+// sign: it describes rhs relative to lhs, so 1 means rhs is LATER (lhs is
+// earlier) and -1 means rhs is earlier. Blizzard's generated doc: "-1 if
+// rhsCalendarTime < lhsCalendarTime, 0 if equal, 1 if rhsCalendarTime >
+// lhsCalendarTime". We compare via epoch conversion rather than
+// field-by-field tuple compare so out-of-range inputs (e.g. month=13)
+// normalize consistently.
 int __fastcall Script_CompareCalendarTime(void *L) {
     std::tm lhs{}, rhs{};
     if (!ReadCalendarTime(L, 1, &lhs) || !ReadCalendarTime(L, 2, &rhs))
@@ -148,8 +152,8 @@ int __fastcall Script_CompareCalendarTime(void *L) {
     const std::time_t e1 = _mkgmtime(&lhs);
     const std::time_t e2 = _mkgmtime(&rhs);
     int cmp = 0;
-    if (e1 < e2)      cmp = -1;
-    else if (e1 > e2) cmp = 1;
+    if (e2 < e1)      cmp = -1;
+    else if (e2 > e1) cmp = 1;
     Game::Lua::PushNumber(L, static_cast<double>(cmp));
     return 1;
 }
@@ -247,7 +251,7 @@ const Game::Doc::Field kCompareArgs[] = {
 };
 const Game::Doc::Field kCompareRets[] = {
     Game::Doc::Opt("comparison", "number", nullptr,
-                   "-1 when lhsCalendarTime is earlier, 0 when equal, 1 when later; nothing "
+                   "1 when lhsCalendarTime is earlier, 0 when equal, -1 when later; nothing "
                    "when either lacks year, month or monthDay."),
 };
 const Game::Doc::Function kCompareCalendarTime{"Compares two calendar times.", kCompareArgs,

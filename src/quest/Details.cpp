@@ -32,20 +32,15 @@ namespace Quest::Details {
 namespace {
 
 // QuestInfo.dbc — 12-row table holding the localized quest-type tags
-// ("Dungeon" / "Raid" / "Group" / "PvP" / "Elite"). Address pair from
-// `docs/DBCs.md`.
-constexpr uintptr_t VAR_QUESTINFO_DBC_RECORDS = 0x00C0D9CC;
-constexpr uintptr_t VAR_QUESTINFO_DBC_COUNT = 0x00C0D9D0;
-
+// ("Dungeon" / "Raid" / "Group" / "PvP" / "Elite").
 const char *LookupQuestType(uint32_t row) {
     if (row == 0)
         return nullptr;
-    const int count = *reinterpret_cast<const int *>(VAR_QUESTINFO_DBC_COUNT);
+    const int count = Game::Read<int>(Offsets::VAR_QUESTINFO_DBC_COUNT);
     if (count <= 0 || row > static_cast<uint32_t>(count))
         return nullptr;
     const uint8_t *const *records =
-        *reinterpret_cast<const uint8_t *const *const *>(
-            VAR_QUESTINFO_DBC_RECORDS);
+        Game::Read<const uint8_t *const *>(Offsets::VAR_QUESTINFO_DBC_RECORDS);
     if (!records)
         return nullptr;
     const uint8_t *record = records[row];

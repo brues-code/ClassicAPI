@@ -38,6 +38,7 @@
 #include "dbc/Lookup.h"
 #include "dbc/Names.h"
 #include "map/Area.h"
+#include "map/Vector2.h"
 
 #include <cstdint>
 #include <cstring>
@@ -132,12 +133,11 @@ int ResolveZoneByName(const char *zone) {
     return prefixHit;
 }
 
-// Pushes { x = px, y = py } as a subtable field `key` of the table on top.
+// Sets field `key` of the table on top to a Vector2DMixin of (px, py), so
+// `node.position:GetXY()` works as it does in retail.
 void PushPosition(void *L, const char *key, double px, double py) {
     Game::Lua::PushString(L, key);
-    Game::Lua::NewTable(L);
-    Game::Lua::SetFieldNumber(L, "x", px);
-    Game::Lua::SetFieldNumber(L, "y", py);
+    ::Map::PushVector2D(L, px, py);
     Game::Lua::SetTable(L, -3);
 }
 
@@ -180,7 +180,7 @@ bool BuildTaxiGraph(bool *endpoint, bool *dest, int size) {
 // flight master on every continent.
 const Game::Doc::Field kMapTaxiNodeFields[] = {
     Game::Doc::Req("nodeID", "number"),
-    Game::Doc::Req("position", "table", "{x, y} from 0 to 1 on the continent map."),
+    Game::Doc::Req("position", "vector2", "From 0 to 1 on the continent map."),
     Game::Doc::Req("name", "cstring"),
     Game::Doc::Req("faction", "FlightPathFaction"),
     Game::Doc::Req("reachable", "bool",
@@ -345,7 +345,7 @@ int StateFromType(const char *type) {
 // single active taxi map — the open flight master's).
 const Game::Doc::Field kTaxiNodeFields[] = {
     Game::Doc::Req("nodeID", "number", "0 when not known."),
-    Game::Doc::Req("position", "table", "{x, y} from 0 to 1 on the flight map."),
+    Game::Doc::Req("position", "vector2", "From 0 to 1 on the flight map."),
     Game::Doc::Req("name", "cstring"),
     Game::Doc::Req("state", "FlightPathState"),
     Game::Doc::Req("slotIndex", "luaIndex", "The index that TakeTaxiNode takes."),

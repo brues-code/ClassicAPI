@@ -64,9 +64,11 @@ namespace {
 // slot*0x30`; it's a CGPlayer-specific sub-struct that's allocated
 // for any player-controlled unit, with PLAYER_FLAGS at +0x08 and
 // visible-items table at +0x118.
-bool TestPlayerFlag(void *L, uint32_t flagMask) {
-    if (!Game::Lua::IsString(L, 1))
+bool TestPlayerFlag(void *L, uint32_t flagMask, const char *usage) {
+    if (!Game::Lua::IsString(L, 1)) {
+        Game::Lua::Error(L, "%s", usage);
         return false;
+    }
     const char *token = Game::Lua::ToString(L, 1);
     if (token == nullptr)
         return false;
@@ -92,7 +94,8 @@ bool TestPlayerFlag(void *L, uint32_t flagMask) {
 // player-controlled unit (player, target, party*, raid*, etc.). NPCs
 // always return false.
 int __fastcall Script_UnitIsAFK(void *L) {
-    Game::Lua::PushBool(L, TestPlayerFlag(L, Offsets::PLAYER_FLAG_AFK));
+    Game::Lua::PushBool(L, TestPlayerFlag(L, Offsets::PLAYER_FLAG_AFK,
+                                         "Usage: UnitIsAFK(\"unit\")"));
     return 1;
 }
 
@@ -100,7 +103,8 @@ int __fastcall Script_UnitIsAFK(void *L) {
 // ("Do Not Disturb", toggled via `/dnd`). Same unit-token coverage as
 // `UnitIsAFK`.
 int __fastcall Script_UnitIsDND(void *L) {
-    Game::Lua::PushBool(L, TestPlayerFlag(L, Offsets::PLAYER_FLAG_DND));
+    Game::Lua::PushBool(L, TestPlayerFlag(L, Offsets::PLAYER_FLAG_DND,
+                                         "Usage: UnitIsDND(\"unit\")"));
     return 1;
 }
 

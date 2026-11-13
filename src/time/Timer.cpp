@@ -33,6 +33,10 @@ namespace Time::Timer {
 //     `WorldTick` subscription, no other hooks.
 //   - Callbacks are pinned in the Lua registry under per-timer
 //     string keys so they survive GC between scheduling and firing.
+//   - A NewTimer / NewTicker callback is called with its own handle, as
+//     retail's is (`TickerCallback(cb)`), so it can cancel itself. The
+//     handle is pinned in the registry beside the callback. An After
+//     callback gets no arguments.
 //   - The cancel handle returned by NewTimer / NewTicker is a Lua
 //     table with `Cancel` / `IsCancelled` methods bound to C
 //     closures that capture the timer ID as an upvalue (kept off
@@ -89,32 +93,35 @@ double Now() {
 
 // ----- Lua registry callback storage -----------------------------------
 
-void MakeKey(int id, char (&buf)[32]) {
-    std::snprintf(buf, sizeof(buf), "ClassicAPI.Timer.%d", id);
+// Two registry slots per timer: its callback, and (NewTimer / NewTicker
+// only) the handle the callback is called with.
+constexpr const char kCallbackKey[] = "ClassicAPI.Timer.%d";
+constexpr const char kHandleKey[] = "ClassicAPI.TimerHandle.%d";
+
+void PushKey(void *L, const char *format, int id) {
+    char key[40];
+    std::snprintf(key, sizeof(key), format, id);
+    Game::Lua::PushString(L, key);
 }
 
-// Assumes the callback is on top of the Lua stack; pops it.
-void StoreCallback(void *L, int id) {
-    char key[32];
-    MakeKey(id, key);
-    Game::Lua::PushString(L, key);  // stack: ..., callback, key
-    Game::Lua::Insert(L, -2);        // stack: ..., key, callback
+// Assumes the value is on top of the Lua stack; pops it.
+void Store(void *L, const char *format, int id) {
+    PushKey(L, format, id);          // stack: ..., value, key
+    Game::Lua::Insert(L, -2);        // stack: ..., key, value
     Game::Lua::SetTable(L, Game::Lua::REGISTRY_INDEX);
 }
 
-void PushCallback(void *L, int id) {
-    char key[32];
-    MakeKey(id, key);
-    Game::Lua::PushString(L, key);
+void Push(void *L, const char *format, int id) {
+    PushKey(L, format, id);
     Game::Lua::GetTable(L, Game::Lua::REGISTRY_INDEX);
 }
 
 void ReleaseCallback(void *L, int id) {
-    char key[32];
-    MakeKey(id, key);
-    Game::Lua::PushString(L, key);
-    Game::Lua::PushNil(L);
-    Game::Lua::SetTable(L, Game::Lua::REGISTRY_INDEX);
+    for (const char *format : {kCallbackKey, kHandleKey}) {
+        PushKey(L, format, id);
+        Game::Lua::PushNil(L);
+        Game::Lua::SetTable(L, Game::Lua::REGISTRY_INDEX);
+    }
 }
 
 // ----- Cancel-handle methods -------------------------------------------
@@ -148,7 +155,8 @@ int __fastcall Script_TimerIsCancelled(void *L) {
 }
 
 // Pushes a `{ Cancel = <c>, IsCancelled = <c> }` table onto the
-// stack. Each method binds `id` as a closure upvalue.
+// stack. Each method binds `id` as a closure upvalue. The same table is
+// pinned in the registry for the fire pass to hand to the callback.
 void PushCancelHandle(void *L, int id) {
     Game::Lua::NewTable(L);
 
@@ -161,6 +169,9 @@ void PushCancelHandle(void *L, int id) {
     Game::Lua::PushNumber(L, static_cast<double>(id));
     Game::Lua::PushCClosure(L, &Script_TimerIsCancelled, 1);
     Game::Lua::SetTable(L, -3);
+
+    Game::Lua::PushValue(L, -1);
+    Store(L, kHandleKey, id);
 }
 
 // ----- Fire ready timers -----------------------------------------------
@@ -189,7 +200,7 @@ void FireDue(const void *owner, double now) {
             continue;
 
         const int topBefore = Game::Lua::GetTop(L);
-        PushCallback(L, id);
+        Push(L, kCallbackKey, id);
         if (Game::Lua::Type(L, -1) != Game::Lua::TYPE_FUNCTION) {
             // Callback ref disappeared — release and drop.
             Game::Lua::SetTop(L, topBefore);
@@ -200,7 +211,13 @@ void FireDue(const void *owner, double now) {
         // don't propagate, matching modern WoW's behavior where a
         // broken `C_Timer.After` callback doesn't poison the next
         // tick's other timers.
-        Game::Lua::PCall(L, 0, 0, 0);
+        Push(L, kHandleKey, id);
+        int nargs = 1;
+        if (Game::Lua::Type(L, -1) == Game::Lua::TYPE_NIL) { // C_Timer.After
+            Game::Lua::SetTop(L, -2);
+            nargs = 0;
+        }
+        Game::Lua::PCall(L, nargs, 0, 0);
         Game::Lua::SetTop(L, topBefore);
 
         // Re-find — callback might have cancelled `t` (or scheduled
@@ -249,7 +266,7 @@ int Schedule(void *L, int callbackStackIdx, const void *owner, double now, doubl
              double period, int iterations) {
     const int id = g_nextID++;
     Game::Lua::PushValue(L, callbackStackIdx);
-    StoreCallback(L, id);
+    Store(L, kCallbackKey, id);
 
     Entry e{};
     e.id = id;
@@ -290,7 +307,7 @@ const Game::Doc::Function kAfter{"Calls a function once after a delay.", kAfterA
 const Game::Doc::Field kNewTimerArgs[] = {
     Game::Doc::Req("seconds", "number"),
     Game::Doc::Req("callback", "function",
-                   "Called with no arguments; an error in it is discarded."),
+                   "Called with cbObject; an error in it is discarded."),
 };
 const Game::Doc::Field kHandleRets[] = {
     Game::Doc::Req("cbObject", "table",
@@ -304,7 +321,7 @@ const Game::Doc::Function kNewTimer{"Calls a function once after a delay and ret
 const Game::Doc::Field kNewTickerArgs[] = {
     Game::Doc::Req("seconds", "number", "The period."),
     Game::Doc::Req("callback", "function",
-                   "Called with no arguments; an error in it is discarded."),
+                   "Called with cbObject; an error in it is discarded."),
     Game::Doc::Opt("iterations", "number", nullptr,
                    "How many times to call it; nil or less than 1 repeats until cancelled."),
 };

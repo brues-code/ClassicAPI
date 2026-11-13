@@ -41,6 +41,27 @@ bool EncOk(CborError err) {
     return err == CborNoError || err == CborErrorOutOfMemory;
 }
 
+// `options.ignoreSerializationErrors` of the call in progress: a value that
+// has no CBOR form (function, userdata, thread) is written as undefined
+// instead of failing the whole call. Set by Script_SerializeCBOR for the
+// length of one encode; the encoder never re-enters Lua code.
+bool g_ignoreErrors = false;
+
+// The Lua type of the value that stopped the encode in progress, or -1.
+// Retail raises "attempted to serialize a function value" for it (probed);
+// the Script_ function raises the same once the encode has unwound.
+int g_badType = -1;
+
+bool ReadIgnoreErrors(void *L, int idx) {
+    if (Game::Lua::Type(L, idx) != Game::Lua::TYPE_TABLE)
+        return false;
+    Game::Lua::PushString(L, "ignoreSerializationErrors");
+    Game::Lua::GetTable(L, idx);
+    const bool ignore = Game::Lua::ToBoolean(L, -1) != 0;
+    Game::Lua::SetTop(L, -2);
+    return ignore;
+}
+
 bool EncodeValue(void *L, int idx, CborEncoder *enc, int depth);
 
 bool IsLuaArray(void *L, int idx, int &outLen) {
@@ -208,21 +229,24 @@ bool EncodeValue(void *L, int idx, CborEncoder *enc, int depth) {
         case Game::Lua::TYPE_STRING: {
             const char *s = Game::Lua::ToString(L, idx);
             const unsigned int n = Game::Lua::StrLen(L, idx);
-            return EncOk(cbor_encode_text_string(enc, s, n));
+            // A byte string, as retail writes every Lua string (probed:
+            // {a=...} encodes its key as 41 61, not 61 61). Lua strings
+            // are bytes, with no promise of valid UTF-8.
+            return EncOk(cbor_encode_byte_string(
+                enc, reinterpret_cast<const uint8_t *>(s), n));
         }
         case Game::Lua::TYPE_TABLE:
             return EncodeTable(L, idx, enc, depth);
         default:
+            if (g_ignoreErrors)
+                return EncOk(cbor_encode_undefined(enc));
+            g_badType = Game::Lua::Type(L, idx);
             return false;
     }
 }
 
-int __fastcall Script_SerializeCBOR(void *L) {
-    if (Game::Lua::GetTop(L) < 1) {
-        Game::Lua::Error(L, "Usage: C_EncodingUtil.SerializeCBOR(value)");
-        return 0;
-    }
-
+// Pushes the CBOR bytes of the value at index 1 and returns 1, or returns 0.
+int Encode(void *L) {
     // tinycbor encodes into a fixed-size buffer; on overflow it keeps
     // encoding in counting mode (EncOk treats OutOfMemory as success) so
     // the extra-bytes tally is complete, then we resize and retry once.
@@ -231,7 +255,7 @@ int __fastcall Script_SerializeCBOR(void *L) {
         CborEncoder enc;
         cbor_encoder_init(&enc, buf.data(), buf.size(), 0);
         if (!EncodeValue(L, 1, &enc, 0))
-            return 0; // genuine "value not representable" failure
+            return 0; // an unsupported value (g_badType), or nested too deep
         const size_t extra = cbor_encoder_get_extra_bytes_needed(&enc);
         if (extra > 0) {
             buf.resize(buf.size() + extra);
@@ -242,6 +266,22 @@ int __fastcall Script_SerializeCBOR(void *L) {
                                static_cast<unsigned int>(used));
         return 1;
     }
+}
+
+int __fastcall Script_SerializeCBOR(void *L) {
+    if (Game::Lua::GetTop(L) < 1) {
+        Game::Lua::Error(L, "Usage: C_EncodingUtil.SerializeCBOR(value [, options])");
+        return 0;
+    }
+    g_ignoreErrors = ReadIgnoreErrors(L, 2);
+    g_badType = -1;
+    const int pushed = Encode(L);
+    // Raised here, after Encode's buffers are gone: a Lua error does not
+    // run the destructors of the frame it leaves.
+    if (g_badType >= 0)
+        Game::Lua::Error(L, "attempted to serialize a %s value",
+                         Game::Lua::TypeName(L, g_badType));
+    return pushed;
 }
 
 // ---------------- decode ----------------
@@ -385,11 +425,14 @@ const Game::Doc::Field kSerializeArgs[] = {
     Game::Doc::Opt("value", "any", nullptr,
                    "Nil, a boolean, number or string, or a table of these; map keys are "
                    "written in sorted order."),
+    Game::Doc::Opt("options", "CBORSerializationOptions", nullptr,
+                   "A table. Its ignoreSerializationErrors field, when true, writes a "
+                   "function or userdata as undefined."),
 };
 const Game::Doc::Field kSerializeRets[] = {
     Game::Doc::Opt("output", "string", nullptr,
-                   "Nothing when the value holds a function or userdata, or tables nested "
-                   "64 deep."),
+                   "Nothing when tables are nested 64 deep. A function or userdata in the "
+                   "value raises an error unless the options ignore it."),
 };
 const Game::Doc::Function kSerializeCBOR{"Encodes a Lua value as CBOR.", kSerializeArgs,
                                          kSerializeRets};

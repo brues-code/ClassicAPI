@@ -275,6 +275,7 @@ bool Blocks(const LocEntry &e, const uint8_t *castRec, int schoolIdx,
 // the per-frame cost is negligible.
 
 const Game::Doc::Field kAddedPayload[] = {
+    Game::Doc::Req("unitTarget", "UnitToken", "Always \"player\"."),
     Game::Doc::Req("effectIndex", "luaIndex",
                    "The new effect's index for C_LossOfControl.GetActiveLossOfControlData."),
 };
@@ -321,8 +322,8 @@ void OnWorldTick() {
     bool changed = false;
     for (int i = 0; i < n; ++i) {
         if (!ContainsKey(g_prev, g_prevCount, cur[i])) {
-            // A newly-applied effect -> LOSS_OF_CONTROL_ADDED(eventIndex).
-            Event::Custom::Fire(_reserveAdded.Slot(), "%d", i + 1);
+            // A newly-applied effect -> LOSS_OF_CONTROL_ADDED(unit, effectIndex).
+            Event::Custom::Fire(_reserveAdded.Slot(), "%s%d", "player", i + 1);
             changed = true;
         }
     }

@@ -311,7 +311,7 @@ when launching with `-console`), not as Lua functions. See the
 | `LOOT_HISTORY_ROLL_CHANGED` | `itemIndex, playerIndex` |
 | `LOOT_HISTORY_ROLL_COMPLETE` | `itemIndex` |
 | `LOOT_SCAN_COMPLETED` | *(none)* |
-| `LOSS_OF_CONTROL_ADDED` | `eventIndex` |
+| `LOSS_OF_CONTROL_ADDED` | `unitToken` (always `"player"`), `eventIndex` |
 | `LOSS_OF_CONTROL_UPDATE` | `unitToken` (always `"player"`) |
 | `MAP_EXPLORATION_UPDATED` | *(none)* |
 | `MODIFIER_STATE_CHANGED` | `keyName, down` |

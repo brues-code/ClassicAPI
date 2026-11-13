@@ -268,11 +268,10 @@ static int __fastcall Script_UnitPowerMissing(void *L) {
 // read the just-pushed integer back off the top of the stack and
 // push the modern token alongside it. Lua callers that consume
 // only the first return are unaffected.
-constexpr uintptr_t kVanillaUnitPowerType = 0x00517940;
-
 static int __fastcall Script_UnitPowerType(void *L) {
     using Orig_t = int(__fastcall *)(void *L);
-    auto orig = reinterpret_cast<Orig_t>(kVanillaUnitPowerType);
+    auto orig = reinterpret_cast<Orig_t>(
+        static_cast<uintptr_t>(Offsets::FUN_SCRIPT_UNIT_POWER_TYPE));
     const int n = orig(L);
     if (n != 1)
         return n;

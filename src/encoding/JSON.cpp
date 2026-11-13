@@ -26,6 +26,27 @@ namespace {
 
 constexpr int kMaxDepth = 64;
 
+// `options.ignoreSerializationErrors` of the call in progress: a value that
+// has no JSON form (function, userdata, thread) is written as null
+// instead of failing the whole call. Set by Script_SerializeJSON for the
+// length of one encode; the encoder never re-enters Lua code.
+bool g_ignoreErrors = false;
+
+// The Lua type of the value that stopped the encode in progress, or -1.
+// Retail raises "attempted to serialize a function value" for it (probed);
+// the Script_ function raises the same once the encode has unwound.
+int g_badType = -1;
+
+bool ReadIgnoreErrors(void *L, int idx) {
+    if (Game::Lua::Type(L, idx) != Game::Lua::TYPE_TABLE)
+        return false;
+    Game::Lua::PushString(L, "ignoreSerializationErrors");
+    Game::Lua::GetTable(L, idx);
+    const bool ignore = Game::Lua::ToBoolean(L, -1) != 0;
+    Game::Lua::SetTop(L, -2);
+    return ignore;
+}
+
 bool LuaToPicojson(void *L, int idx, picojson::value &out, int depth);
 
 // Consecutive 1..N integer keys → JSON array; anything else → object.
@@ -134,7 +155,12 @@ bool LuaToPicojson(void *L, int idx, picojson::value &out, int depth) {
         case Game::Lua::TYPE_TABLE:
             return LuaTableToPicojson(L, idx, out, depth);
         default:
-            return false;
+            if (!g_ignoreErrors) {
+                g_badType = Game::Lua::Type(L, idx);
+                return false;
+            }
+            out = picojson::value();
+            return true;
     }
 }
 
@@ -175,11 +201,8 @@ void PicojsonToLua(void *L, const picojson::value &v) {
     }
 }
 
-int __fastcall Script_SerializeJSON(void *L) {
-    if (Game::Lua::GetTop(L) < 1) {
-        Game::Lua::Error(L, "Usage: C_EncodingUtil.SerializeJSON(value)");
-        return 0;
-    }
+// Pushes the JSON text of the value at index 1 and returns 1, or returns 0.
+int Encode(void *L) {
     picojson::value v;
     if (!LuaToPicojson(L, 1, v, 0))
         return 0;
@@ -187,6 +210,22 @@ int __fastcall Script_SerializeJSON(void *L) {
     Game::Lua::PushLString(L, out.data(),
                            static_cast<unsigned int>(out.size()));
     return 1;
+}
+
+int __fastcall Script_SerializeJSON(void *L) {
+    if (Game::Lua::GetTop(L) < 1) {
+        Game::Lua::Error(L, "Usage: C_EncodingUtil.SerializeJSON(value [, options])");
+        return 0;
+    }
+    g_ignoreErrors = ReadIgnoreErrors(L, 2);
+    g_badType = -1;
+    const int pushed = Encode(L);
+    // Raised here, after Encode's buffers are gone: a Lua error does not
+    // run the destructors of the frame it leaves.
+    if (g_badType >= 0)
+        Game::Lua::Error(L, "attempted to serialize a %s value",
+                         Game::Lua::TypeName(L, g_badType));
+    return pushed;
 }
 
 int __fastcall Script_DeserializeJSON(void *L) {
@@ -213,11 +252,14 @@ const Game::Doc::Field kSerializeArgs[] = {
     Game::Doc::Opt("value", "any", nullptr,
                    "Nil, a boolean, number or string, or a table of these. A table with keys "
                    "1 to n becomes an array; NaN and infinity become null."),
+    Game::Doc::Opt("options", "JSONSerializationOptions", nullptr,
+                   "A table. Its ignoreSerializationErrors field, when true, writes a "
+                   "function or userdata as null."),
 };
 const Game::Doc::Field kSerializeRets[] = {
     Game::Doc::Opt("output", "string", nullptr,
-                   "Nothing when the value holds a function or userdata, or tables nested "
-                   "64 deep."),
+                   "Nothing when tables are nested 64 deep. A function or userdata in the "
+                   "value raises an error unless the options ignore it."),
 };
 const Game::Doc::Function kSerializeJSON{"Encodes a Lua value as JSON.", kSerializeArgs,
                                          kSerializeRets};

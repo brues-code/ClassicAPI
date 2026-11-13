@@ -2407,7 +2407,7 @@ does this for each stack. Events report the progress, not the return value:
 
 | Event | Payload | When |
 |-------|---------|------|
-| `AUCTION_MULTISELL_START` | — | job accepted, posting begins |
+| `AUCTION_MULTISELL_START` | `totalCount` | job accepted, posting begins |
 | `AUCTION_MULTISELL_UPDATE` | `postedCount, totalCount` | after each stack lands (final one has `postedCount == totalCount`) |
 | `AUCTION_MULTISELL_FAILURE` | — | aborted (source changed under it, no free slot, AH closed, or a step timed out ~10s) |
 
@@ -6443,7 +6443,7 @@ Register like any engine event
 
 | Event | Args | When |
 |---|---|---|
-| `LOSS_OF_CONTROL_ADDED` | `eventIndex` (number) | A new effect was applied — `eventIndex` is its 1-based index for [`C_LossOfControl.GetActiveLossOfControlData`](#c_lossofcontrolgetactivelossofcontroldataindex). |
+| `LOSS_OF_CONTROL_ADDED` | `unitToken` (string), `eventIndex` (number) | A new effect was applied — `unitToken` is always `"player"`, and `eventIndex` is the 1-based index of the effect for [`C_LossOfControl.GetActiveLossOfControlData`](#c_lossofcontrolgetactivelossofcontroldataindex). |
 | `LOSS_OF_CONTROL_UPDATE` | `unitToken` (string) | The active set changed — an effect was added, fell off, or expired. Re-scan with `GetActiveLossOfControlData`. Always `"player"` (only the local player is tracked), but passed so the event carries a unit token and leaves room for per-unit tracking. |
 
 Events fire within one frame of the change. Several changes in the same
@@ -25101,7 +25101,8 @@ screens.
   - unknown `|x` sequences are left verbatim, so real text that merely
     contains a pipe survives
 - returns the byte length of the copied (possibly stripped) string —
-  consistent with Lua's `#s`. `0` for an empty string.
+  consistent with Lua's `#s`. `0` for an empty string, or when the
+  clipboard could not be written.
 
 ```lua
 CopyToClipboard("hello world")                              -- 11
@@ -25603,7 +25604,7 @@ Each entry:
 | `name` | localized node name (`"Stormwind, Elwynn Forest"`) |
 | `faction` | `Enum.FlightPathFaction` — Alliance-mount-only → `Alliance`, Horde-only → `Horde`, both → `Neutral` |
 | `reachable` | *(ext)* a flight path leads *to* this node (in-degree > 0). `false` = departure-only, reachable only by other means (druid Teleport → "Nighthaven, Moonglade"; a boat dock → "Stormwind Harbor") |
-| `position` | `{x, y}` 0–1 on the continent map |
+| `position` | vector (`position.x`, `position.y`, `position:GetXY()`), 0–1 on the continent map |
 | `mapID` | *(ext)* continent `Map.dbc` id |
 | `x` / `y` / `z` | *(ext)* raw continent world coords |
 | `areaID` | *(ext)* the `AreaTable` zone, from the node's own name — its **location** if that's a mapped city ("Orgrimmar" → Orgrimmar city), else the **zone** suffix ("…, Western Plaguelands" → WPL). Authoritative; absent if unresolved |
@@ -25651,7 +25652,7 @@ Each entry:
 |---|---|
 | `slotIndex` | the legacy `1..NumTaxiNodes()` index — pass to `TakeTaxiNode(slotIndex)` to fly |
 | `name` | node name |
-| `position` | `{x, y}` 0–1 on the flight-map image |
+| `position` | vector (`position.x`, `position.y`, `position:GetXY()`), 0–1 on the flight-map image |
 | `state` | `Enum.FlightPathState` — `CURRENT`→`Current`, `REACHABLE`→`Reachable`, `DISTANT`/none→`Unreachable` |
 | `nodeID` | `TaxiNodes.dbc` id (resolved from the slot's node record; `0` if absent) |
 
@@ -26004,11 +26005,20 @@ or was previously cancelled is a no-op. `IsCancelled()` returns
 `true` after `Cancel()`, after natural expiry, or for an unknown
 timer ID. Both methods take no arguments other than `self`.
 
+`callback` receives the handle as its one argument.
+
 ### `C_Timer.NewTicker(seconds, callback, [iterations])`
 
 Recurring variant. `callback` fires every `seconds` until cancelled
 or until `iterations` fires have happened. `iterations` is optional;
-omitted or non-numeric means forever.
+omitted or non-numeric means forever. `callback` receives the handle
+as its one argument, so a ticker can cancel itself:
+
+```lua
+C_Timer.NewTicker(1, function(ticker)
+  if done() then ticker:Cancel() end
+end)
+```
 
 ```lua
 local h = C_Timer.NewTicker(1, function() print("each second") end)
@@ -26097,8 +26107,9 @@ local yesterday = C_DateAndTime.AdjustTimeByDays(today, -1)
 
 ### `C_DateAndTime.CompareCalendarTime(lhs, rhs)`
 
-Returns `-1` if `lhs < rhs`, `0` if equal, `1` if `lhs > rhs`.
-Compares by epoch conversion so denormalized inputs sort
+Returns `1` if `lhs` is earlier than `rhs`, `0` if they are equal, and
+`-1` if `lhs` is later. The sign tells you where `rhs` is in relation
+to `lhs`. Compares by epoch conversion so denormalized inputs sort
 consistently.
 
 ### `C_DateAndTime.GetServerTimeLocal()`

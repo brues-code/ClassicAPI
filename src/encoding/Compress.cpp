@@ -18,8 +18,14 @@
 //
 // — verified by the ordering of the `Deflate.CompressionMethod`,
 // `Zlib`, `Gzip` strings in the 1.15 binary (`Source\UIUtil\
-// EncodingUtil.cpp` data section). `level` is the standard zlib
-// 0..9 with -1 meaning "default" (6).
+// EncodingUtil.cpp` data section). `level` is retail's
+//
+//   Enum.CompressionLevel = { Default = 0, OptimizeForSpeed = 1,
+//                             OptimizeForSize = 2 }
+//
+// mapped onto zlib's own named levels: Z_DEFAULT_COMPRESSION (-1),
+// Z_BEST_SPEED (1), Z_BEST_COMPRESSION (9). Both functions default to
+// Deflate, as retail's do.
 //
 // Format selection rides on zlib's `windowBits` argument to
 // `deflateInit2_` / `inflateInit2_`:
@@ -27,7 +33,6 @@
 //   Zlib        windowBits =  15
 //   Gzip        windowBits =  15 + 16 = 31
 //   Deflate     windowBits = -15           (raw, no header/checksum)
-//   auto-detect windowBits =  15 + 32 = 47 (decode only; Zlib or Gzip)
 
 #include "encoding/Compress.h"
 
@@ -86,7 +91,21 @@ enum class Method : int {
     Gzip = 2,
 };
 
-constexpr int kDefaultLevel = -1; // zlib's "default" (6)
+// Enum.CompressionLevel (retail values) -> the zlib level it names.
+enum class Level : int {
+    Default = 0,
+    OptimizeForSpeed = 1,
+    OptimizeForSize = 2,
+};
+
+bool ZlibLevelFor(int level, int &outZlib) {
+    switch (static_cast<Level>(level)) {
+        case Level::Default:          outZlib = -1; return true; // Z_DEFAULT_COMPRESSION
+        case Level::OptimizeForSpeed: outZlib = 1;  return true; // Z_BEST_SPEED
+        case Level::OptimizeForSize:  outZlib = 9;  return true; // Z_BEST_COMPRESSION
+    }
+    return false;
+}
 
 bool WindowBitsForEncode(Method m, int &outBits) {
     switch (m) {
@@ -223,7 +242,7 @@ int OptionalIntArg(void *L, int idx, int defaultValue) {
 int __fastcall Script_CompressString(void *L) {
     if (!Game::Lua::IsString(L, 1)) {
         Game::Lua::Error(L,
-            "Usage: C_EncodingUtil.CompressString(data [, method, level])");
+            "Usage: C_EncodingUtil.CompressString(source [, method, level])");
         return 0;
     }
     const auto *src = reinterpret_cast<const uint8_t *>(
@@ -234,14 +253,19 @@ int __fastcall Script_CompressString(void *L) {
         return 1;
     }
 
-    const int methodInt = OptionalIntArg(L, 2, static_cast<int>(Method::Zlib));
+    const int methodInt = OptionalIntArg(L, 2, static_cast<int>(Method::Deflate));
     if (methodInt < 0 || methodInt > 2) {
         Game::Lua::Error(L,
             "C_EncodingUtil.CompressString: invalid CompressionMethod");
         return 0;
     }
     const Method method = static_cast<Method>(methodInt);
-    const int level = OptionalIntArg(L, 3, kDefaultLevel);
+    int level;
+    if (!ZlibLevelFor(OptionalIntArg(L, 3, static_cast<int>(Level::Default)), level)) {
+        Game::Lua::Error(L,
+            "C_EncodingUtil.CompressString: invalid CompressionLevel");
+        return 0;
+    }
 
     int windowBits;
     if (!WindowBitsForEncode(method, windowBits))
@@ -269,22 +293,15 @@ int __fastcall Script_DecompressString(void *L) {
         return 1;
     }
 
-    // No method arg → auto-detect Zlib or Gzip. Raw deflate has no
-    // magic bytes and isn't auto-detectable, so it must be passed
-    // explicitly.
-    int windowBits;
-    if (Game::Lua::Type(L, 2) == Game::Lua::TYPE_NUMBER) {
-        const int methodInt = static_cast<int>(Game::Lua::ToNumber(L, 2));
-        if (methodInt < 0 || methodInt > 2) {
-            Game::Lua::Error(L,
-                "C_EncodingUtil.DecompressString: invalid CompressionMethod");
-            return 0;
-        }
-        if (!WindowBitsForDecode(static_cast<Method>(methodInt), windowBits))
-            return 0;
-    } else {
-        windowBits = 15 + 32; // auto-detect Zlib/Gzip
+    const int methodInt = OptionalIntArg(L, 2, static_cast<int>(Method::Deflate));
+    if (methodInt < 0 || methodInt > 2) {
+        Game::Lua::Error(L,
+            "C_EncodingUtil.DecompressString: invalid CompressionMethod");
+        return 0;
     }
+    int windowBits;
+    if (!WindowBitsForDecode(static_cast<Method>(methodInt), windowBits))
+        return 0;
 
     std::vector<uint8_t> out;
     if (!Inflate(src, srcLen, windowBits, out))
@@ -296,10 +313,8 @@ int __fastcall Script_DecompressString(void *L) {
 
 const Game::Doc::Field kCompressArgs[] = {
     Game::Doc::Req("source", "string"),
-    Game::Doc::Opt("method", "CompressionMethod", "Zlib"),
-    Game::Doc::Opt("level", "number", "-1",
-                   "From 0, no compression, to 9, the smallest output; -1 is a balanced "
-                   "default."),
+    Game::Doc::Opt("method", "CompressionMethod", "Deflate"),
+    Game::Doc::Opt("level", "CompressionLevel", "Default"),
 };
 const Game::Doc::Field kCompressRets[] = {
     Game::Doc::Opt("output", "string", nullptr, "Nothing when compression fails."),
@@ -309,9 +324,8 @@ const Game::Doc::Function kCompressString{"Compresses a string.", kCompressArgs,
 
 const Game::Doc::Field kDecompressArgs[] = {
     Game::Doc::Req("source", "string"),
-    Game::Doc::Opt("method", "CompressionMethod", nullptr,
-                   "When omitted, Zlib or Gzip data is detected; Deflate data must name its "
-                   "method."),
+    Game::Doc::Opt("method", "CompressionMethod", "Deflate",
+                   "Must be the method the data was compressed with."),
 };
 const Game::Doc::Field kDecompressRets[] = {
     Game::Doc::Opt("output", "string", nullptr,
@@ -333,6 +347,14 @@ void Register() {
         {"Gzip",    static_cast<int>(Method::Gzip)},
     };
     Game::Lua::RegisterIntegerEnum("Enum", "CompressionMethod", kCompressionMethod,
+                                   "EncodingUtil");
+
+    static const Game::Lua::EnumIntegerEntry kCompressionLevel[] = {
+        {"Default",          static_cast<int>(Level::Default)},
+        {"OptimizeForSpeed", static_cast<int>(Level::OptimizeForSpeed)},
+        {"OptimizeForSize",  static_cast<int>(Level::OptimizeForSize)},
+    };
+    Game::Lua::RegisterIntegerEnum("Enum", "CompressionLevel", kCompressionLevel,
                                    "EncodingUtil");
 }
 
