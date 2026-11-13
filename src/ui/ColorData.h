@@ -49,7 +49,7 @@ struct Entry {
     int32_t argb;
 };
 
-constexpr Entry kColors[] = {
+inline constexpr Entry kColors[] = {
     {"NORMAL_FONT_COLOR",                                      -11776},
     {"WHITE_FONT_COLOR",                                       -1},
     {"HIGHLIGHT_FONT_COLOR",                                   -1},
