@@ -2381,7 +2381,8 @@ local missing, count = _classicapi_UndocumentedAPI()
 ### `C_AuctionHouse.PostItem(itemLocation, duration, quantity, numStacks, bid, buyout)`
 
 Posts `numStacks` auctions of `quantity` each, from a single source stack,
-in one call — a ClassicAPI extension modelled on the multi-sell flow.
+in one call. Retail's `C_AuctionHouse.PostItem` has no `numStacks`
+argument; this version adds it.
 The stock `StartAuction` posts only one whole stack. This function does
 the splitting and the sequence of posts for you.
 
@@ -3192,7 +3193,7 @@ Returns `(h, s, v)`. Hue passes through unchanged.
 
 ### `C_ColorUtil.ConvertHSLToRGB(h, s, l)`
 
-Returns `(r, g, b)`. A negative hue (or `s == 0`) is achromatic → `r == g ==
+A ClassicAPI extension. Returns `(r, g, b)`. A negative hue (or `s == 0`) is achromatic → `r == g ==
 b == l`.
 
 ### `C_ColorUtil.GenerateTextColorCode(color)`
@@ -8175,7 +8176,8 @@ local point, relativeTo, relativePoint, x, y = MyFrame:GetPoint(1)
 
 `relativeTo` is nil when the anchor is relative to the screen. A frame with
 no parent gets this anchor from `SetPoint` without a `relativeTo`, and from
-XML anchors without one.
+XML anchors without one. An anchor that has no relative frame at all, not
+even the screen, returns only `point, x, y`.
 
 ### `region:GetPointByName(point)`
 
@@ -10374,7 +10376,7 @@ changes fire their `OnAttributeChanged` handlers too.
 
 ### `SetModernScriptArgs(enable)` / `GetModernScriptArgs()`
 
-Global toggle (not a frame method) for **positional script arguments**.
+A ClassicAPI extension. Global toggle (not a frame method) for **positional script arguments**.
 The engine always invokes a frame-script handler with **zero** Lua arguments —
 the handler reads `this` / `arg1..argN` / `event` as globals. With this enabled,
 every handler additionally receives its values as real positional arguments, so
@@ -10776,11 +10778,11 @@ dance to one call with a clean true/false return.
 
 Returns `true` if the query was sent, `false` if any of:
 
-- the name was empty / nil
+- the name was empty
 - the call is within the 5-second cooldown of a previous send
 - the who system is not ready yet (before login)
 
-A `false` return is a no-op — no state changes, no
+A name that is nil or not a string raises a usage error. A `false` return is a no-op — no state changes, no
 pending flag is set, and the cooldown isn't extended. Safe to call
 on every chat line that mentions an unknown player; the call will
 naturally rate-limit.
@@ -10811,11 +10813,11 @@ end
 
 ### `C_FriendList.IsWhoQueryPending()`
 
-Returns `true` within ~5 seconds of the most recent
-[`SendWhoQueryByName`](#c_friendlistsendwhoquerybynamename) that
-returned `true`; otherwise `false`. The flag is time-based. It does
-not clear when the response arrives. The window is a conservative
-upper bound on the response time, which is usually a few hundred ms.
+Returns `true` while a query from
+[`SendWhoQueryByName`](#c_friendlistsendwhoquerybynamename) waits for
+its answer; otherwise `false`. The flag clears when the answer arrives,
+usually after a few hundred ms. If an answer is lost, the next
+`SendWhoQueryByName` call clears the flag after 10 seconds.
 
 The intended use is gating an addon-side `FriendsFrame_OnEvent`
 wrap so the user-issued `/who` window still works while addon-
@@ -10824,7 +10826,7 @@ issued silent queries don't pop the panel — see the example under
 
 Concurrent callers see a shared pending flag — if pfUI and another
 addon both call `SendWhoQueryByName` close in time, both queries
-contribute to the same pending window. This is acceptable for the
+keep the flag set until both answers arrive. This is acceptable for the
 "suppress popup for any in-flight `SendWhoQueryByName` query" use case;
 addons that need per-call tracking should manage their own ticket
 state on top.
@@ -11508,10 +11510,9 @@ spell tooltip of the talent — functionally "what does this talent do?"
 without the rank counter. A cross-class tooltip does not show the
 talent name or the "Rank 0/N" line.
 
-Silent no-op (no tooltip change) when:
-
-- `talentID` doesn't match any record in `Talent.dbc`
-- `talentID` is `nil`, non-numeric, or non-positive
+Silent no-op (no tooltip change) when `talentID` doesn't match any
+record in `Talent.dbc`, or is not positive. A `talentID` that is nil or
+not a number raises a usage error.
 
 ```lua
 -- Player's own class — rich tooltip
@@ -12298,9 +12299,10 @@ Blizzard 0..10 range). Default Blizzard types resolve to
 
 ### `C_GossipInfo.GetText()`
 
-Returns the gossip greeting string of the NPC. Same value `GetGossipText()` returns;
-provided so addons that prefer the `C_GossipInfo` namespace don't have
-to mix the two surfaces.
+Returns the greeting text of the NPC. For a gossip window it is the
+same value that `GetGossipText()` returns. For a quest greeting window
+(an NPC with several quests and no gossip), it is the greeting of that
+window.
 
 ```lua
 print(C_GossipInfo.GetText())
@@ -12328,8 +12330,9 @@ end
 ### `C_GossipInfo.GetAvailableQuests()`
 
 Returns an array of deliverable-quest tables (quests the giver is
-offering to start), in display order. The list holds the same quests
-as `GetGossipAvailableQuests`.
+offering to start), in display order. For a gossip window the list
+holds the same quests as `GetGossipAvailableQuests`. For a quest
+greeting window it holds that window's quests.
 
 | Field        | Type   | Notes |
 |--------------|--------|-------|
@@ -12340,8 +12343,9 @@ as `GetGossipAvailableQuests`.
 ### `C_GossipInfo.GetActiveQuests()`
 
 Returns an array of active-quest tables (quests the giver wants you
-to turn in, in-progress or complete). The list holds the same quests
-as `GetGossipActiveQuests`.
+to turn in, in-progress or complete). For a gossip window the list
+holds the same quests as `GetGossipActiveQuests`. For a quest greeting
+window it holds that window's quests.
 
 | Field        | Type    | Notes |
 |--------------|---------|-------|
@@ -12368,9 +12372,9 @@ Both send the same request to the server. The option-ID variant exists so addons
 drive selections off the `gossipOptionID` key without keeping
 their own slot mapping. Returns nothing.
 
-The stock `SelectGossipOption` doesn't accept a confirmation-text
-argument, so for `boxCoded` options the stock confirm dialog
-shows as usual — there is no way to send the password from the script.
+`SelectOption` takes an optional second argument, `text`, for
+`boxCoded` options. The text goes to the server with the selection, as
+the password typed into the confirm dialog does.
 
 ### `C_GossipInfo.SelectAvailableQuest(questID)`
 
@@ -21166,7 +21170,7 @@ range. The engine can give that frame to a different unit.
 
 ### `C_NamePlate.GetNamePlateForGUID(guidString)`
 
-Same as `GetNamePlateForUnit` but takes the `"0xHHHHHHHHHHHHHHHH"`
+A ClassicAPI extension. Same as `GetNamePlateForUnit` but takes the `"0xHHHHHHHHHHHHHHHH"`
 GUID-string form. Useful when you've stored a unit GUID across
 events (e.g., converted the positional `"nameplateN"` token to a
 GUID via `UnitGUID(arg1)` at `NAME_PLATE_UNIT_ADDED` time) and need
@@ -21189,7 +21193,7 @@ visible unit, or the unit has no allocated nameplate.
 
 ### `C_NamePlate.GetNamePlateGUIDs()`
 
-Returns a 1-based table of GUID strings
+A ClassicAPI extension. Returns a 1-based table of GUID strings
 (`"0xHHHHHHHHHHHHHHHH"` format) — one per unit with an allocated
 nameplate, **regardless** of whether the frame has been registered
 with Lua. Catches default engine nameplates that
@@ -25083,8 +25087,8 @@ The ClassicAPI addon supplies the `PixelUtil` table (`PixelUtil.SetPoint`,
 ### `CopyToClipboard(text [, removeMarkup])`
 
 Copies `text` to the Windows clipboard and returns the number of bytes
-copied. This is a ClassicAPI extension. Available on both the in-game
-and login/character-select screens.
+copied. Available on both the in-game and login/character-select
+screens.
 
 - `text` — the string to copy (numbers are coerced, like Lua does).
 - `removeMarkup` — optional; when truthy, strip WoW UI escape sequences
@@ -25097,8 +25101,7 @@ and login/character-select screens.
   - unknown `|x` sequences are left verbatim, so real text that merely
     contains a pipe survives
 - returns the byte length of the copied (possibly stripped) string —
-  consistent with Lua's `#s`. `0` for an empty string or if the clipboard
-  couldn't be opened.
+  consistent with Lua's `#s`. `0` for an empty string.
 
 ```lua
 CopyToClipboard("hello world")                              -- 11
@@ -25823,6 +25826,7 @@ A ClassicAPI extension. Adds an atlas name that points at your own art, so
 - `file` — texture path, without the file extension.
 - `width`, `height` — size of the art in pixels, used by `useAtlasSize`.
 - `left`, `right`, `top`, `bottom` — the rectangle inside the file, from 0 to 1.
+  Each one is optional; together they default to the whole file (0, 1, 0, 1).
 
 Registering a name a second time replaces its definition and keeps its ids, so a
 caller that stored an id keeps a valid one. Returns `true`.
@@ -26108,7 +26112,7 @@ returns the epoch for 14:30 UTC, so `date("!%H:%M", t)` prints
 ### `C_DateAndTime.GetSecondsUntilDailyReset()`
 
 Returns seconds until the next UTC midnight, where the realm's day
-boundary sits. Returns 0 if called before login. See the overview's
+boundary sits. Returns nothing if called before login. See the overview's
 "Daily reset semantics" note.
 
 ## Totem
@@ -28117,7 +28121,7 @@ covers both Blizzard FrameXML and addon templates.
 
 ### `C_XMLUtil.DoesTemplateExist(name)`
 
-Returns `true` if a virtual template of that name is registered, `false`
+A ClassicAPI extension. Returns `true` if a virtual template of that name is registered, `false`
 otherwise:
 
 ```lua

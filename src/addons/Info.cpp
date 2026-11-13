@@ -403,7 +403,7 @@ const Game::Doc::Field kLoadableRets[] = {
     Game::Doc::Req("loadable", "bool", "True for an addon that is already loaded."),
     Game::Doc::Opt("reason", "cstring", nullptr,
                    "Why it cannot load, such as \"DISABLED\" or \"INTERFACE_VERSION\"; nil "
-                   "when it can."),
+                   "when it can, or when no addon has that name."),
 };
 const Game::Doc::Function kIsAddOnLoadable{"Returns whether an addon can be loaded, and why "
                                            "not when it cannot.",
