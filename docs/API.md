@@ -6001,11 +6001,11 @@ end)
 ### `HEARTHSTONE_BOUND` event
 
 Fires (with no payload) every time the player binds their
-hearthstone at an innkeeper — including a rebind at the same inn.
+hearthstone at an innkeeper, including a rebind at the same inn.
 Addons listen to `HEARTHSTONE_BOUND` and re-read `GetBindLocation()`
 to refresh whatever bind-location UI they show.
 
-It never fires on login or on a map change.
+It never fires on login, on a character switch, or on a map change.
 
 ```lua
 local f = CreateFrame("Frame")
@@ -6016,25 +6016,6 @@ f:SetScript("OnEvent", function()
 end)
 ```
 
-Fires **every time** the player confirms a bind, including when the
-new bind is at the same inn as before. The event is driven by the
-bind ACTION (server's SMSG_BINDPOINTUPDATE), not by the area name
-changing.
-
-Implemented by hooking the BINDPOINTUPDATE packet handler at
-`FUN_005ED3C0`. The handler runs in two distinct cases:
-
-1. **Initial post-login sync** — the engine has just zeroed the
-   "bind valid" flag during character-entry init (`FUN_005E2510`),
-   and this packet repopulates it. We detect this by reading the
-   flag *before* the original handler runs; if it's `0`, this is
-   the sync and we suppress the event.
-2. **Innkeeper rebind** — the flag is already `1`. Fire.
-
-Character switch is handled automatically: the character-entry init
-re-zeroes the flag, so each new character's first update is also
-treated as sync and suppressed.
-
 ### `DYNAMIC_GOSSIP_POI_UPDATED` event
 
 Fires (with no payload) when a gossip point of interest is added to the map or
@@ -6043,15 +6024,14 @@ removed from it. When it fires, read the marker again with
 
 ### Player input-state events
 
-Three pairs of zero-payload events fired from a single per-frame
-`Tick::WorldTick` callback that reads input state once and edge-
-detects each pair.
+Three pairs of events with no payload. Each pair tells you when one kind
+of player input starts and stops.
 
-| Event | Fires on | Source |
-|-------|----------|--------|
-| `PLAYER_STARTED_MOVING` / `PLAYER_STOPPED_MOVING` | WASD or autorun toggle | UI-input controller flags at `*0x00BE1148 + 0x04` (`0x10` W \| `0x20` S \| `0x40` A \| `0x80` D \| `0x1000` autorun) |
-| `PLAYER_STARTED_TURNING` / `PLAYER_STOPPED_TURNING` | Mouselook bit held AND character body yaw is changing | Mouselook bit `0x01` + per-frame delta on `CGPlayer + 0x9C4` (body yaw, radians) |
-| `PLAYER_STARTED_LOOKING` / `PLAYER_STOPPED_LOOKING` | Free-look bit held AND camera-relative yaw is changing | Free-look bit `0x02` + per-frame delta on `[*0x00B4B2BC + 0x65B8] + 0xF0` (camera yaw, radians) |
+| Event | Fires on |
+|-------|----------|
+| `PLAYER_STARTED_MOVING` / `PLAYER_STOPPED_MOVING` | The movement keys, autorun, or holding both mouse buttons to run |
+| `PLAYER_STARTED_TURNING` / `PLAYER_STOPPED_TURNING` | Turning the character while holding the right mouse button |
+| `PLAYER_STARTED_LOOKING` / `PLAYER_STOPPED_LOOKING` | Moving the camera while holding the left mouse button |
 
 ```lua
 local f = CreateFrame("Frame")
@@ -6065,31 +6045,20 @@ end
 f:SetScript("OnEvent", function(_, event) print(event) end)
 ```
 
-**Key-state semantics for MOVING**: `STOPPED_MOVING` fires the
-instant the movement keys release, even if the character is still
-airborne from a jump (verified empirically). For an "is the character
-actually displacing this frame" signal, use `GetUnitSpeed("player")`
-and watch the first return.
+**MOVING follows the input, not the motion.** `STOPPED_MOVING` fires when
+the movement input stops, even if the character is still in the air from a
+jump. For the current motion of the character, use `GetUnitSpeed("player")`
+and read the first return.
 
-**Latched semantics for TURNING and LOOKING**: each pair fires
-exactly once per RMB / LMB hold. STARTED waits until both the
-mouse-button bit is held AND the relevant yaw has actually
-changed ("camera has moved" semantics — clicking without dragging
-doesn't fire). STOPPED fires when the button bit
-clears (RMB / LMB release). The latch stays on through any drag-
-stop-drag motion within a single hold; no spurious flapping.
+**TURNING and LOOKING fire once per button hold.** `STARTED` fires when
+you hold the button and the character or the camera turns.
+A click without a drag fires nothing. `STOPPED` fires when the button is
+released. If you stop and drag again during the same hold, the pair does
+not fire again.
 
-The camera-relative yaw at `[camera + 0xF0]` stays at 0 during
-RMB-mouselook (camera rotates *with* the character, so its offset
-from the character doesn't change), so TURNING and LOOKING are
-cleanly separable: RMB only fires TURNING, LMB only fires LOOKING.
-
-Implementation: single subscriber on the shared `Tick::WorldTick`
-registry (same `MinHook` on `FUN_0066FD50` shared with
-`BAG_UPDATE_DELAYED`). When any of the input controller / player /
-camera pointers is null (pre-login, loading screen, character
-select), all states reset so the next valid tick doesn't fire
-spurious STOPPED transitions.
+The right mouse button fires only TURNING, and the left mouse button fires
+only LOOKING. While you turn the character, the camera turns with it, so
+LOOKING does not fire.
 
 ### `GLOBAL_MOUSE_DOWN` / `GLOBAL_MOUSE_UP` events
 
@@ -6521,7 +6490,7 @@ polling. Register like any engine event
 
 | Event | Args | When |
 |---|---|---|
-| `LOOT_HISTORY_ROLL_CHANGED` | `itemIndex`, `playerIndex` (numbers) | A player selected need, greed, or pass, or rolled the dice. |
+| `LOOT_HISTORY_ROLL_CHANGED` | `itemIndex`, `playerIndex` (numbers) | A player selected need, greed, or pass, or rolled the dice. `playerIndex` is `0` when the roll names no player or when the player list of the item is full. |
 | `LOOT_HISTORY_ROLL_COMPLETE` | `itemIndex` (number) | The item was decided — won or all-passed. |
 | `LOOT_HISTORY_FULL_UPDATE` | — | The item set changed structurally — a new item appeared (roll opened) or the 128-item ring evicted the oldest (every index shifted). Re-read the whole list. Also fired by `C_LootHistory.Clear()`. |
 
@@ -15928,9 +15897,10 @@ Returns the most-recent completed-scan results as a 1-indexed array:
 }
 ```
 
-Empty table before the first scan completes. Replaced wholesale by
-each new scan — re-read after `LOOT_SCAN_COMPLETED` rather than
-caching the table.
+Empty table before the first scan. A new scan clears the results when it
+starts. Then it adds each corpse when it reads that corpse. As a result,
+during a scan the array holds only the corpses that the scan has read.
+Read the table again after `LOOT_SCAN_COMPLETED`. Do not keep the old table.
 
 The `link` field is the engine's full hyperlink (color + payload +
 display name + reset). Random-suffix items like "Stringy Wolf Meat
@@ -15987,7 +15957,8 @@ Returns nothing when `itemIndex` is out of range.
 ### `C_LootHistory.GetPlayerInfo(itemIndex, playerIndex)`
 
 Both indexes start at `1`. Returns `name, class, rollType, roll, isWinner, isMe`:
-- `name` — the name of the player.
+- `name` — the name of the player. `nil` when the name was not known at
+  the time of the roll.
 - `class` — the class token (`"WARRIOR"`, `"MAGE"`, and more) for
   `RAID_CLASS_COLORS`. `nil` when the class is not known.
 - `rollType` — `0` = pass, `1` = need, `2` = greed.
@@ -18147,7 +18118,7 @@ Returns a map's details table, or `nil` for an id that names no map:
 | `mapID` | the id you passed |
 | `name` | localized map name |
 | `mapType` | `Enum.UIMapType`: `1` world, `2` continent, `3` zone, `4` dungeon |
-| `parentMapID` | the map one level up, or `0` at the top |
+| `parentMapID` | the map one level up. `0` for the world map and for dungeon maps |
 | `flags` | always `0` |
 
 **What a `uiMapID` is.** Maps form a three-level tree:
@@ -18313,9 +18284,7 @@ local x, y = pos:GetXY()   -- e.g. 0.595, 0.600
 
 Works for the player and any unit whose object is loaded (in range or
 targeted). Other units return `nil`. An unknown unit token raises an
-error, the same as `UnitHealth` and the other unit functions. In a city or
-subzone, `GetBestMapForUnit` can return a subzone id that has no world
-rect — pass a zone-level id for those.
+error, the same as `UnitHealth` and the other unit functions.
 
 ### `C_Map.GetWorldPosFromMapPos(uiMapID, mapPosition)`
 
@@ -18368,10 +18337,12 @@ rect.
 
 `uiMapID` is the zone. `topUiMapID` is the map to measure against, normally
 the zone's continent (see [`C_Map.GetMapInfo`](#c_mapgetmapinfouimapid)).
-When `topUiMapID` names no usable map, the zone's own continent is used.
+When `topUiMapID` is `0` or names no map, the call uses the continent of
+the zone. When `topUiMapID` names a map that has no world rect, the call
+returns `nil`.
 
 ```lua
-local minX, maxX, minY, maxY = C_Map.GetMapRectOnMap(14, 1)  -- Durotar on Kalimdor
+local minX, maxX, minY, maxY = C_Map.GetMapRectOnMap(14, -13)  -- Durotar on Kalimdor
 ```
 
 A zone placed off the edge of the standard continent map can return values
@@ -21397,20 +21368,18 @@ Returns (vs. `GetPlayerInfoByGUID`):
 ### `C_PlayerCache.RememberPlayer(guid, name, classToken)`
 
 Adds a `(guid → name, classID, raceID, sex)` entry to the persistent
-name cache. For the engine-driven coverage (chat / group / guild /
-visible objects), no addon-side feeding is needed — those flow into
-the cache automatically through the engine's
-`SMSG_NAME_QUERY_RESPONSE` write path. This call exists for the
-*other* sources libunitscan-style addons harvest from but the engine
-NameCache doesn't see directly: `/who` results, mouseover, target
-snapshots, etc.
+name cache. The game adds players to the cache when it learns about them
+through chat, your group, your guild, or nearby units. This call is for the
+other sources that addons collect players from, such as `/who` results,
+mouseover, and target snapshots.
 
 ```
 C_PlayerCache.RememberPlayer(guid, name, classToken [, raceToken [, sex]])
 ```
 
-Returns `true` on success, `false` if the persistent cache isn't
-enabled or the required args are malformed.
+Returns `true` on success. Returns `false` when the persistent cache is
+off, or when `guid` or `name` is not valid. When the cache is on, a
+missing `guid`, `name`, or `classToken` raises an error.
 
 When the game already has the player's data from the server in this
 session, the call keeps the server's data. It still returns `true`.
@@ -22070,7 +22039,7 @@ these resolve it to a unit and return the requested attribute.
 | `C_PlayerInfo.GetName(playerLocation)` | `name` |
 | `C_PlayerInfo.GetClass(playerLocation)` | `className, classFilename, classID` |
 | `C_PlayerInfo.GetRace(playerLocation)` | `raceID` |
-| `C_PlayerInfo.GetSex(playerLocation)` | `sex` (1 neutral / 2 male / 3 female) |
+| `C_PlayerInfo.GetSex(playerLocation)` | `sex` (2 male / 3 female) |
 | `C_PlayerInfo.IsConnected([playerLocation])` | `isConnected` |
 
 ```lua
@@ -22081,18 +22050,15 @@ local raceID = C_PlayerInfo.GetRace(loc)          -- feed into C_CreatureInfo.Ge
 local sex = C_PlayerInfo.GetSex(loc)
 ```
 
-- **Supported location kinds: `unit` and `guid`.** Unit locations use their
-  token directly; GUID locations resolve only while the GUID maps to a
-  currently-visible unit (target, party/raid member, someone in range). The
-  chat-line / who / battlefield-score / community / voice kinds have no
-  client-side unit resolution in 1.12 and return nil.
-- Everything is read straight from the engine's own data — no `Unit*` Lua
-  wrappers are called. `GetName` uses the polymorphic object name getter (the
-  same path as `UnitNameFromGUID`); `GetSex` reads the `UNIT_FIELD_BYTES_0`
-  gender byte and reports it as `UnitSex`'s 2/3; `IsConnected` treats a
-  currently-synced object as online and otherwise consults the group-member
-  roster's online bit, exactly as `UnitIsConnected` does. `IsConnected` with
-  no argument defaults to the local player.
+- **Supported location kinds: `unit` and `guid`.** `GetName`, `GetClass`,
+  `GetRace`, and `GetSex` return nil unless the player is a visible unit
+  (your target, a party or raid member nearby, someone in range). This is
+  true for unit locations as well as GUID locations. The local player always
+  works. The chat-line, who, battlefield-score, community, and voice kinds
+  are not supported and return nil.
+- `GetSex` reports `2` / `3`, the same as `UnitSex`. `IsConnected` gives the
+  same answer as `UnitIsConnected`, so it also works for group members who
+  are not in range. With no argument, `IsConnected` checks the local player.
 - **`GetRace` / `GetClass`** return the numeric ids that
   `UnitRace` / `UnitClass` don't (those give only names). `classID` round-trips
   with [`C_CreatureInfo.GetClassInfo`](#c_creatureinfogetclassinfoclassid) and
@@ -22100,8 +22066,7 @@ local sex = C_PlayerInfo.GetSex(loc)
   `GetClass`'s `className` / `classFilename` are the same localized name +
   non-localized token (`"WARRIOR"`) those return.
 - An unresolvable or unsupported location returns nil. A malformed unit token
-  raises (the engine's token→GUID resolver rejects it), same as passing it to
-  `UnitName`/`UnitClass` directly.
+  raises an error, the same as passing it to `UnitName` or `UnitClass`.
 
 ## Profiling
 
@@ -22992,8 +22957,9 @@ A mute applies to the file, so it covers every sound that uses it, whoever
 starts it. `MuteSoundFile` returns `true` when the path is now muted.
 `UnmuteSoundFile` returns `true` when the path had been muted.
 
-Mutes last until you log out or reload. To keep them, save your list and
-apply it again on login.
+Mutes last until you exit the game. A reload or a logout does not remove
+them. The game does not save them. To keep them for the next session, save
+your list and apply it again on login.
 
 ### `C_Sound.GetRecentSoundFiles()`
 
