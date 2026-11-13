@@ -183,10 +183,25 @@ const Game::Doc::Function kIsMacroActionWithShowTooltipDoc{
     "Whether the action is a macro with an explicit #showtooltip line.",
     kGetSpellArgs, kIsMacroActionWithShowTooltipRets};
 
+const Game::Doc::Field kGetActionInfoArgs[] = {
+    Game::Doc::Req("slot", "luaIndex", "The action slot, 1 to 120."),
+};
+const Game::Doc::Field kGetActionInfoRets[] = {
+    Game::Doc::Opt("actionType", "string", nullptr,
+                   "\"spell\", \"macro\", \"item\" or \"equipmentset\"; nothing is returned for "
+                   "an empty slot or a macro that no longer exists."),
+    Game::Doc::Opt("id", "number", nullptr,
+                   "The spell ID, macro index or item ID; the set name for an equipment set."),
+    Game::Doc::Opt("subType", "string", nullptr, "\"spell\" for a spell, else nil."),
+};
+const Game::Doc::Function kGetActionInfo{
+    "Returns what an action slot holds: its type, its ID and a subtype.",
+    kGetActionInfoArgs, kGetActionInfoRets, "ActionBarGlobals"};
+
 } // namespace
 
 static void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("GetActionInfo", &Script_GetActionInfo);
+    Game::Lua::RegisterGlobalFunction("GetActionInfo", &Script_GetActionInfo, &kGetActionInfo);
     Game::Lua::RegisterTableFunction("C_ActionBar", "GetSpell", &Script_GetSpell, &kGetSpellDoc);
     Game::Lua::RegisterTableFunction("C_ActionBar", "IsMacroActionWithShowTooltip",
                                      &Script_IsMacroActionWithShowTooltip,

@@ -111,7 +111,7 @@ const Game::Doc::Field kIsStackableRets[] = {
 };
 const Game::Doc::Function kIsStackableAction{
     "Returns 1 if an action slot holds an item that stacks.",
-    kSlotArgs, kIsStackableRets, "ActionBar"};
+    kSlotArgs, kIsStackableRets, "ActionBarGlobals"};
 
 const Game::Doc::Field kActionIDArgs[] = {
     Game::Doc::Req("actionID", "luaIndex"),

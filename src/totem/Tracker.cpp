@@ -223,7 +223,15 @@ int __fastcall ScanCallback(ScanCtx *ctx, void * /*unusedEdx*/, uint64_t guid) {
 // flushed from OnTick (WorldTick context — safe to run Lua handlers, unlike
 // mid-packet).
 constexpr const char *kPlayerTotemUpdate = "PLAYER_TOTEM_UPDATE";
-const Event::Custom::AutoReserve _totemUpdate{kPlayerTotemUpdate};
+const Game::Doc::Field kTotemUpdatePayload[] = {
+    Game::Doc::Req("totemSlot", "luaIndex", "1 Fire, 2 Earth, 3 Water, 4 Air."),
+};
+const Game::Doc::Event kTotemUpdateDoc{
+    "SpellBook",
+    "Fires when a totem slot changes: a totem is dropped, its name becomes known, or it goes "
+    "away.",
+    kTotemUpdatePayload};
+const Event::Custom::AutoReserve _totemUpdate{kPlayerTotemUpdate, &kTotemUpdateDoc};
 int g_totemUpdateId = -1;
 uint8_t g_dirtyMask = 0;
 
@@ -514,19 +522,71 @@ int __fastcall Script_GameTooltipSetTotem(void *L) {
     return 0;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kSlotArgs[] = {
+    Game::Doc::Req("slot", "luaIndex", "1 Fire, 2 Earth, 3 Water, 4 Air."),
+};
+
+const Game::Doc::Field kTotemInfoRets[] = {
+    Game::Doc::Req("haveTotem", "bool",
+                   "True while a totem is down; with none, whether you carry the slot's totem "
+                   "tool."),
+    Game::Doc::Opt("totemName", "cstring", nullptr,
+                   "Nil until the totem is seen; \"\" when the slot is empty."),
+    Game::Doc::Req("startTime", "number",
+                   "GetTime() when the totem was dropped, in whole seconds; 0 when the slot is "
+                   "empty."),
+    Game::Doc::Req("duration", "number", "In whole seconds; 0 when the slot is empty."),
+    Game::Doc::Req("icon", "string", "Icon texture path; \"\" when the slot is empty."),
+    Game::Doc::Req("modRate", "number", "Always 1."),
+    Game::Doc::Req("spellID", "number", "The summon spell; 0 when the slot is empty."),
+};
+const Game::Doc::Function kGetTotemInfo{
+    "Returns the totem in one of the four totem slots.", kSlotArgs, kTotemInfoRets,
+    "TotemGlobals"};
+
+const Game::Doc::Field kTimeLeftRets[] = {
+    Game::Doc::Req("timeLeft", "number", "In whole seconds; 0 when the slot is empty."),
+};
+const Game::Doc::Function kGetTotemTimeLeft{
+    "Returns the time until the totem in a slot expires.", kSlotArgs, kTimeLeftRets,
+    "TotemGlobals"};
+
+const Game::Doc::Field kDurationRets[] = {
+    Game::Doc::Req("duration", "LuaDurationObject",
+                   "A new object each call; a zero span when the slot is empty."),
+};
+const Game::Doc::Function kGetTotemDuration{
+    "Returns a duration object that spans the life of the totem in a slot.", kSlotArgs,
+    kDurationRets, "TotemGlobals"};
+
+const Game::Doc::Function kTargetTotem{
+    "Targets your totem in a slot; does nothing until the totem is seen.", kSlotArgs, {},
+    "TotemGlobals"};
+
+const Game::Doc::Function kSetTotem{
+    "Fills the tooltip with the totem in a slot and shows it; does nothing for an empty "
+    "slot.",
+    kSlotArgs, {}};
+
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("GetTotemInfo", &Script_GetTotemInfo);
+    Game::Lua::RegisterGlobalFunction("GetTotemInfo", &Script_GetTotemInfo, &kGetTotemInfo);
     Game::Lua::RegisterGlobalFunction("GetTotemTimeLeft",
-                                      &Script_GetTotemTimeLeft);
+                                      &Script_GetTotemTimeLeft, &kGetTotemTimeLeft);
     Game::Lua::RegisterGlobalFunction("GetTotemDuration",
-                                      &Script_GetTotemDuration);
-    Game::Lua::RegisterGlobalFunction("TargetTotem", &Script_TargetTotem);
+                                      &Script_GetTotemDuration, &kGetTotemDuration);
+    Game::Lua::RegisterGlobalFunction("TargetTotem", &Script_TargetTotem, &kTargetTotem);
 
     static const Game::Lua::FrameMethodEntry kTooltipMethods[] = {
         {"SetTotem", &Script_GameTooltipSetTotem},
     };
+    static const Game::Doc::Method kTooltipMethodDocs[] = {
+        {"SetTotem", &kSetTotem},
+    };
     Game::Lua::RegisterFrameMethods(
-        reinterpret_cast<void *>(Offsets::VAR_GAMETOOLTIP_METHOD_REGISTRY), kTooltipMethods);
+        reinterpret_cast<void *>(Offsets::VAR_GAMETOOLTIP_METHOD_REGISTRY), kTooltipMethods,
+        kTooltipMethodDocs);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

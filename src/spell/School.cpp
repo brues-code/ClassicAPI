@@ -66,10 +66,26 @@ int __fastcall Script_GetSpellSchool(void *L) {
     return 2;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("spellID", "number", "Any spell ID, known or not."),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Opt("schoolID", "number", nullptr,
+                   "1 Physical, 2 Holy, 3 Fire, 4 Nature, 5 Frost, 6 Shadow, 7 Arcane; nil, "
+                   "with the name, for an unknown spell ID."),
+    Game::Doc::Opt("schoolName", "string", nullptr,
+                   "The English school name, the same in every locale."),
+};
+const Game::Doc::Function kGetSpellSchool{
+    "Returns the magic school of a spell.", kArgs, kRets, "SpellGlobals", true};
+
 } // namespace
 
 static void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("GetSpellSchool", &Script_GetSpellSchool);
+    Game::Lua::RegisterGlobalFunction("GetSpellSchool", &Script_GetSpellSchool,
+                                      &kGetSpellSchool);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

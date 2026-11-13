@@ -120,16 +120,70 @@ int __fastcall Script_GetSpellBookItemLossOfControlCooldownDuration(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kSpellArgs[] = {
+    Game::Doc::Req("spellIdentifier", "SpellIdentifier"),
+};
+const Game::Doc::Field kSpellRets[] = {
+    Game::Doc::Opt("startTime", "number", nullptr,
+                   "In GetTime() seconds; 0 when nothing blocks the spell; nil, with the "
+                   "duration, for an unknown spell."),
+    Game::Doc::Opt("duration", "number", nullptr,
+                   "In seconds; 0 when nothing blocks the spell."),
+};
+const Game::Doc::Function kGetSpellLossOfControlCooldown{
+    "Returns the loss-of-control effect that stops you from casting a spell, as a cooldown; "
+    "the one that ends last when several do.",
+    kSpellArgs, kSpellRets};
+
+const Game::Doc::Field kInfoFields[] = {
+    Game::Doc::Req("startTime", "number",
+                   "In GetTime() seconds; 0 when nothing blocks the spell."),
+    Game::Doc::Req("duration", "number", "In seconds; 0 when nothing blocks the spell."),
+    Game::Doc::Req("modRate", "number", "Always 1."),
+    Game::Doc::Req("isActive", "bool", "True while an effect blocks the spell."),
+    Game::Doc::Req("shouldReplaceNormalCooldown", "bool",
+                   "True when the effect outlasts the spell's own cooldown."),
+};
+const Game::Doc::Structure kSpellLossOfControlInfo{
+    "SpellLossOfControlInfo", "SpellBook", kInfoFields,
+    "The loss-of-control effect that blocks a spell, shaped as a cooldown."};
+
+const Game::Doc::Field kSlotArgs[] = {
+    Game::Doc::Req("spellBookItemSlotIndex", "luaIndex"),
+    Game::Doc::Opt("spellBookItemSpellBank", "SpellBookSpellBank", "0", "Player by default."),
+};
+const Game::Doc::Field kInfoRets[] = {
+    Game::Doc::Opt("lossOfControlInfo", "SpellLossOfControlInfo", nullptr,
+                   "Nil for an empty slot."),
+};
+const Game::Doc::Function kGetSpellBookItemLossOfControlCooldownInfo{
+    "Returns the loss-of-control effect that blocks the spell in a spellbook slot, as a "
+    "cooldown.",
+    kSlotArgs, kInfoRets};
+
+const Game::Doc::Field kDurationRets[] = {
+    Game::Doc::Opt("duration", "number", nullptr,
+                   "In seconds; 0 when nothing blocks the spell, nil for an empty slot."),
+};
+const Game::Doc::Function kGetSpellBookItemLossOfControlCooldownDuration{
+    "Returns how long the loss-of-control effect that blocks the spell in a spellbook slot "
+    "lasts.",
+    kSlotArgs, kDurationRets};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction(
         "C_Spell", "GetSpellLossOfControlCooldown",
-        &Script_C_Spell_GetSpellLossOfControlCooldown);
+        &Script_C_Spell_GetSpellLossOfControlCooldown, &kGetSpellLossOfControlCooldown);
     Game::Lua::RegisterTableFunction(
         "C_SpellBook", "GetSpellBookItemLossOfControlCooldownInfo",
-        &Script_GetSpellBookItemLossOfControlCooldownInfo);
+        &Script_GetSpellBookItemLossOfControlCooldownInfo,
+        &kGetSpellBookItemLossOfControlCooldownInfo);
     Game::Lua::RegisterTableFunction(
         "C_SpellBook", "GetSpellBookItemLossOfControlCooldownDuration",
-        &Script_GetSpellBookItemLossOfControlCooldownDuration);
+        &Script_GetSpellBookItemLossOfControlCooldownDuration,
+        &kGetSpellBookItemLossOfControlCooldownDuration);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

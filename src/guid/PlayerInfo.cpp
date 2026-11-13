@@ -74,15 +74,43 @@ int __fastcall Script_GUIDIsGameObject(void *L) {
     return PushTypeResult(L, Type::GameObject);
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kGuidArgs[] = {
+    Game::Doc::Req("guid", "WOWGUID"),
+};
+const Game::Doc::Field kIsPlayerRets[] = {
+    Game::Doc::Req("isPlayer", "bool"),
+};
+const Game::Doc::Field kIsCreatureRets[] = {
+    Game::Doc::Req("isCreature", "bool"),
+};
+const Game::Doc::Field kIsPetRets[] = {
+    Game::Doc::Req("isPet", "bool"),
+};
+const Game::Doc::Field kIsGameObjectRets[] = {
+    Game::Doc::Req("isGameObject", "bool"),
+};
+const Game::Doc::Function kGUIDIsPlayer{
+    "Returns whether a GUID belongs to a player.", kGuidArgs, kIsPlayerRets};
+const Game::Doc::Function kGUIDIsCreature{
+    "Returns whether a GUID belongs to a creature; pets do not count.", kGuidArgs,
+    kIsCreatureRets, nullptr, true};
+const Game::Doc::Function kGUIDIsPet{
+    "Returns whether a GUID belongs to a pet.", kGuidArgs, kIsPetRets, nullptr, true};
+const Game::Doc::Function kGUIDIsGameObject{
+    "Returns whether a GUID belongs to a game object, such as a herb, chest or door.",
+    kGuidArgs, kIsGameObjectRets, nullptr, true};
+
 void Register() {
     Game::Lua::RegisterTableFunction("C_PlayerInfo", "GUIDIsPlayer",
-                                     &Script_GUIDIsPlayer);
+                                     &Script_GUIDIsPlayer, &kGUIDIsPlayer);
     Game::Lua::RegisterTableFunction("C_PlayerInfo", "GUIDIsCreature",
-                                     &Script_GUIDIsCreature);
+                                     &Script_GUIDIsCreature, &kGUIDIsCreature);
     Game::Lua::RegisterTableFunction("C_PlayerInfo", "GUIDIsPet",
-                                     &Script_GUIDIsPet);
+                                     &Script_GUIDIsPet, &kGUIDIsPet);
     Game::Lua::RegisterTableFunction("C_PlayerInfo", "GUIDIsGameObject",
-                                     &Script_GUIDIsGameObject);
+                                     &Script_GUIDIsGameObject, &kGUIDIsGameObject);
 }
 
 } // namespace

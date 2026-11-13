@@ -142,9 +142,24 @@ static const Game::Lua::FrameMethodEntry g_methods[] = {
     {"SetTalentByID", &Script_GameTooltipSetTalentByID},
 };
 
+// --- Documentation ----------------------------------------------------------
+
+static const Game::Doc::Field kSetTalentByIDArgs[] = {
+    Game::Doc::Req("talentID", "number", "A talent of any class."),
+};
+static const Game::Doc::Function kSetTalentByID{
+    "Fills the tooltip with a talent's tooltip; a talent of another class shows the "
+    "tooltip of its rank 1 spell.",
+    kSetTalentByIDArgs, {}, nullptr, true};
+
+static const Game::Doc::Method g_methodDocs[] = {
+    {"SetTalentByID", &kSetTalentByID},
+};
+
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterFrameMethods(
-        reinterpret_cast<void *>(Offsets::VAR_GAMETOOLTIP_METHOD_REGISTRY), g_methods);
+        reinterpret_cast<void *>(Offsets::VAR_GAMETOOLTIP_METHOD_REGISTRY), g_methods,
+        g_methodDocs);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

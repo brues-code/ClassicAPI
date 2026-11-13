@@ -124,9 +124,36 @@ static const Game::Lua::FrameMethodEntry g_methods[] = {
     {"HasGameObject", &Script_GameTooltipHasGameObject},
 };
 
+// --- Documentation ----------------------------------------------------------
+
+static const Game::Doc::Field kGetGameObjectRets[] = {
+    Game::Doc::Opt("name", "string", nullptr,
+                   "\"\" until the name is known; nil, with the rest, when the tooltip shows no "
+                   "game object or it is out of view."),
+    Game::Doc::Opt("gameObjectID", "number"),
+    Game::Doc::Opt("guid", "WOWGUID"),
+};
+static const Game::Doc::Function kGetGameObject{
+    "Returns the game object the tooltip is showing from a world mouseover.", {},
+    kGetGameObjectRets, nullptr, true};
+
+static const Game::Doc::Field kHasGameObjectRets[] = {
+    Game::Doc::Req("hasGameObject", "bool",
+                   "Stays true after the game object goes out of view."),
+};
+static const Game::Doc::Function kHasGameObject{
+    "Returns whether the tooltip is showing a game object.", {}, kHasGameObjectRets, nullptr,
+    true};
+
+static const Game::Doc::Method g_methodDocs[] = {
+    {"GetGameObject", &kGetGameObject},
+    {"HasGameObject", &kHasGameObject},
+};
+
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterFrameMethods(
-        reinterpret_cast<void *>(Offsets::VAR_GAMETOOLTIP_METHOD_REGISTRY), g_methods);
+        reinterpret_cast<void *>(Offsets::VAR_GAMETOOLTIP_METHOD_REGISTRY), g_methods,
+        g_methodDocs);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

@@ -56,9 +56,21 @@ int __fastcall Script_GetCreatureID(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("creatureGUID", "WOWGUID"),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Opt("creatureID", "number", nullptr,
+                   "Nil for a GUID that is not a creature or an in-view pet."),
+};
+const Game::Doc::Function kGetCreatureID{
+    "Returns the creature ID of a creature or pet GUID, read from the unit while it is in "
+    "view.",
+    kArgs, kRets};
+
 void Register() {
     Game::Lua::RegisterTableFunction("C_CreatureInfo", "GetCreatureID",
-                                     &Script_GetCreatureID);
+                                     &Script_GetCreatureID, &kGetCreatureID);
 }
 
 } // namespace

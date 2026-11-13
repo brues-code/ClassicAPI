@@ -274,8 +274,24 @@ bool Blocks(const LocEntry &e, const uint8_t *castRec, int schoolIdx,
 // lesson). The scan is bounded (16 debuff slots) and early-outs when idle, so
 // the per-frame cost is negligible.
 
-const Event::Custom::AutoReserve _reserveAdded{"LOSS_OF_CONTROL_ADDED"};
-const Event::Custom::AutoReserve _reserveUpdate{"LOSS_OF_CONTROL_UPDATE"};
+const Game::Doc::Field kAddedPayload[] = {
+    Game::Doc::Req("effectIndex", "luaIndex",
+                   "The new effect's index for C_LossOfControl.GetActiveLossOfControlData."),
+};
+const Game::Doc::Event kAddedDoc{"LossOfControl",
+                                 "Fires when a loss-of-control effect lands on the player.",
+                                 kAddedPayload};
+const Game::Doc::Field kUpdatePayload[] = {
+    Game::Doc::Req("unitTarget", "UnitToken", "Always \"player\"."),
+};
+const Game::Doc::Event kUpdateDoc{
+    "LossOfControl",
+    "Fires once per frame in which the player's loss-of-control effects were added, fell off "
+    "or expired.",
+    kUpdatePayload};
+
+const Event::Custom::AutoReserve _reserveAdded{"LOSS_OF_CONTROL_ADDED", &kAddedDoc};
+const Event::Custom::AutoReserve _reserveUpdate{"LOSS_OF_CONTROL_UPDATE", &kUpdateDoc};
 
 // Identity of an active effect for frame-to-frame diffing: a CC is keyed by
 // spellID, a school interrupt by its school mask (spellID 0).
@@ -439,6 +455,61 @@ int __fastcall Script_GetSchoolLockout(void *L) {
     return 2;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kCountRets[] = {
+    Game::Doc::Req("count", "number"),
+};
+const Game::Doc::Function kGetActiveLossOfControlDataCount{
+    "Returns the number of loss-of-control effects on the player.", {}, kCountRets};
+
+const Game::Doc::Field kDataFields[] = {
+    Game::Doc::Req("locType", "cstring",
+                   "\"STUN\", \"FEAR\", \"ROOT\", \"CONFUSE\", \"CHARM\", \"POSSESS\", "
+                   "\"SILENCE\", \"PACIFY\", \"PACIFYSILENCE\", \"DISARM\" or "
+                   "\"SCHOOL_INTERRUPT\"."),
+    Game::Doc::Req("spellID", "number", "0 for a school interrupt."),
+    Game::Doc::Req("displayText", "cstring",
+                   "The spell name, or \"Interrupted\" for a school interrupt."),
+    Game::Doc::Req("iconTexture", "string",
+                   "Icon texture path; \"\" for a school interrupt."),
+    Game::Doc::Opt("startTime", "number", nullptr, "In GetTime() seconds; nil without a timer."),
+    Game::Doc::Opt("timeRemaining", "number", nullptr, "In seconds; nil without a timer."),
+    Game::Doc::Opt("duration", "number", nullptr, "In seconds; nil without a timer."),
+    Game::Doc::Req("lockoutSchool", "number",
+                   "The locked school mask for a school interrupt, else 0."),
+    Game::Doc::Req("priority", "number", "Always 0."),
+    Game::Doc::Req("displayType", "number", "Always 2, shown for the full duration."),
+    Game::Doc::Opt("auraInstanceID", "number", nullptr,
+                   "The debuff's aura instance ID; nil for a school interrupt."),
+};
+const Game::Doc::Structure kLossOfControlData{"LossOfControlData", "LossOfControl",
+                                              kDataFields,
+                                              "One loss-of-control effect on the player."};
+
+const Game::Doc::Field kDataArgs[] = {
+    Game::Doc::Req("index", "luaIndex"),
+};
+const Game::Doc::Field kDataRets[] = {
+    Game::Doc::Opt("event", "LossOfControlData", nullptr, "Nil for an index out of range."),
+};
+const Game::Doc::Function kGetActiveLossOfControlData{
+    "Returns one loss-of-control effect on the player.", kDataArgs, kDataRets};
+
+const Game::Doc::Field kLockoutArgs[] = {
+    Game::Doc::Opt("filterMask", "number", "0",
+                   "Only these schools, as 1 << schoolIndex bits; 0 means every school."),
+};
+const Game::Doc::Field kLockoutRets[] = {
+    Game::Doc::Req("lockedMask", "number",
+                   "Every locked school as 1 << schoolIndex bits; 0 when none is locked."),
+    Game::Doc::Opt("secondsRemaining", "number", nullptr,
+                   "Until the last of those schools is clear; nil when none is locked."),
+};
+const Game::Doc::Function kGetSchoolLockout{
+    "Returns which spell schools an interrupt has locked and for how long.", kLockoutArgs,
+    kLockoutRets, nullptr, true};
+
 } // namespace
 
 bool LockoutForSpell(int spellID, uint32_t *startMs, uint32_t *endMs) {
@@ -472,12 +543,13 @@ bool LockoutForSpell(int spellID, uint32_t *startMs, uint32_t *endMs) {
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction(
         "C_LossOfControl", "GetActiveLossOfControlDataCount",
-        &Script_GetActiveLossOfControlDataCount);
+        &Script_GetActiveLossOfControlDataCount, &kGetActiveLossOfControlDataCount);
     Game::Lua::RegisterTableFunction("C_LossOfControl",
                                      "GetActiveLossOfControlData",
-                                     &Script_GetActiveLossOfControlData);
+                                     &Script_GetActiveLossOfControlData,
+                                     &kGetActiveLossOfControlData);
     Game::Lua::RegisterTableFunction("C_LossOfControl", "GetSchoolLockout",
-                                     &Script_GetSchoolLockout);
+                                     &Script_GetSchoolLockout, &kGetSchoolLockout);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

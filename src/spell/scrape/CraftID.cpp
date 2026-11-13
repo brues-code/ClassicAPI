@@ -46,8 +46,20 @@ int __fastcall Script_GetCraftSpellID(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("craftIndex", "luaIndex"),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Opt("spellID", "number", nullptr,
+                   "Nil when the craft window is closed or the index is out of range."),
+};
+const Game::Doc::Function kGetCraftSpellID{
+    "Returns the spell ID of a craft window recipe, the spell that GetCraftItemLink links.",
+    kArgs, kRets, "TradeSkillGlobals", true};
+
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("GetCraftSpellID", &Script_GetCraftSpellID);
+    Game::Lua::RegisterGlobalFunction("GetCraftSpellID", &Script_GetCraftSpellID,
+                                      &kGetCraftSpellID);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

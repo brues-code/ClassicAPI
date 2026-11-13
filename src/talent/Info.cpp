@@ -290,9 +290,43 @@ static int __fastcall Script_GetTalentIDByIndex(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+static const Game::Doc::Field kTalentSpellIDArgs[] = {
+    Game::Doc::Req("tabIndex", "luaIndex"),
+    Game::Doc::Req("talentIndex", "luaIndex"),
+    Game::Doc::Opt("rank", "number", nullptr,
+                   "Defaults to your current rank, or rank 1 when you have no points in it or "
+                   "classID is given."),
+    Game::Doc::Opt("classID", "number", nullptr,
+                   "Reads this class's talent tree instead of yours."),
+};
+static const Game::Doc::Field kTalentSpellIDRets[] = {
+    Game::Doc::Opt("spellID", "number", nullptr,
+                   "Nil for an index out of range or a rank the talent does not have."),
+};
+static const Game::Doc::Function kGetTalentSpellID{
+    "Returns the spell ID of a talent at a rank.", kTalentSpellIDArgs, kTalentSpellIDRets,
+    "TalentGlobals", true};
+
+static const Game::Doc::Field kTalentIDArgs[] = {
+    Game::Doc::Req("tabIndex", "luaIndex"),
+    Game::Doc::Req("talentIndex", "luaIndex"),
+    Game::Doc::Opt("classID", "number", nullptr,
+                   "Reads this class's talent tree instead of yours."),
+};
+static const Game::Doc::Field kTalentIDRets[] = {
+    Game::Doc::Opt("talentID", "number", nullptr, "Nil for an index out of range."),
+};
+static const Game::Doc::Function kGetTalentIDByIndex{
+    "Returns the talent ID of the talent at a tab and index, in the talent window's order.",
+    kTalentIDArgs, kTalentIDRets, "TalentGlobals", true};
+
 static void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("GetTalentSpellID", &Script_GetTalentSpellID);
-    Game::Lua::RegisterGlobalFunction("GetTalentIDByIndex", &Script_GetTalentIDByIndex);
+    Game::Lua::RegisterGlobalFunction("GetTalentSpellID", &Script_GetTalentSpellID,
+                                      &kGetTalentSpellID);
+    Game::Lua::RegisterGlobalFunction("GetTalentIDByIndex", &Script_GetTalentIDByIndex,
+                                      &kGetTalentIDByIndex);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

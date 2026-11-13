@@ -100,9 +100,22 @@ static int __fastcall Script_StopAttack(void *L) {
     return 0;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+static const Game::Doc::Field kStartAttackArgs[] = {
+    Game::Doc::Opt("target", "UnitToken", nullptr,
+                   "The unit to attack; your target when left out or not a unit token."),
+};
+static const Game::Doc::Function kStartAttack{
+    "Starts your melee auto-attack; unlike AttackTarget it never turns the attack off.",
+    kStartAttackArgs, {}, "CombatGlobals"};
+static const Game::Doc::Function kStopAttack{
+    "Stops your melee auto-attack; does nothing when you are not attacking.", {}, {},
+    "CombatGlobals"};
+
 static void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("StartAttack", &Script_StartAttack);
-    Game::Lua::RegisterGlobalFunction("StopAttack", &Script_StopAttack);
+    Game::Lua::RegisterGlobalFunction("StartAttack", &Script_StartAttack, &kStartAttack);
+    Game::Lua::RegisterGlobalFunction("StopAttack", &Script_StopAttack, &kStopAttack);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

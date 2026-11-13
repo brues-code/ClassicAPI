@@ -177,10 +177,40 @@ int __fastcall Script_EditMacro(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kCreateArgs[] = {
+    Game::Doc::Req("name", "string"),
+    Game::Doc::Opt("iconTexture", "string", nullptr,
+                   "An icon path or a bare icon name; item icons work too."),
+    Game::Doc::Opt("body", "string", nullptr),
+    Game::Doc::Opt("isCharacterMacro", "bool", "false"),
+};
+const Game::Doc::Field kIndexRets[] = {
+    Game::Doc::Opt("index", "luaIndex", nullptr, "Nil when the macro could not be made."),
+};
+const Game::Doc::Function kCreateMacro{
+    "Creates a macro whose icon is given as a texture name instead of an icon index.",
+    kCreateArgs, kIndexRets, nullptr, true};
+
+const Game::Doc::Field kEditArgs[] = {
+    Game::Doc::Req("index", "luaIndex", "A macro index, or a macro name."),
+    Game::Doc::Opt("name", "string", nullptr, "Nil keeps the name."),
+    Game::Doc::Opt("iconTexture", "string", nullptr,
+                   "An icon path or a bare icon name; nil keeps the icon."),
+    Game::Doc::Opt("body", "string", nullptr, "Nil keeps the body."),
+};
+const Game::Doc::Field kEditRets[] = {
+    Game::Doc::Opt("index", "luaIndex", nullptr, "Nil when no such macro exists."),
+};
+const Game::Doc::Function kEditMacro{
+    "Changes a macro's name, icon or body; the icon is given as a texture name.",
+    kEditArgs, kEditRets, nullptr, true};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Macro", "CreateMacro",
-                                     &Script_CreateMacro);
-    Game::Lua::RegisterTableFunction("C_Macro", "EditMacro", &Script_EditMacro);
+                                     &Script_CreateMacro, &kCreateMacro);
+    Game::Lua::RegisterTableFunction("C_Macro", "EditMacro", &Script_EditMacro, &kEditMacro);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

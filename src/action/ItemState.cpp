@@ -104,10 +104,45 @@ int __fastcall Script_IsConsumableAction(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kSlotArgs[] = {
+    Game::Doc::Req("slot", "luaIndex", "The action slot, 1 to 120."),
+};
+
+const Game::Doc::Field kCooldownRets[] = {
+    Game::Doc::Req("startTime", "number", "In GetTime() seconds; 0 when there is no cooldown."),
+    Game::Doc::Req("duration", "number", "In seconds; 0 when there is no cooldown."),
+    Game::Doc::Req("enable", "number",
+                   "0 while the cooldown waits to start, such as for a potion used in combat."),
+};
+const Game::Doc::Function kGetActionCooldown{
+    "Returns the cooldown of an action, also for a macro that shows an item.",
+    kSlotArgs, kCooldownRets, "ActionBarGlobals"};
+
+const Game::Doc::Field kCountRets[] = {
+    Game::Doc::Req("count", "number"),
+};
+const Game::Doc::Function kGetActionCount{
+    "Returns how many of an action's item or reagent you carry, also for a macro that shows "
+    "an item.",
+    kSlotArgs, kCountRets, "ActionBarGlobals"};
+
+const Game::Doc::Field kConsumableRets[] = {
+    Game::Doc::Opt("isConsumable", "number", nullptr,
+                   "1 when the action uses up an item, else nil."),
+};
+const Game::Doc::Function kIsConsumableAction{
+    "Returns whether an action uses up an item, also for a macro that shows an item.",
+    kSlotArgs, kConsumableRets, "ActionBarGlobals"};
+
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("GetActionCooldown", &Script_GetActionCooldown);
-    Game::Lua::RegisterGlobalFunction("GetActionCount", &Script_GetActionCount);
-    Game::Lua::RegisterGlobalFunction("IsConsumableAction", &Script_IsConsumableAction);
+    Game::Lua::RegisterGlobalFunction("GetActionCooldown", &Script_GetActionCooldown,
+                                      &kGetActionCooldown);
+    Game::Lua::RegisterGlobalFunction("GetActionCount", &Script_GetActionCount,
+                                      &kGetActionCount);
+    Game::Lua::RegisterGlobalFunction("IsConsumableAction", &Script_IsConsumableAction,
+                                      &kIsConsumableAction);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

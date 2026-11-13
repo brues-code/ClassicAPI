@@ -257,9 +257,29 @@ int __fastcall Script_CastSpellNoToggle(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("spell", "SpellIdentifier",
+                   "A spell ID or spell name; a leading \"!\" is ignored."),
+    Game::Doc::Opt("unit", "UnitToken", nullptr,
+                   "Casts at this unit without changing your target."),
+    Game::Doc::Opt("placeGroundSpell", "bool", "true",
+                   "With a unit, false leaves a ground spell's reticle up instead of placing it."),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Req("isActive", "bool",
+                   "True when the spell's auto-repeat or self-aura is on after the call; false "
+                   "otherwise, also when another auto-repeat blocked the cast."),
+};
+const Game::Doc::Function kCastSpellNoToggle{
+    "Casts a spell like CastSpellByName, but does nothing when the spell's auto-repeat or "
+    "self-aura is already on.",
+    kArgs, kRets, "SpellGlobals", true};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("CastSpellNoToggle",
-                                      &Script_CastSpellNoToggle);
+                                      &Script_CastSpellNoToggle, &kCastSpellNoToggle);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

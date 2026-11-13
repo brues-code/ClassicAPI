@@ -47,7 +47,18 @@ namespace GameObject::Info {
 namespace {
 
 constexpr const char *kGameObjectDataLoadResult = "GAMEOBJECT_DATA_LOAD_RESULT";
-const Event::Custom::AutoReserve _reserveLoadResult{kGameObjectDataLoadResult};
+const Game::Doc::Field kLoadResultPayload[] = {
+    Game::Doc::Req("gameObjectID", "number"),
+    Game::Doc::Opt("success", "number", nullptr,
+                   "1 when the data loaded, nil when the server did not send it."),
+};
+const Game::Doc::Event kLoadResultDoc{
+    "GameObjectInfo",
+    "Fires when a game object asked for with C_GameObjectInfo.RequestLoadGameObjectByID "
+    "loads or fails to load.",
+    kLoadResultPayload};
+const Event::Custom::AutoReserve _reserveLoadResult{kGameObjectDataLoadResult,
+                                                    &kLoadResultDoc};
 
 using GetCacheRecord_t = const uint8_t *(__thiscall *)(void *cache, uint32_t id,
                                                        const uint64_t *guid, void *callback,
@@ -101,11 +112,43 @@ int __fastcall Script_RequestLoadGameObjectByID(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kIDArgs[] = {
+    Game::Doc::Req("gameObjectID", "number"),
+};
+
+const Game::Doc::Field kDataFields[] = {
+    Game::Doc::Req("gameObjectID", "number"),
+    Game::Doc::Req("name", "string"),
+    Game::Doc::Req("type", "number", "The game object type, such as 0 for a door or 3 for a "
+                                     "chest."),
+    Game::Doc::Req("displayID", "number"),
+};
+const Game::Doc::Structure kGameObjectData{"GameObjectData", "GameObjectInfo", kDataFields,
+                                           "A game object as the game object cache holds it."};
+const Game::Doc::Field kInfoRets[] = {
+    Game::Doc::Opt("gameObjectInfo", "GameObjectData", nullptr,
+                   "Nil when the game object is not cached."),
+};
+const Game::Doc::Function kGetGameObjectInfoByID{
+    "Returns a cached game object's name, type and model; it never asks the server.",
+    kIDArgs, kInfoRets, nullptr, true};
+
+const Game::Doc::Field kRequestRets[] = {
+    Game::Doc::Req("accepted", "bool", "False for bad input or too many pending requests."),
+};
+const Game::Doc::Function kRequestLoadGameObjectByID{
+    "Asks the server for a game object that is not cached; GAMEOBJECT_DATA_LOAD_RESULT fires "
+    "with the answer.",
+    kIDArgs, kRequestRets, nullptr, true};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_GameObjectInfo", "GetGameObjectInfoByID",
-                                     &Script_GetGameObjectInfoByID);
+                                     &Script_GetGameObjectInfoByID, &kGetGameObjectInfoByID);
     Game::Lua::RegisterTableFunction("C_GameObjectInfo", "RequestLoadGameObjectByID",
-                                     &Script_RequestLoadGameObjectByID);
+                                     &Script_RequestLoadGameObjectByID,
+                                     &kRequestLoadGameObjectByID);
     Cache::QueryLoad::Register(reinterpret_cast<void *>(Offsets::VAR_GAMEOBJECT_CACHE),
                                &_reserveLoadResult, Offsets::FUN_GAMEOBJECT_GET_RECORD);
 }

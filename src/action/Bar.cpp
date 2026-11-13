@@ -67,7 +67,7 @@ const Game::Doc::Field kIsItemRets[] = {
 };
 const Game::Doc::Function kIsItemAction{
     "Returns 1 if an action slot holds an item.",
-    kSlotArgs, kIsItemRets, "ActionBar"};
+    kSlotArgs, kIsItemRets, "ActionBarGlobals"};
 
 const Game::Doc::Field kHasBonusRets[] = {
     Game::Doc::Opt("hasBonusBar", "number", nullptr,
@@ -75,7 +75,7 @@ const Game::Doc::Field kHasBonusRets[] = {
 };
 const Game::Doc::Function kHasBonusActionBar{
     "Returns 1 if a bonus action bar is active, for example in a stance or form.",
-    {}, kHasBonusRets, "ActionBar"};
+    {}, kHasBonusRets, "ActionBarGlobals"};
 
 } // namespace
 

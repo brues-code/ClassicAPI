@@ -52,9 +52,25 @@ int __fastcall Script_ClosestGameObjectPosition(void *L) {
     return 3;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("gameObjectID", "number", "The game object ID to look for."),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Req("xPos", "number", "World X coordinate."),
+    Game::Doc::Req("yPos", "number", "World Y coordinate."),
+    Game::Doc::Req("distance", "number", "Yards from the player."),
+};
+const Game::Doc::Function kClosestGameObjectPosition{
+    "Returns the position of the nearest visible game object with an ID, or nothing when none "
+    "is in view.",
+    kArgs, kRets, "UnitGlobals"};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("ClosestGameObjectPosition",
-                                      &Script_ClosestGameObjectPosition);
+                                      &Script_ClosestGameObjectPosition,
+                                      &kClosestGameObjectPosition);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

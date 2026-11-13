@@ -265,13 +265,50 @@ int __fastcall Script_GetSkillLineRank(void *L) {
     return 3;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kSpellSkillLineArgs[] = {
+    Game::Doc::Req("spellID", "number", "Any spell ID, known or not."),
+};
+const Game::Doc::Field kSpellSkillLineRets[] = {
+    Game::Doc::Opt("name", "string", nullptr,
+                   "The localized skill line name, such as a spellbook tab or a profession; "
+                   "nil, with the ID, when the spell belongs to no skill line."),
+    Game::Doc::Opt("skillLineID", "number"),
+};
+const Game::Doc::Function kGetSpellSkillLine{
+    "Returns the skill line a spell belongs to, preferring the one for your class and race.",
+    kSpellSkillLineArgs, kSpellSkillLineRets, nullptr, true};
+
+const Game::Doc::Field kSkillLineArgs[] = {
+    Game::Doc::Req("skillLineID", "number"),
+};
+const Game::Doc::Field kSkillLineNameRets[] = {
+    Game::Doc::Opt("name", "string", nullptr, "Nil for an unknown skill line ID."),
+};
+const Game::Doc::Function kGetSkillLineName{
+    "Returns the localized name of a skill line, learned or not.",
+    kSkillLineArgs, kSkillLineNameRets, nullptr, true};
+
+const Game::Doc::Field kSkillLineRankRets[] = {
+    Game::Doc::Opt("curRank", "number", nullptr,
+                   "The skill value without temporary bonuses; nil, with the rest, when you "
+                   "have not learned the skill line."),
+    Game::Doc::Opt("maxRank", "number", nullptr, "The skill's cap at your level."),
+    Game::Doc::Opt("modifier", "number", nullptr,
+                   "The temporary bonus from buffs and weapon oils, or 0."),
+};
+const Game::Doc::Function kGetSkillLineRank{
+    "Returns your rank in a skill line, the same values GetSkillLineInfo reports.",
+    kSkillLineArgs, kSkillLineRankRets, nullptr, true};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_SpellBook", "GetSpellSkillLine",
-                                      &Script_GetSpellSkillLine);
+                                      &Script_GetSpellSkillLine, &kGetSpellSkillLine);
     Game::Lua::RegisterTableFunction("C_SpellBook", "GetSkillLineName",
-                                      &Script_GetSkillLineName);
+                                      &Script_GetSkillLineName, &kGetSkillLineName);
     Game::Lua::RegisterTableFunction("C_SpellBook", "GetSkillLineRank",
-                                      &Script_GetSkillLineRank);
+                                      &Script_GetSkillLineRank, &kGetSkillLineRank);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

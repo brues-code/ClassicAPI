@@ -68,7 +68,17 @@ namespace {
 // so the engine allocates it in its event table; fired (creatureID,
 // success) by the Cache::QueryLoad dispatcher.
 constexpr const char *kCreatureDataLoadResult = "CREATURE_DATA_LOAD_RESULT";
-const Event::Custom::AutoReserve _reserveLoadResult{kCreatureDataLoadResult};
+const Game::Doc::Field kLoadResultPayload[] = {
+    Game::Doc::Req("creatureID", "number"),
+    Game::Doc::Opt("success", "number", nullptr,
+                   "1 when the data loaded, nil when the server did not send it."),
+};
+const Game::Doc::Event kLoadResultDoc{
+    "CreatureInfo",
+    "Fires when a creature asked for with C_CreatureInfo.RequestLoadCreatureByID loads or "
+    "fails to load.",
+    kLoadResultPayload};
+const Event::Custom::AutoReserve _reserveLoadResult{kCreatureDataLoadResult, &kLoadResultDoc};
 
 // Generic cache `_GetRecord`. With callback=nullptr it only peeks the
 // hash table (no network query) and returns the data block (entry+0x18)
@@ -297,25 +307,149 @@ int __fastcall Script_GetCreatureTypeIDs(void *L) {
     return 1;
 }
 
+// --- Documentation ----------------------------------------------------------
+
+const Game::Doc::Field kCreatureIDArgs[] = {
+    Game::Doc::Req("creatureID", "number"),
+};
+
+const Game::Doc::Field kCreatureDataFields[] = {
+    Game::Doc::Req("creatureID", "number"),
+    Game::Doc::Req("name", "string"),
+    Game::Doc::Req("subName", "string", "The title under the name; \"\" when there is none."),
+    Game::Doc::Req("type", "number", "A creature type ID, such as 1 for Beast."),
+    Game::Doc::Req("family", "number", "A creature family ID; 0 for none."),
+    Game::Doc::Req("rank", "number", "0 normal, 1 elite, 2 rare elite, 3 world boss, 4 rare."),
+    Game::Doc::Req("displayID", "number"),
+};
+const Game::Doc::Structure kCreatureData{"CreatureData", "CreatureInfo", kCreatureDataFields,
+                                         "A creature as the creature cache holds it."};
+const Game::Doc::Field kCreatureInfoRets[] = {
+    Game::Doc::Opt("creatureInfo", "CreatureData", nullptr,
+                   "Nil when the creature is not cached."),
+};
+const Game::Doc::Function kGetCreatureInfoByID{
+    "Returns a cached creature's name, type, family, rank and model; it never asks the server.",
+    kCreatureIDArgs, kCreatureInfoRets, nullptr, true};
+
+const Game::Doc::Field kRequestRets[] = {
+    Game::Doc::Req("accepted", "bool", "False for bad input or too many pending requests."),
+};
+const Game::Doc::Function kRequestLoadCreatureByID{
+    "Asks the server for a creature that is not cached; CREATURE_DATA_LOAD_RESULT fires with "
+    "the answer.",
+    kCreatureIDArgs, kRequestRets, nullptr, true};
+
+const Game::Doc::Field kRaceIDArgs[] = {
+    Game::Doc::Req("raceID", "number"),
+};
+const Game::Doc::Field kRaceInfoFields[] = {
+    Game::Doc::Req("raceName", "string"),
+    Game::Doc::Req("clientFileString", "string", "The token UnitRace returns second."),
+    Game::Doc::Req("raceID", "number"),
+};
+const Game::Doc::Structure kRaceInfo{"RaceInfo", "CreatureInfo", kRaceInfoFields};
+const Game::Doc::Field kRaceInfoRets[] = {
+    Game::Doc::Opt("raceInfo", "RaceInfo", nullptr, "Nil for an unknown race ID."),
+};
+const Game::Doc::Function kGetRaceInfo{
+    "Returns the localized name and file name of a race.", kRaceIDArgs, kRaceInfoRets};
+
+const Game::Doc::Field kClassIDArgs[] = {
+    Game::Doc::Req("classID", "number"),
+};
+const Game::Doc::Field kClassInfoFields[] = {
+    Game::Doc::Req("className", "string"),
+    Game::Doc::Req("classFile", "string", "The token UnitClass returns second."),
+    Game::Doc::Req("classID", "number"),
+};
+const Game::Doc::Structure kClassInfo{"ClassInfo", "CreatureInfo", kClassInfoFields};
+const Game::Doc::Field kClassInfoRets[] = {
+    Game::Doc::Opt("classInfo", "ClassInfo", nullptr, "Nil for an unknown class ID."),
+};
+const Game::Doc::Function kGetClassInfo{
+    "Returns the localized name and file name of a class.", kClassIDArgs, kClassInfoRets};
+
+const Game::Doc::Field kFamilyIDArgs[] = {
+    Game::Doc::Req("creatureFamilyID", "number"),
+};
+const Game::Doc::Field kFamilyInfoFields[] = {
+    Game::Doc::Req("id", "number"),
+    Game::Doc::Req("name", "cstring"),
+    Game::Doc::Req("iconFile", "string", "Icon texture path; \"\" for a family without one."),
+};
+const Game::Doc::Structure kCreatureFamilyInfo{"CreatureFamilyInfo", "CreatureInfo",
+                                               kFamilyInfoFields};
+const Game::Doc::Field kFamilyInfoRets[] = {
+    Game::Doc::Opt("creatureFamilyInfo", "CreatureFamilyInfo", nullptr,
+                   "Nil for an unknown family ID."),
+};
+const Game::Doc::Function kGetCreatureFamilyInfo{
+    "Returns the name and icon of a creature family, such as Wolf.", kFamilyIDArgs,
+    kFamilyInfoRets};
+
+const Game::Doc::Field kFamilyIDsRets[] = {
+    Game::Doc::Req("creatureFamilyIDs", "table", "An array of numbers."),
+};
+const Game::Doc::Function kGetCreatureFamilyIDs{
+    "Returns the ID of every creature family.", {}, kFamilyIDsRets};
+
+const Game::Doc::Field kFactionInfoFields[] = {
+    Game::Doc::Req("name", "cstring", "The localized faction group name."),
+    Game::Doc::Req("groupTag", "cstring",
+                   "\"Alliance\" or \"Horde\", the same in every locale."),
+};
+const Game::Doc::Structure kFactionInfo{"FactionInfo", "CreatureInfo", kFactionInfoFields};
+const Game::Doc::Field kFactionInfoRets[] = {
+    Game::Doc::Opt("factionInfo", "FactionInfo", nullptr,
+                   "Nil for an unknown race or a race without a faction group."),
+};
+const Game::Doc::Function kGetFactionInfo{
+    "Returns the faction group a race belongs to.", kRaceIDArgs, kFactionInfoRets};
+
+const Game::Doc::Field kTypeIDArgs[] = {
+    Game::Doc::Req("creatureTypeID", "number"),
+};
+const Game::Doc::Field kTypeInfoFields[] = {
+    Game::Doc::Req("id", "number"),
+    Game::Doc::Req("name", "cstring"),
+};
+const Game::Doc::Structure kCreatureTypeInfo{"CreatureTypeInfo", "CreatureInfo",
+                                             kTypeInfoFields};
+const Game::Doc::Field kTypeInfoRets[] = {
+    Game::Doc::Opt("creatureTypeInfo", "CreatureTypeInfo", nullptr,
+                   "Nil for an unknown type ID."),
+};
+const Game::Doc::Function kGetCreatureTypeInfo{
+    "Returns the localized name of a creature type, such as Beast.", kTypeIDArgs,
+    kTypeInfoRets};
+
+const Game::Doc::Field kTypeIDsRets[] = {
+    Game::Doc::Req("creatureTypeIDs", "table", "An array of numbers."),
+};
+const Game::Doc::Function kGetCreatureTypeIDs{
+    "Returns the ID of every creature type.", {}, kTypeIDsRets};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_CreatureInfo", "GetCreatureInfoByID",
-                                     &Script_GetCreatureInfoByID);
+                                     &Script_GetCreatureInfoByID, &kGetCreatureInfoByID);
     Game::Lua::RegisterTableFunction("C_CreatureInfo", "RequestLoadCreatureByID",
-                                     &Script_RequestLoadCreatureByID);
+                                     &Script_RequestLoadCreatureByID,
+                                     &kRequestLoadCreatureByID);
     Game::Lua::RegisterTableFunction("C_CreatureInfo", "GetRaceInfo",
-                                     &Script_GetRaceInfo);
+                                     &Script_GetRaceInfo, &kGetRaceInfo);
     Game::Lua::RegisterTableFunction("C_CreatureInfo", "GetClassInfo",
-                                     &Script_GetClassInfo);
+                                     &Script_GetClassInfo, &kGetClassInfo);
     Game::Lua::RegisterTableFunction("C_CreatureInfo", "GetCreatureFamilyInfo",
-                                     &Script_GetCreatureFamilyInfo);
+                                     &Script_GetCreatureFamilyInfo, &kGetCreatureFamilyInfo);
     Game::Lua::RegisterTableFunction("C_CreatureInfo", "GetCreatureFamilyIDs",
-                                     &Script_GetCreatureFamilyIDs);
+                                     &Script_GetCreatureFamilyIDs, &kGetCreatureFamilyIDs);
     Game::Lua::RegisterTableFunction("C_CreatureInfo", "GetFactionInfo",
-                                     &Script_GetFactionInfo);
+                                     &Script_GetFactionInfo, &kGetFactionInfo);
     Game::Lua::RegisterTableFunction("C_CreatureInfo", "GetCreatureTypeInfo",
-                                     &Script_GetCreatureTypeInfo);
+                                     &Script_GetCreatureTypeInfo, &kGetCreatureTypeInfo);
     Game::Lua::RegisterTableFunction("C_CreatureInfo", "GetCreatureTypeIDs",
-                                     &Script_GetCreatureTypeIDs);
+                                     &Script_GetCreatureTypeIDs, &kGetCreatureTypeIDs);
     Cache::QueryLoad::Register(reinterpret_cast<void *>(Offsets::VAR_CREATURE_CACHE),
                                &_reserveLoadResult, Offsets::FUN_CREATURE_GET_RECORD);
 }

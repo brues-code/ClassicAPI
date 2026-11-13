@@ -98,8 +98,22 @@ int __fastcall Script_GetMacroSpell(void *L) {
     return 3;
 }
 
+const Game::Doc::Field kArgs[] = {
+    Game::Doc::Req("macroSlot", "luaIndex"),
+};
+const Game::Doc::Field kRets[] = {
+    Game::Doc::Opt("name", "string", nullptr,
+                   "Nil, with the rest, when the macro shows no spell you know."),
+    Game::Doc::Opt("rank", "string", nullptr, "\"\" for a spell without a rank."),
+    Game::Doc::Opt("spellID", "number"),
+};
+const Game::Doc::Function kGetMacroSpell{
+    "Returns the spell a macro shows, from its #showtooltip or #show line or else its first "
+    "cast line.",
+    kArgs, kRets, "MacroGlobals"};
+
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterGlobalFunction("GetMacroSpell", &Script_GetMacroSpell);
+    Game::Lua::RegisterGlobalFunction("GetMacroSpell", &Script_GetMacroSpell, &kGetMacroSpell);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
