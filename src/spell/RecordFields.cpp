@@ -102,7 +102,8 @@ const Game::Doc::Field kDispelTypeRets[] = {
                    "1 magic, 2 curse, 3 disease, 4 poison; 0 when nothing removes it."),
 };
 const Game::Doc::Function kGetSpellDispelType{
-    "Returns which kind of dispel removes the effects of a spell.", kSpellArgs, kDispelTypeRets};
+    "Returns which kind of dispel removes the effects of a spell.", kSpellArgs, kDispelTypeRets,
+    nullptr, true};
 
 const Game::Doc::Field kNextMeleeRets[] = {
     Game::Doc::Req("isNextMelee", "bool",
@@ -110,7 +111,7 @@ const Game::Doc::Field kNextMeleeRets[] = {
 };
 const Game::Doc::Function kIsNextMeleeSpell{
     "Returns whether the ability waits for your next weapon swing instead of casting.",
-    kSpellArgs, kNextMeleeRets};
+    kSpellArgs, kNextMeleeRets, nullptr, true};
 
 const Game::Doc::Field kResetsSwingRets[] = {
     Game::Doc::Req("resetsSwing", "bool",
@@ -118,7 +119,7 @@ const Game::Doc::Field kResetsSwingRets[] = {
 };
 const Game::Doc::Function kResetsMeleeSwing{
     "Returns whether casting the spell starts your melee swing timer again.",
-    kSpellArgs, kResetsSwingRets};
+    kSpellArgs, kResetsSwingRets, nullptr, true};
 
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Spell", "GetSpellDispelType",

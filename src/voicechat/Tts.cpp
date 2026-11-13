@@ -670,7 +670,7 @@ const Game::Doc::Event kPlaybackStartedDoc{"VoiceChat",
                                            kPlaybackStartedPayload};
 
 const Game::Doc::Event kSpeakTextUpdateDoc{
-    "VoiceChat", "Never fires; frames can register it without an error.", {}};
+    "VoiceChat", "Does not fire; frames can register it without an error.", {}};
 
 const Game::Doc::Event kVoicesUpdateDoc{
     "VoiceChat", "Fires when the list of installed text-to-speech voices changes.", {}};

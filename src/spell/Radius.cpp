@@ -123,7 +123,7 @@ const Game::Doc::Field kByIdentifierArgs[] = {
 };
 const Game::Doc::Function kC_SpellGetSpellRadius{
     "Returns the area a spell covers in yards, before and after the player's own changes to it.",
-    kByIdentifierArgs, kRadiusRets};
+    kByIdentifierArgs, kRadiusRets, nullptr, true};
 
 const Game::Doc::Field kBySlotArgs[] = {
     Game::Doc::Req("slot", "luaIndex", "A 1-based spellbook slot."),
@@ -133,7 +133,7 @@ const Game::Doc::Field kBySlotArgs[] = {
 const Game::Doc::Function kGetSpellRadius{
     "Returns the area the spell in a spellbook slot covers in yards, before and after the "
     "player's own changes to it.",
-    kBySlotArgs, kRadiusRets, "SpellGlobals"};
+    kBySlotArgs, kRadiusRets, "SpellGlobals", true};
 
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Spell", "GetSpellRadius",

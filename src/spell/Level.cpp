@@ -425,7 +425,7 @@ const Game::Doc::Field kRequiredTargetLevelRets[] = {
 };
 const Game::Doc::Function kGetSpellRequiredTargetLevel{
     "Returns the lowest level a target must be for this rank of the spell to apply to it.",
-    kSpellIDArgs, kRequiredTargetLevelRets, "SpellGlobals"};
+    kSpellIDArgs, kRequiredTargetLevelRets, "SpellGlobals", true};
 
 const Game::Doc::Field kLevelInfoRets[] = {
     Game::Doc::Opt("spellLevel", "number", nullptr,
@@ -436,7 +436,7 @@ const Game::Doc::Field kLevelInfoRets[] = {
 };
 const Game::Doc::Function kGetSpellLevelInfo{
     "Returns the three level values of a spell: its rank level, base level, and scaling cap.",
-    kSpellIDArgs, kLevelInfoRets};
+    kSpellIDArgs, kLevelInfoRets, nullptr, true};
 
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_SpellBook", "GetSpellLevelLearned",

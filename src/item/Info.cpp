@@ -338,7 +338,7 @@ static int __fastcall Script_C_Item_GetItemInfo(void *L) {
 // --- Documentation ----------------------------------------------------------
 
 static const Game::Doc::Field kItemInfoArgs[] = {
-    Game::Doc::Req("itemInfo", "ItemInfo", "An item ID or an item link."),
+    Game::Doc::Req("itemInfo", "ItemInfo", "An item ID, an item string or an item link."),
 };
 
 static const Game::Doc::Field kGetItemInfoRets[] = {

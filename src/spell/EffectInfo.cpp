@@ -144,7 +144,7 @@ const Game::Doc::Field kGetSpellEffectInfoRets[] = {
 };
 const Game::Doc::Function kGetSpellEffectInfo{
     "Returns the stored fields of each of the spell's three effects.",
-    kGetSpellEffectInfoArgs, kGetSpellEffectInfoRets};
+    kGetSpellEffectInfoArgs, kGetSpellEffectInfoRets, nullptr, true};
 
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Spell", "GetSpellEffectInfo",

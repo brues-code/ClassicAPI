@@ -76,7 +76,7 @@ const Game::Doc::Field kGetSpellEffectMechanicsRets[] = {
 };
 const Game::Doc::Function kGetSpellEffectMechanics{
     "Returns the mechanic each of the spell's three effects applies, such as root or bleed.",
-    kGetSpellEffectMechanicsArgs, kGetSpellEffectMechanicsRets};
+    kGetSpellEffectMechanicsArgs, kGetSpellEffectMechanicsRets, nullptr, true};
 
 } // namespace
 

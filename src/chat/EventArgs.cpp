@@ -197,7 +197,7 @@ const Game::Doc::Field kChatEventRets[] = {
     Game::Doc::Opt("channelBaseName", "string"),
     Game::Doc::Opt("unused", "number"),
     Game::Doc::Opt("lineID", "number"),
-    Game::Doc::Opt("guid", "string"),
+    Game::Doc::Opt("guid", "WOWGUID"),
 };
 const Game::Doc::Function kGetCurrentChatEvent{
     "Returns the name and arguments of the CHAT_MSG_* event being handled now, or nothing "

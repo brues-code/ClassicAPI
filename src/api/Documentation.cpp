@@ -162,7 +162,7 @@ struct WidgetSystem {
 };
 const WidgetSystem kWidgetSystems[] = {
     {Offsets::VAR_GAMETOOLTIP_METHOD_REGISTRY, "GameTooltipAPI"},
-    {Offsets::VAR_REGION_METHOD_REGISTRY, "ScriptRegionAPI"},
+    {Offsets::VAR_REGION_METHOD_REGISTRY, "SimpleScriptRegionAPI"},
     {Offsets::VAR_FRAME_METHOD_REGISTRY, "SimpleFrameAPI"},
     {Offsets::VAR_TEXTURE_METHOD_REGISTRY, "SimpleTextureAPI"},
     {Offsets::VAR_FONTSTRING_METHOD_REGISTRY, "SimpleFontStringAPI"},
@@ -174,7 +174,7 @@ const WidgetSystem kWidgetSystems[] = {
     {Offsets::VAR_STATUSBAR_METHOD_REGISTRY, "SimpleStatusBarAPI"},
     {Offsets::VAR_MESSAGEFRAME_METHOD_REGISTRY, "SimpleMessageFrameAPI"},
     {Offsets::VAR_SIMPLEHTML_METHOD_REGISTRY, "SimpleHTMLAPI"},
-    // No retail counterpart; named the same way.
+    // These three have no retail counterpart; they are named the same way.
     {Offsets::VAR_SCROLLINGMESSAGEFRAME_METHOD_REGISTRY, "SimpleScrollingMessageFrameAPI"},
     {Offsets::VAR_PLAYERMODEL_METHOD_REGISTRY, "SimplePlayerModelAPI"},
     {Offsets::VAR_DRESSUPMODEL_METHOD_REGISTRY, "SimpleDressUpModelAPI"},

@@ -983,7 +983,7 @@ static const Game::Doc::Field kByAuraRets[] = {
 };
 static const Game::Doc::Function kGetPlayerSpellsByAura{
     "Returns every spell the player knows that applies the given aura.",
-    kByAuraArgs, kByAuraRets};
+    kByAuraArgs, kByAuraRets, nullptr, true};
 
 static const Game::Doc::Field kDisenchantRets[] = {
     Game::Doc::Req("hasDisenchant", "bool", "True when a known spell disenchants items."),

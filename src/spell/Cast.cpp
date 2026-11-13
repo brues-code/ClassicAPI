@@ -1268,7 +1268,7 @@ static const Game::Doc::Field kTargetNameRets[] = {
 };
 static const Game::Doc::Function kUnitSpellTargetName{
     "Returns the name of the unit that a unit is casting or channeling a spell at.",
-    kUnitArgs, kTargetNameRets, "SpellGlobals", true};
+    kUnitArgs, kTargetNameRets, "UnitGlobals"};
 
 static void RegisterLuaFunctions() {
     // Registered under C_Spell rather than as globals to avoid clobbering
