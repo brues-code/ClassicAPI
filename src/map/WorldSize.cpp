@@ -70,9 +70,21 @@ int __fastcall Script_GetMapWorldSize(void *L) {
     return 2;
 }
 
+const Game::Doc::Field kWorldSizeArgs[] = {
+    Game::Doc::Opt("areaID", "number", nullptr,
+                   "The zone; defaults to the zone the world map shows."),
+};
+const Game::Doc::Field kWorldSizeRets[] = {
+    Game::Doc::Opt("width", "number", nullptr,
+                   "The east-west size in yards; nil, with height, when the zone has no map."),
+    Game::Doc::Opt("height", "number", nullptr, "The north-south size in yards."),
+};
+const Game::Doc::Function kGetMapWorldSize{"Returns the size of a zone map in yards.",
+                                           kWorldSizeArgs, kWorldSizeRets};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Map", "GetMapWorldSize",
-                                     &Script_GetMapWorldSize);
+                                     &Script_GetMapWorldSize, &kGetMapWorldSize);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

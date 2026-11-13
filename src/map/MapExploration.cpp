@@ -194,6 +194,26 @@ const Game::Doc::Field kAtPositionRets[] = {
 const Game::Doc::Function kGetExploredAreaIDsAtPosition{
     "Returns the explored areas at a point on a map.", kAtPositionArgs, kAtPositionRets};
 
+const Game::Doc::Field kMapTexturesArgs[] = {
+    Game::Doc::Opt("areaID", "number", nullptr,
+                   "The zone; defaults to the zone the world map shows."),
+};
+const Game::Doc::Field kExploredMapTexturesRets[] = {
+    Game::Doc::Req("overlayInfo", "table",
+                   "An array of MapOverlayInfo; empty before the player is in the world."),
+};
+const Game::Doc::Function kGetExploredMapTextures{
+    "Returns the overlays of a zone map that the player has explored.", kMapTexturesArgs,
+    kExploredMapTexturesRets};
+const Game::Doc::Field kUnexploredMapTexturesRets[] = {
+    Game::Doc::Req("overlayInfo", "table",
+                   "An array of MapOverlayInfo; every overlay of the zone before the player "
+                   "is in the world."),
+};
+const Game::Doc::Function kGetUnexploredMapTextures{
+    "Returns the overlays of a zone map that the player has not explored yet.",
+    kMapTexturesArgs, kUnexploredMapTexturesRets, nullptr, true};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_MapExplorationInfo",
                                      "GetExploredAreaIDsAtPosition",
@@ -201,10 +221,12 @@ void RegisterLuaFunctions() {
                                      &kGetExploredAreaIDsAtPosition);
     Game::Lua::RegisterTableFunction("C_MapExplorationInfo",
                                      "GetExploredMapTextures",
-                                     &Script_GetExploredMapTextures);
+                                     &Script_GetExploredMapTextures,
+                                     &kGetExploredMapTextures);
     Game::Lua::RegisterTableFunction("C_MapExplorationInfo",
                                      "GetUnexploredMapTextures",
-                                     &Script_GetUnexploredMapTextures);
+                                     &Script_GetUnexploredMapTextures,
+                                     &kGetUnexploredMapTextures);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

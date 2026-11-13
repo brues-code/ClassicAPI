@@ -154,11 +154,54 @@ int __fastcall Script_GetAreaTriggers(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kAreaTriggerInfoFields[] = {
+    Game::Doc::Req("id", "number"),
+    Game::Doc::Req("mapID", "number", "The continent or instance map the trigger is on."),
+    Game::Doc::Req("x", "number", "The world X coordinate of the center; X runs north."),
+    Game::Doc::Req("y", "number", "The world Y coordinate of the center; Y runs west."),
+    Game::Doc::Req("z", "number", "The world height of the center."),
+    Game::Doc::Req("radius", "number", "0 for a box trigger."),
+    Game::Doc::Req("isBox", "bool", "True when the trigger is a box, not a sphere."),
+    Game::Doc::Req("boxLength", "number", "0 for a sphere trigger."),
+    Game::Doc::Req("boxWidth", "number", "0 for a sphere trigger."),
+    Game::Doc::Req("boxHeight", "number", "0 for a sphere trigger."),
+    Game::Doc::Req("boxYaw", "number", "0 for a sphere trigger."),
+    Game::Doc::Opt("areaID", "number", nullptr,
+                   "The zone the trigger is in; nil when no zone map holds the trigger."),
+    Game::Doc::Opt("mapX", "number", nullptr,
+                   "The horizontal position on the zone map, from 0 to 100; nil with areaID."),
+    Game::Doc::Opt("mapY", "number", nullptr,
+                   "The vertical position on the zone map, from 0 to 100; nil with areaID."),
+};
+const Game::Doc::Structure kAreaTriggerInfo{"AreaTriggerInfo", "Map", kAreaTriggerInfoFields,
+                                            "A trigger volume in the world and its map position."};
+
+const Game::Doc::Field kTriggerInfoArgs[] = {
+    Game::Doc::Req("triggerID", "number"),
+};
+const Game::Doc::Field kTriggerInfoRets[] = {
+    Game::Doc::Opt("info", "AreaTriggerInfo", nullptr, "Nil when no trigger has the ID."),
+};
+const Game::Doc::Function kGetAreaTriggerInfo{
+    "Returns the position and shape of an area trigger.", kTriggerInfoArgs, kTriggerInfoRets,
+    nullptr, true};
+
+const Game::Doc::Field kTriggersArgs[] = {
+    Game::Doc::Opt("mapID", "number", nullptr,
+                   "Limits the list to one continent or instance map."),
+};
+const Game::Doc::Field kTriggersRets[] = {
+    Game::Doc::Req("triggers", "table", "An array of AreaTriggerInfo."),
+};
+const Game::Doc::Function kGetAreaTriggers{
+    "Returns every area trigger, or only the triggers on one map.", kTriggersArgs,
+    kTriggersRets, nullptr, true};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Map", "GetAreaTriggerInfo",
-                                     &Script_GetAreaTriggerInfo);
+                                     &Script_GetAreaTriggerInfo, &kGetAreaTriggerInfo);
     Game::Lua::RegisterTableFunction("C_Map", "GetAreaTriggers",
-                                     &Script_GetAreaTriggers);
+                                     &Script_GetAreaTriggers, &kGetAreaTriggers);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

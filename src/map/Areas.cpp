@@ -115,10 +115,36 @@ int __fastcall Script_GetMapAreaIDs(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kAreaInfoArgs[] = {
+    Game::Doc::Req("areaID", "number"),
+};
+const Game::Doc::Field kAreaInfoRets[] = {
+    Game::Doc::Opt("name", "cstring", nullptr, "Nil when no area has the ID."),
+};
+const Game::Doc::Function kGetAreaInfo{
+    "Returns the localized name of a zone or subzone.", kAreaInfoArgs, kAreaInfoRets};
+
+const Game::Doc::Field kAreasRets[] = {
+    Game::Doc::Req("areas", "table", "Keyed by area ID; each value is the area's localized name."),
+};
+const Game::Doc::Function kGetAreas{
+    "Returns the name of every zone and subzone, keyed by area ID.", {}, kAreasRets, nullptr,
+    true};
+
+const Game::Doc::Field kMapAreaIDsRets[] = {
+    Game::Doc::Req("areaIDs", "table",
+                   "Keyed by the map's texture folder name; each value is the zone's area ID."),
+};
+const Game::Doc::Function kGetMapAreaIDs{
+    "Returns the area ID of every zone map, keyed by the map's texture folder name.", {},
+    kMapAreaIDsRets, nullptr, true};
+
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterTableFunction("C_Map", "GetAreaInfo", &Script_GetAreaInfo);
-    Game::Lua::RegisterTableFunction("C_Map", "GetAreas", &Script_GetAreas);
-    Game::Lua::RegisterTableFunction("C_Map", "GetMapAreaIDs", &Script_GetMapAreaIDs);
+    Game::Lua::RegisterTableFunction("C_Map", "GetAreaInfo", &Script_GetAreaInfo,
+                                     &kGetAreaInfo);
+    Game::Lua::RegisterTableFunction("C_Map", "GetAreas", &Script_GetAreas, &kGetAreas);
+    Game::Lua::RegisterTableFunction("C_Map", "GetMapAreaIDs", &Script_GetMapAreaIDs,
+                                     &kGetMapAreaIDs);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

@@ -412,19 +412,106 @@ int __fastcall Script_GetFallbackWorldMapID(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kUiMapDetailsFields[] = {
+    Game::Doc::Req("mapID", "number"),
+    Game::Doc::Req("name", "cstring"),
+    Game::Doc::Req("mapType", "number",
+                   "1 for the world map, 2 for a continent, 3 for a zone, 4 for a dungeon."),
+    Game::Doc::Req("parentMapID", "number",
+                   "The map one level up; 0 for the world map and for dungeon maps."),
+    Game::Doc::Req("flags", "number", "Always 0."),
+};
+const Game::Doc::Structure kUiMapDetails{"UiMapDetails", "Map", kUiMapDetailsFields,
+                                         "A map's name, type, and place in the map tree."};
+
+const Game::Doc::Field kUiMapLayerInfoFields[] = {
+    Game::Doc::Req("layerWidth", "number"),
+    Game::Doc::Req("layerHeight", "number"),
+    Game::Doc::Req("tileWidth", "number"),
+    Game::Doc::Req("tileHeight", "number"),
+    Game::Doc::Req("minScale", "number"),
+    Game::Doc::Req("maxScale", "number"),
+    Game::Doc::Req("additionalZoomSteps", "number"),
+};
+const Game::Doc::Structure kUiMapLayerInfo{"UiMapLayerInfo", "Map", kUiMapLayerInfoFields,
+                                           "The size and tiling of a map's background art."};
+
+const Game::Doc::Field kUiMapIDArgs[] = {
+    Game::Doc::Req("uiMapID", "number"),
+};
+
+const Game::Doc::Field kMapInfoRets[] = {
+    Game::Doc::Opt("info", "UiMapDetails", nullptr, "Nil when no map has the ID."),
+};
+const Game::Doc::Function kGetMapInfo{"Returns the details of a map.", kUiMapIDArgs,
+                                      kMapInfoRets};
+
+const Game::Doc::Field kMapChildrenInfoRets[] = {
+    Game::Doc::Req("info", "table", "An array of UiMapDetails; empty for a zone."),
+};
+const Game::Doc::Function kGetMapChildrenInfo{
+    "Returns the details of the maps one level below a map.", kUiMapIDArgs,
+    kMapChildrenInfoRets};
+
+const Game::Doc::Field kMapInfoAtPositionArgs[] = {
+    Game::Doc::Req("uiMapID", "number"),
+    Game::Doc::Req("x", "number", "From 0 to 1 across the map."),
+    Game::Doc::Req("y", "number", "From 0 to 1 down the map."),
+};
+const Game::Doc::Field kMapInfoAtPositionRets[] = {
+    Game::Doc::Opt("info", "UiMapDetails", nullptr, "Nil when no zone is at the point."),
+};
+const Game::Doc::Function kGetMapInfoAtPosition{
+    "Returns the details of the zone at a point on a map.", kMapInfoAtPositionArgs,
+    kMapInfoAtPositionRets};
+
+const Game::Doc::Field kFallbackWorldMapIDRets[] = {
+    Game::Doc::Req("uiMapID", "number", "0 when the client has no world map."),
+};
+const Game::Doc::Function kGetFallbackWorldMapID{
+    "Returns the ID of the whole-world map, the default map to show.", {},
+    kFallbackWorldMapIDRets};
+
+const Game::Doc::Field kMapHasArtRets[] = {
+    Game::Doc::Req("hasArt", "bool"),
+};
+const Game::Doc::Function kMapHasArt{"Returns whether the client has background art for a map.",
+                                     kUiMapIDArgs, kMapHasArtRets};
+
+const Game::Doc::Field kMapArtLayerTexturesArgs[] = {
+    Game::Doc::Req("uiMapID", "number"),
+    Game::Doc::Req("layerIndex", "luaIndex", "A map has only layer 1."),
+};
+const Game::Doc::Field kMapArtLayerTexturesRets[] = {
+    Game::Doc::Req("textures", "table",
+                   "Texture paths, left to right then top to bottom; empty when the map has no "
+                   "art."),
+};
+const Game::Doc::Function kGetMapArtLayerTextures{
+    "Returns the background tile textures of a map's art layer.", kMapArtLayerTexturesArgs,
+    kMapArtLayerTexturesRets};
+
+const Game::Doc::Field kMapArtLayersRets[] = {
+    Game::Doc::Req("layerInfo", "table",
+                   "An array of UiMapLayerInfo with at most one entry; empty when the map has "
+                   "no art."),
+};
+const Game::Doc::Function kGetMapArtLayers{"Returns the art layers of a map.", kUiMapIDArgs,
+                                           kMapArtLayersRets};
+
 void RegisterLuaFunctions() {
-    Game::Lua::RegisterTableFunction("C_Map", "GetMapInfo", &Script_GetMapInfo);
+    Game::Lua::RegisterTableFunction("C_Map", "GetMapInfo", &Script_GetMapInfo, &kGetMapInfo);
     Game::Lua::RegisterTableFunction("C_Map", "GetMapChildrenInfo",
-                                     &Script_GetMapChildrenInfo);
+                                     &Script_GetMapChildrenInfo, &kGetMapChildrenInfo);
     Game::Lua::RegisterTableFunction("C_Map", "GetMapInfoAtPosition",
-                                     &Script_GetMapInfoAtPosition);
+                                     &Script_GetMapInfoAtPosition, &kGetMapInfoAtPosition);
     Game::Lua::RegisterTableFunction("C_Map", "GetFallbackWorldMapID",
-                                     &Script_GetFallbackWorldMapID);
-    Game::Lua::RegisterTableFunction("C_Map", "MapHasArt", &Script_MapHasArt);
+                                     &Script_GetFallbackWorldMapID, &kGetFallbackWorldMapID);
+    Game::Lua::RegisterTableFunction("C_Map", "MapHasArt", &Script_MapHasArt, &kMapHasArt);
     Game::Lua::RegisterTableFunction("C_Map", "GetMapArtLayerTextures",
-                                     &Script_GetMapArtLayerTextures);
+                                     &Script_GetMapArtLayerTextures, &kGetMapArtLayerTextures);
     Game::Lua::RegisterTableFunction("C_Map", "GetMapArtLayers",
-                                     &Script_GetMapArtLayers);
+                                     &Script_GetMapArtLayers, &kGetMapArtLayers);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

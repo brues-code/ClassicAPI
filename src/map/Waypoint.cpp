@@ -49,7 +49,8 @@ namespace Map::Waypoint {
 
 namespace {
 
-const Event::Custom::AutoReserve _evtUpdated{"USER_WAYPOINT_UPDATED"};
+const Game::Doc::Event kUpdatedDoc{"Map", "Fires when the user waypoint is set or cleared.", {}};
+const Event::Custom::AutoReserve _evtUpdated{"USER_WAYPOINT_UPDATED", &kUpdatedDoc};
 
 struct UserWaypoint {
     bool has = false;
@@ -283,23 +284,93 @@ int __fastcall Script_GetUserWaypointFromHyperlink(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kUiMapPointFields[] = {
+    Game::Doc::Req("uiMapID", "number"),
+    Game::Doc::Req("position", "vector2", "The point on the map, from 0 to 1 on each axis."),
+    Game::Doc::Opt("z", "number", nullptr, "Nil when the point has no height."),
+};
+const Game::Doc::Structure kUiMapPoint{"UiMapPoint", "Map", kUiMapPointFields,
+                                       "A point on a map."};
+
+const Game::Doc::Field kUiMapIDArgs[] = {
+    Game::Doc::Req("uiMapID", "number"),
+};
+
+const Game::Doc::Field kCanSetRets[] = {
+    Game::Doc::Req("canSet", "bool", "False for a map with no world coordinates."),
+};
+const Game::Doc::Function kCanSetUserWaypointOnMap{
+    "Returns whether the user waypoint can be placed on a map.", kUiMapIDArgs, kCanSetRets};
+
+const Game::Doc::Field kSetArgs[] = {
+    Game::Doc::Req("point", "UiMapPoint"),
+};
+const Game::Doc::Field kSetRets[] = {
+    Game::Doc::Req("wasSet", "bool",
+                   "False for a malformed point or a map that cannot hold the waypoint."),
+};
+const Game::Doc::Function kSetUserWaypoint{"Places the user waypoint, the player's map pin.",
+                                           kSetArgs, kSetRets};
+
+const Game::Doc::Field kGetRets[] = {
+    Game::Doc::Opt("point", "UiMapPoint", nullptr, "Nil when no waypoint is set."),
+};
+const Game::Doc::Function kGetUserWaypoint{"Returns the user waypoint.", {}, kGetRets};
+
+const Game::Doc::Field kHasRets[] = {
+    Game::Doc::Req("hasUserWaypoint", "bool"),
+};
+const Game::Doc::Function kHasUserWaypoint{"Returns whether the user waypoint is set.", {},
+                                           kHasRets};
+
+const Game::Doc::Function kClearUserWaypoint{"Removes the user waypoint.", {}, {}};
+
+const Game::Doc::Field kPositionForMapRets[] = {
+    Game::Doc::Opt("mapPosition", "vector2", nullptr,
+                   "From 0 to 1 on each axis; nil when no waypoint is set or the waypoint is "
+                   "not on the map."),
+};
+const Game::Doc::Function kGetUserWaypointPositionForMap{
+    "Returns the position of the user waypoint on a map.", kUiMapIDArgs, kPositionForMapRets};
+
+const Game::Doc::Field kHyperlinkRets[] = {
+    Game::Doc::Opt("hyperlink", "string", nullptr, "Nil when no waypoint is set."),
+};
+const Game::Doc::Function kGetUserWaypointHyperlink{
+    "Returns a chat link to the user waypoint.", {}, kHyperlinkRets};
+
+const Game::Doc::Field kFromHyperlinkArgs[] = {
+    Game::Doc::Req("hyperlink", "string", "A whole link, or text that contains its worldmap part."),
+};
+const Game::Doc::Field kFromHyperlinkRets[] = {
+    Game::Doc::Opt("point", "UiMapPoint", nullptr,
+                   "Nil when the text holds no map pin link; the point has no z."),
+};
+const Game::Doc::Function kGetUserWaypointFromHyperlink{
+    "Returns the map point that a map pin link describes.", kFromHyperlinkArgs,
+    kFromHyperlinkRets};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Map", "CanSetUserWaypointOnMap",
-                                     &Script_CanSetUserWaypointOnMap);
+                                     &Script_CanSetUserWaypointOnMap,
+                                     &kCanSetUserWaypointOnMap);
     Game::Lua::RegisterTableFunction("C_Map", "SetUserWaypoint",
-                                     &Script_SetUserWaypoint);
+                                     &Script_SetUserWaypoint, &kSetUserWaypoint);
     Game::Lua::RegisterTableFunction("C_Map", "GetUserWaypoint",
-                                     &Script_GetUserWaypoint);
+                                     &Script_GetUserWaypoint, &kGetUserWaypoint);
     Game::Lua::RegisterTableFunction("C_Map", "HasUserWaypoint",
-                                     &Script_HasUserWaypoint);
+                                     &Script_HasUserWaypoint, &kHasUserWaypoint);
     Game::Lua::RegisterTableFunction("C_Map", "ClearUserWaypoint",
-                                     &Script_ClearUserWaypoint);
+                                     &Script_ClearUserWaypoint, &kClearUserWaypoint);
     Game::Lua::RegisterTableFunction("C_Map", "GetUserWaypointPositionForMap",
-                                     &Script_GetUserWaypointPositionForMap);
+                                     &Script_GetUserWaypointPositionForMap,
+                                     &kGetUserWaypointPositionForMap);
     Game::Lua::RegisterTableFunction("C_Map", "GetUserWaypointHyperlink",
-                                     &Script_GetUserWaypointHyperlink);
+                                     &Script_GetUserWaypointHyperlink,
+                                     &kGetUserWaypointHyperlink);
     Game::Lua::RegisterTableFunction("C_Map", "GetUserWaypointFromHyperlink",
-                                     &Script_GetUserWaypointFromHyperlink);
+                                     &Script_GetUserWaypointFromHyperlink,
+                                     &kGetUserWaypointFromHyperlink);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

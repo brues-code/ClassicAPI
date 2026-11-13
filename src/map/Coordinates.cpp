@@ -216,15 +216,73 @@ int __fastcall Script_GetMapRectOnMap(void *L) {
     return 4;
 }
 
+const Game::Doc::Field kPlayerMapPositionArgs[] = {
+    Game::Doc::Req("uiMapID", "number"),
+    Game::Doc::Req("unitToken", "UnitToken"),
+};
+const Game::Doc::Field kPlayerMapPositionRets[] = {
+    Game::Doc::Opt("position", "vector2", nullptr,
+                   "From 0 to 1 on each axis; nil when the unit is not on the map."),
+};
+const Game::Doc::Function kGetPlayerMapPosition{
+    "Returns a unit's position on a map.", kPlayerMapPositionArgs, kPlayerMapPositionRets};
+
+const Game::Doc::Field kWorldPosFromMapPosArgs[] = {
+    Game::Doc::Req("uiMapID", "number"),
+    Game::Doc::Req("mapPosition", "vector2", "The point on the map, from 0 to 1 on each axis."),
+};
+const Game::Doc::Field kWorldPosFromMapPosRets[] = {
+    Game::Doc::Opt("continentID", "number", nullptr,
+                   "The continent or instance map; nil, with worldPosition, when the map has no "
+                   "world coordinates."),
+    Game::Doc::Opt("worldPosition", "vector2", nullptr, "x runs north and y runs west."),
+};
+const Game::Doc::Function kGetWorldPosFromMapPos{
+    "Converts a point on a map to world coordinates.", kWorldPosFromMapPosArgs,
+    kWorldPosFromMapPosRets};
+
+const Game::Doc::Field kMapPosFromWorldPosArgs[] = {
+    Game::Doc::Req("continentID", "number", "The continent or instance map."),
+    Game::Doc::Req("worldPosition", "vector2", "x runs north and y runs west."),
+    Game::Doc::Opt("overrideUiMapID", "number", nullptr,
+                   "Puts the point on this map instead of on the zone it is in."),
+};
+const Game::Doc::Field kMapPosFromWorldPosRets[] = {
+    Game::Doc::Opt("uiMapID", "number", nullptr,
+                   "The zone the point is in, or overrideUiMapID; nil, with mapPosition, when "
+                   "no map holds the point."),
+    Game::Doc::Opt("mapPosition", "vector2", nullptr, "From 0 to 1 on each axis."),
+};
+const Game::Doc::Function kGetMapPosFromWorldPos{
+    "Converts world coordinates to a point on a map.", kMapPosFromWorldPosArgs,
+    kMapPosFromWorldPosRets};
+
+const Game::Doc::Field kMapRectOnMapArgs[] = {
+    Game::Doc::Req("uiMapID", "number"),
+    Game::Doc::Req("topUiMapID", "number",
+                   "The map to measure on; 0 or an ID that names no map uses the zone's own "
+                   "continent."),
+};
+const Game::Doc::Field kMapRectOnMapRets[] = {
+    Game::Doc::Opt("minX", "number", nullptr,
+                   "Nil, with the rest, when either map has no world coordinates."),
+    Game::Doc::Opt("maxX", "number"),
+    Game::Doc::Opt("minY", "number"),
+    Game::Doc::Opt("maxY", "number"),
+};
+const Game::Doc::Function kGetMapRectOnMap{
+    "Returns the rectangle a map covers on another map, from 0 to 1 on each axis.",
+    kMapRectOnMapArgs, kMapRectOnMapRets};
+
 void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Map", "GetPlayerMapPosition",
-                                     &Script_GetPlayerMapPosition);
+                                     &Script_GetPlayerMapPosition, &kGetPlayerMapPosition);
     Game::Lua::RegisterTableFunction("C_Map", "GetWorldPosFromMapPos",
-                                     &Script_GetWorldPosFromMapPos);
+                                     &Script_GetWorldPosFromMapPos, &kGetWorldPosFromMapPos);
     Game::Lua::RegisterTableFunction("C_Map", "GetMapPosFromWorldPos",
-                                     &Script_GetMapPosFromWorldPos);
+                                     &Script_GetMapPosFromWorldPos, &kGetMapPosFromWorldPos);
     Game::Lua::RegisterTableFunction("C_Map", "GetMapRectOnMap",
-                                     &Script_GetMapRectOnMap);
+                                     &Script_GetMapRectOnMap, &kGetMapRectOnMap);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

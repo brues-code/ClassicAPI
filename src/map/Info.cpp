@@ -169,9 +169,20 @@ static int __fastcall Script_GetBestMapForUnit(void *L) {
     return 1;
 }
 
+const Game::Doc::Field kBestMapForUnitArgs[] = {
+    Game::Doc::Req("unitToken", "UnitToken"),
+};
+const Game::Doc::Field kBestMapForUnitRets[] = {
+    Game::Doc::Opt("uiMapID", "number", nullptr,
+                   "The area ID of the unit's zone; nil for a unit that is not the player or "
+                   "in the player's group."),
+};
+const Game::Doc::Function kGetBestMapForUnit{
+    "Returns the zone a unit is in.", kBestMapForUnitArgs, kBestMapForUnitRets};
+
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("C_Map", "GetBestMapForUnit",
-                                     &Script_GetBestMapForUnit);
+                                     &Script_GetBestMapForUnit, &kGetBestMapForUnit);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
