@@ -83,8 +83,6 @@ namespace {
 
 using GetName_t = const char *(__thiscall *)(void *object);
 using StrataToString_t = const char *(__fastcall *)(int strata);
-using PointToString_t = const char *(__fastcall *)(int point);
-using GetRelative_t = void *(__thiscall *)(void *node);
 
 // 4.3.4's line colors, packed {b,g,r,a} like every add-line color; two of each
 // so neighbouring frame levels alternate (s_frameStack*Colors). Regions take
@@ -186,20 +184,18 @@ void AddRegions(void *L, const Entry &frame, float x, float y, bool showHidden,
 void AddDetails(void *L, void *self, void *object, const uint32_t &color,
                 const uint32_t &headerColor) {
     Frame::GetPointGuard::CleanDanglingAnchors(object);
-    auto pointName = reinterpret_cast<PointToString_t>(Offsets::FUN_FRAME_POINT_TO_STRING);
+    const auto pointName = &Frame::Layout::PointToString;
     char text[1024];
     int n = 0;
     for (int slot = 0; slot < Offsets::REGION_ANCHOR_SLOT_COUNT; ++slot) {
-        auto *node = Game::Read<uint8_t *>(object, Offsets::OFF_REGION_ANCHOR_ARRAY + slot * 4);
-        if (node == nullptr)
+        Frame::Layout::Point p;
+        if (!Frame::Layout::GetPoint(object, slot, &p))
             continue;
         if (n++ == 0)
             Lines::Add(self, "ANCHORS", headerColor);
-        auto *vtable = Game::Read<uintptr_t *>(node, 0);
-        auto *relative = static_cast<uint8_t *>(reinterpret_cast<GetRelative_t>(
-            vtable[Offsets::VTBL_ANCHOR_NODE_GET_RELATIVE / sizeof(uintptr_t)])(node));
-        const double x = Game::InternalToPixel(Game::Read<float>(node, Offsets::OFF_ANCHOR_NODE_X));
-        const double y = Game::InternalToPixel(Game::Read<float>(node, Offsets::OFF_ANCHOR_NODE_Y));
+        auto *relative = static_cast<uint8_t *>(p.relativeLayout);
+        const double x = Game::InternalToPixel(p.x);
+        const double y = Game::InternalToPixel(p.y);
         // A screen anchor's target is the top itself, a bare CLayoutFrame with
         // no region in front of it (Offsets VAR_UI_CONTEXT_PTR): no name to
         // show, and `relative - OFF_REGION_ANCHOR` must not be formed.
@@ -210,7 +206,7 @@ void AddDetails(void *L, void *self, void *object, const uint32_t &color,
             FormatName(L, relative - Offsets::OFF_REGION_ANCHOR, relativeName, sizeof(relativeName));
             std::snprintf(text, sizeof(text), "   <%d> %s %s %s %.2f %.2f", n, pointName(slot),
                           relativeName,
-                          pointName(Game::Read<int>(node, Offsets::OFF_ANCHOR_NODE_RELATIVE_POINT)),
+                          pointName(p.relPoint),
                           x, y);
         } else {
             std::snprintf(text, sizeof(text), "   <%d> %s %.2f %.2f", n, pointName(slot), x, y);

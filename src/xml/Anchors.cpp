@@ -37,6 +37,7 @@
 // a frame's children are built (RetryUnder, before its OnLoad) and once more
 // when the outermost frame build returns (Flush), which reports what is left.
 
+#include "frame/Layout.h"
 #include "xml/Anchors.h"
 
 #include "Game.h"
@@ -51,11 +52,7 @@ namespace Xml::Anchors {
 
 namespace {
 
-using StringToPoint_t = int(__fastcall *)(const char *name, int *point);
 using ReadDimension_t = int(__fastcall *)(const void *node, float *x, float *y, void *status);
-using GetRelative_t = void *(__thiscall *)(void *anchorNode);
-using SetPoint_t = void(__thiscall *)(void *anchor, int point, void *relAnchor, int relPoint,
-                                      float x, float y, int flag);
 
 bool HasValue(const char *s) { return s != nullptr && *s != '\0'; }
 
@@ -115,12 +112,8 @@ namespace {
 // LayoutFrame inner, the setter's relAnchor), or nullptr when the point is
 // unset or has no target.
 void *EngineTarget(void *object, int point) {
-    void *anchorNode = Game::Read<void *>(
-        object, Offsets::OFF_REGION_ANCHOR_ARRAY + point * static_cast<int>(sizeof(void *)));
-    if (anchorNode == nullptr)
-        return nullptr;
-    const void *vtable = Game::Read<const void *>(anchorNode, 0);
-    return Game::Read<GetRelative_t>(vtable, Offsets::VTBL_ANCHOR_NODE_GET_RELATIVE)(anchorNode);
+    Frame::Layout::Point p;
+    return Frame::Layout::GetPoint(object, point, &p) ? p.relativeLayout : nullptr;
 }
 
 // Sets one anchor. False only when its relativeKey does not resolve (yet).
@@ -132,7 +125,7 @@ bool ApplyAnchor(void *object, const void *anchor, void *status) {
     if (!HasValue(relativeKey) && !inlineOffset)
         return true;
 
-    auto toPoint = reinterpret_cast<StringToPoint_t>(Offsets::FUN_STRING_TO_FRAME_POINT);
+    const auto toPoint = &Frame::Layout::StringToPoint;
     int point = 0;
     const char *pointName = Xml::Attr(anchor, "point");
     if (!HasValue(pointName) || !toPoint(pointName, &point))
@@ -159,9 +152,7 @@ bool ApplyAnchor(void *object, const void *anchor, void *status) {
     if (dimension != nullptr)
         reinterpret_cast<ReadDimension_t>(Offsets::FUN_XML_READ_DIMENSION)(dimension, &x, &y, status);
 
-    reinterpret_cast<SetPoint_t>(Offsets::FUN_REGION_SET_POINT)(
-        Game::Ptr<void>(object, Offsets::OFF_REGION_ANCHOR), point, relAnchor, relativePoint, x,
-        y, 1);
+    Frame::Layout::SetPoint(object, point, relAnchor, relativePoint, x, y);
     return true;
 }
 

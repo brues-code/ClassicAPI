@@ -55,6 +55,7 @@
 #include "Offsets.h"
 #include "baselib/Ascii.h"
 #include "frame/Destruction.h"
+#include "frame/Layout.h"
 #include "statusbar/Display.h"
 #include "texture/Wrap.h"
 #include "xml/FrameLoad.h"
@@ -97,8 +98,6 @@ struct State {
 std::unordered_map<const void *, State> g_state;
 
 using Update_t = void(__fastcall *)(void *bar, void *edx, float elapsed);
-using SetPoint_t = void(__thiscall *)(void *anchor, int point, void *relative, int relativePoint, float x,
-                                      float y, int doResize);
 using SetTexCoordRect_t = void(__thiscall *)(void *texture, const float *rect);
 using SetTexCoordCorners_t = void(__thiscall *)(void *texture, const float *corners);
 using GetFillFraction_t = float(__fastcall *)(void *bar, void *edx);
@@ -134,9 +133,7 @@ float FillFraction(void *bar, int fillStyle) {
 void Uncrop(void *texture) { Game::Ref<int>(texture, Offsets::OFF_REGION_TEXCOORD_MODIFIES_RECT) = 0; }
 
 void SetPoint(void *texture, int point, void *bar, float x, float y) {
-    reinterpret_cast<SetPoint_t>(Offsets::FUN_REGION_SET_POINT)(
-        Game::Ptr<uint8_t>(texture, Offsets::OFF_REGION_ANCHOR), point,
-        Game::Ptr<uint8_t>(bar, Offsets::OFF_REGION_ANCHOR), point, x, y, 1);
+    Frame::Layout::SetPoint(texture, point, Frame::Layout::Of(bar), point, x, y);
 }
 
 // The image's full coordinates, as 4.3.4's SetRotatesTexture sets them.

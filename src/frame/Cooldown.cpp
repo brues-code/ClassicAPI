@@ -542,18 +542,14 @@ CVar::Factory::Handle g_countdownForCooldowns = nullptr;
 void *CreateCountdown(void *frame) {
     using SetFont_t = uint32_t(__thiscall *)(void *fs, const char *path, float height,
                                              uint32_t flags, uint8_t force);
-    using SetPoint_t = void(__thiscall *)(void *anchor, int point, void *relAnchor, int relPoint,
-                                          float x, float y, int flag);
     void *fs = Frame::Region::CreateFontString(frame, Offsets::DRAWLAYER_OVERLAY, 0);
     if (fs == nullptr)
         return nullptr;
     if (reinterpret_cast<SetFont_t>(Offsets::FUN_SIMPLEFONTSTRING_SET_FONT)(
             fs, "Fonts\\FRIZQT__.TTF", Game::PixelToInternal(16.0f), Offsets::FONT_FLAG_OUTLINE, 0))
         Game::Ref<uint32_t>(fs, Offsets::OFF_FONTSTRING_FONT_FLAGS) &= ~1u;
-    reinterpret_cast<SetPoint_t>(Offsets::FUN_REGION_SET_POINT)(
-        Game::Ptr<void>(fs, Offsets::OFF_REGION_ANCHOR), Offsets::FRAMEPOINT_CENTER,
-        Game::Ptr<void>(frame, Offsets::OFF_FRAME_LAYOUT_SUBOBJECT), Offsets::FRAMEPOINT_CENTER,
-        0.0f, Game::PixelToInternal(-1.0f), 1);
+    Frame::Layout::SetPoint(fs, Offsets::FRAMEPOINT_CENTER, Frame::Layout::Of(frame),
+                            Offsets::FRAMEPOINT_CENTER, 0.0f, Game::PixelToInternal(-1.0f));
     // Built before the frame is shown, the region starts unshown (live:
     // IsShown() nil), where a script-created one on a shown frame is drawn.
     // Shown as the engine's callers show a region: the desired flag, then Show.

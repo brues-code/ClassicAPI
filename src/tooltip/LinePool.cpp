@@ -36,6 +36,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "frame/Layout.h"
 #include "frame/Region.h"
 
 #include <cstdint>
@@ -49,8 +50,6 @@ namespace {
 using GetName_t = const char *(__thiscall *)(void *self);
 using SetName_t = void(__thiscall *)(void *region, const char *name);
 using SetFont_t = void(__thiscall *)(void *fontHolder, void *fontObject);
-using SetPoint_t = void(__thiscall *)(void *anchor, int point, void *relAnchor, int relPoint,
-                                      float x, float y, int flag);
 using HideFontString_t = void(__fastcall *)(void *fs);
 using AddFontStrings_t = void(__thiscall *)(void *tooltip, void *left, void *right);
 
@@ -88,10 +87,8 @@ void *CreateLine(void *parent, const char *name, void *fontSource, int point,
         reinterpret_cast<SetFont_t>(Offsets::FUN_FONTSTRING_SET_FONT)(
             fsBytes + Offsets::OFF_FONTSTRING_FONT_HOLDER, fontObject);
 
-    reinterpret_cast<SetPoint_t>(Offsets::FUN_REGION_SET_POINT)(
-        fsBytes + Offsets::OFF_REGION_ANCHOR, point,
-        reinterpret_cast<uint8_t *>(relRegion) + Offsets::OFF_REGION_ANCHOR, relPoint,
-        Game::PixelToInternal(x), Game::PixelToInternal(y), 1);
+    Frame::Layout::SetPoint(fsBytes, point, Frame::Layout::Of(relRegion), relPoint,
+                            Game::PixelToInternal(x), Game::PixelToInternal(y));
 
     // The clear only hides lines below `numLines`, so a spare line has to
     // start hidden — the same `+0xC4 = 0` + hide the clear does.

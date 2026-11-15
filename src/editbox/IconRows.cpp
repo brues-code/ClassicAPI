@@ -60,9 +60,6 @@ using IndexAtPoint_t = void(__fastcall *)(void *editBox, void *edx, float x, flo
 using FontHeight_t = float(__fastcall *)(void *fs, void *edx, int mode);
 using MeasureRun_t = float(__fastcall *)(void *fs, void *edx, const uint8_t *text, int len);
 using PixelAlignY_t = float(__stdcall *)(float length);
-using ClearAllPoints_t = void(__fastcall *)(void *anchor);
-using SetPoint_t = void(__thiscall *)(void *anchor, int point, void *relAnchor, int relPoint, float x, float y,
-                                      int flag);
 using Extent_t = float(__fastcall *)(void *anchor, void *edx);
 using FireVariadic_t = void(__cdecl *)(void *frame, uint32_t *slotPtr, const char *fmt, ...);
 
@@ -176,10 +173,8 @@ bool AnchorX(const Rows &rows, int line, uint32_t pos, float &x, int &relPoint) 
 
 // Anchors `region` as the placer did, at `y`.
 void Anchor(const Rows &rows, void *region, int relPoint, float x, float y, int flag) {
-    void *anchor = Of(region);
-    reinterpret_cast<ClearAllPoints_t>(Offsets::FUN_LAYOUT_CLEAR_ALL_POINTS)(anchor);
-    reinterpret_cast<SetPoint_t>(Offsets::FUN_REGION_SET_POINT)(anchor, Offsets::FRAMEPOINT_TOPLEFT, Of(rows.fs),
-                                                                relPoint, x, y, flag);
+    Frame::Layout::ClearAllPoints(region);
+    Frame::Layout::SetPoint(region, Offsets::FRAMEPOINT_TOPLEFT, Of(rows.fs), relPoint, x, y, flag != 0);
 }
 
 // --- the click ---------------------------------------------------------------

@@ -53,9 +53,6 @@ namespace {
 constexpr int kInsertModeTop = 1;
 constexpr int kInsertModeBottom = 2;
 
-using SetPoint_t = void(__thiscall *)(void *anchor, int point, void *relAnchor, int relPoint, float x, float y,
-                                      int flag);
-using ClearAllPoints_t = void(__fastcall *)(void *anchor);
 using PixelAlignY_t = float(__stdcall *)(float length);
 
 // The frames in TOP mode. Every frame is rebuilt on /reload, so the set is
@@ -81,7 +78,7 @@ void SetLinePoint(void *smf, void *anchor, int point, void *relative, int relati
             y = -y;
         }
     }
-    reinterpret_cast<SetPoint_t>(Offsets::FUN_REGION_SET_POINT)(anchor, point, relative, relativePoint, x, y, flag);
+    Frame::Layout::SetPoint(Frame::Layout::OwnerOf(anchor), point, relative, relativePoint, x, y, flag != 0);
 }
 
 // The layout's SetPoint for a line it has just made; the line's parent is
@@ -186,7 +183,7 @@ const Frame::Destruction::AutoSubscribe _destructionSub{&OnFrameDestroyed};
 void AnchorLine(void *smf, int index) {
     void *line = LineOf(smf, index);
     void *anchor = Of(line);
-    reinterpret_cast<ClearAllPoints_t>(Offsets::FUN_LAYOUT_CLEAR_ALL_POINTS)(anchor);
+    Frame::Layout::ClearAllPoints(line);
     if (index == 0)
         SetLinePoint(smf, anchor, Offsets::FRAMEPOINT_BOTTOMLEFT, Of(smf), Offsets::FRAMEPOINT_BOTTOMLEFT,
                      Game::Read<float>(smf, Offsets::OFF_SCROLLINGMESSAGEFRAME_INSET_LEFT),

@@ -34,6 +34,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "baselib/Ascii.h"
+#include "frame/Layout.h"
 
 #include <cmath>
 #include <cstdio>
@@ -317,8 +318,6 @@ void Anim::PostLoadXML() {
 
 namespace {
 
-using StringToPoint_t = int(__fastcall *)(const char *name, int *point);
-using PointToString_t = const char *(__fastcall *)(int point);
 
 Anim *Self(void *L) { return static_cast<Anim *>(Resolve(L, 1, Anim::s_class)); }
 Anim *SelfOf(void *L, Class &cls) { return static_cast<Anim *>(Resolve(L, 1, cls)); }
@@ -699,7 +698,7 @@ int __fastcall Script_SetOrigin(void *L) {
         return 0;
     }
     int point = Offsets::FRAMEPOINT_CENTER;
-    if (!reinterpret_cast<StringToPoint_t>(Offsets::FUN_STRING_TO_FRAME_POINT)(Game::Lua::ToString(L, 2), &point))
+    if (!Frame::Layout::StringToPoint(Game::Lua::ToString(L, 2), &point))
         point = Offsets::FRAMEPOINT_CENTER;
     a->originPoint = point;
     a->originX = Game::PixelToInternal(static_cast<float>(Game::Lua::ToNumber(L, 3)));
@@ -711,7 +710,7 @@ int __fastcall Script_GetOrigin(void *L) {
     Anim *a = OriginSelf(L);
     if (a == nullptr)
         return 0;
-    Game::Lua::PushString(L, reinterpret_cast<PointToString_t>(Offsets::FUN_FRAME_POINT_TO_STRING)(a->originPoint));
+    Game::Lua::PushString(L, Frame::Layout::PointToString(a->originPoint));
     Game::Lua::PushNumber(L, a->originX);
     Game::Lua::PushNumber(L, a->originY);
     return 3;

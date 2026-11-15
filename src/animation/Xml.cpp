@@ -29,6 +29,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "baselib/Ascii.h"
+#include "frame/Layout.h"
 #include "xml/FrameLoad.h"
 #include "xml/KeyValues.h"
 #include "xml/Mixin.h"
@@ -42,7 +43,6 @@ namespace Animation::Xml {
 namespace {
 
 using SetScriptText_t = bool(__fastcall *)(void *object, void *edx, const char *name, const char *text);
-using StringToPoint_t = int(__fastcall *)(const char *name, int *point);
 
 const void *FindChild(const void *node, const char *tag) {
     for (const void *c = ::Xml::FirstChild(node); c != nullptr; c = ::Xml::NextSibling(c))
@@ -158,7 +158,7 @@ void LoadOrigin(Anim *anim, const void *node) {
     float x = 0.0f, y = 0.0f;
     const char *pointName = ::Xml::Attr(origin, "point");
     if (pointName != nullptr &&
-        reinterpret_cast<StringToPoint_t>(Offsets::FUN_STRING_TO_FRAME_POINT)(pointName, &point)) {
+        Frame::Layout::StringToPoint(pointName, &point)) {
         if (const void *offset = FindChild(origin, "Offset")) {
             const void *abs = FindChild(offset, "AbsDimension");
             const void *dim = abs != nullptr ? abs : offset;

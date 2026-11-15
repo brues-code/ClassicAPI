@@ -60,6 +60,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "frame/Layout.h"
 
 #include <cstdint>
 #include <cstring>
@@ -69,9 +70,6 @@ namespace Tooltip::Layout {
 namespace {
 
 using ResetPosition_t = void(__fastcall *)(void *tooltip, void *edx, int force);
-using ClearAllPoints_t = void(__fastcall *)(void *layout);
-using SetPoint_t = void(__thiscall *)(void *anchor, int point, void *relAnchor, int relPoint,
-                                      float x, float y, int flag);
 using Script_t = int(__fastcall *)(void *L);
 
 ResetPosition_t g_resetPositionOriginal = nullptr;
@@ -122,15 +120,13 @@ void __fastcall ResetPosition_h(void *self, void *edx, int force) {
         return;
     }
 
-    void *layout = tooltip + Offsets::OFF_FRAME_LAYOUT_SUBOBJECT;
-    reinterpret_cast<ClearAllPoints_t>(Offsets::FUN_LAYOUT_CLEAR_ALL_POINTS)(layout);
+    Frame::Layout::ClearAllPoints(tooltip);
 
     const bool top = type == Offsets::TOOLTIP_ANCHOR_TOP;
-    reinterpret_cast<SetPoint_t>(Offsets::FUN_REGION_SET_POINT)(
-        layout, top ? Offsets::FRAMEPOINT_BOTTOM : Offsets::FRAMEPOINT_TOP, owner,
-        top ? Offsets::FRAMEPOINT_TOP : Offsets::FRAMEPOINT_BOTTOM,
-        Game::Read<float>(tooltip, Offsets::OFF_TOOLTIP_OFFSET_X),
-        Game::Read<float>(tooltip, Offsets::OFF_TOOLTIP_OFFSET_Y), 1);
+    Frame::Layout::SetPoint(tooltip, top ? Offsets::FRAMEPOINT_BOTTOM : Offsets::FRAMEPOINT_TOP,
+                            owner, top ? Offsets::FRAMEPOINT_TOP : Offsets::FRAMEPOINT_BOTTOM,
+                            Game::Read<float>(tooltip, Offsets::OFF_TOOLTIP_OFFSET_X),
+                            Game::Read<float>(tooltip, Offsets::OFF_TOOLTIP_OFFSET_Y));
 }
 
 const Game::HookAutoRegister _resetPositionHook{

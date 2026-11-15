@@ -64,6 +64,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "debug/Log.h"
+#include "frame/Layout.h"
 
 #include <cstdint>
 
@@ -75,8 +76,6 @@ namespace {
 
 using ClearPointByRelative_t = void(__thiscall *)(void *layout, void *relativeTo,
                                                   int doRelayout);
-using GetRelative_t = void *(__thiscall *)(void *node);
-using PointToString_t = const char *(__fastcall *)(int point);
 
 // SEH-guarded readability probe. Standalone with only raw pointers and no
 // C++ objects in scope, per the MSVC __try/__except constraint. A fault on
@@ -104,8 +103,7 @@ void CleanDanglingAnchors(void *region) {
     auto *base = static_cast<uint8_t *>(region);
     auto *top = Game::Read<uint8_t *>(Offsets::VAR_UI_CONTEXT_PTR);
     for (int i = 0; i < Offsets::REGION_ANCHOR_SLOT_COUNT; ++i) {
-        auto *node = Game::Read<uint8_t *>(
-            base, Offsets::OFF_REGION_ANCHOR_ARRAY + i * 4);
+        auto *node = static_cast<uint8_t *>(Frame::Layout::PointNode(region, i));
         if (node == nullptr)
             continue;
         // Only relativeTo-carrying nodes can dangle; the rel-less node type
@@ -140,16 +138,14 @@ void CleanDanglingAnchors(void *region) {
 }
 
 int PushPoint(void *L, void *region, int point) {
-    auto *node = Game::Read<uint8_t *>(region, Offsets::OFF_REGION_ANCHOR_ARRAY + point * 4);
-    if (node == nullptr)
+    Frame::Layout::Point p;
+    if (!Frame::Layout::GetPoint(region, point, &p))
         return 0;
 
-    auto pointName = reinterpret_cast<PointToString_t>(Offsets::FUN_FRAME_POINT_TO_STRING);
-    auto *vtable = Game::Read<uintptr_t *>(node, 0);
-    auto *relative = static_cast<uint8_t *>(reinterpret_cast<GetRelative_t>(
-        vtable[Offsets::VTBL_ANCHOR_NODE_GET_RELATIVE / sizeof(uintptr_t)])(node));
-    const double x = Game::InternalToPixel(Game::Read<float>(node, Offsets::OFF_ANCHOR_NODE_X));
-    const double y = Game::InternalToPixel(Game::Read<float>(node, Offsets::OFF_ANCHOR_NODE_Y));
+    const auto pointName = &Frame::Layout::PointToString;
+    auto *relative = static_cast<uint8_t *>(p.relativeLayout);
+    const double x = Game::InternalToPixel(p.x);
+    const double y = Game::InternalToPixel(p.y);
 
     Game::Lua::PushString(L, pointName(point));
     if (relative == nullptr) {
@@ -161,8 +157,7 @@ int PushPoint(void *L, void *region, int point) {
         Game::Lua::PushNil(L); // anchored to the screen
     else
         Game::Lua::PushObject(L, relative - Offsets::OFF_REGION_ANCHOR);
-    Game::Lua::PushString(
-        L, pointName(Game::Read<int>(node, Offsets::OFF_ANCHOR_NODE_RELATIVE_POINT)));
+    Game::Lua::PushString(L, pointName(p.relPoint));
     Game::Lua::PushNumber(L, x);
     Game::Lua::PushNumber(L, y);
     return 5;
@@ -183,7 +178,7 @@ int __fastcall GetPoint_h(void *L) {
 
     // The index-th set slot, in point order (TOPLEFT .. BOTTOMRIGHT).
     for (int point = 0, found = 0; point < Offsets::REGION_ANCHOR_SLOT_COUNT; ++point) {
-        if (Game::Read<uint8_t *>(region, Offsets::OFF_REGION_ANCHOR_ARRAY + point * 4) == nullptr)
+        if (Frame::Layout::PointNode(region, point) == nullptr)
             continue;
         if (found >= index)
             return PushPoint(L, region, point);

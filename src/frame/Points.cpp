@@ -52,19 +52,14 @@ namespace Frame::Points {
 
 namespace {
 
-using StringToPoint_t = int(__fastcall *)(const char *name, int *point);
 using RemoveDependent_t = void(__fastcall *)(void *relative, void *edx, void *layout, int mask);
-using GetRelative_t = void *(__thiscall *)(void *node);
 using DeleteNode_t = void(__thiscall *)(void *node, int flags);
-using SetPoint_t = void(__thiscall *)(void *anchor, int point, void *relAnchor, int relPoint,
-                                      float x, float y, int flag);
 
 // The point named by argument 2, or -1 after raising the usage error.
 int PointArg(void *L, void *region, const char *usage) {
     int point = 0;
     if (!Game::Lua::IsString(L, 2) ||
-        !reinterpret_cast<StringToPoint_t>(Offsets::FUN_STRING_TO_FRAME_POINT)(
-            Game::Lua::ToString(L, 2), &point)) {
+        !Frame::Layout::StringToPoint(Game::Lua::ToString(L, 2), &point)) {
         Game::Lua::Error(L, usage, Game::Lua::ObjectDisplayName(region));
         return -1;
     }
@@ -93,16 +88,15 @@ int __fastcall Script_ClearPoint(void *L) {
     auto **slot = reinterpret_cast<uint8_t **>(static_cast<uint8_t *>(region) +
                                                Offsets::OFF_REGION_ANCHOR_ARRAY + point * 4);
     uint8_t *node = *slot;
-    if (node == nullptr)
+    Frame::Layout::Point p;
+    if (!Frame::Layout::GetPoint(region, point, &p))
         return 0;
-    auto *vtable = Game::Read<uintptr_t *>(node, 0);
-    void *relative = reinterpret_cast<GetRelative_t>(
-        vtable[Offsets::VTBL_ANCHOR_NODE_GET_RELATIVE / sizeof(uintptr_t)])(node);
+    void *relative = p.relativeLayout;
     if (relative != nullptr)
         reinterpret_cast<RemoveDependent_t>(Offsets::FUN_LAYOUT_REMOVE_DEPENDENT)(
             relative, nullptr, static_cast<uint8_t *>(region) + Offsets::OFF_REGION_ANCHOR,
             1 << point);
-    reinterpret_cast<DeleteNode_t>(vtable[0])(node, 1);
+    reinterpret_cast<DeleteNode_t>(Game::Read<uintptr_t *>(node, 0)[0])(node, 1);
     *slot = nullptr;
     return 0;
 }
@@ -112,18 +106,11 @@ int __fastcall Script_ClearPoint(void *L) {
 void ShiftPoints(void *region, float dx, float dy, bool zero) {
     Frame::GetPointGuard::CleanDanglingAnchors(region);
     for (int point = 0; point < Offsets::REGION_ANCHOR_SLOT_COUNT; ++point) {
-        uint8_t *node = Game::Read<uint8_t *>(region, Offsets::OFF_REGION_ANCHOR_ARRAY + point * 4);
-        if (node == nullptr)
+        Frame::Layout::Point p;
+        if (!Frame::Layout::GetPoint(region, point, &p))
             continue;
-        auto *vtable = Game::Read<uintptr_t *>(node, 0);
-        void *relative = reinterpret_cast<GetRelative_t>(
-            vtable[Offsets::VTBL_ANCHOR_NODE_GET_RELATIVE / sizeof(uintptr_t)])(node);
-        const int relativePoint = Game::Read<int>(node, Offsets::OFF_ANCHOR_NODE_RELATIVE_POINT);
-        const float x = zero ? 0.0f : Game::Read<float>(node, Offsets::OFF_ANCHOR_NODE_X) + dx;
-        const float y = zero ? 0.0f : Game::Read<float>(node, Offsets::OFF_ANCHOR_NODE_Y) + dy;
-        reinterpret_cast<SetPoint_t>(Offsets::FUN_REGION_SET_POINT)(
-            static_cast<uint8_t *>(region) + Offsets::OFF_REGION_ANCHOR, point, relative,
-            relativePoint, x, y, 1);
+        Frame::Layout::SetPoint(region, point, p.relativeLayout, p.relPoint,
+                                zero ? 0.0f : p.x + dx, zero ? 0.0f : p.y + dy);
     }
 }
 

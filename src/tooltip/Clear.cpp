@@ -41,6 +41,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "frame/Layout.h"
 
 #include <cstdint>
 
@@ -51,8 +52,6 @@ namespace {
 using Clear_t = void(__fastcall *)(void *self);
 Clear_t g_clearOriginal = nullptr;
 
-using SetPoint_t = void(__thiscall *)(void *anchor, int point, void *relAnchor, int relPoint,
-                                      float x, float y, int flag);
 
 constexpr uint32_t kMaxTextures = 3;
 
@@ -66,9 +65,8 @@ void RestoreLineBelow(uint8_t *tooltip, uint32_t line) {
     if (left == nullptr || left[line] == nullptr || left[line + 1] == nullptr)
         return;
     const float gap = Game::PixelToInternal(Game::Read<float>(Offsets::VAR_TOOLTIP_LINE_GAP));
-    reinterpret_cast<SetPoint_t>(Offsets::FUN_REGION_SET_POINT)(
-        left[line + 1] + Offsets::OFF_REGION_ANCHOR, Offsets::FRAMEPOINT_TOPLEFT,
-        left[line] + Offsets::OFF_REGION_ANCHOR, Offsets::FRAMEPOINT_BOTTOMLEFT, 0.0f, gap, 1);
+    Frame::Layout::SetPoint(left[line + 1], Offsets::FRAMEPOINT_TOPLEFT,
+                            Frame::Layout::Of(left[line]), Offsets::FRAMEPOINT_BOTTOMLEFT, 0.0f, gap);
 }
 
 // True when the texture routine has re-anchored `line` since the clear: a

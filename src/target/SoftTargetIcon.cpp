@@ -50,6 +50,7 @@
 #include "Offsets.h"
 #include "cursor/Hover.h"
 #include "cvar/Factory.h"
+#include "frame/Layout.h"
 #include "frame/Region.h"
 #include "object/Resolve.h"
 #include "target/SoftInteract.h"
@@ -66,8 +67,6 @@ namespace {
 
 using SetTexture_t = uint32_t(__thiscall *)(void *tex, const char *path, int a, uint32_t blend,
                                             int b);
-using SetPoint_t = void(__thiscall *)(void *anchor, int point, void *relAnchor, int relPoint,
-                                      float x, float y, int flag);
 using SetSize_t = void(__thiscall *)(void *anchor, float internal);
 using ShowHide_t = void(__fastcall *)(void *tex);
 using PlateScreenPos_t = bool(__fastcall *)(void *unit, void *worldFrame, float *screen);
@@ -151,9 +150,8 @@ void Show(Icon &icon, uint64_t guid, void *worldFrame) {
         reinterpret_cast<SetSize_t>(Offsets::FUN_LAYOUT_SET_HEIGHT)(Anchor(icon.tex), size);
         icon.shownSize = size;
     }
-    reinterpret_cast<SetPoint_t>(Offsets::FUN_REGION_SET_POINT)(
-        Anchor(icon.tex), Offsets::FRAMEPOINT_BOTTOM, Anchor(worldFrame),
-        Offsets::FRAMEPOINT_BOTTOMLEFT, screen[0], screen[1], 1);
+    Frame::Layout::SetPoint(icon.tex, Offsets::FRAMEPOINT_BOTTOM, Anchor(worldFrame),
+                            Offsets::FRAMEPOINT_BOTTOMLEFT, screen[0], screen[1]);
     SetShown(icon, true);
 }
 

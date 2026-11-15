@@ -16,6 +16,7 @@
 // fontstring itself (Emit_h below), so the texture is resident by
 // construction, moves with its line and shows exactly when its line does.
 
+#include "frame/Layout.h"
 #include "text/InlineTexturePool.h"
 
 #include "Game.h"
@@ -40,8 +41,6 @@ namespace {
 using SetTexture_t = uint32_t(__thiscall *)(void *tex, const char *path, int a, uint32_t blend,
                                             int b);
 using SetColor_t = void(__thiscall *)(void *tex, const void *colorBGRA);
-using SetPoint_t = void(__thiscall *)(void *anchor, int point, void *relAnchor, int relPoint,
-                                      float x, float y, int flag);
 using Realize_t = void(__thiscall *)(void *anchor, int flag);
 using SetTexCoord_t = void(__thiscall *)(void *tex, const float *coords4);
 using DeletingDestructor_t = void(__thiscall *)(void *region, int flags);
@@ -196,14 +195,12 @@ void ApplyPlacement(IconRegion &r, void *fs, const Placement &p, uint32_t fsColo
     // has no frame, so nothing changes the ctor's scale of 1 (CLayoutFrame
     // 0x00767680) and the offsets land exactly as given, as 4.3.4's
     // CSimpleEmbeddedTexture's do.
-    auto setPoint = reinterpret_cast<SetPoint_t>(Offsets::FUN_REGION_SET_POINT);
-    void *texAnchor = reinterpret_cast<uint8_t *>(r.tex) + Offsets::OFF_REGION_ANCHOR;
-    void *fsAnchor = f + Offsets::OFF_REGION_ANCHOR;
-    setPoint(texAnchor, Offsets::FRAMEPOINT_BOTTOMLEFT, fsAnchor, Offsets::FRAMEPOINT_BOTTOMLEFT,
-             p.x0, p.y0, 1);
-    setPoint(texAnchor, Offsets::FRAMEPOINT_TOPRIGHT, fsAnchor, Offsets::FRAMEPOINT_BOTTOMLEFT,
-             p.x1, p.y1, 1);
-    reinterpret_cast<Realize_t>(Offsets::FUN_REGION_LAYOUT_REALIZE)(texAnchor, 0);
+    void *fsAnchor = Frame::Layout::Of(f);
+    Frame::Layout::SetPoint(r.tex, Offsets::FRAMEPOINT_BOTTOMLEFT, fsAnchor,
+                            Offsets::FRAMEPOINT_BOTTOMLEFT, p.x0, p.y0);
+    Frame::Layout::SetPoint(r.tex, Offsets::FRAMEPOINT_TOPRIGHT, fsAnchor,
+                            Offsets::FRAMEPOINT_BOTTOMLEFT, p.x1, p.y1);
+    reinterpret_cast<Realize_t>(Offsets::FUN_REGION_LAYOUT_REALIZE)(Frame::Layout::Of(r.tex), 0);
 }
 
 // Applies `want` to the fontstring's textures: create and configure each. The

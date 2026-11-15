@@ -79,4 +79,74 @@ inline bool GetResolvedRect(void *object, float (&rect)[4]) {
     return GetRect(object, rect);
 }
 
+// The anchor node in `point`'s slot (FRAMEPOINT_*), or nullptr when the slot
+// is unset.
+inline void *PointNode(const void *object, int point) {
+    return *reinterpret_cast<void *const *>(static_cast<const uint8_t *>(object) +
+                                            Offsets::OFF_REGION_ANCHOR_ARRAY +
+                                            point * static_cast<int>(sizeof(void *)));
+}
+
+// One anchor, as the engine's GetPoint reads it. `relativeLayout` comes from
+// the node's own getter (vtable +0x0C): a layout sub-object, the screen's
+// (VAR_UI_CONTEXT_PTR) for a point on the screen, or null for the node type
+// with no relative. `relPoint` is set only with a relative: that 12-byte
+// node {vtable, x, y} has no field for it. Offsets are in layout units.
+struct Point {
+    void *relativeLayout;
+    int relPoint;
+    float x;
+    float y;
+};
+
+// Reads `point`'s anchor. False when the slot is unset.
+inline bool GetPoint(const void *object, int point, Point *out) {
+    using GetRelative_t = void *(__thiscall *)(void *node);
+    auto *node = static_cast<uint8_t *>(PointNode(object, point));
+    if (node == nullptr)
+        return false;
+    const auto *vtable = *reinterpret_cast<const uintptr_t *const *>(node);
+    out->relativeLayout = reinterpret_cast<GetRelative_t>(
+        vtable[Offsets::VTBL_ANCHOR_NODE_GET_RELATIVE / sizeof(uintptr_t)])(node);
+    out->relPoint = out->relativeLayout != nullptr
+                        ? *reinterpret_cast<const int *>(node + Offsets::OFF_ANCHOR_NODE_RELATIVE_POINT)
+                        : 0;
+    out->x = *reinterpret_cast<const float *>(node + Offsets::OFF_ANCHOR_NODE_X);
+    out->y = *reinterpret_cast<const float *>(node + Offsets::OFF_ANCHOR_NODE_Y);
+    return true;
+}
+
+// CLayoutFrame::SetPoint (FUN_REGION_SET_POINT): `point` of `object` to
+// `relPoint` of `relativeLayout`, offsets in layout units. The relative is a
+// layout sub-object, as the engine stores it: `Of(relative)`, or one an
+// anchor node or the XML loader already holds. The engine refuses a null
+// relative or the object itself (error 0x57), and `resize` lays the object
+// out at once (benilla-re ui/anchors).
+inline void SetPoint(void *object, int point, void *relativeLayout, int relPoint, float x,
+                     float y, bool resize = true) {
+    using Fn = void(__thiscall *)(void *, int, void *, int, float, float, int);
+    reinterpret_cast<Fn>(Offsets::FUN_REGION_SET_POINT)(Of(object), point, relativeLayout,
+                                                        relPoint, x, y, resize ? 1 : 0);
+}
+
+// CLayoutFrame::ClearAllPoints (FUN_LAYOUT_CLEAR_ALL_POINTS): frees all nine
+// anchor slots and unlinks the object from each relative.
+inline void ClearAllPoints(void *object) {
+    using Fn = void(__fastcall *)(void *);
+    reinterpret_cast<Fn>(Offsets::FUN_LAYOUT_CLEAR_ALL_POINTS)(Of(object));
+}
+
+// The engine's point names (FUN_STRING_TO_FRAME_POINT): "TOPLEFT" and the
+// rest to FRAMEPOINT_*. False for a string that names no point.
+inline bool StringToPoint(const char *name, int *point) {
+    using Fn = int(__fastcall *)(const char *, int *);
+    return reinterpret_cast<Fn>(Offsets::FUN_STRING_TO_FRAME_POINT)(name, point) != 0;
+}
+
+// FUN_FRAME_POINT_TO_STRING: a FRAMEPOINT_* value's name.
+inline const char *PointToString(int point) {
+    using Fn = const char *(__fastcall *)(int);
+    return reinterpret_cast<Fn>(Offsets::FUN_FRAME_POINT_TO_STRING)(point);
+}
+
 } // namespace Frame::Layout
