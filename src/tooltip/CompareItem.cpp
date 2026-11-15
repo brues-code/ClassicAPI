@@ -41,6 +41,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "frame/Region.h"
 #include "item/Arg.h"
 #include "item/CGItem.h"
 #include "item/ID.h"
@@ -70,7 +71,6 @@ using BuildItemTooltip_t = void(__thiscall *)(void *self, uint32_t itemID, const
                                               const void *guid2, int a4, int a5, int a6,
                                               int headerFlag, int a8, int a9);
 using SetLineText_t = void(__thiscall *)(void *fontString, const char *text, int flag);
-using SetLineColor_t = void(__thiscall *)(void *fontString, const void *colorBGRA);
 
 int InvTypeOf(const uint8_t *rec) {
     return static_cast<int>(Game::Read<uint32_t>(rec, Offsets::OFF_ITEMSTATS_INVENTORY_TYPE));
@@ -420,7 +420,7 @@ void FSSetText(void *fs, const char *text) {
 
 void FSSetColor(void *fs, const uint32_t &color) {
     if (fs != nullptr)
-        reinterpret_cast<SetLineColor_t>(Offsets::FUN_FONTSTRING_SET_COLOR)(fs, &color);
+        Frame::Region::SetColor(fs, color);
 }
 
 using ShowHideFS_t = void(__fastcall *)(void *fs);

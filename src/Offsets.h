@@ -571,11 +571,11 @@ enum Offsets {
     // 0x00CF1CC8 (0x1000 bytes): |1 Korean particles, |2 French articles.
     FUN_EXPAND_KOREAN_PARTICLES = 0x00771770,
     FUN_EXPAND_FRENCH_ARTICLES = 0x007719A0,
-    FUN_FONTSTRING_SET_COLOR = 0x0077F750,        // __thiscall(region, colorBGRA*) — generic region color setter (fontstrings + textures)
+    FUN_REGION_SET_COLOR = 0x0077F750,            // __thiscall(region, colorBGRA*) — generic region color setter (fontstrings + textures)
     // Generic region color GETTER — `void __thiscall(region, uint32* outBGRA)`,
     // writes the packed {b,g,r,a} (0xFFFFFFFF when the region has no explicit
     // color). The read half of Texture:GetVertexColor (FUN_0079aa50); paired
-    // with FUN_FONTSTRING_SET_COLOR above. Backs EditBox:GetHighlightColor.
+    // with FUN_REGION_SET_COLOR above. Backs EditBox:GetHighlightColor.
     FUN_REGION_GET_COLOR = 0x0077F8C0,
     OFF_FONTSTRING_TEXT = 0xF0,                   // char* — current text buffer
     // The fixed text size (XML `bytes`, 0 = none): SetText (FUN_FONTSTRING_SET_TEXT)
@@ -857,7 +857,7 @@ enum Offsets {
     // docs/InlineTextureResidency.md). Mirrors Script_CreateTexture
     // (FUN_00773A20) and the Texture frame-method handlers; the sibling of the
     // CSimpleFontString path above. Same FUN_REGION_POOL_ALLOC / SetPoint /
-    // Show / Hide / SetColor (FUN_FONTSTRING_SET_COLOR) as the FontString pool.
+    // Show / Hide / SetColor (FUN_REGION_SET_COLOR) as the FontString pool.
     VAR_SIMPLETEXTURE_POOL = 0x00CF4CE0,      // &DAT_00cf4ce0 CSimpleTexture free-list pool (`this`)
     VAR_SIMPLETEXTURE_CLASS_TAG = 0x00846588, // ".?AVCSimpleTexture@@" (alloc debug tag)
     FUN_SIMPLETEXTURE_CTOR = 0x0076FC40,      // __thiscall(mem, parent, layer, sublayer) -> tex
@@ -1040,7 +1040,7 @@ enum Offsets {
     // CSimpleFontString live text color: count at +0xB4, array pointer at +0xB8
     // (uint32 BGRA per slot; slot 0 = the base color, alpha = byte 3; a parallel
     // per-glyph alpha-byte array hangs off +0xA8/+0xA4). Written by the fs
-    // SetColor (FUN_FONTSTRING_SET_COLOR 0x0077F750: stores the dword at
+    // SetColor (FUN_REGION_SET_COLOR 0x0077F750: stores the dword at
     // (*(u32**)(fs+0xB8))[0] + the alpha byte at (*(u8**)(fs+0xA8))[0], then
     // fires the color-update vmethod +0x20). Count 0 = never colored = default
     // opaque white. THE CHAT-FADE SIGNAL: the ScrollingMessageFrame's fader

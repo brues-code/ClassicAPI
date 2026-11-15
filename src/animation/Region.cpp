@@ -49,7 +49,7 @@
 // 1.12's regions have no room for these, so they are kept here, keyed by the
 // region. A frame's own alpha is Frame::Alpha's (3.x's m_alpha), set through
 // the frame's vtable setter as SetAlpha sets it; a region's vertex alpha is the
-// engine's region color (FUN_REGION_GET_COLOR / FUN_FONTSTRING_SET_COLOR).
+// engine's region color (FUN_REGION_GET_COLOR / FUN_REGION_SET_COLOR).
 // The groups update from a co-hook of CSimpleFrame::OnFrameUpdate, which the
 // engine calls for every shown frame after OnUpdate, so a hidden frame's
 // groups wait, as in 4.3.4. Groups die with their frame (Frame::Destruction).
@@ -64,6 +64,7 @@
 #include "frame/Layout.h"
 #include "frame/Alpha.h"
 #include "frame/Destruction.h"
+#include "frame/Region.h"
 #include "texture/CornerStore.h"
 #include "texture/Transform.h"
 #include "xml/Anchors.h"
@@ -112,8 +113,6 @@ int g_regionsWithGroups = 0;
 
 using FrameUpdate_t = void(__fastcall *)(void *frame, void *edx, float elapsed);
 using SetFrameAlpha_t = void(__fastcall *)(void *frame, void *edx, uint32_t alpha);
-using GetColor_t = void(__fastcall *)(void *region, void *edx, uint32_t *bgra);
-using SetColor_t = void(__fastcall *)(void *region, void *edx, const uint32_t *bgra);
 using StoreCorners_t = void(__fastcall *)(void *region, void *edx, float *rect);
 using SetStringPos_t = void(__fastcall *)(void *block, const float *position);
 using SizeChanged_t = void(__fastcall *)(void *layout, void *edx, const float *oldRect);
@@ -158,28 +157,15 @@ uint8_t DrawnParentAlpha(void *frame) {
     return parent != nullptr ? Game::Read<uint8_t>(parent, Offsets::OFF_FRAME_ALPHA) : 0xFF;
 }
 
-uint32_t VertexColor(void *region) {
-    uint32_t bgra = 0xFFFFFFFF;
-    reinterpret_cast<GetColor_t>(Offsets::FUN_REGION_GET_COLOR)(region, nullptr, &bgra);
-    return bgra;
-}
+uint32_t VertexColor(void *region) { return Frame::Region::Color(region); }
 
-// An unchanged alpha writes nothing. The setter already does nothing when the
-// one entry it would store is the region's colour, but the getter reads a
-// gradient back as white, and the setter shrinks a gradient's four entries to
-// that one (benilla-re ui/texture, "Setting a vertex colour"). So restoring
-// the stored alpha (PreOnAnimUpdate, AnimDeactivated) on a gradient under an
-// ancestor's alpha group flattened it to white. 3.3.5's and 4.3.4's
+// Frame::Region::SetAlpha writes nothing for an unchanged alpha. Without that,
+// restoring the stored alpha (PreOnAnimUpdate, AnimDeactivated) on a gradient
+// under an ancestor's alpha group flattened it to white. 3.3.5's and 4.3.4's
 // SetVertexColor drop the gradient there too; here only a region that an
 // animation itself fades loses it. The ancestor's fade still reaches the
 // gradient: a frame's alpha change refolds every region's entries (0x77FAC0).
-void SetVertexAlpha(void *region, uint8_t alpha) {
-    const uint32_t color = VertexColor(region);
-    if ((color >> 24) == alpha)
-        return;
-    const uint32_t bgra = (color & 0x00FFFFFF) | (static_cast<uint32_t>(alpha) << 24);
-    reinterpret_cast<SetColor_t>(Offsets::FUN_FONTSTRING_SET_COLOR)(region, nullptr, &bgra);
-}
+void SetVertexAlpha(void *region, uint8_t alpha) { Frame::Region::SetAlpha(region, alpha); }
 
 // ---- The state position animations change --------------------------------------
 

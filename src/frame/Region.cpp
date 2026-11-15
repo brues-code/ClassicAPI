@@ -45,4 +45,22 @@ void *CreateFontString(void *parent, int layer, int sublayer) {
                   Offsets::FUN_SIMPLEFONTSTRING_CTOR, parent, layer, sublayer);
 }
 
+uint32_t Color(const void *region) {
+    using GetColor_t = void(__thiscall *)(const void *region, uint32_t *bgra);
+    uint32_t bgra = 0xFFFFFFFF;
+    reinterpret_cast<GetColor_t>(Offsets::FUN_REGION_GET_COLOR)(region, &bgra);
+    return bgra;
+}
+
+void SetColor(void *region, uint32_t bgra) {
+    using SetColor_t = void(__thiscall *)(void *region, const uint32_t *bgra);
+    reinterpret_cast<SetColor_t>(Offsets::FUN_REGION_SET_COLOR)(region, &bgra);
+}
+
+void SetAlpha(void *region, uint8_t alpha) {
+    const uint32_t color = Color(region);
+    if ((color >> 24) != alpha)
+        SetColor(region, (color & 0x00FFFFFF) | (static_cast<uint32_t>(alpha) << 24));
+}
+
 } // namespace Frame::Region

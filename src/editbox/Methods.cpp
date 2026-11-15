@@ -37,6 +37,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "frame/Region.h"
 
 #include <cstdint>
 
@@ -47,8 +48,6 @@ namespace {
 using SetCursorByte_t = void(__thiscall *)(void *editbox, int byteOffset);
 using CollapseSelection_t = void(__thiscall *)(void *editbox);
 using CountChars_t = int(__thiscall *)(void *editbox, int startByte, int byteCount);
-using RegionSetColor_t = void(__thiscall *)(void *region, const uint32_t *colorBGRA);
-using RegionGetColor_t = void(__thiscall *)(void *region, uint32_t *outBGRA);
 using SetHistoryMax_t = void(__thiscall *)(void *editbox, int maxLines);
 
 // A Lua color arg (0..1) clamped and scaled to a 0..255 byte, matching the
@@ -167,13 +166,11 @@ int __fastcall Script_SetHighlightColor(void *L) {
     const uint32_t b = ColorByte(L, 4, 1.0);
     const uint32_t a = ColorByte(L, 5, 1.0);
     const uint32_t packed = b | (g << 8) | (r << 16) | (a << 24); // {b,g,r,a}
-    auto setColor = reinterpret_cast<RegionSetColor_t>(
-        Offsets::FUN_FONTSTRING_SET_COLOR);
     for (int off = Offsets::OFF_EDITBOX_HIGHLIGHT_REGION;
          off <= Offsets::OFF_EDITBOX_HIGHLIGHT_REGION + 8; off += 4) {
         void *region = Game::Read<void *>(eb, off);
         if (region != nullptr)
-            setColor(region, &packed);
+            Frame::Region::SetColor(region, packed);
     }
     return 0;
 }
@@ -186,11 +183,8 @@ int __fastcall Script_GetHighlightColor(void *L) {
         Game::Lua::Error(L, "Usage: EditBox:GetHighlightColor()");
         return 0;
     }
-    uint32_t packed = 0xFFFFFFFF;
     void *region = Game::Read<void *>(eb, Offsets::OFF_EDITBOX_HIGHLIGHT_REGION);
-    if (region != nullptr)
-        reinterpret_cast<RegionGetColor_t>(Offsets::FUN_REGION_GET_COLOR)(
-            region, &packed);
+    const uint32_t packed = region != nullptr ? Frame::Region::Color(region) : 0xFFFFFFFF;
     const double inv = 1.0 / 255.0;
     Game::Lua::PushNumber(L, ((packed >> 16) & 0xff) * inv); // r
     Game::Lua::PushNumber(L, ((packed >> 8) & 0xff) * inv);  // g

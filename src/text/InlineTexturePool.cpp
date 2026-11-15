@@ -39,7 +39,6 @@ namespace Text::InlineTexturePool {
 
 namespace {
 
-using SetColor_t = void(__thiscall *)(void *tex, const void *colorBGRA);
 using Realize_t = void(__thiscall *)(void *anchor, int flag);
 using SetTexCoord_t = void(__thiscall *)(void *tex, const float *coords4);
 using DeletingDestructor_t = void(__thiscall *)(void *region, int flags);
@@ -184,7 +183,7 @@ void ApplyPlacement(IconRegion &r, void *fs, const Placement &p, uint32_t fsColo
     const float coords[4] = {p.v0, p.u0, p.v1, p.u1};
     reinterpret_cast<SetTexCoord_t>(Offsets::FUN_SIMPLETEXTURE_SET_TEXCOORD)(r.tex, coords);
     const uint32_t color = FadedColor(p, fsColor);
-    reinterpret_cast<SetColor_t>(Offsets::FUN_FONTSTRING_SET_COLOR)(r.tex, &color);
+    Frame::Region::SetColor(r.tex, color);
 
     // Placement coords are in resolved-rect (anchor) units. The resolver places
     // a point at the positioned region's own layout scale × the stored offset
@@ -321,8 +320,7 @@ void MirrorFade(void *fs) {
     const uint32_t fsColor = FsColorKey(fs);
     for (int i = 0; i < np.shown; ++i) {
         const uint32_t color = FadedColor(np.want[static_cast<size_t>(i)], fsColor);
-        reinterpret_cast<SetColor_t>(Offsets::FUN_FONTSTRING_SET_COLOR)(
-            np.regions[static_cast<size_t>(i)].tex, &color);
+        Frame::Region::SetColor(np.regions[static_cast<size_t>(i)].tex, color);
     }
 }
 

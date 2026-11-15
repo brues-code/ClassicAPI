@@ -34,6 +34,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "frame/Region.h"
 #include "xml/FrameLoad.h"
 #include "xml/TypeLoad.h"
 
@@ -43,8 +44,6 @@ namespace Xml::NativeSetters {
 
 namespace {
 
-using GetColor_t = void(__fastcall *)(void *region, void *edx, uint32_t *bgra);
-using SetColor_t = void(__fastcall *)(void *region, void *edx, const uint32_t *bgra);
 using SetFrameScale_t = bool(__fastcall *)(void *frame, void *edx, float scale, int force);
 using Tokenize_t = void(__stdcall *)(const char **cursor, char *out, unsigned outSize, const char *delims,
                                      int *outQuoted);
@@ -57,10 +56,7 @@ void OnRegionNode(void *object, const void *node, void * /*status*/) {
         alpha = 0.0f;
     else if (alpha > 1.0f)
         alpha = 1.0f;
-    uint32_t bgra = 0;
-    reinterpret_cast<GetColor_t>(Offsets::FUN_REGION_GET_COLOR)(object, nullptr, &bgra);
-    bgra = (bgra & 0x00FFFFFF) | (static_cast<uint32_t>(alpha * 255.0f) << 24);
-    reinterpret_cast<SetColor_t>(Offsets::FUN_FONTSTRING_SET_COLOR)(object, nullptr, &bgra);
+    Frame::Region::SetAlpha(object, static_cast<uint8_t>(alpha * 255.0f));
 }
 
 const Xml::TypeLoad::AutoSubscribe _textureSub{Xml::TypeLoad::TEXTURE, &OnRegionNode};
