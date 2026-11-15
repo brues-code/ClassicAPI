@@ -299,6 +299,7 @@ build instructions.
   - [`UPDATE_SHAPESHIFT_FORM` event](#update_shapeshift_form-event)
   - [`UNIT_SPELLCAST_*` events](#unit_spellcast_-events)
   - [`USER_WAYPOINT_UPDATED` event](#user_waypoint_updated-event)
+  - [`WEAPON_ENCHANT_CHANGED` event](#weapon_enchant_changed-event)
   - [`WEAPON_SLOT_CHANGED` event](#weapon_slot_changed-event)
 
 - [Expansion](#expansion)
@@ -7496,6 +7497,31 @@ f:RegisterEvent("USER_WAYPOINT_UPDATED")
 f:SetScript("OnEvent", function()
     local point = C_Map.GetUserWaypoint()
     -- redraw the pin, or hide it when point is nil
+end)
+```
+
+### `WEAPON_ENCHANT_CHANGED` event
+
+Fires (with no payload) when the temporary enchant on an equipped
+weapon changes: main hand (16), off hand (17), or ranged (18). Poisons,
+oils, sharpening stones, and shaman weapon imbues are temporary
+enchants.
+
+The event fires when an enchant is applied, renewed, or removed, and
+when it loses a charge. A renewal of the same enchant changes only the
+time left. For a renewal, this event is the only event that fires.
+
+The event collapses to one fire per frame. It does not fire when a
+different weapon goes into the slot. `WEAPON_SLOT_CHANGED` fires for
+that change.
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterEvent("WEAPON_ENCHANT_CHANGED")
+f:RegisterEvent("WEAPON_SLOT_CHANGED")
+f:SetScript("OnEvent", function()
+    local hasMain, mainMs = GetWeaponEnchantInfo()
+    -- restart the enchant timer from mainMs
 end)
 ```
 

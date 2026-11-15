@@ -13,18 +13,17 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "event/Custom.h"
 #include "item/CGItem.h"
 #include "item/Location.h"
+#include "net/PacketDispatch.h"
+#include "tick/WorldTick.h"
 
 #include <cstdint>
 
 namespace Item::WeaponEnchant {
 
 namespace {
-
-constexpr int INVSLOT_MAINHAND = 16;
-constexpr int INVSLOT_OFFHAND = 17;
-constexpr int INVSLOT_RANGED = 18;
 
 struct EnchantInfo {
     bool has;
@@ -104,9 +103,9 @@ EnchantInfo ReadEquippedTempEnchant(int paperdollSlot) {
 // `GetWeaponEnchantInfo` is specifically about the timed
 // temp-enchant data, which is what this function returns.
 int __fastcall Script_C_Item_GetWeaponEnchantInfo(void *L) {
-    const EnchantInfo main = ReadEquippedTempEnchant(INVSLOT_MAINHAND);
-    const EnchantInfo off = ReadEquippedTempEnchant(INVSLOT_OFFHAND);
-    const EnchantInfo ranged = ReadEquippedTempEnchant(INVSLOT_RANGED);
+    const EnchantInfo main = ReadEquippedTempEnchant(Offsets::INVSLOT_MAINHAND);
+    const EnchantInfo off = ReadEquippedTempEnchant(Offsets::INVSLOT_OFFHAND);
+    const EnchantInfo ranged = ReadEquippedTempEnchant(Offsets::INVSLOT_RANGED);
 
     Game::Lua::PushBool(L, main.has);
     Game::Lua::PushNumber(L, static_cast<double>(main.expirationMs));
@@ -252,6 +251,99 @@ void RegisterLuaFunctions() {
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
+
+// --- WEAPON_ENCHANT_CHANGED --------------------------------------------
+//
+// Retail's no-payload event for "re-read GetWeaponEnchantInfo": its buff
+// frame refreshes the weapon-enchant buttons on this event and
+// WEAPON_SLOT_CHANGED alone. 1.12 has two places a weapon enchant can
+// change, and neither fires an event for the change on its own:
+//
+//   1. SMSG_ITEM_ENCHANT_TIME_UPDATE sets the item's expiry clock and
+//      signals nothing. A renewal of the same enchant (a shaman recasting
+//      Rockbiter before the server saves the item) changes only this
+//      clock: the server writes no descriptor field when the id,
+//      duration and charges all match.
+//   2. The ITEM_FIELD_ENCHANTMENT watcher (FUN_ITEM_ENCHANTMENT_WATCHER)
+//      runs when the enchant is applied, removed, or loses a charge. The
+//      engine only raises UNIT_INVENTORY_CHANGED from it.
+//
+// Both only mark the event. It is fired on the next WorldTick, once per
+// frame. Blizzard's generated docs flag it `UniqueEvent`, so coalescing is
+// the event's own shape. It also orders the fire after the engine: packet
+// subscribers run before the engine's handler, so a fire from the
+// subscriber would show the handler the old expiry.
+
+const Game::Doc::Event kWeaponEnchantChangedDoc{
+    "Item",
+    "Fires when a temporary enchant on an equipped weapon is applied, renewed, "
+    "changes, or ends.",
+    {}};
+const Event::Custom::AutoReserve _rWeaponEnchantChanged{"WEAPON_ENCHANT_CHANGED",
+                                                       &kWeaponEnchantChangedDoc};
+bool g_enchantDirty = false;
+
+// Whether `itemGuid` is the item in the active player's main-hand,
+// off-hand or ranged slot — the three slots GetWeaponEnchantInfo reads.
+// `FindByGUID` takes no Lua stack and resolves only through the
+// non-throwing object lookup, so it is safe inside packet processing,
+// where both callers run.
+bool IsEquippedWeapon(uint64_t itemGuid) {
+    Item::Location::ByGUIDResult found;
+    if (!Item::Location::FindByGUID(itemGuid, false, &found) ||
+        found.place != Item::Location::PLACE_EQUIPPED)
+        return false;
+    return found.equipmentSlotIndex == Offsets::INVSLOT_MAINHAND ||
+           found.equipmentSlotIndex == Offsets::INVSLOT_OFFHAND ||
+           found.equipmentSlotIndex == Offsets::INVSLOT_RANGED;
+}
+
+void OnEnchantTimePacket(uint32_t opcode, Net::CDataStore *packet) {
+    if (opcode != Offsets::SMSG_ITEM_ENCHANT_TIME_UPDATE || packet == nullptr)
+        return;
+    const uint64_t itemGuid = Net::Read<uint64_t>(packet);
+    const uint32_t slot = Net::Read<uint32_t>(packet);
+    if (packet->m_read > packet->m_size ||
+        slot != Offsets::DESCRIPTOR_ENCHANTMENT_SLOT_TEMPORARY)
+        return;
+    if (IsEquippedWeapon(itemGuid))
+        g_enchantDirty = true;
+}
+
+const Net::PacketDispatch::AutoSubscribe _enchantTimeSub{&OnEnchantTimePacket};
+
+// Observer callback ABI (see FUN_TYPE_OBSERVER_REGISTER in Offsets.h).
+using EnchantWatcher_t = int(__fastcall *)(uint32_t fieldOffset, uint32_t size,
+                                           uint32_t guidLo, uint32_t guidHi,
+                                           const void *oldValue, void *userArg);
+EnchantWatcher_t g_origEnchantWatcher = nullptr;
+
+int __fastcall EnchantWatcher_h(uint32_t fieldOffset, uint32_t size, uint32_t guidLo,
+                                uint32_t guidHi, const void *oldValue, void *userArg) {
+    const int ret =
+        g_origEnchantWatcher(fieldOffset, size, guidLo, guidHi, oldValue, userArg);
+    if (IsEquippedWeapon((static_cast<uint64_t>(guidHi) << 32) | guidLo))
+        g_enchantDirty = true;
+    return ret;
+}
+
+const Game::HookAutoRegister _enchantWatcherHook{
+    Offsets::FUN_ITEM_ENCHANTMENT_WATCHER, reinterpret_cast<void *>(&EnchantWatcher_h),
+    reinterpret_cast<void **>(&g_origEnchantWatcher)};
+
+// The slot check runs before the flag clears, so a change made while the
+// name is still unclaimed is held, not lost.
+void OnWorldTick() {
+    if (!g_enchantDirty)
+        return;
+    const int slot = _rWeaponEnchantChanged.Slot();
+    if (slot < 0)
+        return;
+    g_enchantDirty = false;
+    Event::Custom::Fire(slot, "");
+}
+
+const Tick::WorldTick::AutoSubscribe _enchantTick{&OnWorldTick};
 
 } // namespace
 

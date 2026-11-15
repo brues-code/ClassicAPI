@@ -5993,6 +5993,20 @@ enum Offsets {
     // uses the descriptor duration field only as a nil gate — the field is
     // not a live countdown (4.3.4's `GetEnchantmentTimeLeft` is the same).
     FUN_ITEM_ENCHANTMENT_TIME_LEFT = 0x005D9D00,
+    // SMSG_ITEM_ENCHANT_TIME_UPDATE. Body (the engine's own reader
+    // HandleItemTimers `0x005E4F30`, verified by decompile): u64 item GUID
+    // (plain, not packed), u32 enchant slot, u32 seconds, u64 owner GUID.
+    // The handler only calls CGItem_C::SetEnchantmentExpiry (`0x005D9CC0`),
+    // or parks the time for an item not yet known; it signals nothing.
+    SMSG_ITEM_ENCHANT_TIME_UPDATE = 0x1EB,
+    // OnItemEnchantmentChanged — the type-wide ITEM_FIELD_ENCHANTMENT
+    // watcher RegisterItemWatchers (`0x005D9360`) installs via
+    // FUN_TYPE_OBSERVER_REGISTER on (bank 1, +0x40, 0x54): the whole
+    // 7-slot block, so it runs when any enchant slot of any item changes.
+    // Observer callback ABI, RET 0x10; resolves the item by GUID and calls
+    // RefreshItemEnchantmentVisual (`0x005D9A90`), returns 1. Verified by
+    // disassembly.
+    FUN_ITEM_ENCHANTMENT_WATCHER = 0x005D95A0,
     // ITEM_FIELD_DURABILITY (current) and ITEM_FIELD_MAXDURABILITY (max) live
     // adjacent to each other in the descriptor as plain dwords. Verified in
     // `Script_GetInventoryItemBroken` (`0x004C8590`): after resolving the
