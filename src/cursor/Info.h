@@ -63,4 +63,9 @@ bool Same(const Raw &a, const Raw &b);
 // Used to gate cursor pickups (don't clobber a held item).
 bool HasItem();
 
+// Empties the cursor the way the Lua ClearCursor() and the macro pickup do:
+// FUN_CURSOR_CLEAR(returnItem = 1, fireMoneyEvent = 1), which releases a
+// held item's lock, plays the drop sound and fires CURSOR_UPDATE.
+void Clear();
+
 } // namespace Cursor::Info

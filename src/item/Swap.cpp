@@ -35,7 +35,6 @@ using SwapFn_t = void(__thiscall *)(
     uint32_t dstLinearSlot,
     int flag);
 
-using CursorClear_t = void(__fastcall *)(int returnItem, int fireMoneyEvent);
 
 // Every swap goes through here, never straight to `FUN_INVENTORY_SWAP`.
 // That sender is the drag-drop path's: after sending it clears the cursor
@@ -54,7 +53,7 @@ void SendSwapPacket(void *player,
                     uint32_t dstLinearSlot,
                     int flag) {
     if (Cursor::Info::HasItem())
-        reinterpret_cast<CursorClear_t>(Offsets::FUN_CURSOR_CLEAR)(1, 1);
+        Cursor::Info::Clear();
     reinterpret_cast<SwapFn_t>(Offsets::FUN_INVENTORY_SWAP)(
         player, itemLo, itemHi, srcContainerLo, srcContainerHi, srcLinearSlot,
         dstContainerLo, dstContainerHi, dstLinearSlot, flag);

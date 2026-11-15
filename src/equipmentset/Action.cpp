@@ -61,6 +61,7 @@
 #include "Locations.h"
 #include "Offsets.h"
 #include "Pending.h"
+#include "cursor/Info.h"
 #include "event/Custom.h"
 
 #include <cstdio>
@@ -126,10 +127,6 @@ uint32_t SetIDAt(uint32_t slot0) {
     return slot0 < kSlots ? SetIDOf(Table()[slot0]) : 0;
 }
 
-void ClearCursor() {
-    reinterpret_cast<CursorClear_t>(Offsets::FUN_CURSOR_CLEAR)(1, 1);
-}
-
 void NotifySlot(uint32_t slot0, int sendToServer) {
     reinterpret_cast<Notify_t>(Offsets::FUN_ACTION_SLOT_CHANGED_NOTIFY)(slot0, sendToServer, 0);
 }
@@ -155,10 +152,10 @@ void PlaceSet(uint32_t slot0, uint32_t setID) {
         return;
     const uint32_t entry = kTag | setID;
     if (Data::FindByID(setID) == nullptr || Table()[slot0] == entry) {
-        ClearCursor();
+        ::Cursor::Info::Clear();
         return;
     }
-    ClearCursor();
+    ::Cursor::Info::Clear();
     reinterpret_cast<SlotFn_t>(Offsets::FUN_ACTION_PICKUP)(slot0);
     Table()[slot0] = entry;
     NotifySlot(slot0, 1);
@@ -313,7 +310,7 @@ uint32_t __fastcall WorldButton_h(void *event, void *edx) {
     const auto *e = static_cast<const uint8_t *>(event);
     if (CursorSetID() != 0 && *reinterpret_cast<const uint32_t *>(e + 0x08) == kEvtButtonDown &&
         *reinterpret_cast<const uint32_t *>(e + 0x14) == kButtonRight) {
-        ClearCursor();
+        ::Cursor::Info::Clear();
         return 1;
     }
     return g_origWorldButton(event, edx);
@@ -395,7 +392,7 @@ bool Pickup(uint32_t setID) {
     char path[260];
     if (!IconPath(*s, path, sizeof(path)))
         return false;
-    ClearCursor();
+    ::Cursor::Info::Clear();
     Game::Ref<uint32_t>(Offsets::VAR_CURSOR_TYPE) = Offsets::CURSOR_TYPE_EQUIPMENT_SET;
     g_cursorSetID = setID;
     reinterpret_cast<PlaySound_t>(Offsets::FUN_PLAY_SOUND_BY_NAME)(

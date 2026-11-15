@@ -309,6 +309,11 @@ bool HasItem() {
            ReadVar(Offsets::VAR_CURSOR_ITEM_GUID_HI) != 0;
 }
 
+void Clear() {
+    using CursorClear_t = void(__fastcall *)(int returnItem, int fireMoneyEvent);
+    reinterpret_cast<CursorClear_t>(Offsets::FUN_CURSOR_CLEAR)(1, 1);
+}
+
 State Current() {
     const uint32_t type = ReadVar(Offsets::VAR_CURSOR_TYPE);
     switch (type) {
