@@ -123,10 +123,6 @@ const Event::Custom::AutoReserve kInterruptible{"UNIT_SPELLCAST_INTERRUPTIBLE", 
 const Event::Custom::AutoReserve kNotInterruptible{"UNIT_SPELLCAST_NOT_INTERRUPTIBLE",
                                                    &kNotInterruptibleDoc};
 
-// Autoshot spams client-side failures while ramping — nampower filters it
-// out of its failure event, so do we.
-constexpr uint32_t kAutoShotSpellId = 75;
-
 // SpellCastTargets mask bit for a unit target (a packed GUID follows).
 constexpr uint16_t kTargetFlagUnit = 0x0002;
 
@@ -356,7 +352,7 @@ void __fastcall SpellFailed_h(uint32_t spellId, int result, int unk1, int unk2,
     const bool inFlight =
         Game::Read<uint32_t>(Offsets::VAR_CURRENT_CAST_SPELL) == spellId;
     g_origSpellFailed(spellId, result, unk1, unk2, failedByServer);
-    if (spellId == kAutoShotSpellId)
+    if (spellId == Offsets::AUTO_SHOT_SPELL_ID)
         return; // autoshot ramp spams client failures — filter (like nampower)
     const int sid = static_cast<int>(spellId);
     const int code = result & 0xFF;

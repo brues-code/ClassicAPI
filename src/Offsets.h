@@ -3313,7 +3313,8 @@ enum Offsets {
     // (`DAT_00B4B3E4`, toggled with PLAYER_CONTROL_LOST / _GAINED) — with
     // control lost only spells usable while fleeing / confused / charmed
     // pass; totems + reagents in bags (`FUN_006E4000`); equipped-item
-    // class / subclass, main-hand / off-hand and ammo (`FUN_006E40E0`);
+    // class / subclass, main-hand / off-hand and ammo
+    // (`FUN_SPELL_EQUIPPED_ITEM_CHECK`);
     // combo points for finishers (AttributesEx 0x500000); Stances /
     // StancesNot against the shapeshift byte (`FUN_00612480`, the
     // Battle-Stance-Whirlwind case); ONLY_STEALTHED (0x20000);
@@ -3328,6 +3329,22 @@ enum Offsets {
     // "knows"). Read by `Spell::Usable` (IsUsableSpell) and `Item::Usable`
     // (item on-use spells). Returns 0 cleanly pre-world (no player).
     FUN_SPELL_IS_USABLE = 0x006E3D60,
+    // The equipped-item leg of FUN_SPELL_IS_USABLE (disassembled):
+    //   `char __fastcall(void *caster /*ecx*/, const uint8_t *spellRecord
+    //                    /*edx*/, char checkAmmo, char report)`, ret 8.
+    // Returns 1 for a caster that is not the active player, a record with
+    // Targets & 0x10, EquippedItemClass < 0 or a zero
+    // EquippedItemSubClassMask. Otherwise an equipped, unbroken item must
+    // match the record's class and have its subclass bit in the mask
+    // (FUN_005F0C50 over slots 0..0x16, narrowed to the main or off hand by
+    // AttributesEx3 0x400 / 0x1000000, a disarmed hand dropped). With
+    // `checkAmmo` it then requires the carried PLAYER_AMMO_ID projectile;
+    // with `report` a failure posts the SPELL_FAILED reason. 0 = fails.
+    FUN_SPELL_EQUIPPED_ITEM_CHECK = 0x006E40E0,
+    // Auto Shot: the hunter ranged auto-repeat (Spell.dbc: AttributesEx2
+    // AUTOREPEAT, EquippedItemSubClassMask 0x5000C = bow, gun, thrown,
+    // crossbow; SpellRange row 114, 8-35 yd).
+    AUTO_SHOT_SPELL_ID = 75,
     // The player-control flag: nonzero while the player controls the
     // character, cleared with PLAYER_CONTROL_LOST (fear, charm, taxi).
     // FUN_SPELL_IS_USABLE reads it for spells; the action bar's per-slot

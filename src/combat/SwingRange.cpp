@@ -15,8 +15,8 @@
 // `PLAYER_SWING_RANGE_UPDATE(swingType, isInRange, checksRange)`.
 //
 // RANGED reuses the engine's generic range core: `Spell::Range::PlayerVsUnit`
-// wraps `FUN_SPELL_RANGE_CHECK` -> `FUN_006e3480`, feeding it Auto Shot/Shoot
-// as a pure geometry probe (it doesn't check spell knowledge). That core
+// wraps `FUN_SPELL_RANGE_CHECK` -> `FUN_006e3480`, feeding it the ranged
+// attack spell for the equipped weapon as a pure geometry probe (it doesn't check spell knowledge). That core
 // computes full 3D (X/Y/Z) distance, which matches the SERVER's generic
 // spell-range gate (`Spell::CheckRange`'s non-combat-range path ->
 // `WorldObject::GetCombatDistance`, also 3D) closely enough for ranged.
@@ -47,10 +47,9 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "dbc/Lookup.h"
 #include "event/Custom.h"
-#include "item/CGItem.h"
-#include "item/Location.h"
-#include "item/Record.h"
+#include "spell/Known.h"
 #include "spell/Range.h"
 #include "tick/WorldTick.h"
 #include "unit/Position.h"
@@ -70,36 +69,49 @@ bool g_enabled[3] = {false, false, false};
 RangeState g_lastState[3] = {RangeState::NoCheck, RangeState::NoCheck, RangeState::NoCheck};
 
 using UnitCanAttack_t = bool(__thiscall *)(void *attacker, void *target);
+using EquippedItemCheck_t = char(__fastcall *)(void *caster, const uint8_t *spellRecord,
+                                               char checkAmmo, char report);
 
-// Pure geometry probe for Ranged -- the two ranged-weapon families.
-constexpr int kAutoShotSpellId = 75;       // bow/gun/crossbow, RangeIndex 114 (8-35yd)
-constexpr int kShootSpellId = 5019;        // wand, RangeIndex 4 (0-30yd)
+// The ranged attacks a player can make, as pure geometry probes. Spell.dbc
+// (EquippedItemSubClassMask, SpellRange row):
+//   75   Auto Shot       bow, gun, thrown, crossbow   8-35 yd (hunters)
+//   5019 Shoot           wand                         0-30 yd
+//   2764 Throw           thrown                       8-30 yd
+//   2480 Shoot Bow       bow                          8-30 yd
+//   7918 Shoot Gun       gun                          8-30 yd
+//   7919 Shoot Crossbow  crossbow                     8-30 yd
+// Auto Shot comes first: it covers the weapons of Throw and the three
+// Shoots, and a hunter who knows it attacks with it at its longer range.
+// The other masks are disjoint.
+constexpr int kRangedAttackSpells[] = {Offsets::AUTO_SHOT_SPELL_ID, 5019, 2764,
+                                       2480, 7918, 7919};
 
-// While actively auto-shooting, the exact spell in flight is the truest
-// probe; otherwise pick by the equipped ranged weapon's ammo type (bows/
-// guns/crossbows consume ammo, wands don't -- the same distinction the
-// server itself uses to route SPELL_ATTR_EX2_AUTOREPEAT_FLAG casts).
-int RangedProbeSpellId() {
+// While auto-repeating, the spell in flight is the truest probe. Otherwise
+// the first spell the player knows whose weapon requirement the engine's
+// own equipped-item check passes, else the first one it passes (a range
+// for the weapon even before its attack is trained). 0 when none passes:
+// a broken ranged weapon cannot attack.
+int RangedProbeSpellId(void *player) {
     const auto active = Game::Read<uint32_t>(
         static_cast<uintptr_t>(Offsets::VAR_ACTIVE_AUTO_REPEAT_SPELL));
     if (active != 0)
         return static_cast<int>(active);
 
-    const uint8_t *cgItem = Item::Location::ResolveEquipmentSlot(18); // ranged slot
-    if (cgItem != nullptr) {
-        const uint8_t *instance = Item::InstanceBlock(cgItem);
-        if (instance != nullptr) {
-            const uint32_t itemID = *reinterpret_cast<const uint32_t *>(
-                instance + Offsets::OFF_INSTANCE_BLOCK_ITEM_ID);
-            const uint8_t *stats = Item::PeekRecord(itemID);
-            if (stats != nullptr) {
-                const uint32_t ammoType = *reinterpret_cast<const uint32_t *>(
-                    stats + Offsets::OFF_ITEMSTATS_AMMO_TYPE);
-                return ammoType != 0 ? kAutoShotSpellId : kShootSpellId;
-            }
-        }
+    auto equipped =
+        reinterpret_cast<EquippedItemCheck_t>(Offsets::FUN_SPELL_EQUIPPED_ITEM_CHECK);
+    int fallback = 0;
+    for (const int spellID : kRangedAttackSpells) {
+        const uint8_t *rec = DBC::Record(Offsets::VAR_SPELL_RECORDS,
+                                         Offsets::VAR_SPELL_RECORD_COUNT,
+                                         static_cast<uint32_t>(spellID));
+        if (rec == nullptr || !equipped(player, rec, 0, 0))
+            continue;
+        if (Spell::Known::IsKnown(static_cast<uint32_t>(spellID)))
+            return spellID;
+        if (fallback == 0)
+            fallback = spellID;
     }
-    return kAutoShotSpellId;
+    return fallback;
 }
 
 RangeState Evaluate(SwingType type) {
@@ -119,7 +131,10 @@ RangeState Evaluate(SwingType type) {
         return Combat::Swing::InMeleeRange(player, target) ? RangeState::InRange
                                                             : RangeState::OutOfRange;
 
-    const int result = Spell::Range::PlayerVsUnit(RangedProbeSpellId(), "target");
+    const int probe = RangedProbeSpellId(player);
+    if (probe == 0)
+        return RangeState::NoCheck;
+    const int result = Spell::Range::PlayerVsUnit(probe, "target");
     if (result < 0)
         return RangeState::NoCheck;
     return result != 0 ? RangeState::InRange : RangeState::OutOfRange;
