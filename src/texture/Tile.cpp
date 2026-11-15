@@ -72,8 +72,6 @@ using Emit_t = void(__fastcall *)(void *texture, void *edx, void *batch);
 constexpr float kWholeImage[8] = {0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f, 1.0f};
 
 // A length in rect units as script units.
-float ScriptUnits(float length) { return static_cast<float>(Game::InternalToPixel(length)); }
-
 // 4.3.4's rule on one axis (0 x, 1 y) of the four corner pairs.
 void Count(float *coords, int axis, float length, uint32_t texels) {
     if (texels == 0 || !(length > 0.0f))
@@ -97,15 +95,14 @@ void Apply(void *texture) {
     float rect[4]; // bottom, left, top, right
     if (!Frame::Layout::GetRect(texture, rect))
         return;
-    const float scale = Game::Read<float>(texture, Offsets::OFF_REGION_EFFECTIVE_SCALE);
-    if (!(scale > 0.0f))
+    if (!(Frame::Layout::EffectiveScale(texture) > 0.0f))
         return;
     float *coords = Game::Ptr<float>(texture, Offsets::OFF_SIMPLETEXTURE_TEXCOORDS);
     if (h)
-        Count(coords, 0, ScriptUnits(rect[3] - rect[1]) / scale,
+        Count(coords, 0, static_cast<float>(Frame::Layout::ToLocalUnits(texture, rect[3] - rect[1])),
               Game::Read<uint32_t>(device, Offsets::OFF_GXTEX_WIDTH));
     if (v)
-        Count(coords, 1, ScriptUnits(rect[2] - rect[0]) / scale,
+        Count(coords, 1, static_cast<float>(Frame::Layout::ToLocalUnits(texture, rect[2] - rect[0])),
               Game::Read<uint32_t>(device, Offsets::OFF_GXTEX_HEIGHT));
 }
 

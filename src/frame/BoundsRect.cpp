@@ -80,12 +80,11 @@ int __fastcall Script_GetBoundsRect(void *L) {
     AddBounds(frame, rect);
     if (!(rect.top > rect.bottom && rect.right > rect.left))
         return 0;
-    // Script GetLeft's conversion: pixels, then out of the frame's scale.
-    const float scale = Game::Read<float>(frame, Offsets::OFF_REGION_EFFECTIVE_SCALE);
-    Game::Lua::PushNumber(L, Game::InternalToPixel(rect.left) / scale);
-    Game::Lua::PushNumber(L, Game::InternalToPixel(rect.bottom) / scale);
-    Game::Lua::PushNumber(L, Game::InternalToPixel(rect.right - rect.left) / scale);
-    Game::Lua::PushNumber(L, Game::InternalToPixel(rect.top - rect.bottom) / scale);
+    // Script GetLeft's conversion.
+    Game::Lua::PushNumber(L, Frame::Layout::ToLocalUnits(frame, rect.left));
+    Game::Lua::PushNumber(L, Frame::Layout::ToLocalUnits(frame, rect.bottom));
+    Game::Lua::PushNumber(L, Frame::Layout::ToLocalUnits(frame, rect.right - rect.left));
+    Game::Lua::PushNumber(L, Frame::Layout::ToLocalUnits(frame, rect.top - rect.bottom));
     return 4;
 }
 

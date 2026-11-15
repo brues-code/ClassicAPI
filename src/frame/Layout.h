@@ -17,6 +17,7 @@
 // OFF_REGION_ANCHOR, which is OFF_FRAME_LAYOUT_SUBOBJECT for a frame) and the
 // engine calls on it. Each call here takes the region or frame itself.
 
+#include "Game.h"
 #include "Offsets.h"
 
 #include <cstdint>
@@ -77,6 +78,29 @@ inline bool GetResolvedRect(void *object, float (&rect)[4]) {
     if (IsResizePending(object))
         Resize(object, true);
     return GetRect(object, rect);
+}
+
+// The object's effective scale (OFF_REGION_EFFECTIVE_SCALE): its own scale
+// times its ancestors'. Not positive only before the object is laid out.
+inline float EffectiveScale(const void *object) {
+    return *reinterpret_cast<const float *>(static_cast<const uint8_t *>(object) +
+                                            Offsets::OFF_REGION_EFFECTIVE_SCALE);
+}
+
+// A length in layout units in the object's own units, what GetLeft and
+// GetWidth push: out of the effective scale, then to pixels, in Script
+// GetLeft's order (0x007A1A4E..0x007A1A6B). The engine divides unguarded; a
+// scale that is not positive counts as 1 here.
+inline double ToLocalUnits(const void *object, float length) {
+    const float scale = EffectiveScale(object);
+    return Game::InternalToPixel(scale > 0.0f ? length / scale : length);
+}
+
+// The inverse: a length in the object's own units in layout units, the
+// conversion Script SetPoint makes for its offsets after the effective scale.
+inline float FromLocalUnits(const void *object, double length) {
+    const float scale = EffectiveScale(object);
+    return Game::PixelToInternal(static_cast<float>(length) * (scale > 0.0f ? scale : 1.0f));
 }
 
 // The anchor node in `point`'s slot (FRAMEPOINT_*), or nullptr when the slot

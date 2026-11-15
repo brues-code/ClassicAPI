@@ -33,6 +33,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "frame/Layout.h"
 
 namespace Frame::SizeChanged {
 
@@ -42,11 +43,8 @@ using OnSizeChanged_t = void(__thiscall *)(void *frame, float w, float h);
 OnSizeChanged_t g_orig = nullptr;
 
 void __fastcall OnSizeChanged_h(void *frame, void * /*edx*/, float w, float h) {
-    double scale = Game::Read<float>(frame, Offsets::OFF_REGION_EFFECTIVE_SCALE);
-    if (!(scale > 0.0))
-        scale = 1.0;
-    g_orig(frame, static_cast<float>(Game::InternalToPixel(w) / scale),
-           static_cast<float>(Game::InternalToPixel(h) / scale));
+    g_orig(frame, static_cast<float>(Frame::Layout::ToLocalUnits(frame, w)),
+           static_cast<float>(Frame::Layout::ToLocalUnits(frame, h)));
 }
 
 const Game::HookAutoRegister _hook{Offsets::FUN_FRAME_ON_SIZE_CHANGED,

@@ -127,9 +127,6 @@ void WriteCorners(void *region, float *base, float left, float right, float top,
     const float cy = bottom + xf.cyN * (top - bottom);
     const float c = std::cos(xf.angle);
     const float s = std::sin(xf.angle);
-    float scale = Game::Read<float>(region, Offsets::OFF_REGION_EFFECTIVE_SCALE);
-    if (!(scale > 0.0f))
-        scale = 1.0f;
     const float xs[4] = {left, left, right, right};
     const float ys[4] = {bottom, top, bottom, top};
     // Compute each corner's TARGET rect-space position first.
@@ -137,8 +134,8 @@ void WriteCorners(void *region, float *base, float left, float right, float top,
     for (int i = 0; i < 4; ++i) {
         const float dx = xs[i] - cx;
         const float dy = ys[i] - cy;
-        tx[i] = cx + dx * c + dy * s + Game::PixelToInternal(xf.offX[i] * scale);
-        ty[i] = cy - dx * s + dy * c - Game::PixelToInternal(xf.offY[i] * scale);
+        tx[i] = cx + dx * c + dy * s + Frame::Layout::FromLocalUnits(region, xf.offX[i]);
+        ty[i] = cy - dx * s + dy * c - Frame::Layout::FromLocalUnits(region, xf.offY[i]);
     }
     // The draw consumes this array with y INVERTED about the rect's horizontal
     // midline (a vertex stored at rect-space y renders at (top+bottom)-y), and

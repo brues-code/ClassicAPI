@@ -59,10 +59,7 @@ CalcRect_t g_origCalcRect = nullptr;
 
 // A length in the frame's own units (what GetLeft returns) in layout units:
 // the inverse of Script GetLeft's conversion.
-float ToLayoutUnits(double length, void *frame) {
-    const float effScale = Game::Read<float>(frame, Offsets::OFF_REGION_EFFECTIVE_SCALE);
-    return Game::PixelToInternal(static_cast<float>(length) * effScale);
-}
+float ToLayoutUnits(double length, void *frame) { return Frame::Layout::FromLocalUnits(frame, length); }
 
 int __fastcall CalcRect_h(void *layout, void * /*edx*/, float *rect) {
     const uint32_t flags = Game::Read<uint32_t>(layout, Offsets::OFF_LAYOUT_FLAGS);

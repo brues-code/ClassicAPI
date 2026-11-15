@@ -335,8 +335,7 @@ bool ViewRect(void *frame, const float rect[4], float view[4]) {
     if (in[0] == 0.0f && in[1] == 0.0f && in[2] == 0.0f && in[3] == 0.0f && move[0] == 0.0f &&
         move[1] == 0.0f)
         return false;
-    const float scale = Game::Read<float>(frame, Offsets::OFF_REGION_EFFECTIVE_SCALE);
-    auto internal = [scale](float length) { return Game::PixelToInternal(length * scale); };
+    auto internal = [frame](float length) { return Frame::Layout::FromLocalUnits(frame, length); };
     view[0] = rect[0] + internal(in[3]) + internal(move[1]);
     view[1] = rect[1] + internal(in[0]) + internal(move[0]);
     view[2] = rect[2] - internal(in[2]) + internal(move[1]);

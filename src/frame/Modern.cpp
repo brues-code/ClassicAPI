@@ -142,9 +142,11 @@ void PushUnscaledExtent(void *L, bool ignoreRect, int slot, bool vertical) {
     float extent = ExplicitExtent(self, slot);
     if (extent == 0.0f && !ignoreRect) {
         float rect[4] = {0.0f, 0.0f, 0.0f, 0.0f}; // {bottom, left, top, right}
-        if (Frame::Layout::GetResolvedRect(self, rect))
-            extent = (vertical ? rect[2] - rect[0] : rect[3] - rect[1]) /
-                     Game::Read<float>(self, Offsets::OFF_REGION_EFFECTIVE_SCALE);
+        if (Frame::Layout::GetResolvedRect(self, rect)) {
+            Game::Lua::PushNumber(
+                L, Frame::Layout::ToLocalUnits(self, vertical ? rect[2] - rect[0] : rect[3] - rect[1]));
+            return;
+        }
     }
     Game::Lua::PushNumber(L, Game::InternalToPixel(extent));
 }
