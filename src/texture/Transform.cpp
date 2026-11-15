@@ -46,12 +46,9 @@
 // those slots via VertexSlot(); the UPPER_LEFT_VERTEX / … globals are published
 // so addons pass names, not magic numbers.
 //
-// Known limitation (accepted): the table keys on the raw region pointer. `/reload`
-// and world→glue clear it (PrepareForReload), but a texture freed mid-session
-// whose pointer the pool immediately reuses could carry a stale transform until
-// its next corner store. Transforms are an explicit addon opt-in on long-lived
-// textures, so this is unlikely; the clean fix (evict on the CSimpleTexture
-// destructor) is a later hardening.
+// The tables key on the raw region pointer. A region's entries go when it is
+// destroyed (Frame::RegionDestruction), since the pool can hand the address to
+// a new region, and `/reload` and world→glue clear them all (PrepareForReload).
 
 #include "Game.h"
 #include "Offsets.h"
@@ -59,6 +56,7 @@
 
 #include "animation/Region.h"
 #include "frame/Layout.h"
+#include "frame/RegionDestruction.h"
 #include "texture/CornerStore.h"
 #include "xml/FrameLoad.h"
 #include "xml/TypeLoad.h"
@@ -812,6 +810,13 @@ void RegisterLuaFunctions() {
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 const Texture::CornerStore::AutoSubscribe _cornerSub{&OnCornersStored};
+
+void OnRegionDestroyed(void *region) {
+    g_xf.erase(region);
+    g_fsBaseline.erase(region);
+}
+
+const Frame::RegionDestruction::AutoSubscribe _destructionSub{&OnRegionDestroyed};
 
 } // namespace
 

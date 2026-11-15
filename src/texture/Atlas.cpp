@@ -29,6 +29,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "debug/Log.h"
+#include "frame/RegionDestruction.h"
 #include "texture/Wrap.h"
 #include "xml/FrameLoad.h"
 #include "xml/TypeLoad.h"
@@ -662,6 +663,11 @@ void RegisterLuaFunctions() {
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 const Game::ReloadAutoRegister _reloadReg{&PrepareForReload};
+
+// The pool can hand a destroyed region's address to a new one.
+void OnRegionDestroyed(void *region) { g_applied.erase(region); }
+
+const Frame::RegionDestruction::AutoSubscribe _destructionSub{&OnRegionDestroyed};
 
 // The XML `<Texture atlas="name" useAtlasSize="true">`: texture:SetAtlas(name,
 // useAtlasSize), run as its own Lua call so the loader's stack is left alone.
