@@ -109,15 +109,13 @@ void OnPacket(uint32_t opcode, Net::CDataStore *packet) {
 
 const Net::PacketDispatch::AutoSubscribe _sub{&OnPacket};
 
-bool OnSignal(int eventID) {
-    if (eventID == Offsets::EVENT_PLAYER_LEAVING_WORLD) {
-        for (Timer &t : g_timers)
-            t = Timer{};
-    }
-    return false;
+void OnLeavingWorld() {
+    for (Timer &t : g_timers)
+        t = Timer{};
 }
 
-const Event::SignalHook::AutoSubscribe _leavingWorld{&OnSignal};
+const Event::SignalHook::AutoObserve _leavingWorld{Offsets::EVENT_PLAYER_LEAVING_WORLD,
+                                                   &OnLeavingWorld};
 
 // Returns 3.3.5's six values plus retail's seventh (spellID). An empty slot
 // returns "UNKNOWN" and zeros, which retail's MirrorTimer.lua tests for on

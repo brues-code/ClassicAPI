@@ -303,13 +303,10 @@ void Reconcile(bool enterWorld) {
     g_reconciling = false;
 }
 
-bool OnSignal(int eventID) {
-    if (eventID == Offsets::EVENT_SPELL_UPDATE_USABLE)
-        Reconcile(false);
-    return false;
-}
+void OnSpellUpdateUsable() { Reconcile(false); }
 
-const Event::SignalHook::AutoSubscribe _usable{&OnSignal};
+const Event::SignalHook::AutoObserve _usable{Offsets::EVENT_SPELL_UPDATE_USABLE,
+                                             &OnSpellUpdateUsable};
 
 void OnAuraChange(const Aura::Source::Change &c) {
     if (c.type != Aura::Source::ChangeType::Added && c.type != Aura::Source::ChangeType::Removed)

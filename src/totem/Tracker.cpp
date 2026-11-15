@@ -152,16 +152,9 @@ void ScanTools() {
 
 // Re-resolve tool items whenever the player's spells (re)load.
 // SPELLS_CHANGED is a no-arg event through the same dispatcher
-// Event::SignalHook owns, so we observe it there (never suppress — return
-// false). By the time it fires the spellbook is populated, so the scan
-// sees the totems.
-bool OnSignal(int eventID) {
-    if (eventID == Offsets::EVENT_SPELLS_CHANGED)
-        ScanTools();
-    return false;
-}
-
-const Event::SignalHook::AutoSubscribe _spellsChanged{&OnSignal};
+// Event::SignalHook owns, so we observe it there. By the time it fires the
+// spellbook is populated, so the scan sees the totems.
+const Event::SignalHook::AutoObserve _spellsChanged{Offsets::EVENT_SPELLS_CHANGED, &ScanTools};
 
 uint32_t SpellDurationMs(const uint8_t *rec) {
     const int ms = Spell::Lookup::DurationMs(rec, /*applyMods*/ true);

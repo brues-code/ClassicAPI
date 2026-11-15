@@ -205,14 +205,13 @@ __declspec(naked) void UnflaggedExitThunk() {
     }
 }
 
-bool OnSignal(int eventID) {
-    if (eventID == Offsets::EVENT_FRIENDLIST_UPDATE)
-        reinterpret_cast<void(__cdecl *)()>(
-            static_cast<uintptr_t>(Offsets::FUN_PLAYER_NAME_MARK_ALL_COLOR_DIRTY))();
-    return false;
+void OnFriendListUpdate() {
+    reinterpret_cast<void(__cdecl *)()>(
+        static_cast<uintptr_t>(Offsets::FUN_PLAYER_NAME_MARK_ALL_COLOR_DIRTY))();
 }
 
-const Event::SignalHook::AutoSubscribe _friendListUpdate{&OnSignal};
+const Event::SignalHook::AutoObserve _friendListUpdate{Offsets::EVENT_FRIENDLIST_UPDATE,
+                                                       &OnFriendListUpdate};
 
 // --- Lua ----------------------------------------------------------------------
 

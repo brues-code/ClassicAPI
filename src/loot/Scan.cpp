@@ -392,14 +392,10 @@ const Game::HookAutoRegister _hookController{
 
 const Event::SignalHook::AutoSubscribe _lootIntercept{&SuppressLootEvents};
 
-// Observes only: the event still fires.
-bool ForgetEmptyCorpsesOnQuestChange(int eventID) {
-    if (eventID == Offsets::EVENT_QUEST_LOG_UPDATE)
-        s_emptyCorpses.clear();
-    return false;
-}
+void ForgetEmptyCorpses() { s_emptyCorpses.clear(); }
 
-const Event::SignalHook::AutoSubscribe _questIntercept{&ForgetEmptyCorpsesOnQuestChange};
+const Event::SignalHook::AutoObserve _questObserve{Offsets::EVENT_QUEST_LOG_UPDATE,
+                                                   &ForgetEmptyCorpses};
 
 // === Tick (memory upkeep, refusals and timeouts) ===
 

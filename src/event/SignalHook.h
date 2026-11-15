@@ -44,4 +44,15 @@ struct AutoSubscribe {
     AutoSubscribe *next;
 };
 
+// Runs `fn` each time the engine signals `eventID` through this dispatcher,
+// without the power to suppress it — for a module that only needs to know the
+// event happened (SPELLS_CHANGED, PLAYER_LEAVING_WORLD, …). Observers run
+// before the interceptors, so a suppressed event is still observed.
+struct AutoObserve {
+    AutoObserve(int eventID, void (*fn)());
+    int eventID;
+    void (*fn)();
+    AutoObserve *next;
+};
+
 } // namespace Event::SignalHook
