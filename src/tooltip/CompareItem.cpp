@@ -580,7 +580,7 @@ int __fastcall Script_SetHyperlinkCompareItem(void *L) {
                 if (live != nullptr)
                     comparedSuffix = ItemSuffix(live);
                 else if (cmpID == linkID)
-                    comparedSuffix = Item::StatAccum::ParseRandomSuffixFromLink(L, 2);
+                    comparedSuffix = Item::Arg::Resolve(L, 2).suffix;
             }
         }
     }

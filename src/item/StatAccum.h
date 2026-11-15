@@ -74,9 +74,4 @@ void ApplyEnchant(Accum *acc, uint32_t enchantID, long sign);
 // Weapon DPS = average damage / swing time, or 0 for non-weapons.
 double ComputeDPS(const uint8_t *record);
 
-// Parse the random-property/suffix ID from the item link at 1-based Lua
-// stack `idx` (`item:id:enchant:SUFFIX:unique`). 0 for a non-string
-// arg, a bare `item:N`, or no `item:` payload.
-int ParseRandomSuffixFromLink(void *L, int idx);
-
 } // namespace Item::StatAccum

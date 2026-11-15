@@ -78,19 +78,19 @@ void PushAccumTable(void *L, int tableIdx, const Accum *acc, double dps) {
 // nothing if the item isn't cached yet (the engine's own uncached
 // return) — warm it via GetItemInfo and retry.
 int __fastcall Script_GetItemStats(void *L) {
-    const int itemID = Item::Arg::ResolveItemID(L, 1);
+    const Item::Arg::Resolved item = Item::Arg::Resolve(L, 1);
+    const int itemID = item.itemID;
     if (itemID <= 0 || !IsStatTableArg(L, 2)) {
         Game::Lua::Error(L, "Usage: C_Item.GetItemStats(itemLink[, statTable])");
         return 0;
     }
-    const int suffixID = StatAccum::ParseRandomSuffixFromLink(L, 1);
     const uint8_t *record = Item::PeekRecord(static_cast<uint32_t>(itemID));
     if (record == nullptr)
         return 0;
     Accum acc[StatAccum::kCount];
     StatAccum::Init(acc);
     StatAccum::AccumulateRecord(acc, record, +1);
-    StatAccum::ApplyRandomSuffix(acc, suffixID, +1);
+    StatAccum::ApplyRandomSuffix(acc, item.suffix, +1);
     PushAccumTable(L, 2, acc, StatAccum::ComputeDPS(record));
     return 1;
 }
@@ -104,15 +104,17 @@ int __fastcall Script_GetItemStats(void *L) {
 // caching caveat as `C_Item.GetItemStats`; returns nothing if either item
 // is uncached.
 int __fastcall Script_GetItemStatDelta(void *L) {
-    const int id1 = Item::Arg::ResolveItemID(L, 1);
-    const int id2 = Item::Arg::ResolveItemID(L, 2);
+    const Item::Arg::Resolved item1 = Item::Arg::Resolve(L, 1);
+    const Item::Arg::Resolved item2 = Item::Arg::Resolve(L, 2);
+    const int id1 = item1.itemID;
+    const int id2 = item2.itemID;
     if (id1 <= 0 || id2 <= 0 || !IsStatTableArg(L, 3)) {
         Game::Lua::Error(
             L, "Usage: C_Item.GetItemStatDelta(itemLink1, itemLink2[, statTable])");
         return 0;
     }
-    const int suffix1 = StatAccum::ParseRandomSuffixFromLink(L, 1);
-    const int suffix2 = StatAccum::ParseRandomSuffixFromLink(L, 2);
+    const int suffix1 = item1.suffix;
+    const int suffix2 = item2.suffix;
     const uint8_t *r1 = Item::PeekRecord(static_cast<uint32_t>(id1));
     const uint8_t *r2 = Item::PeekRecord(static_cast<uint32_t>(id2));
     if (r1 == nullptr || r2 == nullptr)

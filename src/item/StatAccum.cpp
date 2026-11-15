@@ -57,7 +57,6 @@
 #include "dbc/Lookup.h"
 #include "item/Record.h"
 
-#include <cstdlib>
 #include <cstring>
 
 namespace Item::StatAccum {
@@ -428,33 +427,6 @@ void AccumulateRecord(Accum *acc, const uint8_t *record, long sign) {
     AddByKey(acc, "ITEM_MOD_BLOCK_VALUE", sign * U32(record, Offsets::OFF_ITEMSTATS_BLOCK));
 
     AddEquipSpellStats(acc, record, sign);
-}
-
-int ParseRandomSuffixFromLink(void *L, int idx) {
-    if (Game::Lua::Type(L, idx) != Game::Lua::TYPE_STRING)
-        return 0;
-    const char *s = Game::Lua::ToString(L, idx);
-    if (s == nullptr)
-        return 0;
-    const char *m = std::strstr(s, "item:");
-    if (m == nullptr)
-        return 0;
-    m += 5; // start of field 0 (itemID)
-    // Advance to the start of field 2 (past two ':' separators), stopping
-    // at the end of the hyperlink payload if the link is too short.
-    int colons = 0;
-    while (*m != '\0' && *m != '|') {
-        if (*m == ':') {
-            if (++colons == 2) {
-                ++m;
-                break;
-            }
-        }
-        ++m;
-    }
-    if (colons < 2)
-        return 0;
-    return std::atoi(m);
 }
 
 } // namespace Item::StatAccum
