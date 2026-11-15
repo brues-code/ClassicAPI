@@ -16,6 +16,7 @@
 #include "../guid/Guid.h"
 #include "../object/Resolve.h"
 #include "Request.h"
+#include "unit/Identity.h"
 
 #include <cstdint>
 
@@ -56,15 +57,10 @@ int __fastcall Script_GetNearbyLootableUnits(void *L) {
     Game::Lua::SetTop(L, 0);
     Game::Lua::NewTable(L);
 
-    // The token resolve below reads the object registry, NULL during glue /
-    // character-select; bail with an empty table rather than crashing.
-    if (!Object::RegistryReady())
-        return 1;
-
-    // Resolve the local player once — the canonical CGPlayer_C the
-    // engine's own interact-range checks use, distinct from the
-    // `VAR_LOCAL_PLAYER_PTR` global. Bail if unavailable.
-    void *player = Game::ResolveUnitToken("player");
+    // The local player — the canonical CGPlayer_C the engine's own
+    // interact-range checks use, distinct from the `VAR_LOCAL_PLAYER_PTR`
+    // global. Null out of world, which returns the empty table.
+    void *player = const_cast<uint8_t *>(Unit::Identity::PlayerObject());
     if (player == nullptr)
         return 1;
 

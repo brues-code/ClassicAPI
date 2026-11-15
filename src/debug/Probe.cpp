@@ -55,6 +55,7 @@
 #include "Game.h"
 #include "Log.h"
 #include "Offsets.h"
+#include "unit/Identity.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -64,24 +65,12 @@ namespace Debug::Probe {
 
 namespace {
 
-const uint8_t *ResolvePlayer() {
-    return static_cast<const uint8_t *>(Game::ResolveUnitToken("player"));
-}
-
-const uint8_t *ResolvePlayerDescriptor() {
-    auto *player = ResolvePlayer();
-    if (player == nullptr)
-        return nullptr;
-    return *reinterpret_cast<const uint8_t *const *>(
-        player + Offsets::OFF_UNIT_DESCRIPTOR);
-}
-
 // [unit + OFF_CGPLAYER_INFO] — the +0xE68 sub-struct documented in
 // Offsets.h. Holds PLAYER_FLAGS (+0x08) and visible-items (+0x118).
 // Most other +0xE68 fields are undocumented and are the reason this
 // region is a high-yield target for change-detection scans.
 const uint8_t *ResolvePlayerExtra() {
-    auto *player = ResolvePlayer();
+    auto *player = Unit::Identity::PlayerObject();
     if (player == nullptr)
         return nullptr;
     return *reinterpret_cast<const uint8_t *const *>(
@@ -152,14 +141,14 @@ void ReadStartLen(void *L, int argBase, int *outStart, int *outLen,
 int __fastcall Script_DescDump(void *L) {
     int start, len;
     ReadStartLen(L, 1, &start, &len, 0x200);
-    DumpToLua(L, ResolvePlayerDescriptor(), start, len);
+    DumpToLua(L, Unit::Identity::PlayerDescriptor(), start, len);
     return 1;
 }
 
 int __fastcall Script_PlayerDump(void *L) {
     int start, len;
     ReadStartLen(L, 1, &start, &len, 0x200);
-    DumpToLua(L, ResolvePlayer(), start, len);
+    DumpToLua(L, Unit::Identity::PlayerObject(), start, len);
     return 1;
 }
 
@@ -171,7 +160,7 @@ int __fastcall Script_DescLog(void *L) {
     const char *label = Game::Lua::ToString(L, 1);
     int start, len;
     ReadStartLen(L, 2, &start, &len, 0x200);
-    DumpToFile(label, ResolvePlayerDescriptor(), start, len);
+    DumpToFile(label, Unit::Identity::PlayerDescriptor(), start, len);
     return 0;
 }
 
@@ -183,7 +172,7 @@ int __fastcall Script_PlayerLog(void *L) {
     const char *label = Game::Lua::ToString(L, 1);
     int start, len;
     ReadStartLen(L, 2, &start, &len, 0x200);
-    DumpToFile(label, ResolvePlayer(), start, len);
+    DumpToFile(label, Unit::Identity::PlayerObject(), start, len);
     return 0;
 }
 
@@ -263,8 +252,8 @@ int FormatDiff(const Snap &s, const uint8_t *base, const char *label,
 }
 
 int __fastcall Script_SnapAll(void *) {
-    TakeSnap(descSnap, ResolvePlayerDescriptor(), 0, 0x400);
-    TakeSnap(playerSnap, ResolvePlayer(), 0, 0x2000);
+    TakeSnap(descSnap, Unit::Identity::PlayerDescriptor(), 0, 0x400);
+    TakeSnap(playerSnap, Unit::Identity::PlayerObject(), 0, 0x2000);
     TakeSnap(extraSnap, ResolvePlayerExtra(), 0, 0x2000);
     TakeSnap(cameraSnap, ResolveCamera(), 0, 0x800);
     return 0;
@@ -273,9 +262,9 @@ int __fastcall Script_SnapAll(void *) {
 int __fastcall Script_DiffAll(void *L) {
     static char buf[4500];
     int pos = 0;
-    pos += FormatDiff(descSnap, ResolvePlayerDescriptor(), "DESC",
+    pos += FormatDiff(descSnap, Unit::Identity::PlayerDescriptor(), "DESC",
                       buf + pos, sizeof(buf) - pos);
-    pos += FormatDiff(playerSnap, ResolvePlayer(), "PLAYER",
+    pos += FormatDiff(playerSnap, Unit::Identity::PlayerObject(), "PLAYER",
                       buf + pos, sizeof(buf) - pos);
     pos += FormatDiff(extraSnap, ResolvePlayerExtra(), "EXTRA",
                       buf + pos, sizeof(buf) - pos);
@@ -297,12 +286,12 @@ int __fastcall Script_DiffAllLog(void *L) {
     const char *label = Game::Lua::ToString(L, 1);
     static char buf[16384];
     int pos = 0;
-    pos += FormatDiff(descSnap, ResolvePlayerDescriptor(), "DESC",
+    pos += FormatDiff(descSnap, Unit::Identity::PlayerDescriptor(), "DESC",
                       buf + pos, sizeof(buf) - pos);
     if (pos < static_cast<int>(sizeof(buf)) - 2) {
         buf[pos++] = '\n';
     }
-    pos += FormatDiff(playerSnap, ResolvePlayer(), "PLAYER",
+    pos += FormatDiff(playerSnap, Unit::Identity::PlayerObject(), "PLAYER",
                       buf + pos, sizeof(buf) - pos);
     if (pos < static_cast<int>(sizeof(buf)) - 2) {
         buf[pos++] = '\n';

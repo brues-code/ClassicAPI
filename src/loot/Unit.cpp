@@ -16,6 +16,7 @@
 #include "../guid/Guid.h"
 #include "../object/Resolve.h"
 #include "Request.h"
+#include "unit/Identity.h"
 
 #include <cstdint>
 
@@ -55,19 +56,13 @@ int __fastcall Script_LootUnit(void *L) {
         return 0;
     }
 
-    // Object manager NULL pre-login; bail silently rather than
-    // crashing inside the resolver.
-    if (!Object::RegistryReady())
-        return 0;
-
     void *target = Object::ByGuid(Offsets::TYPEMASK_UNIT, guid, nullptr, 0);
     if (target == nullptr)
         return 0;
 
-    // `ResolveUnitToken("player")` gives the canonical CGPlayer_C the
-    // engine uses for `__thiscall` calls — distinct from the global
+    // The canonical CGPlayer_C the engine uses for `__thiscall` calls — distinct from the global
     // at `VAR_LOCAL_PLAYER_PTR` (see the comment on that offset).
-    void *player = Game::ResolveUnitToken("player");
+    void *player = const_cast<uint8_t *>(::Unit::Identity::PlayerObject());
     if (player == nullptr)
         return 0;
 

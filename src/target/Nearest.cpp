@@ -230,8 +230,6 @@ void DirectionProc(DirectionData *data, uint64_t guid) {
 void TargetDirection(float facing, float angle, int mode) {
     if (g_directional != 0)
         return;
-    if (!Object::RegistryReady())
-        return;
     void *unit = const_cast<uint8_t *>(Unit::Identity::PlayerObject());
     if (unit == nullptr)
         return;

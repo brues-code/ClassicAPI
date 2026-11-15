@@ -14,6 +14,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "dbc/Lookup.h"
+#include "unit/Identity.h"
 
 #include <cstdint>
 
@@ -61,7 +62,7 @@ void PushFlag(void *L, bool value) {
 // `[player + 0xE68]`. Returns nullptr if "player" isn't resolvable
 // or the sub-struct is uninitialized (pre-login / glue).
 const uint8_t *PlayerInfo() {
-    auto *player = static_cast<const uint8_t *>(Game::ResolveUnitToken("player"));
+    auto *player = Unit::Identity::PlayerObject();
     if (player == nullptr)
         return nullptr;
     return *reinterpret_cast<const uint8_t *const *>(

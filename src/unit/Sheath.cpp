@@ -13,6 +13,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "unit/Identity.h"
 
 #include <cstdint>
 
@@ -37,7 +38,7 @@ namespace Unit::Sheath {
 // null for `"player"` out of world rather than raising, so this is safe from
 // any context.
 static int __fastcall Script_GetSheathState(void *L) {
-    auto *player = static_cast<const uint8_t *>(Game::ResolveUnitToken("player"));
+    auto *player = Unit::Identity::PlayerObject();
 
     int state = 0;
     if (player != nullptr)

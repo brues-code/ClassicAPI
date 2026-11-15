@@ -14,6 +14,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "dbc/Lookup.h"
+#include "unit/Identity.h"
 
 #include <cstdint>
 
@@ -30,11 +31,7 @@ using SkillLineToSlot_t = int(__thiscall *)(void *player, uint32_t skillLineID);
 void ReadPlayerClassRace(uint8_t *outClassByte, uint8_t *outRaceByte) {
     *outClassByte = 0;
     *outRaceByte = 0;
-    auto *player = static_cast<const uint8_t *>(Game::ResolveUnitToken("player"));
-    if (player == nullptr)
-        return;
-    auto *desc = Game::Read<const uint8_t *>(
-        player, Offsets::OFF_UNIT_DESCRIPTOR);
+    const uint8_t *desc = Unit::Identity::PlayerDescriptor();
     if (desc == nullptr)
         return;
     *outClassByte = *(desc + Offsets::OFF_UNIT_DESCRIPTOR_CLASS_BYTE);
@@ -230,7 +227,7 @@ int __fastcall Script_GetSkillLineRank(void *L) {
         return 1;
     }
 
-    auto *player = static_cast<uint8_t *>(Game::ResolveUnitToken("player"));
+    auto *player = const_cast<uint8_t *>(Unit::Identity::PlayerObject());
     if (player == nullptr) {
         Game::Lua::PushNil(L);
         return 1;

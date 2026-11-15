@@ -21,6 +21,7 @@
 #include "item/Swap.h"
 #include "item/TypeInfo.h"
 #include "spell/Known.h"
+#include "unit/Identity.h"
 
 #include <cstdint>
 
@@ -259,7 +260,7 @@ int __fastcall Script_C_Item_EquipItemByName(void *L) {
         return 0;
 
     using AutoEquipCursor_t = void (__thiscall *)(void *player, int flag);
-    if (auto *player = Game::ResolveUnitToken("player")) {
+    if (auto *player = const_cast<uint8_t *>(Unit::Identity::PlayerObject())) {
         auto equip = reinterpret_cast<AutoEquipCursor_t>(
             Offsets::FUN_AUTO_EQUIP_CURSOR_ITEM);
         equip(player, 0);

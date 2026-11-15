@@ -15,6 +15,7 @@
 #include "Offsets.h"
 #include "event/Custom.h"
 #include "spell/Cancel.h"
+#include "unit/Identity.h"
 
 #include <cstdint>
 
@@ -28,11 +29,7 @@ namespace {
 // can tell "transient unresolved" from "left a form" and not fire
 // a bogus change event during early-login windows.
 int ReadCurrentForm() {
-    auto *player = static_cast<const uint8_t *>(Game::ResolveUnitToken("player"));
-    if (player == nullptr)
-        return -1;
-    auto *fields = *reinterpret_cast<const uint8_t *const *>(
-        player + Offsets::OFF_UNIT_DESCRIPTOR);
+    const uint8_t *fields = Unit::Identity::PlayerDescriptor();
     if (fields == nullptr)
         return -1;
     const uint32_t bytes1 = *reinterpret_cast<const uint32_t *>(

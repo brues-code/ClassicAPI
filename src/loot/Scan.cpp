@@ -53,6 +53,7 @@
 #include "../tick/WorldTick.h"
 #include "../time/Clock.h"
 #include "Request.h"
+#include "unit/Identity.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -471,9 +472,7 @@ void BuildQueue(void *player, size_t maxCount, bool skipKnownEmpty) {
 bool BeginWalk(bool lootMode, size_t maxCount) {
     if (s_scan.state != State::Idle)
         return false;
-    if (!Object::RegistryReady())
-        return false;
-    void *player = Game::ResolveUnitToken("player");
+    void *player = const_cast<uint8_t *>(Unit::Identity::PlayerObject());
     if (player == nullptr || Request::IsMounted(player))
         return false;
 

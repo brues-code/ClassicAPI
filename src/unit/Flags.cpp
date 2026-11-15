@@ -248,7 +248,7 @@ int __fastcall Script_UnitIsInMyGuild(void *L) {
     }
 
     const uint32_t playerKey = ReadGuildKey(
-        static_cast<const uint8_t *>(Game::ResolveUnitToken("player")));
+        Unit::Identity::PlayerObject());
     if (playerKey == 0) {
         Game::Lua::PushNil(L);
         return 1;

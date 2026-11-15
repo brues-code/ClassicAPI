@@ -16,6 +16,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "dbc/Lookup.h"
+#include "unit/Identity.h"
 
 namespace Spell::Mod {
 
@@ -26,10 +27,7 @@ namespace {
 // spells of the player's own class family receive the player's mods, so
 // a same-flag-bit spell of another family isn't falsely modified.
 uint32_t PlayerSpellFamily() {
-    auto *unit = static_cast<const uint8_t *>(Game::ResolveUnitToken("player"));
-    if (unit == nullptr)
-        return 0;
-    auto *desc = Game::Read<const uint8_t *>(unit, Offsets::OFF_UNIT_DESCRIPTOR);
+    const uint8_t *desc = Unit::Identity::PlayerDescriptor();
     if (desc == nullptr)
         return 0;
     const uint8_t classByte = *(desc + Offsets::OFF_UNIT_DESCRIPTOR_CLASS_BYTE);

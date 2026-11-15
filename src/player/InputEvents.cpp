@@ -35,6 +35,7 @@
 #include "Offsets.h"
 #include "event/Custom.h"
 #include "tick/WorldTick.h"
+#include "unit/Identity.h"
 
 #include <cmath>
 #include <cstdint>
@@ -88,10 +89,6 @@ const uint8_t *Controller() {
     return Game::Read<const uint8_t *>(Offsets::VAR_UI_INPUT_CONTROLLER);
 }
 
-const uint8_t *Player() {
-    return static_cast<const uint8_t *>(Game::ResolveUnitToken("player"));
-}
-
 const uint8_t *Camera() {
     const uint8_t *gameState = Game::Read<const uint8_t *>(
         Offsets::VAR_GAME_STATE_PTR);
@@ -113,7 +110,7 @@ void FireTransition(bool now, bool &prev, const Event::Custom::AutoReserve &star
 
 void OnWorldTick() {
     auto *ctrl = Controller();
-    auto *player = Player();
+    auto *player = Unit::Identity::PlayerObject();
     auto *camera = Camera();
     if (ctrl == nullptr || player == nullptr) {
         // Pre-login / teardown — reset so first valid tick doesn't

@@ -66,11 +66,6 @@ bool SpellNameMatches(const uint8_t *spellRecord, const char *query) {
     return Game::StrCmpI(name, query) == 0;
 }
 
-// Returns the local player's CGUnit pointer, or nullptr pre-login.
-const uint8_t *LocalPlayer() {
-    return static_cast<const uint8_t *>(Game::ResolveUnitToken("player"));
-}
-
 // The player-buff-table record the engine built for absolute aura `slot`,
 // or nullptr. The table at `VAR_PLAYER_BUFF_TABLE` mirrors the local
 // player's auras (packed in insertion order, each record naming its slot);
@@ -1121,7 +1116,7 @@ void Push(void *L, const uint8_t *unit, int slot, Emit emit) {
     const uint32_t spellID = ReadSpellID(unit, slot);
     const bool isHelpful = !IsSlotHarmful(unit, slot); // nibble, not slot range
     PushEnriched(L, UnitGuid(unit), spellID, isHelpful, ReadStacks(unit, slot),
-                 unit != nullptr && unit == LocalPlayer(), slot,
+                 unit != nullptr && unit == Unit::Identity::PlayerObject(), slot,
                  /*known*/ nullptr, emit, Aura::Instance::IDForSlot(unit, slot));
 }
 

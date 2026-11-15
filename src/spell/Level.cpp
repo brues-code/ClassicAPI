@@ -15,6 +15,7 @@
 #include "Offsets.h"
 #include "spell/Lookup.h"
 #include "talent/SpellSet.h"
+#include "unit/Identity.h"
 
 #include <cstdint>
 #include <unordered_set>
@@ -22,18 +23,6 @@
 namespace Spell::Level {
 
 namespace {
-
-// Reads the local player's descriptor — same pattern as
-// Unit::Combat::Script_InCombatLockdown. Returns nullptr at login
-// screen / character select / loading transition where the
-// CGPlayer doesn't exist yet.
-const uint8_t *PlayerDescriptor() {
-    auto *player = static_cast<const uint8_t *>(Game::ResolveUnitToken("player"));
-    if (player == nullptr)
-        return nullptr;
-    return Game::Read<const uint8_t *>(
-        player, Offsets::OFF_UNIT_DESCRIPTOR);
-}
 
 // Looks up the `BaseLevel` field of a Spell.dbc record. Returns 0
 // for invalid spellIDs or records the engine doesn't have cached.
@@ -253,7 +242,7 @@ int __fastcall Script_GetCurrentLevelSpells(void *L) {
     Game::Lua::SetTop(L, 0);
     Game::Lua::NewTable(L);
 
-    auto *desc = PlayerDescriptor();
+    auto *desc = Unit::Identity::PlayerDescriptor();
     if (desc == nullptr)
         return 1;
 

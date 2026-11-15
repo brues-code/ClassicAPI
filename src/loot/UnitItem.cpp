@@ -26,6 +26,7 @@
 #include "../object/Resolve.h"
 #include "../tick/WorldTick.h"
 #include "Request.h"
+#include "unit/Identity.h"
 
 #include <cstdint>
 
@@ -107,7 +108,7 @@ void OnTick() {
         if (s_ticksSinceTransition >= kStepTimeoutTicks) {
             // Never opened — release a request the server never
             // answered, or it blocks all looting (see Request.h).
-            if (void *player = Game::ResolveUnitToken("player"))
+            if (void *player = const_cast<uint8_t *>(Unit::Identity::PlayerObject()))
                 Request::ReleaseIfUnanswered(player, s_targetGuid);
             Reset();
         }
@@ -169,7 +170,7 @@ int __fastcall Script_LootUnitItem(void *L) {
         return 1;
     }
 
-    void *player = Game::ResolveUnitToken("player");
+    void *player = const_cast<uint8_t *>(Unit::Identity::PlayerObject());
     if (player == nullptr) {
         Game::Lua::PushBool(L, false);
         return 1;

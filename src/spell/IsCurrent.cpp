@@ -27,6 +27,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "unit/Identity.h"
 
 #include <cstdint>
 
@@ -39,11 +40,7 @@ int ReadGlobalSpellID(uintptr_t addr) {
 }
 
 int ReadPlayerChannelSpell() {
-    auto *player = static_cast<const uint8_t *>(Game::ResolveUnitToken("player"));
-    if (player == nullptr)
-        return 0;
-    auto *desc = *reinterpret_cast<const uint8_t *const *>(
-        player + Offsets::OFF_UNIT_DESCRIPTOR);
+    const uint8_t *desc = Unit::Identity::PlayerDescriptor();
     if (desc == nullptr)
         return 0;
     return *reinterpret_cast<const int *>(

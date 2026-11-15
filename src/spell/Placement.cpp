@@ -26,6 +26,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "spell/Lookup.h"
+#include "unit/Identity.h"
 
 #include <cstdint>
 
@@ -52,7 +53,7 @@ bool InWorld() {
     // Player resolves only when in-world. Same gate other modules
     // (e.g. `Item::Location::ResolveBag`) use to avoid touching
     // engine state during loading screens or glue.
-    return Game::ResolveUnitToken("player") != nullptr;
+    return const_cast<uint8_t *>(Unit::Identity::PlayerObject()) != nullptr;
 }
 
 // Shared placement-readiness gate for the cursor and explicit-coords
