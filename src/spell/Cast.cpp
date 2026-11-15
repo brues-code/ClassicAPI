@@ -76,7 +76,6 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "aura/Source.h"
-#include "dbc/Lookup.h"
 #include "duration/Object.h"
 #include "net/PacketDispatch.h"
 #include "net/PacketReader.h"
@@ -310,13 +309,7 @@ bool IsTradeskill(const uint8_t *rec) {
 // already stores the full "Interface\Icons\..." path (unlike item icons,
 // which are bare filenames) — so it's used verbatim, no prefix.
 const char *SpellIconPath(const uint8_t *rec) {
-    const int iconID = Game::Read<int>(rec, Offsets::OFF_SPELL_RECORD_ICON_ID);
-    const uint8_t *iconRec = DBC::Record(Offsets::VAR_SPELL_ICON_RECORDS,
-                                         Offsets::VAR_SPELL_ICON_COUNT,
-                                         static_cast<uint32_t>(iconID));
-    if (iconRec == nullptr)
-        return "";
-    const char *path = Game::Read<const char *>(iconRec, Offsets::OFF_SPELLICON_PATH);
+    const char *path = Spell::Lookup::IconPath(rec, false);
     return (path != nullptr) ? path : "";
 }
 

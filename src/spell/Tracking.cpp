@@ -13,7 +13,6 @@
 
 #include "Game.h"
 #include "Offsets.h"
-#include "dbc/Lookup.h"
 #include "spell/Lookup.h"
 
 #include <cstdint>
@@ -121,17 +120,11 @@ static int __fastcall Script_GetTrackingInfo(void *L) {
         Game::Read<int>(static_cast<uintptr_t>(Offsets::VAR_ACTIVE_TRACKING_SPELL)) ==
         spellID;
 
-    const char *texture = nullptr;
-    const int activeIconID =
-        Game::Read<int>(record, Offsets::OFF_SPELL_RECORD_ACTIVE_ICON_ID);
-    const int iconID = active && activeIconID != 0
-                           ? activeIconID
-                           : Game::Read<int>(record, Offsets::OFF_SPELL_RECORD_ICON_ID);
-    if (auto *iconRec = DBC::Record(Offsets::VAR_SPELL_ICON_RECORDS,
-                                    Offsets::VAR_SPELL_ICON_COUNT,
-                                    static_cast<uint32_t>(iconID))) {
-        texture = Game::Read<const char *>(iconRec, Offsets::OFF_SPELLICON_PATH);
-    }
+    // The active icon while tracking, falling back to the base icon when the
+    // spell has none.
+    const bool useActive =
+        active && Game::Read<int>(record, Offsets::OFF_SPELL_RECORD_ACTIVE_ICON_ID) != 0;
+    const char *texture = Spell::Lookup::IconPath(record, useActive);
 
     Game::Lua::PushString(L, name != nullptr ? name : ""); // 1. name
     Game::Lua::PushString(L, texture); // 2. texture (icon path) or nil

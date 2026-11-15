@@ -43,7 +43,6 @@
 #include "Offsets.h"
 #include "aura/Data.h"
 #include "aura/Instance.h"
-#include "dbc/Lookup.h"
 #include "event/Custom.h"
 #include "lossofcontrol/Lockout.h"
 #include "net/PacketDispatch.h"
@@ -70,13 +69,7 @@ const char *SpellName(const uint8_t *rec) {
 }
 
 const char *SpellIconPath(const uint8_t *rec) {
-    const int iconID = Game::Read<int>(rec, Offsets::OFF_SPELL_RECORD_ICON_ID);
-    const uint8_t *iconRec = DBC::Record(Offsets::VAR_SPELL_ICON_RECORDS,
-                                         Offsets::VAR_SPELL_ICON_COUNT,
-                                         static_cast<uint32_t>(iconID));
-    if (iconRec == nullptr)
-        return "";
-    const char *p = *reinterpret_cast<const char *const *>(iconRec + 0x04);
+    const char *p = ::Spell::Lookup::IconPath(rec, false);
     return (p != nullptr) ? p : "";
 }
 

@@ -66,19 +66,6 @@ bool SpellNameMatches(const uint8_t *spellRecord, const char *query) {
     return Game::StrCmpI(name, query) == 0;
 }
 
-const char *SpellIconPath(const uint8_t *spellRecord) {
-    if (spellRecord == nullptr)
-        return nullptr;
-    const int iconID = *reinterpret_cast<const int *>(
-        spellRecord + Offsets::OFF_SPELL_RECORD_ICON_ID);
-    if (iconID <= 0)
-        return nullptr;
-    return DBC::StringField(Offsets::VAR_SPELL_ICON_RECORDS,
-                            Offsets::VAR_SPELL_ICON_COUNT,
-                            static_cast<uint32_t>(iconID),
-                            Offsets::OFF_SPELLICON_PATH);
-}
-
 // Returns the local player's CGUnit pointer, or nullptr pre-login.
 const uint8_t *LocalPlayer() {
     return static_cast<const uint8_t *>(Game::ResolveUnitToken("player"));
@@ -873,7 +860,7 @@ static Display ResolveDisplay(uint32_t spellID, uint64_t casterGuid, bool isHelp
     }
     Display d;
     d.name = Spell::Lookup::Name(spellRecord);
-    d.icon = SpellIconPath(spellRecord);
+    d.icon = Spell::Lookup::IconPath(spellRecord, false);
     d.dispelName = DispelName(dispelTypeID);
     d.castByPlayer = Guid::IsPlayer(casterGuid);
     d.fromPlayerOrPet = d.castByPlayer || Guid::IsPet(casterGuid);

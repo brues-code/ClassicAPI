@@ -15,6 +15,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "dbc/Lookup.h"
 #include "spell/Known.h"
 #include "spell/Arg.h"
 #include "spell/Lookup.h"
@@ -85,27 +86,6 @@ static bool IsFriendlyTarget(uint32_t t) {
     }
 }
 
-template <typename T>
-static T ReadGlobal(uintptr_t addr) {
-    return *reinterpret_cast<T *>(addr);
-}
-
-// Sub-DBC lookup (SpellIcon, SpellCastTimes, SpellRange) — these are the
-// "indirected fields" of a Spell.dbc record. Different base/count
-// addresses than the main Spell.dbc, so they don't go through
-// `Spell::Lookup::RecordForID`.
-static const uint8_t *LookupSubRecord(uintptr_t baseAddr, uintptr_t countAddr, int id) {
-    if (id <= 0)
-        return nullptr;
-    const int count = ReadGlobal<int>(countAddr);
-    if (id > count)
-        return nullptr;
-    const uint8_t *const *records = ReadGlobal<const uint8_t *const *>(baseAddr);
-    if (records == nullptr)
-        return nullptr;
-    return records[id];
-}
-
 struct SpellInfoData {
     int spellID;
     const char *name;       // localized; nullable if record's locale slot is unset
@@ -139,12 +119,7 @@ static bool ReadSpellInfo(int spellID, int pet, SpellInfoData &out) {
     out.name = name != nullptr ? name : "";
     out.rank = rank != nullptr ? rank : "";
 
-    out.iconPath = nullptr;
-    const int iconID = Game::Read<int>(record, Offsets::OFF_SPELL_RECORD_ICON_ID);
-    if (auto *iconRec = LookupSubRecord(Offsets::VAR_SPELL_ICON_RECORDS,
-                                        Offsets::VAR_SPELL_ICON_COUNT, iconID)) {
-        out.iconPath = Game::Read<const char *>(iconRec, Offsets::OFF_SPELLICON_PATH);
-    }
+    out.iconPath = Spell::Lookup::IconPath(record, false);
 
     out.powerType = Game::Read<int>(record, Offsets::OFF_SPELL_RECORD_POWER_TYPE);
 
@@ -172,8 +147,11 @@ static bool ReadSpellInfo(int spellID, int pet, SpellInfoData &out) {
     out.minRange = 0.0f;
     out.maxRange = 0.0f;
     const int rangeIndex = Game::Read<int>(record, Offsets::OFF_SPELL_RECORD_RANGE_INDEX);
-    const auto *rangeRec = LookupSubRecord(Offsets::VAR_SPELL_RANGE_RECORDS,
-                                           Offsets::VAR_SPELL_RANGE_COUNT, rangeIndex);
+    const uint8_t *rangeRec =
+        rangeIndex > 0 ? DBC::Record(Offsets::VAR_SPELL_RANGE_RECORDS,
+                                     Offsets::VAR_SPELL_RANGE_COUNT,
+                                     static_cast<uint32_t>(rangeIndex))
+                       : nullptr;
     if (rangeRec == nullptr ||
         !(Game::Read<uint32_t>(rangeRec, Offsets::OFF_SPELLRANGE_RECORD_FLAGS) &
           SPELLRANGE_FLAG_MELEE))
@@ -339,13 +317,8 @@ static int __fastcall Script_C_GetSpellTexture(void *L) {
     if (record == nullptr)
         return 0;
 
-    const int iconID = Game::Read<int>(record, Offsets::OFF_SPELL_RECORD_ICON_ID);
-    auto *iconRec = LookupSubRecord(Offsets::VAR_SPELL_ICON_RECORDS,
-                                    Offsets::VAR_SPELL_ICON_COUNT, iconID);
-    if (iconRec == nullptr)
-        return 0;
-    const char *path = Game::Read<const char *>(iconRec, Offsets::OFF_SPELLICON_PATH);
-    if (path == nullptr || *path == '\0')
+    const char *path = Spell::Lookup::IconPath(record, false);
+    if (path == nullptr)
         return 0;
     Game::Lua::PushString(L, path);
     return 1;

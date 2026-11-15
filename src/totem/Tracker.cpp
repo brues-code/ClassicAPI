@@ -318,20 +318,6 @@ void OnTick() {
 
 const Tick::WorldTick::AutoSubscribe _tick{&OnTick};
 
-// SpellIcon.dbc path for an icon ID (records indexed by ID; path at +4).
-const char *IconPath(int iconID) {
-    if (iconID <= 0)
-        return nullptr;
-    const int count = Game::Read<int>(Offsets::VAR_SPELL_ICON_COUNT);
-    if (iconID > count)
-        return nullptr;
-    auto *const *records = Game::Read<const uint8_t *const *>(
-        Offsets::VAR_SPELL_ICON_RECORDS);
-    if (records == nullptr || records[iconID] == nullptr)
-        return nullptr;
-    return *reinterpret_cast<const char *const *>(records[iconID] + 4);
-}
-
 // Pushes `s`, or nil for nullptr — Lua 5.1's `lua_pushstring(NULL)`, which
 // 3.3.5 relies on for an unresolved name or icon.
 void PushStringOrNil(void *L, const char *s) {
@@ -613,7 +599,7 @@ void OnPlayerSpellGo(uint32_t spellID) {
         t.spellID = spellID;
         t.entry = static_cast<uint32_t>(misc[i]);
         t.staleGuid = previous;
-        t.icon = IconPath(Game::Read<int>(rec, Offsets::OFF_SPELL_RECORD_ICON_ID));
+        t.icon = Spell::Lookup::IconPath(rec, false);
         t.startMs = NowMs();
         t.durationMs = SpellDurationMs(rec);
         MarkDirty(idx); // totem dropped → PLAYER_TOTEM_UPDATE (fired next tick)
