@@ -213,7 +213,6 @@ const Game::Doc::Event kTotemUpdateDoc{
     "away.",
     kTotemUpdatePayload};
 const Event::Custom::AutoReserve _totemUpdate{kPlayerTotemUpdate, &kTotemUpdateDoc};
-int g_totemUpdateId = -1;
 uint8_t g_dirtyMask = 0;
 
 void MarkDirty(int slotIdx) {
@@ -223,13 +222,13 @@ void MarkDirty(int slotIdx) {
 void FireDirty() {
     if (g_dirtyMask == 0)
         return;
-    if (g_totemUpdateId < 0)
-        g_totemUpdateId = Event::Custom::LookupByName(kPlayerTotemUpdate);
-    if (g_totemUpdateId < 0)
+    // Read at fire time: a /reload re-claims the reservation's slot.
+    const int slot = _totemUpdate.Slot();
+    if (slot < 0)
         return; // slot not claimed yet — keep dirty, retry next tick
     for (int s = 0; s < kSlots; ++s)
         if (g_dirtyMask & (1u << s))
-            Event::Custom::Fire(g_totemUpdateId, "%d", s + 1);
+            Event::Custom::Fire(slot, "%d", s + 1);
     g_dirtyMask = 0;
 }
 
