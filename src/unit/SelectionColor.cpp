@@ -205,12 +205,8 @@ __declspec(naked) void UnflaggedExitThunk() {
     }
 }
 
-int g_friendListUpdateId = -1;
-
 bool OnSignal(int eventID) {
-    if (g_friendListUpdateId < 0)
-        g_friendListUpdateId = Event::Custom::LookupByName("FRIENDLIST_UPDATE");
-    if (eventID == g_friendListUpdateId)
+    if (eventID == Offsets::EVENT_FRIENDLIST_UPDATE)
         reinterpret_cast<void(__cdecl *)()>(
             static_cast<uintptr_t>(Offsets::FUN_PLAYER_NAME_MARK_ALL_COLOR_DIRTY))();
     return false;

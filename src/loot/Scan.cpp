@@ -79,15 +79,6 @@ const Event::Custom::AutoReserve _reserve{kEventCompleted, &kEventCompletedDoc};
 // enough that a dropped response doesn't hang the walk.
 constexpr uint32_t kStepTimeoutMs = 3000;
 
-// Event IDs the engine fires through `FUN_FIRE_EVENT_NO_ARGS` for
-// loot-window transitions. The hook swallows these only when the
-// scanner has the suppression flag raised — normal play sees them
-// fire unmodified.
-constexpr int EVENT_LOOT_OPENED = 0x10B;
-constexpr int EVENT_LOOT_CLOSED = 0x10D;
-// Observed, never swallowed (see `s_emptyCorpses`).
-constexpr int EVENT_QUEST_LOG_UPDATE = 0x134;
-
 enum class State {
     Idle,
     WaitingToSend,      // the engine refused the send for now; retried each tick
@@ -323,7 +314,7 @@ LootController_t s_lootController_o = nullptr;
 // PLAYER_ENTERING_WORLD payload). Return true to swallow.
 bool SuppressLootEvents(int eventID) {
     return s_scan.suppressEvents &&
-           (eventID == EVENT_LOOT_OPENED || eventID == EVENT_LOOT_CLOSED);
+           (eventID == Offsets::EVENT_LOOT_OPENED || eventID == Offsets::EVENT_LOOT_CLOSED);
 }
 
 // Intercepts the engine's loot-window state controller. Two paths:
@@ -403,7 +394,7 @@ const Event::SignalHook::AutoSubscribe _lootIntercept{&SuppressLootEvents};
 
 // Observes only: the event still fires.
 bool ForgetEmptyCorpsesOnQuestChange(int eventID) {
-    if (eventID == EVENT_QUEST_LOG_UPDATE)
+    if (eventID == Offsets::EVENT_QUEST_LOG_UPDATE)
         s_emptyCorpses.clear();
     return false;
 }

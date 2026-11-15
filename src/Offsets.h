@@ -2667,6 +2667,20 @@ enum Offsets {
     // Its length: world init builds the table from it with
     // `mov edx,0x225; mov ecx,0xBE1198; call 0x703D90` (0x0048FEA1).
     EVENT_NAME_TABLE_STATIC_COUNT = 0x225,
+    // Game-state engine event ids: each one's slot in the static name array,
+    // read from the boot initializer's `mov [0xBE1198 + id*4], "NAME"` store
+    // (FUN_0051AB30). Fixed for the binary. Glue state has its own table
+    // (GLUE_EVENT_COUNT ids), so code that also runs on glue looks events up
+    // by name instead.
+    EVENT_UNIT_FACTION = 0x1D,
+    EVENT_UI_ERROR_MESSAGE = 0xE0,
+    EVENT_SPELLS_CHANGED = 0x104,
+    EVENT_LOOT_OPENED = 0x10B,
+    EVENT_LOOT_CLOSED = 0x10D,
+    EVENT_PLAYER_ENTERING_WORLD = 0x110,
+    EVENT_PLAYER_LEAVING_WORLD = 0x111,
+    EVENT_QUEST_LOG_UPDATE = 0x134,
+    EVENT_FRIENDLIST_UPDATE = 0x15F,
     // UnitWatchedIndex — the position of unit field `field` (bank-relative
     // index, the unit-field event id) in the unit's watched-field table
     // (0x00839E48, 0xA7 entries), the slot of its 4 bytes in the watch copy

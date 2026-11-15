@@ -78,6 +78,8 @@ Set_t g_origSet = nullptr;
 // one.
 std::vector<void *> g_pending;
 
+// By name, not Offsets' id: cvars also change on glue, whose event table has
+// no CVAR_UPDATE (the lookup is then -1, so nothing fires).
 int ListeningSlot() {
     const int slot = Event::Custom::LookupByName("CVAR_UPDATE");
     return Event::Custom::HasListeners(slot) ? slot : -1;

@@ -68,15 +68,8 @@ namespace {
 
 // Helpers ────────────────────────────────────────────────────────────
 
-// `UNIT_FACTION`'s event-table slot. The engine's `RebuildEventTable`
-// preserves slot order across reloads and other DLLs claim only NULL
-// gaps, so this is stable once resolved. Lazy-init on first fire.
-int s_unitFactionSlot = -1;
-
 void FireUnitFactionPlayer() {
-    if (s_unitFactionSlot < 0)
-        s_unitFactionSlot = Event::Custom::LookupByName("UNIT_FACTION");
-    Event::Custom::Fire(s_unitFactionSlot, "%s", "player");
+    Event::Custom::Fire(Offsets::EVENT_UNIT_FACTION, "%s", "player");
 }
 
 uint8_t ReadRepSlotFlags(int repListID) {

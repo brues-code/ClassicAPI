@@ -109,12 +109,8 @@ void OnPacket(uint32_t opcode, Net::CDataStore *packet) {
 
 const Net::PacketDispatch::AutoSubscribe _sub{&OnPacket};
 
-int g_leavingWorldId = -1;
-
 bool OnSignal(int eventID) {
-    if (g_leavingWorldId < 0)
-        g_leavingWorldId = Event::Custom::LookupByName("PLAYER_LEAVING_WORLD");
-    if (eventID == g_leavingWorldId) {
+    if (eventID == Offsets::EVENT_PLAYER_LEAVING_WORLD) {
         for (Timer &t : g_timers)
             t = Timer{};
     }

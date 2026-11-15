@@ -45,13 +45,10 @@ std::string FormatS(const std::string &format, const std::string &arg) {
 }
 
 void UIError(const char *globalName, const char *fallback, const char *setName) {
-    const int evt = Event::Custom::LookupByName("UI_ERROR_MESSAGE");
-    if (evt < 0)
-        return;
     std::string text = Global(globalName, fallback);
     if (setName != nullptr)
         text = FormatS(text, setName);
-    Event::Custom::Fire(evt, "%s", text.c_str());
+    Event::Custom::Fire(Offsets::EVENT_UI_ERROR_MESSAGE, "%s", text.c_str());
 }
 
 std::string SetList(uint64_t itemGuid) {

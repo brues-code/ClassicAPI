@@ -100,9 +100,8 @@ uint32_t g_lastScanMs = 0;
 // spell's `Totem[0]` field — the required TOOL the spell lists (Earth
 // Totem, Fire Totem, …), NOT a consumed reagent, and NOT hardcoded. Filled
 // from the player's spellbook on SPELLS_CHANGED and refreshed at cast; 0 =
-// not yet resolved. `g_spellsChangedId` caches the event id.
+// not yet resolved.
 uint32_t g_toolItem[kSlots] = {};
-int g_spellsChangedId = -1;
 
 using Time::Clock::NowMs;
 
@@ -157,9 +156,7 @@ void ScanTools() {
 // false). By the time it fires the spellbook is populated, so the scan
 // sees the totems.
 bool OnSignal(int eventID) {
-    if (g_spellsChangedId < 0)
-        g_spellsChangedId = Event::Custom::LookupByName("SPELLS_CHANGED");
-    if (eventID == g_spellsChangedId)
+    if (eventID == Offsets::EVENT_SPELLS_CHANGED)
         ScanTools();
     return false;
 }

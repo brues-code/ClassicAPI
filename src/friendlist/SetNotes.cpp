@@ -55,7 +55,7 @@ void ApplyNote(const uint8_t *entry, const char *note) {
     const char *name = *reinterpret_cast<const char *const *>(
         entry + FriendList::OFF_FRIEND_NAME);
     if (Notes::Set(guid, name, note))
-        Event::Custom::Fire(Event::Custom::LookupByName("FRIENDLIST_UPDATE"), "");
+        Event::Custom::Fire(Offsets::EVENT_FRIENDLIST_UPDATE, "");
 }
 
 const Game::Doc::Field kSetFriendNotesArgs[] = {
