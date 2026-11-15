@@ -32,7 +32,6 @@
 #include "unit/Identity.h"
 
 #include <cstdint>
-#include <cstring>
 
 namespace Spell::Cancel {
 
@@ -68,20 +67,13 @@ int __fastcall Script_CancelSpellByName(void *L) {
     const uint8_t *player = Unit::Identity::PlayerObject();
     if (player == nullptr)
         return 0;
-    // Walk the player's buff range only (slots 0..31). Modern
-    // CancelSpellByName matches against helpful auras; debuffs go
-    // through dispel UX, not a Lua-side cancel.
-    for (int slot = 0; slot < Offsets::UNIT_AURA_BUFF_COUNT; ++slot) {
-        if (!Aura::Data::IsSlotPopulated(player, slot))
-            continue;
-        const uint32_t spellID = Aura::Data::ReadSpellID(player, slot);
-        const char *name =
-            Spell::Lookup::Name(Spell::Lookup::RecordForID(static_cast<int>(spellID)));
-        if (name != nullptr && _stricmp(name, targetName) == 0) {
-            SendCancel(static_cast<int>(spellID));
-            return 0;
-        }
-    }
+    // Modern CancelSpellByName matches helpful auras only; debuffs go through
+    // dispel UX, not a Lua-side cancel. The name compares as the engine's
+    // UnitAura-by-name does (SStrCmpI).
+    const Aura::Data::Filter helpful = Aura::Data::Filter::Helpful;
+    const int slot = Aura::Data::FindSlotBySpellName(player, targetName, &helpful);
+    if (slot >= 0)
+        SendCancel(static_cast<int>(Aura::Data::ReadSpellID(player, slot)));
     return 0;
 }
 
