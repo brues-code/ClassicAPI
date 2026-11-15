@@ -33,7 +33,6 @@ namespace Texture::SpriteSheet {
 
 namespace {
 
-using ScriptFn_t = int(__fastcall *)(void *L);
 
 int __fastcall Script_SetSpriteSheetCell(void *L) {
     if (!Game::Lua::IsNumber(L, 2) || !Game::Lua::IsNumber(L, 3) ||
@@ -64,7 +63,7 @@ int __fastcall Script_SetSpriteSheetCell(void *L) {
     Game::Lua::PushNumber(L, left + cellW);
     Game::Lua::PushNumber(L, top);
     Game::Lua::PushNumber(L, top + cellH);
-    reinterpret_cast<ScriptFn_t>(Offsets::FUN_SCRIPT_TEXTURE_SET_TEXCOORD)(L);
+    Game::Lua::CallScript(Offsets::FUN_SCRIPT_TEXTURE_SET_TEXCOORD, L);
 
     Game::Lua::SetTop(L, 0);
     return 0;

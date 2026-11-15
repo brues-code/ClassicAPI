@@ -72,7 +72,6 @@ using ShaderCreate_t = void(__fastcall *)(int type, void **outSlot, const char *
 using ArrayGrow_t = void(__thiscall *)(void *desc, uint32_t newCap);
 using CompilePs_t = void(__thiscall *)(void *device, void *shader);
 using SetShader_t = void(__thiscall *)(void *region, void *shader);
-using ScriptFn_t = int(__fastcall *)(void *L);
 using GetUiPixelShader_t = void *(__fastcall *)(int index);
 
 // --- shader bytecode --------------------------------------------------------
@@ -374,7 +373,7 @@ int __fastcall Script_GetDesaturation(void *L) {
 // falls back to a grey vertex colour).
 int __fastcall Script_SetDesaturated(void *L) {
     if (!g_enabled || !IsD3d())
-        return reinterpret_cast<ScriptFn_t>(Offsets::FUN_SCRIPT_TEXTURE_SET_DESATURATED)(L);
+        return Game::Lua::CallScript(Offsets::FUN_SCRIPT_TEXTURE_SET_DESATURATED, L);
 
     void *region = ResolveSelf(L);
     if (region == nullptr) {

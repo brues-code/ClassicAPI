@@ -62,17 +62,12 @@ namespace Tooltip::SetAction {
 
 namespace {
 
-using ScriptFn_t = int(__fastcall *)(void *L);
 using SlotCooldown_t = void(__fastcall *)(uint32_t slot0, int *start, int *duration,
                                           uint32_t *enable);
 using TooltipClear_t = void(__thiscall *)(void *tooltip);
 using BuildSpellTooltip_t = int(__thiscall *)(void *tooltip, int spellID, int brief,
                                               int cooldownRemainingMs, int a4, int showRank,
                                               int a6, int a7);
-
-int CallScript(uintptr_t fn, void *L) {
-    return reinterpret_cast<ScriptFn_t>(fn)(L);
-}
 
 // FrameXML reads this return into `updateTooltip`: truthy keeps the tooltip
 // re-reading while the cursor rests on the button. 3.3.5's macro tooltip
@@ -119,7 +114,7 @@ int ShowSpell(void *L, void *tooltip, int slot0, int spellID, bool conditional) 
 int ShowMacroName(void *L, const char *name) {
     Game::Lua::SetTop(L, 1); // keep self at stack[1]
     Game::Lua::PushString(L, name);
-    CallScript(Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_TEXT, L);
+    Game::Lua::CallScript(Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_TEXT, L);
     // `SetText` pushes nothing, and a name never needs a second pass — the
     // engine answers nil for a macro tooltip too.
     return PushRefresh(L, false);
@@ -134,17 +129,17 @@ int ShowItem(void *L, int itemID, bool conditional) {
         if (found.equipmentSlotIndex != 0) {
             Game::Lua::PushString(L, "player");
             Game::Lua::PushNumber(L, static_cast<double>(found.equipmentSlotIndex));
-            n = CallScript(Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_INVENTORY_ITEM, L);
+            n = Game::Lua::CallScript(Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_INVENTORY_ITEM, L);
         } else {
             Game::Lua::PushNumber(L, static_cast<double>(found.bagID));
             Game::Lua::PushNumber(L, static_cast<double>(found.slotIndex));
-            n = CallScript(Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_BAG_ITEM, L);
+            n = Game::Lua::CallScript(Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_BAG_ITEM, L);
         }
     } else {
         char link[64];
         std::snprintf(link, sizeof(link), "item:%d:0:0:0:0:0:0:0", itemID);
         Game::Lua::PushString(L, link);
-        n = CallScript(Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_HYPERLINK, L);
+        n = Game::Lua::CallScript(Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_HYPERLINK, L);
     }
     // The engine entry point answers the refresh question for itself; a
     // conditional directive needs it forced on top of whatever it said.
@@ -153,7 +148,7 @@ int ShowItem(void *L, int itemID, bool conditional) {
 
 int __fastcall Script_SetAction(void *L) {
     if (Game::Lua::Type(L, 1) != Game::Lua::TYPE_TABLE || !Game::Lua::IsNumber(L, 2))
-        return CallScript(Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_ACTION, L); // engine's own errors
+        return Game::Lua::CallScript(Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_ACTION, L); // engine's own errors
     const int slot0 = static_cast<int>(Game::Lua::ToNumber(L, 2)) - 1;
 
     if (slot0 >= 0) {
@@ -170,15 +165,15 @@ int __fastcall Script_SetAction(void *L) {
 
     Macro::ShowTooltip::Info info;
     if (!Macro::ShowTooltip::ForSlot(slot0, &info))
-        return CallScript(Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_ACTION, L);
+        return Game::Lua::CallScript(Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_ACTION, L);
 
     if (info.kind == Macro::ShowTooltip::Kind::Show) {
         if (const char *name = Macro::ShowTooltip::MacroNameForSlot(slot0))
             return ShowMacroName(L, name);
-        return CallScript(Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_ACTION, L);
+        return Game::Lua::CallScript(Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_ACTION, L);
     }
     if (info.kind != Macro::ShowTooltip::Kind::ShowTooltip)
-        return CallScript(Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_ACTION, L);
+        return Game::Lua::CallScript(Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_ACTION, L);
 
     if (info.target == Macro::ShowTooltip::Target::Spell) {
         // A spellID with no `Spell.dbc` row builds nothing at all, which would
@@ -188,12 +183,12 @@ int __fastcall Script_SetAction(void *L) {
         void *tooltip = Game::Lua::ResolveTooltip(L);
         if (tooltip == nullptr ||
             ::Spell::Lookup::RecordForID(static_cast<int>(info.spellID)) == nullptr)
-            return CallScript(Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_ACTION, L);
+            return Game::Lua::CallScript(Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_ACTION, L);
         return ShowSpell(L, tooltip, slot0, static_cast<int>(info.spellID), info.conditional);
     }
     if (info.target == Macro::ShowTooltip::Target::Item)
         return ShowItem(L, info.itemID, info.conditional);
-    return CallScript(Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_ACTION, L);
+    return Game::Lua::CallScript(Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_ACTION, L);
 }
 
 const Game::Lua::FrameMethodEntry g_methods[] = {

@@ -93,7 +93,7 @@ int __fastcall Script_RegisterForClicks(void *L) {
             for (int k = 0; k < kNameCount; ++k)
                 PushString(L, expansion[k]);
     }
-    return reinterpret_cast<CFunction>(Offsets::FUN_SCRIPT_BUTTON_REGISTERFORCLICKS)(L);
+    return Game::Lua::CallScript(Offsets::FUN_SCRIPT_BUTTON_REGISTERFORCLICKS, L);
 }
 
 const Game::Lua::FrameMethodEntry g_methods[] = {

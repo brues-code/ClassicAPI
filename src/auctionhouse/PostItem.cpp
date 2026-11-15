@@ -161,8 +161,7 @@ void PostStack(void *L, uint64_t guid) {
     Game::Lua::PushNumber(L, static_cast<double>(g_job.bid));
     Game::Lua::PushNumber(L, static_cast<double>(g_job.buyout));
     Game::Lua::PushNumber(L, static_cast<double>(g_job.runTime));
-    auto fn = reinterpret_cast<Game::Lua::CFunction>(Offsets::FUN_SCRIPT_START_AUCTION);
-    fn(L);
+    Game::Lua::CallScript(Offsets::FUN_SCRIPT_START_AUCTION, L);
     Game::Lua::SetTop(L, 0);
 }
 

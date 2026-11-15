@@ -125,9 +125,7 @@ static int __fastcall Script_GameTooltipSetTalentByID(void *L) {
         Game::Lua::SetTop(L, 1);
         Game::Lua::PushNumber(L, static_cast<double>(tab));
         Game::Lua::PushNumber(L, static_cast<double>(idx));
-        using Script_t = int(__fastcall *)(void *L);
-        auto fn = reinterpret_cast<Script_t>(Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_TALENT);
-        return fn(L);
+        return Game::Lua::CallScript(Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_TALENT, L);
     }
 
     // Tier 2 — cross-class via Talent.dbc + spell tooltip fallback.

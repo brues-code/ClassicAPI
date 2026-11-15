@@ -79,7 +79,6 @@ using Void_t = void(__cdecl *)();
 using PlayerList_t = const void *(__thiscall *)(void *player, uint32_t key);
 using UnitAbility_t = const uint8_t *(__thiscall *)(void *unit, uint32_t spellID);
 using SkillTotal_t = int(__thiscall *)(void *player, uint32_t skillLine);
-using Script_t = int(__fastcall *)(void *L);
 
 // The only Craft type GetCraftDisplaySkillLine answers for (Enchanting).
 constexpr uint32_t kCraftTypeEnscribe = 3;
@@ -280,7 +279,7 @@ int __fastcall Script_IsCraftLinked(void *L) { return PushLinked(L, g_craft); }
 
 // `GetTradeSkillLine()`: 3.3.5 answers with the linker's ranks.
 int __fastcall Script_GetTradeSkillLine(void *L) {
-    const int pushed = reinterpret_cast<Script_t>(Offsets::FUN_SCRIPT_GET_TRADE_SKILL_LINE)(L);
+    const int pushed = Game::Lua::CallScript(Offsets::FUN_SCRIPT_GET_TRADE_SKILL_LINE, L);
     if (ShowsOtherLink(g_tradeSkill, TradeSkillOpen())) {
         Game::Lua::SetTop(L, -3); // the player's rank and maximum
         Game::Lua::PushNumber(L, g_tradeSkill.rank);
@@ -300,7 +299,7 @@ int __fastcall Script_GetCraftDisplaySkillLine(void *L) {
                                                  Offsets::OFF_SKILL_LINE_NAME)
                            : nullptr;
     if (name == nullptr)
-        return reinterpret_cast<Script_t>(Offsets::FUN_SCRIPT_GET_CRAFT_DISPLAY_SKILL_LINE)(L);
+        return Game::Lua::CallScript(Offsets::FUN_SCRIPT_GET_CRAFT_DISPLAY_SKILL_LINE, L);
     Game::Lua::PushString(L, name);
     Game::Lua::PushNumber(L, s.rank);
     Game::Lua::PushNumber(L, s.maxRank);
@@ -312,7 +311,7 @@ int __fastcall Script_GetCraftDisplaySkillLine(void *L) {
 int __fastcall Script_GetCraftName(void *L) {
     const char *name = ShowsOtherLink(g_craft, CraftOpen()) ? SpellName(g_craft.spellID) : nullptr;
     if (name == nullptr)
-        return reinterpret_cast<Script_t>(Offsets::FUN_SCRIPT_GET_CRAFT_NAME)(L);
+        return Game::Lua::CallScript(Offsets::FUN_SCRIPT_GET_CRAFT_NAME, L);
     Game::Lua::PushString(L, name);
     return 1;
 }

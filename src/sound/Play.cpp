@@ -64,7 +64,6 @@ using PlaySoundEntry_t = void *(__fastcall *)(char keep, char noCategory, int bu
                                               int soundEntryID, int variantIndex, int music);
 using Play2D_t = void *(__fastcall *)(int bus, const char *path, unsigned flags, char held);
 using Stop_t = void(__thiscall *)(void *sound, float seconds);
-using ScriptFn_t = int(__fastcall *)(void *L);
 
 constexpr int kVariantRandom = -1; // the engine's own weighted pick
 
@@ -298,7 +297,7 @@ int __fastcall Script_C_Sound_PlaySound(void *L) {
 int __fastcall Script_PlaySound(void *L) {
     if (Game::Lua::Type(L, 1) == Game::Lua::TYPE_NUMBER)
         return PushResult(L, PlayKit(static_cast<int>(Game::Lua::ToNumber(L, 1)), {}));
-    return reinterpret_cast<ScriptFn_t>(Offsets::FUN_SCRIPT_PLAY_SOUND)(L);
+    return Game::Lua::CallScript(Offsets::FUN_SCRIPT_PLAY_SOUND, L);
 }
 
 // Read `name` from the params table at stack index `idx`. Uses GetTable

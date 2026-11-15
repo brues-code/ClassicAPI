@@ -136,11 +136,6 @@ namespace Frame::Attributes {
 
 namespace {
 
-using ScriptFn_t = int(__fastcall *)(void *L);
-
-int CallScript(uintptr_t fn, void *L) {
-    return reinterpret_cast<ScriptFn_t>(fn)(L);
-}
 
 // ---- small string helpers --------------------------------------------------
 
@@ -864,7 +859,7 @@ int __fastcall OnClick_c(void *L) {
 int __fastcall WireOnClick(void *L) {
     Game::Lua::SetTop(L, 1);                             // (self)
     Game::Lua::PushString(L, "OnClick");                 // (self, name)
-    CallScript(Offsets::FUN_SCRIPT_FRAME_GETSCRIPT, L);  // (self, name, old)
+    Game::Lua::CallScript(Offsets::FUN_SCRIPT_FRAME_GETSCRIPT, L);  // (self, name, old)
     if (Game::Lua::GetTop(L) < 3)                        // defensive
         Game::Lua::PushNil(L);
     Game::Lua::SetTop(L, 3);                             // (self, name, old|nil)
@@ -873,7 +868,7 @@ int __fastcall WireOnClick(void *L) {
         return 0;                                        // already our closure
     Game::Lua::PushValue(L, 1);                          // (self, name, old, self)
     Game::Lua::PushCClosure(L, &OnClick_c, 2);           // upvalues (old, self)
-    CallScript(Offsets::FUN_SCRIPT_FRAME_SETSCRIPT, L);
+    Game::Lua::CallScript(Offsets::FUN_SCRIPT_FRAME_SETSCRIPT, L);
     return 0;
 }
 

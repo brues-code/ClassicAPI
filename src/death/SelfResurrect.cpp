@@ -116,7 +116,7 @@ int __fastcall Script_UseSelfResurrectOption(void *L) {
     if (CurrentOption(option, itemName, sizeof(itemName)) &&
         option.optionType == static_cast<int>(Game::Lua::ToNumber(L, 1)) &&
         option.id == static_cast<int>(Game::Lua::ToNumber(L, 2)))
-        reinterpret_cast<Game::Lua::CFunction>(Offsets::FUN_SCRIPT_USE_SOULSTONE)(L);
+        Game::Lua::CallScript(Offsets::FUN_SCRIPT_USE_SOULSTONE, L);
     return 0;
 }
 

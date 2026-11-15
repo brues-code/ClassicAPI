@@ -178,7 +178,7 @@ int __fastcall Script_SetTexture(void *L) {
         state.modeH = repeatH;
         state.modeV = repeatV;
     }
-    const int results = reinterpret_cast<Game::Lua::CFunction>(Offsets::FUN_SCRIPT_TEXTURE_SET_TEXTURE)(L);
+    const int results = Game::Lua::CallScript(Offsets::FUN_SCRIPT_TEXTURE_SET_TEXTURE, L);
     if (texture != nullptr)
         Settle(texture); // a file that did not load leaves the old image to match
     return results;

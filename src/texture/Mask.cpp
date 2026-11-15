@@ -457,14 +457,13 @@ void OnTextureNode(void *object, const void *node, void * /*status*/) {
 
 const Xml::TypeLoad::AutoSubscribe _xmlSub{Xml::TypeLoad::TEXTURE, &OnTextureNode};
 
-using ScriptFn_t = int(__fastcall *)(void *L);
 
 // frame:CreateMaskTexture([name, layer, ...]) — mint a MaskTexture. Delegates to
 // the engine's own CreateTexture (it reads the args off this same stack and
 // pushes the new region), then hides it (a mask is a source, never drawn) and
 // records it as a valid mask source.
 int __fastcall Script_CreateMaskTexture(void *L) {
-    const int rc = reinterpret_cast<ScriptFn_t>(Offsets::FUN_SCRIPT_CREATE_TEXTURE)(L);
+    const int rc = Game::Lua::CallScript(Offsets::FUN_SCRIPT_CREATE_TEXTURE, L);
     if (rc != 1)
         return rc; // engine raised an error, or pushed nothing
     void *region = Game::Lua::ResolveObject(L, Game::Lua::GetTop(L));

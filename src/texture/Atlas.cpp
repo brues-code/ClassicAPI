@@ -45,8 +45,6 @@ namespace {
 
 using ScriptFn_t = int(__fastcall *)(void *L);
 
-int CallScript(uintptr_t fn, void *L) { return reinterpret_cast<ScriptFn_t>(fn)(L); }
-
 std::string Lower(const char *s) {
     std::string out;
     if (s == nullptr)
@@ -159,7 +157,7 @@ ScriptFn_t g_getTexCoordOriginal = nullptr;
 int WriteTexCoord(void *L) {
     return g_setTexCoordOriginal != nullptr
                ? g_setTexCoordOriginal(L)
-               : CallScript(Offsets::FUN_SCRIPT_TEXTURE_SET_TEXCOORD, L);
+               : Game::Lua::CallScript(Offsets::FUN_SCRIPT_TEXTURE_SET_TEXCOORD, L);
 }
 
 // Pushes (self, 8 corners) and writes them straight through.
@@ -331,7 +329,7 @@ int __fastcall Script_SetAtlas(void *L) {
     // points into the registry, which none of these calls can reach.
     Game::Lua::SetTop(L, 1); // (self)
     Game::Lua::PushString(L, info->file.c_str());
-    CallScript(Offsets::FUN_SCRIPT_TEXTURE_SET_TEXTURE, L);
+    Game::Lua::CallScript(Offsets::FUN_SCRIPT_TEXTURE_SET_TEXTURE, L);
 
     // Identity in sprite space is the atlas's whole rectangle in file space.
     float corners[8];
@@ -341,10 +339,10 @@ int __fastcall Script_SetAtlas(void *L) {
     if (useAtlasSize && info->width > 0.0f && info->height > 0.0f) {
         Game::Lua::SetTop(L, 1); // (self)
         Game::Lua::PushNumber(L, info->width);
-        CallScript(Offsets::FUN_SCRIPT_REGION_SETWIDTH, L);
+        Game::Lua::CallScript(Offsets::FUN_SCRIPT_REGION_SETWIDTH, L);
         Game::Lua::SetTop(L, 1); // (self)
         Game::Lua::PushNumber(L, info->height);
-        CallScript(Offsets::FUN_SCRIPT_REGION_SETHEIGHT, L);
+        Game::Lua::CallScript(Offsets::FUN_SCRIPT_REGION_SETHEIGHT, L);
     }
 
     Applied applied;

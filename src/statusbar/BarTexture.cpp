@@ -71,7 +71,7 @@ int __fastcall Script_SetColorFill(void *L) {
     Game::Lua::PushObject(L, texture);
     Game::Lua::Remove(L, 1);
     Game::Lua::Insert(L, 1);
-    reinterpret_cast<Game::Lua::CFunction>(Offsets::FUN_SCRIPT_TEXTURE_SET_TEXTURE)(L);
+    Game::Lua::CallScript(Offsets::FUN_SCRIPT_TEXTURE_SET_TEXTURE, L);
     return 0;
 }
 

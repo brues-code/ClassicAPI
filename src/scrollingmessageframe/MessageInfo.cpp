@@ -204,7 +204,7 @@ void StoreExtras(void *L, int record, int top) {
 
 int __fastcall Script_AddMessage(void *L) {
     const int top = Game::Lua::GetTop(L);
-    reinterpret_cast<Game::Lua::CFunction>(Offsets::FUN_SCRIPT_SCROLLINGMESSAGEFRAME_ADD_MESSAGE)(L);
+    Game::Lua::CallScript(Offsets::FUN_SCRIPT_SCROLLINGMESSAGEFRAME_ADD_MESSAGE, L);
     const char *text = Game::Lua::IsString(L, 2) ? Game::Lua::ToString(L, 2) : nullptr;
     if (text == nullptr || *text == '\0')
         return 0;

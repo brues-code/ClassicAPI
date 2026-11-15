@@ -39,7 +39,7 @@ void *PaneUnit(void *pane) {
 }
 
 int __fastcall Script_SetUnit(void *L) {
-    reinterpret_cast<Game::Lua::CFunction>(Offsets::FUN_SCRIPT_PLAYERMODEL_SET_UNIT)(L);
+    Game::Lua::CallScript(Offsets::FUN_SCRIPT_PLAYERMODEL_SET_UNIT, L);
     void *pane = Game::Lua::ResolvePlayerModel(L);
     if (pane == nullptr)
         return 0;

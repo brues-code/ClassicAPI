@@ -83,10 +83,6 @@ namespace {
 
 using ScriptFn_t = int(__fastcall *)(void *L);
 
-int CallScript(uintptr_t fn, void *L) {
-    return reinterpret_cast<ScriptFn_t>(fn)(L);
-}
-
 // ---- SetSize / GetSize (Region base — all region types) -------------------
 
 // `region:SetSize(width, height)` → SetWidth + SetHeight.
@@ -97,10 +93,10 @@ int __fastcall Script_SetSize(void *L) {
     }
     const double h = Game::Lua::ToNumber(L, 3);
     Game::Lua::SetTop(L, 2); // (self, width)
-    CallScript(Offsets::FUN_SCRIPT_REGION_SETWIDTH, L);
+    Game::Lua::CallScript(Offsets::FUN_SCRIPT_REGION_SETWIDTH, L);
     Game::Lua::SetTop(L, 1); // (self)
     Game::Lua::PushNumber(L, h);
-    CallScript(Offsets::FUN_SCRIPT_REGION_SETHEIGHT, L);
+    Game::Lua::CallScript(Offsets::FUN_SCRIPT_REGION_SETHEIGHT, L);
     return 0;
 }
 
@@ -128,7 +124,7 @@ void PushEngineExtent(void *L, bool ignoreRect, int slot, uintptr_t getter) {
     }
     const int top = Game::Lua::GetTop(L);
     Game::Lua::PushValue(L, 1);
-    CallScript(getter, L); // (.., self, value)
+    Game::Lua::CallScript(getter, L); // (.., self, value)
     Game::Lua::Remove(L, top + 1);
 }
 
@@ -225,7 +221,7 @@ int __fastcall Script_GetUnscaledSize(void *L) {
 // Calls a Region getter that returns one number; false if it pushed nil/none.
 bool CallRegionNumber(void *L, uintptr_t fn, double *out) {
     Game::Lua::SetTop(L, 1); // (self)
-    CallScript(fn, L);       // (self, value | nil)
+    Game::Lua::CallScript(fn, L);       // (self, value | nil)
     if (!Game::Lua::IsNumber(L, 2))
         return false;
     *out = Game::Lua::ToNumber(L, 2);
@@ -275,7 +271,7 @@ int __fastcall Script_IsMouseOver(void *L) {
     }
 
     Game::Lua::SetTop(L, 0);
-    CallScript(Offsets::FUN_SCRIPT_GETCURSORPOSITION, L); // (x, y)
+    Game::Lua::CallScript(Offsets::FUN_SCRIPT_GETCURSORPOSITION, L); // (x, y)
     const double x = Game::Lua::ToNumber(L, 1) / effScale;
     const double y = Game::Lua::ToNumber(L, 2) / effScale;
 
@@ -362,7 +358,7 @@ template <uintptr_t ShowFn, uintptr_t HideFn>
 int __fastcall Script_SetShown(void *L) {
     const bool shown = Game::Lua::ToBoolean(L, 2) != 0;
     Game::Lua::SetTop(L, 1); // (self) — Show/Hide take no args
-    CallScript(shown ? ShowFn : HideFn, L);
+    Game::Lua::CallScript(shown ? ShowFn : HideFn, L);
     return 0;
 }
 
@@ -376,7 +372,7 @@ int __fastcall Script_SetShown(void *L) {
 // for its `self` type check, which errors on a non-frame.
 int __fastcall Script_GetEffectiveAlpha(void *L) {
     Game::Lua::SetTop(L, 1);                           // (self)
-    CallScript(Offsets::FUN_SCRIPT_FRAME_GETALPHA, L); // (self, own)
+    Game::Lua::CallScript(Offsets::FUN_SCRIPT_FRAME_GETALPHA, L); // (self, own)
     const void *frame = Game::Lua::ResolveObject(L, 1);
     Game::Lua::SetTop(L, 0);
     if (frame == nullptr)
@@ -399,12 +395,12 @@ int __fastcall Script_SetResizeBounds(void *L) {
     const double maxW = haveMax ? Game::Lua::ToNumber(L, 4) : 0.0;
     const double maxH = haveMax ? Game::Lua::ToNumber(L, 5) : 0.0;
     Game::Lua::SetTop(L, 3); // (self, minW, minH)
-    CallScript(Offsets::FUN_SCRIPT_FRAME_SETMINRESIZE, L);
+    Game::Lua::CallScript(Offsets::FUN_SCRIPT_FRAME_SETMINRESIZE, L);
     if (haveMax) {
         Game::Lua::SetTop(L, 1); // (self)
         Game::Lua::PushNumber(L, maxW);
         Game::Lua::PushNumber(L, maxH);
-        CallScript(Offsets::FUN_SCRIPT_FRAME_SETMAXRESIZE, L);
+        Game::Lua::CallScript(Offsets::FUN_SCRIPT_FRAME_SETMAXRESIZE, L);
     }
     return 0;
 }
@@ -453,14 +449,14 @@ int __fastcall Script_HookScript(void *L) {
     }
 
     Game::Lua::SetTop(L, 3);                            // (self, type, hook)
-    CallScript(Offsets::FUN_SCRIPT_FRAME_GETSCRIPT, L); // (.., old or nil)
+    Game::Lua::CallScript(Offsets::FUN_SCRIPT_FRAME_GETSCRIPT, L); // (.., old or nil)
     if (Game::Lua::Type(L, 4) == Game::Lua::TYPE_FUNCTION) {
         Game::Lua::Insert(L, 3);         // (self, type, old, hook)
         HookSecureFunc::PushWrapper(L);  // (self, type, wrapper)
     } else {
         Game::Lua::SetTop(L, 3);         // (self, type, hook)
     }
-    CallScript(Offsets::FUN_SCRIPT_FRAME_SETSCRIPT, L);
+    Game::Lua::CallScript(Offsets::FUN_SCRIPT_FRAME_SETSCRIPT, L);
     return 0;
 }
 
@@ -512,11 +508,11 @@ int __fastcall Script_GetRegionEffectiveScale(void *L) {
 // the button's normal state; the Highlight / Disabled pair kept their names).
 // Pure delegation, so arguments, validation and errors are the engine's own.
 int __fastcall Script_SetNormalFontObject(void *L) {
-    return CallScript(Offsets::FUN_SCRIPT_BUTTON_SET_TEXT_FONT_OBJECT, L);
+    return Game::Lua::CallScript(Offsets::FUN_SCRIPT_BUTTON_SET_TEXT_FONT_OBJECT, L);
 }
 
 int __fastcall Script_GetNormalFontObject(void *L) {
-    return CallScript(Offsets::FUN_SCRIPT_BUTTON_GET_TEXT_FONT_OBJECT, L);
+    return Game::Lua::CallScript(Offsets::FUN_SCRIPT_BUTTON_GET_TEXT_FONT_OBJECT, L);
 }
 
 // ---- Registration ----------------------------------------------------------

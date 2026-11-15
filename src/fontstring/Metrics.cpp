@@ -161,7 +161,7 @@ int __fastcall Script_SetTextToFit(void *L) {
     void *fs = ResolveSelf(L, "Usage: fontstring:SetTextToFit([text])");
     if (fs == nullptr)
         return 0;
-    reinterpret_cast<Game::Lua::CFunction>(Offsets::FUN_SCRIPT_FONTSTRING_SET_TEXT)(L);
+    Game::Lua::CallScript(Offsets::FUN_SCRIPT_FONTSTRING_SET_TEXT, L);
     reinterpret_cast<SetWidth_t>(Offsets::FUN_LAYOUT_SET_WIDTH)(Game::Ptr<uint8_t>(fs, Offsets::OFF_REGION_ANCHOR),
                                                                UnboundedWidth(fs));
     return 0;

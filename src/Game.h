@@ -257,6 +257,12 @@ struct Event {
 namespace Lua {
 using CFunction = int(__fastcall *)(void *L);
 
+// Runs the engine's Lua C function at `fn` (a FUN_SCRIPT_* or other Script_
+// address) on L's current stack; returns its result count.
+inline int CallScript(uintptr_t fn, void *L) {
+    return reinterpret_cast<CFunction>(fn)(L);
+}
+
 // Lua 5.0 pseudo-index used to read/write entries on the globals table.
 constexpr int GLOBALS_INDEX = -10001;
 // Lua 5.0 pseudo-index for the registry table — a Lua-state-local

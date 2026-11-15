@@ -321,7 +321,7 @@ void OnFrameNode(void *object, const void *node, void * /*status*/) {
 const Xml::FrameLoad::AutoSubscribe _xmlSub{&OnFrameNode};
 
 int __fastcall Script_EnableMouse(void *L) {
-    reinterpret_cast<Game::Lua::CFunction>(Offsets::FUN_SCRIPT_FRAME_ENABLEMOUSE)(L);
+    Game::Lua::CallScript(Offsets::FUN_SCRIPT_FRAME_ENABLEMOUSE, L);
     void *frame = Game::Lua::ResolveFrame(L, 1, false);
     if (frame != nullptr && (g_clickOff.erase(frame) | g_motionOff.erase(frame)) != 0)
         Repick();
@@ -334,7 +334,7 @@ int __fastcall Script_IsMouseEnabled(void *L) {
         Game::Lua::PushNil(L);
         return 1;
     }
-    return reinterpret_cast<Game::Lua::CFunction>(Offsets::FUN_SCRIPT_FRAME_ISMOUSEENABLED)(L);
+    return Game::Lua::CallScript(Offsets::FUN_SCRIPT_FRAME_ISMOUSEENABLED, L);
 }
 
 int __fastcall Script_SetMouseClickEnabled(void *L) {

@@ -70,7 +70,6 @@ namespace Tooltip::Layout {
 namespace {
 
 using ResetPosition_t = void(__fastcall *)(void *tooltip, void *edx, int force);
-using Script_t = int(__fastcall *)(void *L);
 
 ResetPosition_t g_resetPositionOriginal = nullptr;
 
@@ -172,18 +171,17 @@ int __fastcall Script_GameTooltipSetAnchorType(void *L) {
 // offsets, and positions nothing), then the real code and a position pass. Any
 // other call goes to the engine untouched, so its errors stay its own.
 int __fastcall Script_GameTooltipSetOwner(void *L) {
-    const auto engine = reinterpret_cast<Script_t>(Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_OWNER);
     const int code =
         Game::Lua::IsString(L, 3) ? FindAnchor(Game::Lua::ToString(L, 3)) : -1;
     void *self = IsAddedAnchor(code) ? Game::Lua::ResolveTooltip(L, 1, /*raiseError*/ false)
                                      : nullptr;
     if (self == nullptr)
-        return engine(L);
+        return Game::Lua::CallScript(Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_OWNER, L);
 
     Game::Lua::Remove(L, 3);
     Game::Lua::PushString(L, "ANCHOR_NONE");
     Game::Lua::Insert(L, 3);
-    const int n = engine(L);
+    const int n = Game::Lua::CallScript(Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_OWNER, L);
 
     auto *tooltip = static_cast<uint8_t *>(self);
     if (Game::Read<uintptr_t>(tooltip, Offsets::OFF_TOOLTIP_OWNER) != 0) {
@@ -206,7 +204,7 @@ int __fastcall Script_GameTooltipGetAnchorType(void *L) {
             return 1;
         }
     }
-    return reinterpret_cast<Script_t>(Offsets::FUN_SCRIPT_GAMETOOLTIP_GET_ANCHOR_TYPE)(L);
+    return Game::Lua::CallScript(Offsets::FUN_SCRIPT_GAMETOOLTIP_GET_ANCHOR_TYPE, L);
 }
 
 // The width `SetMinimumWidth` set, and the second value 4.3.4 returns for its

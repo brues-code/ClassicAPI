@@ -64,7 +64,6 @@ namespace {
 using KeyDispatch_t = int(__fastcall *)(void *mgr, void *edx, const char *key, int isDown);
 using CommandExecute_t = int(__fastcall *)(void *mgr, void *edx, const char *cmd, int isDown);
 using GetCommandAction_t = const char *(__thiscall *)(void *mgr, const char *key);
-using ScriptFn_t = int(__fastcall *)(void *L);
 
 KeyDispatch_t g_keyDispatchOriginal = nullptr;
 CommandExecute_t g_commandExecuteOriginal = nullptr;
@@ -276,7 +275,7 @@ int SetBinding(void *L, const std::string &key, const std::string &command) {
     Game::Lua::SetTop(L, 0);
     Game::Lua::PushString(L, key.c_str());
     Game::Lua::PushString(L, command.c_str());
-    return reinterpret_cast<ScriptFn_t>(Offsets::FUN_SCRIPT_SET_BINDING)(L);
+    return Game::Lua::CallScript(Offsets::FUN_SCRIPT_SET_BINDING, L);
 }
 
 int SetBindingCommand(void *L, const char *prefix, const char *usage) {
@@ -384,7 +383,7 @@ int __fastcall Script_GetBindingAction(void *L) {
             return 1;
         }
     }
-    return reinterpret_cast<ScriptFn_t>(Offsets::FUN_SCRIPT_GET_BINDING_ACTION)(L);
+    return Game::Lua::CallScript(Offsets::FUN_SCRIPT_GET_BINDING_ACTION, L);
 }
 
 // GetBindingByKey(key): the command a press of `key` runs — the reduced-key

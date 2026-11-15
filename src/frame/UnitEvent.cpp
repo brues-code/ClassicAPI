@@ -84,9 +84,6 @@ namespace Frame::UnitEvent {
 
 namespace {
 
-using ScriptFn_t = int(__fastcall *)(void *L);
-
-int CallScript(uintptr_t fn, void *L) { return reinterpret_cast<ScriptFn_t>(fn)(L); }
 
 bool EqualsIgnoreCase(const char *a, const char *b) {
     if (a == nullptr || b == nullptr)
@@ -198,7 +195,7 @@ int __fastcall Script_RegisterUnitEvent(void *L) {
     // RegisterEvent hook in DllMain runs Event::Custom::RetryClaims inside it,
     // which can claim this very name into a free slot or move the table.
     Game::Lua::SetTop(L, 2);
-    CallScript(Offsets::FUN_SCRIPT_FRAME_REGISTEREVENT, L);
+    Game::Lua::CallScript(Offsets::FUN_SCRIPT_FRAME_REGISTEREVENT, L);
 
     // The engine appends to the frame's list exactly when it joins a chain,
     // so a longer list is a fresh registration and its last index is this

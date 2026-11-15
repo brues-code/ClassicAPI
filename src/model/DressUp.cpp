@@ -303,7 +303,7 @@ int __fastcall Script_TryOn(void *L) {
 
 int __fastcall Script_Dress(void *L) {
     g_dressing = true;
-    const int n = reinterpret_cast<Game::Lua::CFunction>(Offsets::FUN_SCRIPT_DRESSUPMODEL_DRESS)(L);
+    const int n = Game::Lua::CallScript(Offsets::FUN_SCRIPT_DRESSUPMODEL_DRESS, L);
     g_dressing = false;
     return n;
 }

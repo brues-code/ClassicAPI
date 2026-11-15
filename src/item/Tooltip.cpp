@@ -67,9 +67,7 @@ static int __fastcall Script_GameTooltipSetItemByID(void *L) {
     Game::Lua::SetTop(L, 1);            // keep self at stack[1]
     Game::Lua::PushString(L, hyperlink); // stack[2] = hyperlink
 
-    using Script_t = int(__fastcall *)(void *L);
-    auto fn = reinterpret_cast<Script_t>(Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_HYPERLINK);
-    return fn(L);
+    return Game::Lua::CallScript(Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_HYPERLINK, L);
 }
 
 // `GameTooltip:SetInventoryItemByID(itemID)` — modern method that
@@ -133,9 +131,7 @@ static int __fastcall Script_GameTooltipSetInventoryItemByID(void *L) {
     Game::Lua::PushString(L, "player");
     Game::Lua::PushNumber(L, static_cast<double>(foundSlot));
 
-    using Script_t = int(__fastcall *)(void *L);
-    auto fn = reinterpret_cast<Script_t>(Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_INVENTORY_ITEM);
-    return fn(L);
+    return Game::Lua::CallScript(Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_INVENTORY_ITEM, L);
 }
 
 
@@ -351,9 +347,7 @@ static int __fastcall Script_GameTooltipSetItemByGUID(void *L) {
     Game::Lua::SetTop(L, 1);
     Game::Lua::PushString(L, payload);
 
-    using Script_t = int(__fastcall *)(void *L);
-    auto fn = reinterpret_cast<Script_t>(Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_HYPERLINK);
-    return fn(L);
+    return Game::Lua::CallScript(Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_HYPERLINK, L);
 }
 
 static const Game::Lua::FrameMethodEntry g_methods[] = {
