@@ -60,6 +60,7 @@
 #include "frame/Layout.h"
 #include "gx/Device.h"
 #include "texture/Construct.h"
+#include "texture/CornerStore.h"
 #include "texture/Load.h"
 #include "texture/Mask.h"
 #include "texture/Transform.h"
@@ -225,7 +226,6 @@ bool BuildMaskMatrix(const float mr[4], float midY, bool rotated, float angle, f
 }
 
 using PrimIndexed_t = void(__fastcall *)(int primType, int indexCount, const void *indices);
-using Crop_t = void(__fastcall *)(void *region, void *edx, float *rect);
 
 PrimIndexed_t g_primIndexedOriginal = nullptr;
 
@@ -280,11 +280,8 @@ bool MaskedRegionDrawImpl(void *base, void *pathMaskH, void *const *masks, int m
     float br[4]; // base rect {top, left, bottom, right}
     if (!Frame::Layout::GetResolvedRect(base, br))
         return false;
-    // Mirror the engine corner store's input rect: the texcoord crop applies
-    // only when the region opted in (SetTexCoordModifiesRect) — same gate as
-    // Transform.cpp's ApplyFromRect, so midY matches the store's midline.
-    if (Game::Read<int>(base, Offsets::OFF_REGION_TEXCOORD_MODIFIES_RECT) != 0)
-        reinterpret_cast<Crop_t>(Offsets::FUN_REGION_TEXCOORD_CROP)(base, nullptr, br);
+    // The engine corner store's input rect, so midY matches the store's midline.
+    Texture::CornerStore::CropInput(base, br);
     const float midY = br[0] + br[2];
 
     void *cgx[7];

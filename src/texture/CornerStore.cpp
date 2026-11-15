@@ -39,4 +39,10 @@ const Game::HookAutoRegister _hook{Offsets::FUN_REGION_STORE_CORNERS, reinterpre
 
 AutoSubscribe::AutoSubscribe(Listener fn) : fn(fn), next(g_head) { g_head = this; }
 
+void CropInput(void *region, float (&rect)[4]) {
+    using Crop_t = void(__thiscall *)(void *region, float *rect);
+    if (Game::Read<int>(region, Offsets::OFF_REGION_TEXCOORD_MODIFIES_RECT) != 0)
+        reinterpret_cast<Crop_t>(Offsets::FUN_REGION_TEXCOORD_CROP)(region, rect);
+}
+
 } // namespace Texture::CornerStore

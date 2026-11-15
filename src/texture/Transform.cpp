@@ -89,8 +89,6 @@ struct Xf {
 
 std::unordered_map<void *, Xf> g_xf;
 
-// FUN_REGION_TEXCOORD_CROP — __thiscall(region, float rect[4]) (rect in/out).
-using Crop_t = void(__fastcall *)(void *region, void *edx, float *rect);
 
 // Retail vertex index → our +0xD4 corner slot (BL=0, TL=1, BR=2, TR=3). The
 // index values (UPPER_LEFT_VERTEX = 1, …) are the FrameXML-style globals defined
@@ -174,8 +172,8 @@ bool ApplyFromRect(void *region, const Xf &xf) {
     float rect[4];
     if (!Frame::Layout::GetRect(region, rect))
         return false;
-    // Apply the texcoord crop (FUN_REGION_TEXCOORD_CROP) exactly as the
-    // engine's own store paths do: gated on the region's
+    // Apply the texcoord crop exactly as the engine's own store paths do
+    // (Texture::CornerStore::CropInput): gated on the region's
     // SetTexCoordModifiesRect flag (+0x124), which is off by default. With the
     // flag clear, a plain texture with a partial or corner-form texcoord draws
     // at its FULL size — verified in-game against .25-span, inset, sheared and
@@ -191,8 +189,7 @@ bool ApplyFromRect(void *region, const Xf &xf) {
     // BOTH states, so this immediate apply and the corner-store co-hook below
     // (which re-derives edges from whatever rect the engine stored) can never
     // disagree about the base rect.
-    if (Game::Read<int>(region, Offsets::OFF_REGION_TEXCOORD_MODIFIES_RECT) != 0)
-        reinterpret_cast<Crop_t>(Offsets::FUN_REGION_TEXCOORD_CROP)(region, nullptr, rect);
+    Texture::CornerStore::CropInput(region, rect);
     // rect = {top, left, bottom, right}. While a position animation plays,
     // each update draws it on top of the corners it stored, so the new shape
     // goes there and shows from the next update on.

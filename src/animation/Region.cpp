@@ -64,6 +64,7 @@
 #include "frame/Layout.h"
 #include "frame/Alpha.h"
 #include "frame/Destruction.h"
+#include "texture/CornerStore.h"
 #include "texture/Transform.h"
 #include "xml/Anchors.h"
 
@@ -114,7 +115,6 @@ using SetFrameAlpha_t = void(__fastcall *)(void *frame, void *edx, uint32_t alph
 using GetColor_t = void(__fastcall *)(void *region, void *edx, uint32_t *bgra);
 using SetColor_t = void(__fastcall *)(void *region, void *edx, const uint32_t *bgra);
 using StoreCorners_t = void(__fastcall *)(void *region, void *edx, float *rect);
-using Crop_t = void(__fastcall *)(void *region, void *edx, float *rect);
 using SetStringPos_t = void(__fastcall *)(void *block, const float *position);
 using SizeChanged_t = void(__fastcall *)(void *layout, void *edx, const float *oldRect);
 using InvalidateNode_t = void(__fastcall *)(void *node);
@@ -192,8 +192,7 @@ float *Corners(void *texture) { return Game::Ptr<float>(texture, Offsets::OFF_SI
 void StoreTextureCorners(void *texture) {
     float rect[4];
     std::memcpy(rect, Game::Ptr<float>(texture, Offsets::OFF_REGION_RECT), sizeof(rect));
-    if (Game::Read<int>(texture, Offsets::OFF_REGION_TEXCOORD_MODIFIES_RECT) != 0)
-        reinterpret_cast<Crop_t>(Offsets::FUN_REGION_TEXCOORD_CROP)(texture, nullptr, rect);
+    Texture::CornerStore::CropInput(texture, rect);
     reinterpret_cast<StoreCorners_t>(Offsets::FUN_REGION_STORE_CORNERS)(texture, nullptr, rect);
 }
 

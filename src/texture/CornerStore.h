@@ -25,6 +25,13 @@
 //   static const Texture::CornerStore::AutoSubscribe _sub{&OnCornersStored};
 namespace Texture::CornerStore {
 
+// The rect the corner store is given, made from the region's layout rect
+// `rect` ({top, left, bottom, right}) in place: cropped by the texcoords
+// (FUN_REGION_TEXCOORD_CROP) only when SetTexCoordModifiesRect is on, as the
+// texture's layout callback and the layout-resolve store (FUN_00770670) do.
+// With the flag clear, a partial texcoord draws at the region's full size.
+void CropInput(void *region, float (&rect)[4]);
+
 using Listener = void (*)(void *region);
 
 struct AutoSubscribe {
