@@ -48,10 +48,8 @@ void PushBagLocation(void *L, int bagID, int slotIndex) {
 // `{bagID=B, slotIndex=S}`), so the result pipes straight into
 // `C_Item.GetItemQuality(loc)`, `C_Item.GetItemLink(loc)`, etc.
 //
-// Walked scope: character-pane equipment (slots 1..19) + backpack
-// (bagID 0) + the four equipped bags (bagIDs 1..4). Bank and keyring
-// are NOT walked — same scope as the rest of the `C_Container.*`
-// family.
+// Scope: `Item::Location::FindLocationByGUID` — equipment, bags, keyring,
+// and the bank while a banker is open. A buyback item has no location.
 static int __fastcall Script_C_Item_GetItemLocation(void *L) {
     if (Game::Lua::Type(L, 1) != Game::Lua::TYPE_STRING) {
         Game::Lua::Error(L, "Usage: C_Item.GetItemLocation(itemGUID)");
@@ -62,7 +60,7 @@ static int __fastcall Script_C_Item_GetItemLocation(void *L) {
         return 0;
 
     Item::Location::ByGUIDResult found;
-    if (!Item::Location::FindByGUID(L, guid, &found))
+    if (!Item::Location::FindLocationByGUID(guid, &found))
         return 0;
 
     if (found.equipmentSlotIndex != 0)
@@ -77,8 +75,8 @@ static const Game::Doc::Field kArgs[] = {
 };
 static const Game::Doc::Field kRets[] = {
     Game::Doc::Opt("itemLocation", "ItemLocation", nullptr,
-                   "A plain table, not an ItemLocation object; nil when the player does not "
-                   "wear the item or carry it in the bags."),
+                   "A plain table, not an ItemLocation object; nil when the item is not "
+                   "equipped, in the bags, on the keyring, or in an open bank."),
 };
 static const Game::Doc::Function kGetItemLocation{
     "Returns where the item with that GUID is now.", kArgs, kRets};

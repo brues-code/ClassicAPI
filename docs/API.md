@@ -11760,10 +11760,25 @@ frame-script convention — *not* a `self` argument (like every built-in
 script: `OnShow`, `OnEvent`, `OnTooltipCleared`, …). A
 `function(self) self:… end` handler will see `self == nil`; use `this`.
 
+`OnTooltipSetItem` gets one argument, `arg1`: the GUID of the item that
+the tooltip shows (ClassicAPI extension). The GUID is nil when no item
+object is behind the tooltip. This is true for loot, loot rolls, merchant
+items, auctions, mail in the inbox, the trade partner's items, links and
+item IDs. Bag, bank, equipped, buyback, trade and send-mail items have a
+GUID. Give it to `Item:CreateFromItemGUID` or to the `C_Item` functions
+that take an item location.
+
 ```lua
 GameTooltip:HookScript("OnTooltipSetItem", function()
     local name, link, id = this:GetItem()   -- the tooltip is the global `this`
     if id then this:AddLine("ID: " .. id, 0.6, 0.6, 0.6) end
+end)
+
+GameTooltip:HookScript("OnTooltipSetItem", function()
+    local itemGUID = arg1
+    if itemGUID then
+        this:AddLine("Stack: " .. C_Item.GetStackCount(itemGUID), 0.6, 0.6, 0.6)
+    end
 end)
 
 GameTooltip:HookScript("OnTooltipSetUnit", function()
@@ -12766,11 +12781,10 @@ settings, exists but stays empty.
 > "0xHHHHHHHHLLLLLLLL"           -- a GUID string from C_Item.GetItemGUID
 > ```
 >
-> Table forms are O(1) — the location names the slot. The GUID-string form
-> is O(~80) — the function searches equipment slots 1..19 and bags 0..4
-> for an item with that GUID. Bank and
-> keyring are not walked. Fine for sporadic addon use; avoid for per-frame
-> polling.
+> Table forms name a slot. A GUID string names the item itself, wherever
+> you have it: equipped, in the bags, on the keyring, on the buyback list,
+> or in the bank while the bank window is open. An item that you sold,
+> mailed, traded or destroyed is not found.
 
 ### `C_Item.DoesItemExist(itemLocation)` / `C_Item.DoesItemExistByID(item)`
 
@@ -13351,8 +13365,7 @@ local link = C_Item.GetItemLink({bagID = 0, slotIndex = 1})
 
 Reverse lookup from a GUID string (the format `C_Item.GetItemGUID`
 returns) to an `itemLocation` table identifying the slot currently
-holding that item. Returns `nil` if the GUID isn't resident in the
-walked scope.
+holding that item. Returns `nil` if you do not have the item there.
 
 ```lua
 local guid = C_Item.GetItemGUID({equipmentSlotIndex = INVSLOT_HEAD})
@@ -13367,11 +13380,11 @@ The function returns a plain table with the same field shape every other
 or `{bagID=B, slotIndex=S}`), so the result pipes straight into
 `C_Item.GetItemQuality(loc)`, `C_Item.GetItemLink(loc)`, etc.
 
-**Walked scope.** Character-pane equipment (slots 1..19) + backpack
-(bagID 0) + the four equipped bags (bagIDs 1..4). Bank and keyring
-are NOT walked — same scope as the rest of the `C_Container.*`
-family. Worst case is ~80 slot lookups; fine for sporadic use, not
-appropriate for per-frame polling.
+**Scope.** Equipped items and equipped bags (`equipmentSlotIndex`),
+the backpack and bags 1..4, the keyring (bagID -2), and, while the bank
+window is open, the main bank (bagID -1), the bank bags (5..10) and the
+bank bag slots. An item on the buyback list returns `nil`, because no
+location names it.
 
 A stale GUID is safe. It returns `nil`.
 

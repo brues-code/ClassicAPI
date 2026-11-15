@@ -73,16 +73,6 @@ const uint8_t *ResolveBagSlot(void *L, int bagID, int slotIndex) {
     return d.item;
 }
 
-// --- GUID-walk helpers ---------------------------------------------------
-
-uint64_t ReadCGItemGUID(const uint8_t *item) {
-    auto *instance = Item::InstanceBlock(item);
-    if (instance == nullptr)
-        return 0;
-    return *reinterpret_cast<const uint64_t *>(
-        instance + Offsets::OFF_INSTANCE_BLOCK_GUID);
-}
-
 } // namespace
 
 const uint8_t *ResolveEquipmentSlot(int slot1Based) {
@@ -331,44 +321,117 @@ bool FindByArgNoLua(const Item::Arg::Resolved &arg, ByGUIDResult *out) {
     return false;
 }
 
-bool FindByGUID(void *L, uint64_t guid, ByGUIDResult *out) {
+bool BankerOpen() {
+    return Game::Read<uint64_t>(Offsets::VAR_BANK_GATE_GUID) != 0;
+}
+
+namespace {
+
+// 1-based slot of `guid` in an inventory list's GUID array, or 0.
+int SlotInList(const uint8_t *invMgr, uint64_t guid) {
+    if (invMgr == nullptr)
+        return 0;
+    const int count = static_cast<int>(
+        Game::Read<uint32_t>(invMgr, Offsets::OFF_INVMGR_SLOT_COUNT));
+    auto *guids = Game::Read<const uint64_t *>(invMgr, Offsets::OFF_INVMGR_GUID_ARRAY);
+    if (guids == nullptr)
+        return 0;
+    for (int i = 0; i < count; ++i)
+        if (guids[i] == guid)
+            return i + 1;
+    return 0;
+}
+
+// 1-based slot of `guid` inside the bag whose GUID is `bagGuid`, or 0.
+int SlotInBag(uint64_t bagGuid, uint64_t guid) {
+    if (bagGuid == 0)
+        return 0;
+    const auto *bag = static_cast<const uint8_t *>(
+        Object::ByGuid(Offsets::TYPEMASK_CONTAINER, bagGuid, "ItemMgr", 0x172));
+    return SlotInList(static_cast<const uint8_t *>(ContainerInventory(bag)), guid);
+}
+
+} // namespace
+
+bool FindByGUID(uint64_t guid, bool includeBank, ByGUIDResult *out) {
+    *out = ByGUIDResult{};
     if (guid == 0)
         return false;
+    const uint8_t *invMgr = Unit::Identity::PlayerInventoryManager();
+    if (invMgr == nullptr)
+        return false;
+    auto *guids = Game::Read<const uint64_t *>(invMgr, Offsets::OFF_INVMGR_GUID_ARRAY);
+    if (guids == nullptr)
+        return false;
 
-    // Equipment slots first — no Lua stack interaction, so cheaper.
-    for (int slot = Offsets::EQUIPMENT_SLOT_FIRST;
-         slot <= Offsets::EQUIPMENT_SLOT_LAST; ++slot) {
-        auto *item = ResolveEquipmentSlot(slot);
-        if (item == nullptr)
-            continue;
-        if (ReadCGItemGUID(item) == guid) {
-            out->equipmentSlotIndex = slot;
-            out->bagID = 0;
-            out->slotIndex = 0;
-            out->item = item;
+    // The player's own list, read the way FUN_INVMGR_WALK reads it, as one
+    // linear array: equipment and bag slots, backpack, bank, bank bag
+    // slots, buyback, keyring (Offsets.h, "Slot ranges").
+    const int linear = SlotInList(invMgr, guid) - 1;
+    if (linear >= 0) {
+        const bool bankRange = linear >= Offsets::INVMGR_BANK_MAIN_FIRST_SLOT &&
+                               linear <= Offsets::INVMGR_BANK_BAG_LAST_SLOT;
+        if (bankRange && !includeBank)
+            return false;
+        if (linear >= Offsets::INVMGR_BACKPACK_FIRST_SLOT &&
+            linear <= Offsets::INVMGR_BACKPACK_LAST_SLOT) {
+            out->place = PLACE_BAGS;
+            out->bagID = Offsets::BAG_INDEX_BACKPACK;
+            out->slotIndex = linear - Offsets::INVMGR_BACKPACK_FIRST_SLOT + 1;
+        } else if (linear >= Offsets::INVMGR_BANK_MAIN_FIRST_SLOT &&
+                   linear <= Offsets::INVMGR_BANK_MAIN_LAST_SLOT) {
+            out->place = PLACE_BANK;
+            out->bagID = Offsets::BAG_INDEX_BANK;
+            out->slotIndex = linear - Offsets::INVMGR_BANK_MAIN_FIRST_SLOT + 1;
+        } else if (linear >= Offsets::INVMGR_BUYBACK_FIRST_SLOT &&
+                   linear <= Offsets::INVMGR_BUYBACK_LAST_SLOT) {
+            out->place = PLACE_BUYBACK; // sold: no location names it
+        } else if (linear >= Offsets::INVMGR_KEYRING_FIRST_SLOT) {
+            out->place = PLACE_KEYRING;
+            out->bagID = Offsets::BAG_INDEX_KEYRING;
+            out->slotIndex = linear - Offsets::INVMGR_KEYRING_FIRST_SLOT + 1;
+        } else {
+            // Equipment 0..18, the equipped bags 19..22, the bank bags
+            // 63..68: an inventory slot, `linear + 1` (INVSLOT_BAG1 = 20).
+            out->place = bankRange ? PLACE_BANK : PLACE_EQUIPPED;
+            out->equipmentSlotIndex = linear + 1;
+        }
+        out->item = ResolveByGUID(guid);
+        return out->item != nullptr;
+    }
+
+    // Bag contents: each equipped bag (bagIDs 1..4) and bank bag (5..10)
+    // keeps its own list, reached through the bag's container object.
+    auto inBag = [&](int bagID, uint64_t bagGuid, Place place) {
+        const int slot = SlotInBag(bagGuid, guid);
+        if (slot == 0)
+            return false;
+        out->place = place;
+        out->bagID = bagID;
+        out->slotIndex = slot;
+        out->item = ResolveByGUID(guid);
+        return out->item != nullptr;
+    };
+    for (int bagID = Offsets::BAG_INDEX_BAG_FIRST; bagID <= Offsets::BAG_INDEX_BAG_LAST;
+         ++bagID)
+        if (inBag(bagID, guids[Offsets::INVSLOT_BAG1 - 1 + bagID - 1], PLACE_BAGS))
             return true;
-        }
-    }
+    if (!includeBank)
+        return false;
+    for (int bagID = Offsets::BAG_INDEX_BANK_BAG_FIRST;
+         bagID <= Offsets::BAG_INDEX_BANK_BAG_LAST; ++bagID)
+        if (inBag(bagID,
+                  guids[Offsets::INVMGR_BANK_BAG_FIRST_SLOT + bagID -
+                        Offsets::BAG_INDEX_BANK_BAG_FIRST],
+                  PLACE_BANK))
+            return true;
+    return false;
+}
 
-    // Bag slots — `ResolveBag` stomps the Lua stack on each call. Caller
-    // beware: any data the caller stashed on the stack will be gone after
-    // this returns true.
-    for (int bagID = 0; bagID <= 4; ++bagID) {
-        const int slotCount = GetBagSlotCount(bagID);
-        for (int slotIndex = 1; slotIndex <= slotCount; ++slotIndex) {
-            auto *item = ResolveBag(L, bagID, slotIndex);
-            if (item == nullptr)
-                continue;
-            if (ReadCGItemGUID(item) == guid) {
-                out->equipmentSlotIndex = 0;
-                out->bagID = bagID;
-                out->slotIndex = slotIndex;
-                out->item = item;
-                return true;
-            }
-        }
-    }
-
+bool FindLocationByGUID(uint64_t guid, ByGUIDResult *out) {
+    if (FindByGUID(guid, BankerOpen(), out) && out->place != PLACE_BUYBACK)
+        return true;
+    *out = ByGUIDResult{};
     return false;
 }
 
@@ -388,11 +451,7 @@ static bool ResolveLocationDetail(void *L, int locIdx, ByGUIDResult *out) {
         uint64_t guid = 0;
         if (!ParseGUIDString(Game::Lua::ToString(L, locIdx), &guid))
             return false;
-        if (!FindByGUID(L, guid, out)) {
-            *out = ByGUIDResult{}; // a miss may have written into it
-            return false;
-        }
-        return true;
+        return FindLocationByGUID(guid, out);
     }
 
     if (t != Game::Lua::TYPE_TABLE)
@@ -418,6 +477,15 @@ static bool ResolveLocationDetail(void *L, int locIdx, ByGUIDResult *out) {
 }
 
 const uint8_t *Resolve(void *L, int locIdx) {
+    // A GUID names the item itself, so it resolves wherever the player
+    // holds it — buyback included, which no location can name.
+    if (Game::Lua::Type(L, locIdx) == Game::Lua::TYPE_STRING) {
+        uint64_t guid = 0;
+        if (!ParseGUIDString(Game::Lua::ToString(L, locIdx), &guid))
+            return nullptr;
+        ByGUIDResult found;
+        return FindByGUID(guid, BankerOpen(), &found) ? found.item : nullptr;
+    }
     ByGUIDResult found;
     return ResolveLocationDetail(L, locIdx, &found) ? found.item : nullptr;
 }
@@ -438,12 +506,8 @@ bool FindItemArgOrLocation(void *L, int idx, ByGUIDResult *out) {
         return ResolveLocationDetail(L, idx, out);
     if (t == Game::Lua::TYPE_STRING) {
         uint64_t guid = 0;
-        if (ParseGUIDString(Game::Lua::ToString(L, idx), &guid)) {
-            if (FindByGUID(L, guid, out))
-                return true;
-            *out = ByGUIDResult{}; // a miss may have written into it
-            return false;
-        }
+        if (ParseGUIDString(Game::Lua::ToString(L, idx), &guid))
+            return FindLocationByGUID(guid, out);
     }
 
     const Item::Arg::Resolved arg = Item::Arg::Resolve(L, idx);

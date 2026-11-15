@@ -15,7 +15,6 @@
 
 #include "Game.h"
 #include "Offsets.h"
-#include "equipmentset/Locations.h"
 #include "item/BagFamily.h"
 #include "item/ID.h"
 #include "item/Location.h"
@@ -47,7 +46,7 @@ bool ViewFor(int bagID, View *out) {
         return PlayerRange(Offsets::INVMGR_BACKPACK_FIRST_SLOT,
                            Offsets::BACKPACK_NUM_SLOTS, out);
     if (bagID == Offsets::BAG_INDEX_BANK) {
-        if (!EquipmentSet::Locations::BankerOpen())
+        if (!Item::Location::BankerOpen())
             return false;
         return PlayerRange(Offsets::INVMGR_BANK_MAIN_FIRST_SLOT,
                            Offsets::INVMGR_BANK_MAIN_LAST_SLOT -

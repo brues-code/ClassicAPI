@@ -37,7 +37,8 @@
 //     unit _BUILD_UNIT, gameobject _BUILD_GAMEOBJECT). We co-hook each and,
 //     after the build, fire the matching handler via FUN_FRAME_INVOKE_SCRIPT
 //     (the same no-arg runner the clear uses for OnTooltipCleared) with the
-//     tooltip as `self`.
+//     tooltip as `self` — except OnTooltipSetItem, which also passes the
+//     item's GUID (FireItem).
 //
 // Suppressed during our own Tooltip::Compare equipped-item build (see
 // Suppressor), and guarded against a handler that re-enters a builder.
@@ -49,6 +50,7 @@
 #include "equipmentset/Tooltip.h"
 #include "frame/ScriptArgs.h"
 #include "frame/ScriptSlots.h"
+#include "guid/Guid.h"
 #include "unit/Tooltip.h"
 
 #include <cstdint>
@@ -157,6 +159,35 @@ void FireScript(void *self, int kind) {
         Game::Lua::SetTop(L, savedTop);
 }
 
+// OnTooltipSetItem carries the displayed item's GUID (a ClassicAPI
+// extension): the builder's p3 is the item object's GUID, or all zero when
+// the setter has no object (loot, merchant, auction, links — their items are
+// rows, not objects), so the handler gets the "0x…" string or nil. Runs
+// through Frame::ScriptArgs::RunWithValues — `arg1`, and `(self, itemGUID)`
+// under modern script args — which, like FUN_FRAME_INVOKE_SCRIPT, leaves the
+// exec context alone; same guards and stack restore as FireScript.
+void FireItem(void *self, uint64_t itemGuid) {
+    if (g_suppress > 0 || g_firing > 0)
+        return;
+    uint32_t *slot = SlotFor(self, SK_ITEM, /*create*/ false);
+    if (slot == nullptr || slot[0] == 0)
+        return;
+    void *L = Game::Lua::State();
+    if (L == nullptr)
+        return;
+    const int savedTop = Game::Lua::GetTop(L);
+    if (itemGuid != 0) {
+        char buf[Guid::STRING_SIZE];
+        Game::Lua::PushString(L, Guid::FormatAsString(itemGuid, buf, sizeof buf));
+    } else {
+        Game::Lua::PushNil(L);
+    }
+    ++g_firing;
+    Frame::ScriptArgs::RunWithValues(L, static_cast<int>(slot[0]), self, savedTop + 1, 1);
+    --g_firing;
+    Game::Lua::SetTop(L, savedTop);
+}
+
 // --- Resolver co-hook (CGGameTooltip vtable script-name → slot) ---------
 using Resolver_t = int(__fastcall *)(void *self, void *edx, const char *name);
 Resolver_t g_resolverOriginal = nullptr;
@@ -190,7 +221,7 @@ void __fastcall BuildItem_h(void *self, void *edx, uint32_t itemID, const void *
                             int a8, int a9) {
     g_buildItemOriginal(self, edx, itemID, guid, guid2, a4, a5, a6, headerFlag, a8, a9);
     EquipmentSet::Tooltip::AfterItemBuild(self, guid2);
-    FireScript(self, SK_ITEM);
+    FireItem(self, guid2 != nullptr ? *static_cast<const uint64_t *>(guid2) : 0);
 }
 
 // Spell — FUN_GAMETOOLTIP_BUILD_SPELL_TOOLTIP, 7 stack args, returns an int.

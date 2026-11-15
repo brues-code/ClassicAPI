@@ -5695,6 +5695,11 @@ enum Offsets {
     INVMGR_BANK_MAIN_LAST_SLOT = 62,
     INVMGR_BANK_BAG_FIRST_SLOT = 63,
     INVMGR_BANK_BAG_LAST_SLOT = 68,
+    // Buyback (12 sold items). The server's BUYBACK_SLOT_START/END
+    // (tortoise-wow Player.h: 69, 81 exclusive); VAR_BUYBACK_SLOTS holds
+    // indices into this range.
+    INVMGR_BUYBACK_FIRST_SLOT = 69,
+    INVMGR_BUYBACK_LAST_SLOT = 80,
     // Keyring (Lua bagID -2). No LAST constant: the engine bounds this
     // range against the invMgr's own slot count (OFF_INVMGR_SLOT_COUNT)
     // rather than a fixed size, since keyring capacity grows with level.

@@ -25,9 +25,9 @@ namespace Item::Location {
 //     `{ bagID = B, slotIndex = S }` — same shapes the modern
 //     `ItemLocation` mixin uses.
 //   - GUID strings: `"0xHHHHHHHHLLLLLLLL"` — the form
-//     `C_Item.GetItemGUID` returns. The GUID is looked up by walking
-//     equipment slots 1..19 + bags 0..4; bank and keyring are not
-//     walked.
+//     `C_Item.GetItemGUID` returns, found with `FindByGUID` wherever
+//     the player holds the item: equipped, bags, keyring, buyback, and
+//     the bank while a banker is open.
 //
 // Returns `nullptr` when the value isn't a valid location arg, the
 // table doesn't carry recognizable fields, the GUID is malformed, or
@@ -35,9 +35,8 @@ namespace Item::Location {
 // raise a Lua error — callers should validate the argument type
 // beforehand with `IsLocationArg` if they want a typed error.
 //
-// Both paths may stomp the Lua stack (the bag-form table uses
-// `PackBagSlot`; the GUID path iterates bag slots via the same
-// helper). Only safe to call from inside a Lua callback.
+// The bag-form table may stomp the Lua stack (`PackBagSlot`). Only
+// safe to call from inside a Lua callback.
 const uint8_t *Resolve(void *L, int locIdx);
 
 // Type-check helper: returns true if the value at `idx` could be a
@@ -104,22 +103,44 @@ const uint8_t *BagContainer(int bagID);
 // player inventory manager at `BACKPACK_LINEAR_BASE + slot - 1`.)
 void *BagInventory(int bagID);
 
-// GUID-walk result. `equipmentSlotIndex != 0` means the item was
-// found in a character-pane equipment slot; otherwise it's in
-// `bagID`/`slotIndex`. `item` always points to the found CGItem
-// when the function returns true.
+// Where a found item sits. Bank covers the main bank, the bank bags and
+// the bank bag slots; equipped covers the equipped bags too.
+enum Place { PLACE_EQUIPPED, PLACE_BAGS, PLACE_BANK, PLACE_KEYRING, PLACE_BUYBACK };
+
+// An item and its location. `equipmentSlotIndex != 0` is an inventory
+// slot (`linear + 1`: 1..19 gear, 20..23 equipped bags, 64..69 bank
+// bags); otherwise it's `bagID`/`slotIndex` (0..4, -1 and 5..10, -2).
+// A buyback item has neither. `item` always points to the found CGItem
+// when the finder returns true.
 struct ByGUIDResult {
-    int equipmentSlotIndex; // 1..19, or 0 if bag form
+    int equipmentSlotIndex;
     int bagID;
     int slotIndex;
     const uint8_t *item;
+    Place place;
 };
 
-// Walks the local player's inventory (equipment 1..19 + bags 0..4)
-// looking for a CGItem with a matching GUID. Returns false when the
-// GUID isn't found, true (and fills `*out`) on a hit. Stomps the
-// Lua stack — only safe from inside a Lua callback.
-bool FindByGUID(void *L, uint64_t guid, ByGUIDResult *out);
+// True while the bank window is open: the engine's banker GUID at
+// `VAR_BANK_GATE_GUID` is set — 4.3.4's `CGBankInfo::m_banker`, the gate
+// `GetItemBySlot` applies to slots 39..68. The server moves nothing out
+// of the bank without a banker.
+bool BankerOpen();
+
+// The ONE GUID → item search. Finds the item with `guid` in the player's
+// own inventory list (equipment, equipped bags, backpack, buyback,
+// keyring, and — when `includeBank` — main bank and bank bag slots) or
+// in the contents of an equipped bag or (when `includeBank`) a bank bag.
+// Reads the GUID arrays directly, as `FUN_INVMGR_WALK` does, so the bank
+// is readable with the window closed. Only an item the player still
+// holds is found: a deleted, mailed or traded-away item can linger in the
+// object manager, and `ResolveByGUID` alone would still return it. No Lua
+// stack.
+bool FindByGUID(uint64_t guid, bool includeBank, ByGUIDResult *out);
+
+// `FindByGUID` for a location: the bank only while `BankerOpen` (the
+// slots a bank location reads are gated on it), and false for a buyback
+// item, which no location names. Clears `*out` on a miss.
+bool FindLocationByGUID(uint64_t guid, ByGUIDResult *out);
 
 // Same equipment-first, bag-second walk as `FindByGUID`, but matches
 // on itemID instead. Returns the FIRST instance found — equipment

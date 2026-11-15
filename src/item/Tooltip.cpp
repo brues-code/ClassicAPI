@@ -164,8 +164,9 @@ static void *ResolveItemByGuid(uint32_t guidLo, uint32_t guidHi) {
 //   - tooltip+0x398 → itemID  (link paths with no instance: SetItemByID,
 //                              SetHyperlink)
 //   - tooltip+0x380/+0x384 → item GUID  (CGItem paths: SetBagItem,
-//                              SetInventoryItem, SetLootItem,
-//                              SetMerchantItem, …) — these leave the itemID
+//                              SetInventoryItem, SetBuybackItem,
+//                              SetSendMailItem, …; SetLootItem and the
+//                              other row paths pass a zero GUID) — these leave the itemID
 //                              field 0, so when +0x398 is 0 we recover the
 //                              itemID from the GUID's live CGItem.
 // Both are zeroed by the per-tooltip Clear at FUN_00530050.

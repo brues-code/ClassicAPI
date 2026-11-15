@@ -207,7 +207,7 @@ int __fastcall Script_GetItemLocations(void *L) {
     if (s == nullptr)
         return 0;
 
-    const bool bank = Locations::BankerOpen();
+    const bool bank = Item::Location::BankerOpen();
     Game::Lua::SetTop(L, 0);
     Game::Lua::NewTable(L);
     for (int i = 0; i < SLOT_COUNT; ++i) {
@@ -408,7 +408,7 @@ int __fastcall Script_UseEquipmentSet(void *L) {
 
     // Decide every slot against the original state.
     const bool inCombat = PlayerInCombat();
-    const bool bank = Locations::BankerOpen();
+    const bool bank = Item::Location::BankerOpen();
     bool combatWarned = false;
     bool missingWarned = false;
     int sourceLoc[SLOT_COUNT] = {};
