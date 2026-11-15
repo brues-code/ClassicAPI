@@ -771,17 +771,25 @@ void RunGlueModuleRegistrations();
 // DllMain (FrameScript_Initialize / LoadScriptFunctions /
 // LoadGlueScriptFunctions / Frame::RegisterEvent) have inline logic that
 // interleaves with the hook chain and stays with the installer.
+//
+// `file` / `line` default to the declaration's own site (the compiler
+// builtins evaluate at the caller), so an install failure names the module
+// that registered the hook without any call site spelling it out.
 struct HookAutoRegister {
-    HookAutoRegister(uintptr_t target, void *hook, void **original);
+    HookAutoRegister(uintptr_t target, void *hook, void **original,
+                     const char *file = __builtin_FILE(), int line = __builtin_LINE());
     uintptr_t target;
     void *hook;
     void **original;
+    const char *file;
+    int line;
     HookAutoRegister *next;
 };
 
 // Creates and QUEUE-enables every registered hook (no `MH_ApplyQueued`
 // here — the caller applies the whole batch at once). Returns `false`
-// and stops on first failure.
+// and stops on first failure, after logging the failing hook's target,
+// MinHook status and declaring site to the debug log.
 bool RunHookRegistrations();
 
 // Self-registration for per-/reload state cleanup. A module that keeps

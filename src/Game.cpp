@@ -16,6 +16,7 @@
 #include "Offsets.h"
 #include "api/Documentation.h"
 #include "compat/WowTurbo.h"
+#include "debug/Log.h"
 
 namespace Game {
 
@@ -597,26 +598,56 @@ void RunReloadCleanups() {
         node->fn();
 }
 
-HookAutoRegister::HookAutoRegister(uintptr_t target, void *hook, void **original)
-    : target(target), hook(hook), original(original), next(g_hookHead) {
+HookAutoRegister::HookAutoRegister(uintptr_t target, void *hook, void **original,
+                                   const char *file, int line)
+    : target(target), hook(hook), original(original), file(file), line(line),
+      next(g_hookHead) {
     g_hookHead = this;
 }
+
+namespace {
+
+// `path` from its `src` directory on (`text/InlineTexture.cpp`), or `path`
+// itself when it has none.
+const char *SourceRelativePath(const char *path) {
+    const char *rel = path;
+    for (const char *p = path; *p != '\0'; ++p)
+        if ((p[0] == '\\' || p[0] == '/') && p[1] == 's' && p[2] == 'r' && p[3] == 'c' &&
+            (p[4] == '\\' || p[4] == '/'))
+            rel = p + 5;
+    return rel;
+}
+
+void LogHookFailure(const char *step, const HookAutoRegister &node, MH_STATUS status) {
+    Debug::Log::Printf("[install] %s(0x%08X) failed: %s, registered at %s:%d. "
+                       "No ClassicAPI hook was enabled.",
+                       step, static_cast<unsigned>(node.target), MH_StatusToString(status),
+                       SourceRelativePath(node.file), node.line);
+}
+
+} // namespace
 
 bool RunHookRegistrations() {
     for (auto *node = g_hookHead; node != nullptr; node = node->next) {
         auto *targetPtr = reinterpret_cast<LPVOID>(node->target);
         // A hook must wrap the engine's body, not wow_turbo's reimplementation.
         Compat::WowTurbo::Reclaim(node->target);
-        if (MH_CreateHook(targetPtr, node->hook,
-                          reinterpret_cast<LPVOID *>(node->original)) != MH_OK)
+        MH_STATUS status =
+            MH_CreateHook(targetPtr, node->hook, reinterpret_cast<LPVOID *>(node->original));
+        if (status != MH_OK) {
+            LogHookFailure("MH_CreateHook", *node, status);
             return false;
+        }
         // Queue, don't enable. The caller (InstallHooks) applies every
         // queued hook with a single MH_ApplyQueued, so all ~90 hooks share
         // ONE thread-freeze instead of one freeze per hook. This is the
         // difference that keeps install cheap on machines whose security
         // stack intercepts SuspendThread / VirtualProtect per call.
-        if (MH_QueueEnableHook(targetPtr) != MH_OK)
+        status = MH_QueueEnableHook(targetPtr);
+        if (status != MH_OK) {
+            LogHookFailure("MH_QueueEnableHook", *node, status);
             return false;
+        }
     }
     return true;
 }
