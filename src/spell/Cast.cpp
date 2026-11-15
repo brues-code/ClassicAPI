@@ -89,6 +89,7 @@
 #include "unit/Focus.h"
 #include "unit/Identity.h"
 #include "unit/IncomingResurrection.h"
+#include "spell/CastPacket.h"
 
 #include <cstdint>
 
@@ -101,13 +102,6 @@ using GetCastTime_t = uint32_t(__fastcall *)(int spellID, int pet, int allowNega
 // SPELL_ATTR_RANGED — every ranged ability carries it; the server adds a
 // flat +500ms "aim time" to these (SpellEntry::GetCastTime). Auto-repeat
 // shots (Auto Shot / Shoot, AttributesEx2 bit 0x20) are the one exclusion.
-
-// SMSG_SPELL_START target block: SpellCastTargets writes a u16 target mask,
-// then a packed GUID for the unit target when this bit is set (1.12 server
-// SpellCastTargets::write). Self / ground / item targets carry no unit GUID —
-// a cast with none reports no target. Per project convention TARGET_* flags
-// stay local (single-use, no drift).
-constexpr uint16_t TARGET_FLAG_UNIT = 0x2;
 
 struct TrackedSpell {
     int spellID; // 0 = not casting / channeling
@@ -591,26 +585,17 @@ void HandleSpellStart(uint64_t caster, int spellID, uint32_t castTime,
                                              instantChannel);
 }
 
-// SMSG_SPELL_START parse. Body (mirrored from nampower's SpellStartHandler):
-// itemGuid(packed), casterGuid(packed), spellId(u32), castFlags(u16),
-// castTime(u32), then the SpellCastTargets block: targetMask(u16) and — when
-// TARGET_FLAG_UNIT is set — a packed target GUID (the unit the cast is aimed
-// at; the field that backs UnitSpellTargetName). Runs from the
-// Net::PacketDispatch funnel with the cursor already positioned at the body.
-void ParseSpellStart(Net::CDataStore *packet) {
-    Net::ReadPackedGuid(packet); // itemGuid (unused)
-    const uint64_t caster = Net::ReadPackedGuid(packet);
-    const int spellID = static_cast<int>(Net::Read<uint32_t>(packet));
-    Net::Read<uint16_t>(packet); // castFlags (unused)
-    const uint32_t castTime = Net::Read<uint32_t>(packet);
-    // TARGET_FLAG_UNIT is the first field the server writes after the mask, so
-    // the packed GUID sits immediately after it (SpellCastTargets::write). Other
-    // target kinds (ground coords, item) carry no unit GUID → target is 0.
-    const uint16_t targetMask = Net::Read<uint16_t>(packet);
+// SMSG_SPELL_START, decoded once by Spell::CastPacket. The target is the unit
+// the cast is aimed at (the field behind UnitSpellTargetName): 0 for a self,
+// ground, item, game-object or corpse target.
+void OnCastStart(const Spell::CastPacket::Start &s) {
     const uint64_t targetGuid =
-        (targetMask & TARGET_FLAG_UNIT) ? Net::ReadPackedGuid(packet) : 0;
-    HandleSpellStart(caster, spellID, castTime, targetGuid);
+        (s.targets.mask & Offsets::SPELL_TARGET_FLAG_UNIT) ? s.targets.object : 0;
+    HandleSpellStart(s.header.caster, static_cast<int>(s.header.spellId), s.castTimeMs,
+                     targetGuid);
 }
+
+const Spell::CastPacket::AutoStart _castStart{&OnCastStart};
 
 // SMSG_SPELL_DELAYED — cast pushback. The server only sends it to the
 // affected caster, so it's effectively always the local player; extend the
@@ -785,7 +770,6 @@ void SpellPacketSub(uint32_t opcode, Net::CDataStore *packet) {
     if (packet == nullptr)
         return;
     switch (opcode) {
-    case Offsets::SMSG_SPELL_START:          ParseSpellStart(packet); break;
     case Offsets::SMSG_SPELL_DELAYED:        ParseSpellDelayed(packet); break;
     case Offsets::SMSG_SPELL_CHANNEL_START:  ParseChannelStart(packet); break;
     case Offsets::SMSG_SPELL_CHANNEL_UPDATE: ParseChannelUpdate(packet); break;

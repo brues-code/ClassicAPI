@@ -3862,6 +3862,16 @@ enum Offsets {
     // SpellCastTargets::write). A resurrect aimed at a released player
     // carries the corpse.
     SPELL_TARGET_FLAGS_OBJECT = 0x8A02,
+    // The other SpellCastTargets bits a reader needs (vmangos SpellDefines.h
+    // SpellCastTargetFlags; written in this order by SpellCastTargets::write
+    // after the object GUID): TARGET_FLAG_UNIT alone, the item and trade-item
+    // bits that carry a packed item GUID, the source and destination
+    // locations (3 floats each) and a string target.
+    SPELL_TARGET_FLAG_UNIT = 0x2,
+    SPELL_TARGET_FLAGS_ITEM = 0x1010,
+    SPELL_TARGET_FLAG_SOURCE_LOCATION = 0x20,
+    SPELL_TARGET_FLAG_DEST_LOCATION = 0x40,
+    SPELL_TARGET_FLAG_STRING = 0x2000,
     // Melee swing result broadcast. Body (verified against the server's own
     // writer, tortoise-wow Unit::SendAttackStateUpdate): u32 hitInfo,
     // packedGuid attacker, packedGuid victim, u32 totalDamage, u8 subCount,

@@ -56,6 +56,7 @@
 #include "time/Clock.h"
 #include "unit/Identity.h"
 #include "unit/Position.h"
+#include "spell/CastPacket.h"
 
 #include <cstdint>
 
@@ -431,18 +432,16 @@ void OnPacket(uint32_t opcode, CDataStore *packet) {
         }
         return;
     }
-
-    if (opcode == Offsets::SMSG_SPELL_GO) {
-        Net::ReadPackedGuid(packet); // itemGuid -- unused here
-        const uint64_t caster = Net::ReadPackedGuid(packet);
-        const uint32_t spellId = Net::Read<uint32_t>(packet);
-        if (caster == player)
-            OnSpellGo(spellId);
-        return;
-    }
 }
 
 const Net::PacketDispatch::AutoSubscribe _sub{&OnPacket};
+
+void OnCastGo(const Spell::CastPacket::Go &g) {
+    if (g.header.caster != 0 && g.header.caster == Unit::Identity::PlayerGuid())
+        OnSpellGo(g.header.spellId);
+}
+
+const Spell::CastPacket::AutoGo _go{&OnCastGo};
 
 } // namespace
 

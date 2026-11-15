@@ -33,6 +33,7 @@
 #include "totem/Tracker.h"
 #include "unit/TokenEvents.h"
 #include "unit/Identity.h"
+#include "spell/CastPacket.h"
 
 #include <cstdint>
 #include <cstring>
@@ -1659,33 +1660,14 @@ void HandleSpellGo(uint64_t caster, uint32_t spellId, const uint64_t *targets,
         StoreFromCast(auraTargets[i], spellId, auraCaster, expirationMs, durationMs);
 }
 
-// SMSG_SPELL_GO parse (funnel subscriber). At the leaf handler the engine has
-// pre-decoded itemGuid/casterGuid/spellId; here we're at the raw body, so we
-// decode them ourselves before the hit list:
-//   itemGuid(packed), casterGuid(packed), spellId(u32), castFlags(i16),
-//   numHit(u8), hitGuids(u64 × numHit).
-void ParseSpellGo(CDataStore *packet) {
-    Net::ReadPackedGuid(packet); // itemGuid (unused)
-    const uint64_t caster = Net::ReadPackedGuid(packet);
-    const uint32_t spellId = Net::Read<uint32_t>(packet);
-    Net::Read<int16_t>(packet); // castFlags (unused)
-    const uint8_t numHit = Net::Read<uint8_t>(packet);
-    uint64_t targets[kMaxTargets];
-    int numTargets = 0;
-    for (int i = 0; i < numHit; ++i) {
-        const uint64_t guid = Net::Read<uint64_t>(packet);
-        if (numTargets < kMaxTargets)
-            targets[numTargets++] = guid;
-    }
-    HandleSpellGo(caster, spellId, targets, numTargets);
+// SMSG_SPELL_GO, decoded once by Spell::CastPacket: the caster, the spell and
+// the units it hit.
+void OnSpellGo(const Spell::CastPacket::Go &g) {
+    HandleSpellGo(g.header.caster, g.header.spellId, g.hits,
+                  g.hitCount < kMaxTargets ? g.hitCount : kMaxTargets);
 }
 
-void SpellGoSub(uint32_t opcode, CDataStore *packet) {
-    if (opcode == Offsets::SMSG_SPELL_GO && packet != nullptr)
-        ParseSpellGo(packet);
-}
-
-const Net::PacketDispatch::AutoSubscribe _spellGoSub{&SpellGoSub};
+const Spell::CastPacket::AutoGo _spellGo{&OnSpellGo};
 
 // ---- Aura-application co-hooks (timing for proc / triggered auras) -------
 

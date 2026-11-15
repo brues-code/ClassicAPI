@@ -46,12 +46,12 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "event/Custom.h"
-#include "net/PacketDispatch.h"
 #include "object/Corpse.h"
 #include "object/Resolve.h"
 #include "spell/Lookup.h"
 #include "tick/WorldTick.h"
 #include "unit/Identity.h"
+#include "spell/CastPacket.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -138,32 +138,24 @@ bool IsResurrect(int spellID) {
            Spell::Lookup::HasEffect(rec, SPELL_EFFECT_RESURRECT_NEW);
 }
 
-// SMSG_SPELL_START / SMSG_SPELL_GO: packed item or caster, packed caster,
-// spell, then for SPELL_START u16 flags, u32 cast time and the targets.
-void OnPacket(uint32_t opcode, Net::CDataStore *p) {
-    if (opcode != Offsets::SMSG_SPELL_START && opcode != Offsets::SMSG_SPELL_GO)
-        return;
-    if (opcode == Offsets::SMSG_SPELL_GO && g_entries.empty())
-        return;
-    Net::ReadPackedGuid(p);
-    const uint64_t caster = Net::ReadPackedGuid(p);
-    const int spellID = static_cast<int>(Net::Read<uint32_t>(p));
-    if (opcode == Offsets::SMSG_SPELL_GO) {
-        if (p->m_read <= p->m_size)
-            End(caster, spellID);
-        return;
-    }
-    Net::Read<uint16_t>(p);
-    Net::Read<uint32_t>(p);
-    const uint16_t targetMask = Net::Read<uint16_t>(p);
-    const uint64_t target =
-        (targetMask & Offsets::SPELL_TARGET_FLAGS_OBJECT) ? Net::ReadPackedGuid(p) : 0;
-    if (p->m_read > p->m_size || caster == 0 || target == 0 || !IsResurrect(spellID))
+// A resurrect starts at its SMSG_SPELL_START (its target is the unit or corpse
+// the targets block names) and ends at its SMSG_SPELL_GO.
+void OnCastStart(const Spell::CastPacket::Start &s) {
+    const uint64_t caster = s.header.caster;
+    const uint64_t target = s.targets.object;
+    const int spellID = static_cast<int>(s.header.spellId);
+    if (caster == 0 || target == 0 || !IsResurrect(spellID))
         return;
     Begin(target, caster, spellID);
 }
 
-const Net::PacketDispatch::AutoSubscribe _sub{&OnPacket};
+void OnCastGo(const Spell::CastPacket::Go &g) {
+    if (!g_entries.empty())
+        End(g.header.caster, static_cast<int>(g.header.spellId));
+}
+
+const Spell::CastPacket::AutoStart _start{&OnCastStart};
+const Spell::CastPacket::AutoGo _go{&OnCastGo};
 
 void OnWorldTick() {
     for (size_t i = 0; i < g_entries.size();) {

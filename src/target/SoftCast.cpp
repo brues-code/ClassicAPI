@@ -43,10 +43,10 @@
 #include "Common.h"
 #include "Game.h"
 #include "Offsets.h"
-#include "net/PacketDispatch.h"
 #include "target/Loose.h"
 #include "target/SoftUnit.h"
 #include "unit/Identity.h"
+#include "spell/CastPacket.h"
 
 #include <cstdint>
 
@@ -112,14 +112,9 @@ uint8_t __fastcall Arm_h(void *caster, const uint8_t *record, uint32_t guidLo, u
     return arm(caster, record, guidLo, guidHi);
 }
 
-void OnPacket(uint32_t opcode, Net::CDataStore *p) {
-    if (opcode != Offsets::SMSG_SPELL_GO || g_pendingSpell == 0)
-        return;
-    Net::ReadPackedGuid(p); // the item
-    const uint64_t caster = Net::ReadPackedGuid(p);
-    const int spellId = static_cast<int>(Net::Read<uint32_t>(p));
-    if (p->m_read > p->m_size || caster != Unit::Identity::PlayerGuid() ||
-        spellId != g_pendingSpell)
+void OnCastGo(const Spell::CastPacket::Go &g) {
+    if (g_pendingSpell == 0 || g.header.caster != Unit::Identity::PlayerGuid() ||
+        static_cast<int>(g.header.spellId) != g_pendingSpell)
         return;
     const uint64_t unit = g_pendingUnit;
     g_pendingSpell = 0;
@@ -128,7 +123,7 @@ void OnPacket(uint32_t opcode, Net::CDataStore *p) {
         Loose::SetLoose(unit);
 }
 
-const Net::PacketDispatch::AutoSubscribe _sub{&OnPacket};
+const Spell::CastPacket::AutoGo _go{&OnCastGo};
 
 void Register() {
     Common::RedirectCall(Offsets::CALL_CAST_CHECK_TARGET_RANGE,

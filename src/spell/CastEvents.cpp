@@ -123,9 +123,6 @@ const Event::Custom::AutoReserve kInterruptible{"UNIT_SPELLCAST_INTERRUPTIBLE", 
 const Event::Custom::AutoReserve kNotInterruptible{"UNIT_SPELLCAST_NOT_INTERRUPTIBLE",
                                                    &kNotInterruptibleDoc};
 
-// SpellCastTargets mask bit for a unit target (a packed GUID follows).
-constexpr uint16_t kTargetFlagUnit = 0x0002;
-
 // The event formats take `%s`, and a NULL `%s` corrupts every argument after
 // it, so an empty name or rank goes out as "".
 const char *OrEmpty(const char *s) { return s != nullptr ? s : ""; }
@@ -434,7 +431,7 @@ void OnSend(uint32_t opcode, Net::CDataStore *packet) {
     char target[64];
     target[0] = '\0';
     const uint16_t mask = Net::Read<uint16_t>(packet);
-    if (mask & kTargetFlagUnit) {
+    if (mask & Offsets::SPELL_TARGET_FLAG_UNIT) {
         const uint64_t targetGuid = Net::ReadPackedGuid(packet);
         if (targetGuid != 0)
             Unit::Identity::TokenFromGUID(targetGuid, target, sizeof(target));
