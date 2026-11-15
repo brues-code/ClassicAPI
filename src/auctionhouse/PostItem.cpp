@@ -61,6 +61,7 @@
 #include "item/Record.h"
 #include "item/Swap.h"
 #include "tick/WorldTick.h"
+#include "item/BagFamily.h"
 
 #include <cstdint>
 
@@ -192,11 +193,13 @@ bool BagIsGeneral(int bag) {
     const int id = Item::ID::FromCGItem(bagItem);
     if (id == 0)
         return false;
+    // An uncached bag's family is unknown, so it is not trusted as general.
     const uint8_t *rec = Item::PeekRecord(static_cast<uint32_t>(id));
     if (rec == nullptr)
         return false;
-    return Game::Read<uint32_t>(
-               rec, Offsets::OFF_ITEMSTATS_BAG_FAMILY) == 0;
+    // BitmaskForRecord, not the raw field: a vanilla quiver or soul bag leaves
+    // the field empty, and would otherwise read as general-purpose.
+    return Item::BagFamily::BitmaskForRecord(rec) == 0;
 }
 
 bool FindFreeGeneralSlot(void *L, int *outBag, int *outSlot) {
