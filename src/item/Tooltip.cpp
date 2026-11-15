@@ -17,7 +17,6 @@
 #include "item/ID.h"
 #include "item/Link.h"
 #include "item/Location.h"
-#include "item/QualityColor.h"
 #include "item/Record.h"
 #include "item/TooltipItem.h"
 #include "object/Resolve.h"
@@ -242,22 +241,22 @@ static int __fastcall Script_GameTooltipGetItem(void *L) {
         Item::Data::WarmCache(static_cast<uint32_t>(itemID));
         return 0;
     }
-    const char *name = Game::Read<const char *>(
-        record, Offsets::OFF_ITEMSTATS_NAME);
-    if (name == nullptr || *name == '\0')
-        return 0;
-    const uint32_t quality = Game::Read<uint32_t>(
-        record, Offsets::OFF_ITEMSTATS_QUALITY);
-
     int suffix = 0;
     if (Game::Read<int>(base, Offsets::OFF_TOOLTIP_COMPARE_FLAG) != 0)
         suffix = Game::Read<int>(base, Offsets::OFF_TOOLTIP_COMPARE_SUFFIX);
 
+    // The engine's own name builder gives a suffixed item its full name
+    // ("Iridium Chain of the Owl"), in both the return and the link text.
     char link[256];
-    std::snprintf(link, sizeof(link),
-                  "%s|Hitem:%d:0:%d:0:0:0:0:0|h[%s]|h|r",
-                  Item::QualityColor::Prefix(static_cast<int>(quality)),
-                  itemID, suffix, name);
+    if (!Item::Link::BasicFromIDSuffix(static_cast<uint32_t>(itemID), suffix, link,
+                                       sizeof(link)))
+        return 0;
+    char name[128];
+    if (!Item::Link::NameFromIDSuffix(static_cast<uint32_t>(itemID), suffix, name,
+                                      sizeof(name))) {
+        const char *baseName = Game::Read<const char *>(record, Offsets::OFF_ITEMSTATS_NAME);
+        std::snprintf(name, sizeof(name), "%s", baseName != nullptr ? baseName : "");
+    }
 
     Game::Lua::PushString(L, name);
     Game::Lua::PushString(L, link);
