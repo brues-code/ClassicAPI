@@ -23,4 +23,10 @@ namespace FontString::Layout {
 // Re-calling SetText would NOT work - it returns early on unchanged text.
 void Invalidate(void *fontString);
 
+// The font string's font height in layout units (FUN_FONTSTRING_FONT_HEIGHT):
+// its stored height (fs+0xE4), or with `calculated` and the measure flag 0x200
+// set, the gxu font's native height re-derived. The engine's own width path
+// passes `calculated` (0x007728F4) and scales the result by fs+0x7C.
+float FontHeight(void *fontString, bool calculated);
+
 } // namespace FontString::Layout

@@ -45,6 +45,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "fontstring/Layout.h"
 #include "frame/Layout.h"
 #include "frame/ScriptSlots.h"
 #include "text/InlineTexture.h"
@@ -58,7 +59,6 @@ namespace {
 using PlaceCaret_t = void(__fastcall *)(void *editBox);
 using PlaceSelectionPiece_t = void(__fastcall *)(void *editBox, void *edx, void *piece, int from, int to);
 using IndexAtPoint_t = void(__fastcall *)(void *editBox, void *edx, float x, float y, int *index);
-using FontHeight_t = float(__fastcall *)(void *fs, void *edx, int mode);
 using MeasureRun_t = float(__fastcall *)(void *fs, void *edx, const uint8_t *text, int len);
 using PixelAlignY_t = float(__stdcall *)(float length);
 using Extent_t = float(__fastcall *)(void *anchor, void *edx);
@@ -135,7 +135,7 @@ float ShiftOf(const Rows &rows, int line) {
 // spacing, each pixel-aligned at the box's scale (PlaceCaret
 // 0x0077DAEB..0x0077DB0E).
 float RowHeight(const Rows &rows) {
-    const float fontH = reinterpret_cast<FontHeight_t>(Offsets::FUN_FONTSTRING_FONT_HEIGHT)(rows.fs, nullptr, 1);
+    const float fontH = FontString::Layout::FontHeight(rows.fs, true);
     const float spacing = Game::Read<float>(rows.fs, Offsets::OFF_FONTSTRING_SPACING);
     const auto align = reinterpret_cast<PixelAlignY_t>(Offsets::FUN_PIXEL_ALIGN_Y);
     return align(fontH * rows.scale) + align(spacing * rows.scale);

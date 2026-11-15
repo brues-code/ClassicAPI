@@ -40,4 +40,10 @@ void Invalidate(void *fs) {
     Frame::Layout::Resize(fs, false);
 }
 
+float FontHeight(void *fontString, bool calculated) {
+    using FontHeight_t = float(__thiscall *)(void *fs, int calculated);
+    return reinterpret_cast<FontHeight_t>(Offsets::FUN_FONTSTRING_FONT_HEIGHT)(fontString,
+                                                                               calculated ? 1 : 0);
+}
+
 } // namespace FontString::Layout

@@ -90,8 +90,6 @@ namespace {
 using StringHeightInternal_t = float(__fastcall *)(void *fs);
 // FUN_FONTSTRING_MEASURE_SUBSTRING — __thiscall(fs, text, len); dummy-EDX form.
 using MeasureSubstring_t = float(__fastcall *)(void *fs, void *edx, const char *text, int len);
-// FUN_FONTSTRING_FONT_HEIGHT — __thiscall(fs, mode-on-stack); dummy-EDX form.
-using FsFontHeight_t = float(__fastcall *)(void *fs, void *edx, int mode);
 // FUN_LAYOUT_SET_WIDTH — __thiscall(region + OFF_REGION_ANCHOR, internal width).
 using SetWidth_t = void(__thiscall *)(void *anchor, float internal);
 // FUN_FONTSTRING_BREAK_ARRAY — __thiscall(fs, text, wrapWidth, outBreaks, cap).
@@ -272,8 +270,7 @@ int __fastcall Script_GetLineHeight(void *L) {
     void *fs = ResolveSelf(L, "Usage: fontstring:GetLineHeight()");
     if (fs == nullptr)
         return 0;
-    const float h = reinterpret_cast<FsFontHeight_t>(Offsets::FUN_FONTSTRING_FONT_HEIGHT)(
-        fs, nullptr, 1);
+    const float h = FontString::Layout::FontHeight(fs, true);
     Game::Lua::PushNumber(L, Game::InternalToPixel(h));
     return 1;
 }

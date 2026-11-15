@@ -31,14 +31,13 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "fontstring/Layout.h"
 
 #include <cstdint>
 
 namespace FontString::FontHeight {
 namespace {
 
-// FUN_FONTSTRING_FONT_HEIGHT — __thiscall(fs, scaled-on-stack); dummy-EDX form.
-using FsFontHeight_t = float(__fastcall *)(void *fs, void *edx, int scaled);
 // GetFont's push (0x0079D4A5..0x0079D4C4).
 double ToUiHeight(float internal) { return Game::InternalToPixel(internal); }
 
@@ -50,8 +49,7 @@ int __fastcall Script_FontStringGetFontHeight(void *L) {
     if (fs == nullptr)
         return 0;
     const bool calculated = Game::Lua::Type(L, 2) == Game::Lua::TYPE_NIL || Game::Lua::ToBoolean(L, 2) != 0;
-    const float h = reinterpret_cast<FsFontHeight_t>(Offsets::FUN_FONTSTRING_FONT_HEIGHT)(
-        fs, nullptr, calculated ? 1 : 0);
+    const float h = FontString::Layout::FontHeight(fs, calculated);
     Game::Lua::PushNumber(L, ToUiHeight(h));
     return 1;
 }

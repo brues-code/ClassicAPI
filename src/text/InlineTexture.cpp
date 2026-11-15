@@ -74,6 +74,7 @@
 // Still icon-blind (documented, accepted): hyperlink hit-testing past a tall
 // icon outside the link. See docs/InlineTextureEscapes.md for the RE map.
 
+#include "fontstring/Layout.h"
 #include "text/InlineTexture.h"
 
 #include "animation/Region.h"
@@ -917,9 +918,6 @@ void ApplyCopyMask() {
 // link stays icon-blind. (Wrap breaks route through the stepper hook, and the
 // substring measure and fit have their own co-hooks below.)
 using StringWidthInternal_t = float(__fastcall *)(void *fs);
-// FUN_FONTSTRING_FONT_HEIGHT is __thiscall(fs, mode-on-stack) — dummy-EDX
-// __fastcall matches the register/stack layout (established pattern).
-using FsFontHeight_t = float(__fastcall *)(void *fs, void *edx, int mode);
 StringWidthInternal_t g_stringWidthOriginal = nullptr;
 
 // The RENDER's exact font numbers for an fs, for the measure hooks. fontHInt
@@ -945,7 +943,7 @@ struct FsPenFont {
 };
 bool ResolveFsPenFont(void *fs, FsPenFont &out) {
     out.fontHInt =
-        reinterpret_cast<FsFontHeight_t>(Offsets::FUN_FONTSTRING_FONT_HEIGHT)(fs, nullptr, 1);
+        FontString::Layout::FontHeight(fs, true);
     const float scale = Game::Read<float>(fs, Offsets::OFF_LAYOUT_SCALE);
     const float anchorH = Game::Read<float>(Offsets::VAR_COORD_DDC_HEIGHT_SCALE);
     const int rasterY = Game::Read<int>(Offsets::VAR_TEXT_RASTER_Y);
