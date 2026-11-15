@@ -71,17 +71,6 @@ const uint8_t *ResolveUnit(void *L) {
     return static_cast<const uint8_t *>(Game::ResolveUnitToken(token));
 }
 
-// The spell that summoned this unit (its UNIT_CREATED_BY_SPELL descriptor
-// field): the totem-drop spell for a totem, the summon spell for a
-// pet/guardian, etc. 0 for a unit not summoned by a spell (players, world
-// creatures) or an object with no descriptor.
-uint32_t CreatedBySpell(const uint8_t *unit) {
-    auto *desc = Object::Fields(unit);
-    if (desc == nullptr)
-        return 0;
-    return Game::Read<uint32_t>(desc, Offsets::OFF_UNIT_FIELD_CREATED_BY_SPELL);
-}
-
 // `UnitIsMinion(unit)` — true iff the unit is a player's minion (pet,
 // guardian, totem, or charmed creature): player-controlled but not itself
 // a player. NPCs, world creatures, and players return false. A bad or
@@ -190,7 +179,7 @@ int __fastcall Script_UnitCreatedBySpell(void *L) {
         Game::Lua::PushNil(L);
         return 1;
     }
-    const uint32_t spellId = CreatedBySpell(unit);
+    const uint32_t spellId = Unit::Identity::CreatedBySpell(unit);
     if (spellId == 0) {
         Game::Lua::PushNil(L);
         return 1;

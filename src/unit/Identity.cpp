@@ -155,6 +155,12 @@ uint64_t OwnerGuid(const void *unitObject) {
     return Game::Read<uint64_t>(desc, Offsets::OFF_UNIT_FIELD_CREATEDBY);
 }
 
+uint32_t CreatedBySpell(const void *unitObject) {
+    const uint8_t *desc = Object::Fields(unitObject);
+    return desc != nullptr ? Game::Read<uint32_t>(desc, Offsets::OFF_UNIT_FIELD_CREATED_BY_SPELL)
+                           : 0;
+}
+
 bool IsPlayerToken(const char *token) {
     if (token == nullptr)
         return false;

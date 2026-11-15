@@ -70,6 +70,11 @@ uint64_t GuidForObject(const void *unitObject);
 // anything unowned, and a null object or descriptor.
 uint64_t OwnerGuid(const void *unitObject);
 
+// The spell that summoned a unit (UNIT_CREATED_BY_SPELL): the totem-drop spell
+// for a totem, the summon spell for a pet or guardian. 0 for a unit no spell
+// summoned (players, world creatures) and a null object or descriptor.
+uint32_t CreatedBySpell(const void *unitObject);
+
 // Case-insensitive match against the literal `"player"` token, mirroring
 // the engine's `SStrCmpI(token, "player")` fast-path tests (e.g.
 // `Script_UnitClass`/`Script_UnitRace`, which special-case `"player"` to
