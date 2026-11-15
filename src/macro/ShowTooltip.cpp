@@ -654,7 +654,7 @@ void ResolveValue(const char *value, Resolution *r, bool explicitValue, bool ite
     }
     int bag = 0, slot = 0;
     if (ParseBagSlot(value, &bag, &slot)) {
-        SetItem(Item::Location::ResolveBagSlotNoLua(bag, slot), r);
+        SetItem(Item::Location::ResolveBag(bag, slot), r);
         return;
     }
     int n = 0;
@@ -673,7 +673,7 @@ void ResolveValue(const char *value, Resolution *r, bool explicitValue, bool ite
     if (!numeric) {
         const Item::Arg::Resolved arg = Item::Arg::ResolveString(value);
         Item::Location::ByGUIDResult found;
-        if (Item::Location::FindByArgNoLua(arg, &found)) {
+        if (Item::Location::FindByArg(arg, &found)) {
             SetItem(found.item, r);
             if (r->target == Target::Item)
                 return;

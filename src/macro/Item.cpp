@@ -49,7 +49,7 @@ int __fastcall Script_GetMacroItem(void *L) {
     char name[128];
     ::Item::Arg::Resolved arg{info.itemID, 0, nullptr};
     ::Item::Location::ByGUIDResult found;
-    if (::Item::Location::FindByArgNoLua(arg, &found)) {
+    if (::Item::Location::FindByArg(arg, &found)) {
         const char *link = ::Item::Link::FromCGItem(found.item);
         if (link != nullptr && ::Item::Link::NameFromCGItem(found.item, name, sizeof(name))) {
             Game::Lua::PushString(L, name);

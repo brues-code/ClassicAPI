@@ -66,11 +66,7 @@ bool ToBag(const void *cgItem, int srcPaperdollSlot, int dstBagID, int dstSlotIn
 // allowed to be empty — the engine treats that as a move; or occupied
 // — engine atomically swaps.
 //
-// Requires a valid Lua state pointer because the source-side CGItem
-// lookup goes through `Item::Location::ResolveBag`, which uses the
-// engine's `PackBagSlot` helper. Stomps the Lua stack — callers must
-// read every arg they need before calling.
-bool Containers(void *L, int srcBag, int srcSlot, int dstBag, int dstSlot);
+bool Containers(int srcBag, int srcSlot, int dstBag, int dstSlot);
 
 // Atomic server-side "split N items from src and place at dst" — same
 // wire-level primitive vanilla emits when you `SplitContainerItem` →
@@ -91,11 +87,7 @@ bool Containers(void *L, int srcBag, int srcSlot, int dstBag, int dstSlot);
 // (merges into a matching destination stack, swaps otherwise).
 // Returns false locally on bad args, unresolvable bags, or
 // `count > srcStack`; all other validation is server-side.
-//
-// Requires Lua state for the same reason as `Containers`: the source
-// CGItem lookup goes through `Item::Location::ResolveBag`. Stomps the
-// Lua stack.
-bool MoveCount(void *L, int srcBag, int srcSlot, int dstBag, int dstSlot, int count);
+bool MoveCount(int srcBag, int srcSlot, int dstBag, int dstSlot, int count);
 
 // "Put this item away" — the server picks the destination slot
 // (`CMSG_AUTOSTORE_BAG_ITEM`, opcode 0x10B). Unlike `Containers` and
@@ -137,19 +129,11 @@ bool MoveCount(void *L, int srcBag, int srcSlot, int dstBag, int dstSlot, int co
 // Returns false on bad args, an unequipped bag, a rejected
 // source/destination pair, or an empty source slot. Everything else is
 // server-side; failures come back as `SMSG_INVENTORY_CHANGE_FAILURE`
-// exactly as for the other two. Stomps the Lua stack for the same
-// reason `Containers` does.
-bool AutoStore(void *L, int srcBag, int srcSlot, int dstBag);
+// exactly as for the other two.
+bool AutoStore(int srcBag, int srcSlot, int dstBag);
 
-// Lua-free forms of `Containers` and `AutoStore`, for callers that
-// already hold the source `CGItem *` and therefore need no lookup.
-//
-// The Lua-taking forms exist only to resolve that pointer, and they do
-// it through `Item::Location::ResolveBag` → the engine's `PackBagSlot`,
-// which reads its arguments off the Lua stack and stomps it. That is
-// fine inside a Lua call, where the stack is ours. It is NOT fine from
-// a tick or bag-update callback, where the engine may have its own
-// values there — so anything running outside a Lua call must use these.
+// Forms of `Containers` and `AutoStore` for callers that already hold the
+// source `CGItem *` and therefore need no lookup.
 //
 // The caller owns the pointer's validity. It stays valid across a batch
 // of swaps: a server-side swap moves item GUIDs between slots and does

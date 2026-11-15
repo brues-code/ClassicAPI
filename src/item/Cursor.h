@@ -28,8 +28,7 @@ void PickupEquipmentSlot(int equipmentSlotIndex);
 // Picks the item in a bag slot onto the cursor. Guarded to match the Lua
 // wrapper's behavior: no-op (returns false) when the slot is empty, the
 // cursor already holds an item, or the item is locked (mid-transaction).
-// Returns true when the pickup was issued. Needs `L` for slot resolution
-// (PackBagSlot); stomps the Lua stack.
-bool PickupBagItem(void *L, int bagID, int slotIndex);
+// Returns true when the pickup was issued.
+bool PickupBagItem(int bagID, int slotIndex);
 
 } // namespace Item::Cursor

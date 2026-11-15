@@ -124,7 +124,7 @@ struct SlotInfo {
 
 SlotInfo ReadSlot(void *L, int bag, int slot) {
     SlotInfo r{nullptr, 0, 0, 0};
-    const uint8_t *item = Item::Location::ResolveBag(L, bag, slot);
+    const uint8_t *item = Item::Location::ResolveBag(bag, slot);
     if (item == nullptr)
         return r;
     r.item = item;
@@ -195,7 +195,7 @@ bool FindFreeGeneralSlot(void *L, int *outBag, int *outSlot) {
             continue;
         const int n = Item::Location::GetBagSlotCount(bag);
         for (int slot = 1; slot <= n; ++slot) {
-            if (Item::Location::ResolveBag(L, bag, slot) == nullptr) {
+            if (Item::Location::ResolveBag(bag, slot) == nullptr) {
                 *outBag = bag;
                 *outSlot = slot;
                 return true;
@@ -254,7 +254,7 @@ void Tick() {
                 Finish(false); // no room to materialize the stack
                 break;
             }
-            if (!Item::Swap::MoveCount(L, g_job.srcBag, g_job.srcSlot, fb, fs,
+            if (!Item::Swap::MoveCount(g_job.srcBag, g_job.srcSlot, fb, fs,
                                        g_job.quantity)) {
                 Finish(false);
                 break;

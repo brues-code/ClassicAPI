@@ -34,7 +34,7 @@ int __fastcall Script_C_Container_GetContainerItemRepairCost(void *L) {
     const int bagID = static_cast<int>(Game::Lua::ToNumber(L, 1));
     const int slotIndex = static_cast<int>(Game::Lua::ToNumber(L, 2));
     return Item::RepairCost::PushRepairCostForItem(
-        L, Item::Location::ResolveBag(L, bagID, slotIndex));
+        L, Item::Location::ResolveBag(bagID, slotIndex));
 }
 
 const Game::Doc::Field kArgs[] = {

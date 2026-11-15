@@ -14,8 +14,7 @@
 // `C_Container.GetContainerItemID(bagIndex, slotIndex)` — modern
 // positional-arg accessor for the same data
 // `C_Item.GetItemID({bagID=B, slotIndex=S})` returns. Both go through
-// `Item::Location::ResolveBag` → engine `PackBagSlot` →
-// `GetItemBySlot` → CGItem → instance block → itemID. Returns nil for
+// `Item::Location::ResolveBag` → CGItem → itemID. Returns nil for
 // empty slots or invalid bag indices.
 
 #include "Game.h"
@@ -34,7 +33,7 @@ int __fastcall Script_C_Container_GetContainerItemID(void *L) {
     const int bagID = static_cast<int>(Game::Lua::ToNumber(L, 1));
     const int slotIndex = static_cast<int>(Game::Lua::ToNumber(L, 2));
 
-    const int itemID = Item::ID::FromCGItem(Item::Location::ResolveBag(L, bagID, slotIndex));
+    const int itemID = Item::ID::FromCGItem(Item::Location::ResolveBag(bagID, slotIndex));
     if (itemID == 0)
         return 0;
     Game::Lua::PushNumber(L, static_cast<double>(itemID));

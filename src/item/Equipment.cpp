@@ -254,7 +254,7 @@ int __fastcall Script_C_Item_EquipItemByName(void *L) {
     // cursor primitive directly (no Script_PickupContainerItem stack-fake);
     // its empty-cursor guard is satisfied by the ClearCursor above. Bail if
     // the pickup didn't take (locked item / busy cursor) — nothing to equip.
-    if (!Item::Cursor::PickupBagItem(L, found.bagID, found.slotIndex))
+    if (!Item::Cursor::PickupBagItem(found.bagID, found.slotIndex))
         return 0;
 
     using AutoEquipCursor_t = void (__thiscall *)(void *player, int flag);

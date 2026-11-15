@@ -70,12 +70,8 @@
 // same gate-bypass `C_Item.GetItemCount` uses; the array is server-populated
 // at login).
 //
-// Bag enumeration is pure C++: it replicates what `PackBagSlot` does
-// internally (see Offsets.h). The backpack is indexed straight off the
-// player inventory manager; each equipped bag 1..4 is resolved to its
-// container object and inventory via the same GUID getter + vtable call the
-// engine uses, then walked with `GetItemBySlot`. None of the Lua-stack-bound
-// helpers are touched, so the scan is safe from the frame-loop tick.
+// Bag enumeration goes through `Item::Location::ResolveBag`, the engine's own
+// bag map without its Lua stack, so the scan is safe from the frame-loop tick.
 
 #include "Game.h"
 #include "Offsets.h"
@@ -206,39 +202,15 @@ bool RemoveFrom(uint64_t *arr, int *count, uint64_t guid) {
 
 // --- pure-C++ bag enumeration (no Lua stack) -----------------------------
 
-using GetItemBySlot_t = void *(__thiscall *)(void *inventory, int slot0Based);
-
 // Collects the instance GUIDs of every item in bags 0..4 into `out`.
 // Returns the count. Pure C++ — safe to call off the frame-loop tick.
-int ScanBags(const uint8_t *player, uint64_t *out) {
-    auto getItemBySlot =
-        reinterpret_cast<GetItemBySlot_t>(Offsets::FUN_ITEMMGR_GET_ITEM_BY_SLOT);
+int ScanBags(uint64_t *out) {
     int count = 0;
-
-    // Backpack (bagID 0): indexed directly off the player inventory manager
-    // at linear slot (S-1) + 23. GetItemBySlot only reads the manager, so the
-    // const_cast to satisfy its `this` parameter is safe.
-    auto *invMgr = const_cast<uint8_t *>(player) + Offsets::OFF_PLAYER_INVENTORY_MANAGER;
-    const int backpackSlots = Item::Location::GetBagSlotCount(0);
-    for (int slot = 1; slot <= backpackSlots; ++slot) {
-        auto *item = static_cast<const uint8_t *>(
-            getItemBySlot(invMgr, Offsets::INVMGR_BACKPACK_FIRST_SLOT + slot - 1));
-        const uint64_t guid = Item::Guid(item);
-        if (guid != 0)
-            AddUnique(out, &count, guid);
-    }
-
-    // Equipped bags 1..4: resolve each bag's inventory object, then walk it.
-    for (int bagID = 1; bagID <= 4; ++bagID) {
+    for (int bagID = Offsets::BAG_INDEX_BACKPACK; bagID <= Offsets::BAG_INDEX_BAG_LAST;
+         ++bagID) {
         const int slots = Item::Location::GetBagSlotCount(bagID);
-        if (slots <= 0)
-            continue;
-        void *bagInv = Item::Location::BagInventory(bagID);
-        if (bagInv == nullptr)
-            continue;
         for (int slot = 1; slot <= slots; ++slot) {
-            auto *item = static_cast<const uint8_t *>(getItemBySlot(bagInv, slot - 1));
-            const uint64_t guid = Item::Guid(item);
+            const uint64_t guid = Item::Guid(Item::Location::ResolveBag(bagID, slot));
             if (guid != 0)
                 AddUnique(out, &count, guid);
         }
@@ -452,7 +424,7 @@ void OnTick() {
     // baseline; nothing owned at login is "new". Including equipment means a
     // later unequip (paperdoll → bag) is recognized as a move, not a loot.
     uint64_t owned[kMaxItems];
-    int ownedCount = ScanBags(player, owned);
+    int ownedCount = ScanBags(owned);
     AppendNonBagOwned(owned, &ownedCount);
     g_seenCount = 0;
     SeenReconcile(owned, ownedCount);
@@ -474,7 +446,7 @@ void OnBagChanged() {
         return;
 
     uint64_t currentBags[kMaxItems];
-    const int bagCount = ScanBags(player, currentBags);
+    const int bagCount = ScanBags(currentBags);
 
     bool changed = false;
     // Flag bag items we've never owned. An item merely dropped from a recent
@@ -526,7 +498,7 @@ uint64_t SlotGUID(void *L) {
         return 0;
     const int bagID = static_cast<int>(Game::Lua::ToNumber(L, 1));
     const int slotIndex = static_cast<int>(Game::Lua::ToNumber(L, 2));
-    return Item::Guid(Item::Location::ResolveBag(L, bagID, slotIndex));
+    return Item::Guid(Item::Location::ResolveBag(bagID, slotIndex));
 }
 
 int __fastcall Script_IsNewItem(void *L) {

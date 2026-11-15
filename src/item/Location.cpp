@@ -30,10 +30,6 @@ namespace Item::Location {
 
 namespace {
 
-using GetItemBySlot_t = void *(__thiscall *)(void *thisInvMgr, int slot);
-using PackBagSlot_t = int(__fastcall *)(void *L, void **outInvMgr, int *outLinearSlot,
-                                         int *outUnused);
-
 // Reads `loc.fieldName` and returns it as an int. Returns false via the
 // boolean result if the field is missing or non-numeric. Always leaves the
 // Lua stack as it found it.
@@ -47,32 +43,6 @@ bool TryReadIntField(void *L, int locIdx, const char *fieldName, int *out) {
     return ok;
 }
 
-// PackBagSlot + GetItemBySlot on the (bagID, slotIndex) already at Lua
-// stack[1] / stack[2]. PackBagSlot only `lua_tonumber`s those two indices
-// (0x004F9820), so the stack is left as it was.
-bool DetailFromArgs(void *L, BagSlotDetail *out) {
-    void *container = nullptr;
-    int linearSlot = 0;
-    int unused = 0;
-    auto PackBagSlot = reinterpret_cast<PackBagSlot_t>(Offsets::FUN_PACK_BAG_SLOT);
-    if (!PackBagSlot(L, &container, &linearSlot, &unused) || container == nullptr)
-        return false;
-
-    auto GetItemBySlot = reinterpret_cast<GetItemBySlot_t>(
-        Offsets::FUN_ITEMMGR_GET_ITEM_BY_SLOT);
-    out->container = static_cast<const uint8_t *>(container);
-    out->linearSlot = linearSlot;
-    out->item = static_cast<const uint8_t *>(GetItemBySlot(container, linearSlot));
-    return true;
-}
-
-const uint8_t *ResolveBagSlot(void *L, int bagID, int slotIndex) {
-    BagSlotDetail d;
-    if (!ResolveBagSlotDetail(L, bagID, slotIndex, &d))
-        return nullptr;
-    return d.item;
-}
-
 } // namespace
 
 const uint8_t *ResolveEquipmentSlot(int slot1Based) {
@@ -82,9 +52,15 @@ const uint8_t *ResolveEquipmentSlot(int slot1Based) {
     // GetItemBySlot expects 0-based linearized slot indices. The built-in
     // Lua functions all do `dec eax` on the slot argument before calling —
     // see helper at 0x004C8520.
-    auto GetItemBySlot = reinterpret_cast<GetItemBySlot_t>(
-        Offsets::FUN_ITEMMGR_GET_ITEM_BY_SLOT);
-    return static_cast<const uint8_t *>(GetItemBySlot(invMgr, slot1Based - 1));
+    return SlotItem(invMgr, slot1Based - 1);
+}
+
+const uint8_t *SlotItem(const void *inventory, int linearSlot) {
+    using GetItemBySlot_t = void *(__thiscall *)(const void *inventory, int slot);
+    if (inventory == nullptr)
+        return nullptr;
+    return static_cast<const uint8_t *>(reinterpret_cast<GetItemBySlot_t>(
+        Offsets::FUN_ITEMMGR_GET_ITEM_BY_SLOT)(inventory, linearSlot));
 }
 
 void *ContainerInventory(const uint8_t *container) {
@@ -134,24 +110,49 @@ int GetBagSlotCount(int bagID) {
         record + Offsets::OFF_ITEMSTATS_CONTAINER_SLOTS));
 }
 
-bool ResolveBagSlotDetail(void *L, int bagID, int slotIndex, BagSlotDetail *out) {
-    // PackBagSlot reads bagID/slotIndex from Lua stack[1] and stack[2] (it's
-    // designed to be called from a Lua-callback context like
-    // Script_GetContainerItemInfo). Replace the stack so positions 1 and 2
-    // hold the raw values for PackBagSlot's internal lua_tonumber reads.
-    Game::Lua::SetTop(L, 0);
-    Game::Lua::PushNumber(L, static_cast<double>(bagID));
-    Game::Lua::PushNumber(L, static_cast<double>(slotIndex));
-    return DetailFromArgs(L, out);
+bool ResolveBagSlotDetail(int bagID, int slotIndex, BagSlotDetail *out) {
+    *out = BagSlotDetail{};
+    const uint8_t *player = Unit::Identity::PlayerObject();
+    if (player == nullptr)
+        return false;
+    int slot = slotIndex - 1;
+    if (bagID < Offsets::BAG_INDEX_BAG_FIRST) {
+        // Any bagID below 1 indexes the player's own list; the three named
+        // ones add their range's base, and the engine leaves the rest at it.
+        out->container = player + Offsets::OFF_PLAYER_INVENTORY_MANAGER;
+        if (bagID == Offsets::BAG_INDEX_BACKPACK) {
+            slot += Offsets::INVMGR_BACKPACK_FIRST_SLOT;
+        } else if (bagID == Offsets::BAG_INDEX_BANK) {
+            slot += Offsets::INVMGR_BANK_MAIN_FIRST_SLOT;
+            out->isBank = true;
+        } else if (bagID == Offsets::BAG_INDEX_KEYRING) {
+            slot += Offsets::INVMGR_KEYRING_FIRST_SLOT;
+        }
+    } else if (bagID <= Offsets::BAG_INDEX_BANK_BAG_LAST) {
+        out->container = static_cast<const uint8_t *>(ContainerInventory(BagContainer(bagID)));
+        out->isBank = bagID >= Offsets::BAG_INDEX_BANK_BAG_FIRST;
+    }
+    if (out->container == nullptr || slot < 0 ||
+        slot >= static_cast<int>(
+                    Game::Read<uint32_t>(out->container, Offsets::OFF_INVMGR_SLOT_COUNT)))
+        return false;
+    out->containerGuid =
+        Game::Read<uint64_t>(out->container, Offsets::OFF_INVMGR_OWNER_GUID);
+    out->linearSlot = slot;
+    out->item = SlotItem(out->container, slot);
+    return true;
 }
 
-const uint8_t *ResolveBag(void *L, int bagID, int slotIndex) {
-    return ResolveBagSlot(L, bagID, slotIndex);
-}
-
-const uint8_t *ResolveBagArgs(void *L) {
+const uint8_t *ResolveBag(int bagID, int slotIndex) {
     BagSlotDetail d;
-    return DetailFromArgs(L, &d) ? d.item : nullptr;
+    return ResolveBagSlotDetail(bagID, slotIndex, &d) ? d.item : nullptr;
+}
+
+// The (bagID, slotIndex) at Lua stack[1] / stack[2], read as the engine's map
+// reads them: `lua_tonumber`, truncated.
+const uint8_t *ResolveBagArgs(void *L) {
+    return ResolveBag(static_cast<int>(Game::Lua::ToNumber(L, 1)),
+                      static_cast<int>(Game::Lua::ToNumber(L, 2)));
 }
 
 bool ParseGUIDString(const char *s, uint64_t *out) {
@@ -165,13 +166,13 @@ const uint8_t *ResolveByGUID(uint64_t guid) {
         Object::ByGuid(Offsets::TYPEMASK_ITEM, guid, "ItemMgr", 0x172));
 }
 
-bool FindByItemID(void *L, int itemID, ByGUIDResult *out) {
+bool FindByItemID(int itemID, ByGUIDResult *out) {
     if (itemID <= 0)
         return false;
     Item::Arg::Resolved arg{};
     arg.itemID = itemID;
     arg.name = nullptr;
-    return FindByArg(L, arg, out);
+    return FindByArg(arg, out);
 }
 
 bool MatchesArg(const uint8_t *cgItem, const Item::Arg::Resolved &arg) {
@@ -223,14 +224,14 @@ int IDForArg(void *L, int idx, uint32_t flags) {
     return arg.itemID > 0 ? arg.itemID : IDForName(arg.name, flags);
 }
 
-bool FindByArgInBags(void *L, const Item::Arg::Resolved &arg, ByGUIDResult *out) {
+bool FindByArgInBags(const Item::Arg::Resolved &arg, ByGUIDResult *out) {
     if (arg.itemID <= 0 && arg.name == nullptr)
         return false;
 
     for (int bagID = 0; bagID <= 4; ++bagID) {
         const int slotCount = GetBagSlotCount(bagID);
         for (int slotIndex = 1; slotIndex <= slotCount; ++slotIndex) {
-            auto *item = ResolveBag(L, bagID, slotIndex);
+            auto *item = ResolveBag(bagID, slotIndex);
             if (item == nullptr)
                 continue;
             if (!MatchesArg(item, arg))
@@ -246,7 +247,7 @@ bool FindByArgInBags(void *L, const Item::Arg::Resolved &arg, ByGUIDResult *out)
     return false;
 }
 
-bool FindByArg(void *L, const Item::Arg::Resolved &arg, ByGUIDResult *out) {
+bool FindByArg(const Item::Arg::Resolved &arg, ByGUIDResult *out) {
     if (arg.itemID <= 0 && arg.name == nullptr)
         return false;
 
@@ -264,61 +265,7 @@ bool FindByArg(void *L, const Item::Arg::Resolved &arg, ByGUIDResult *out) {
             return true;
         }
     }
-    return FindByArgInBags(L, arg, out);
-}
-
-const uint8_t *ResolveBagSlotNoLua(int bagID, int slotIndex) {
-    if (slotIndex < 1)
-        return nullptr;
-    auto GetItemBySlot = reinterpret_cast<GetItemBySlot_t>(
-        Offsets::FUN_ITEMMGR_GET_ITEM_BY_SLOT);
-    if (bagID == 0) {
-        if (slotIndex > Offsets::BACKPACK_NUM_SLOTS)
-            return nullptr;
-        void *invMgr = const_cast<uint8_t *>(Unit::Identity::PlayerInventoryManager());
-        if (invMgr == nullptr)
-            return nullptr;
-        return static_cast<const uint8_t *>(
-            GetItemBySlot(invMgr, Offsets::INVMGR_BACKPACK_FIRST_SLOT + slotIndex - 1));
-    }
-    void *bagInv = BagInventory(bagID);
-    if (bagInv == nullptr)
-        return nullptr;
-    const int slotCount = static_cast<int>(*reinterpret_cast<const uint32_t *>(bagInv));
-    if (slotIndex > slotCount)
-        return nullptr;
-    return static_cast<const uint8_t *>(GetItemBySlot(bagInv, slotIndex - 1));
-}
-
-bool FindByArgNoLua(const Item::Arg::Resolved &arg, ByGUIDResult *out) {
-    if (arg.itemID <= 0 && arg.name == nullptr)
-        return false;
-
-    for (int slot = Offsets::EQUIPMENT_SLOT_FIRST;
-         slot <= Offsets::EQUIPMENT_SLOT_LAST; ++slot) {
-        auto *item = ResolveEquipmentSlot(slot);
-        if (item != nullptr && MatchesArg(item, arg)) {
-            out->equipmentSlotIndex = slot;
-            out->bagID = 0;
-            out->slotIndex = 0;
-            out->item = item;
-            return true;
-        }
-    }
-    for (int bagID = 0; bagID <= 4; ++bagID) {
-        const int slotCount = GetBagSlotCount(bagID);
-        for (int slotIndex = 1; slotIndex <= slotCount; ++slotIndex) {
-            auto *item = ResolveBagSlotNoLua(bagID, slotIndex);
-            if (item == nullptr || !MatchesArg(item, arg))
-                continue;
-            out->equipmentSlotIndex = 0;
-            out->bagID = bagID;
-            out->slotIndex = slotIndex;
-            out->item = item;
-            return true;
-        }
-    }
-    return false;
+    return FindByArgInBags(arg, out);
 }
 
 bool BankerOpen() {
@@ -469,7 +416,7 @@ static bool ResolveLocationDetail(void *L, int locIdx, ByGUIDResult *out) {
         TryReadIntField(L, locIdx, "slotIndex", &slotIndex)) {
         out->bagID = bagID;
         out->slotIndex = slotIndex;
-        out->item = ResolveBagSlot(L, bagID, slotIndex);
+        out->item = ResolveBag(bagID, slotIndex);
         return out->item != nullptr;
     }
 
@@ -496,12 +443,7 @@ bool FindItemArgOrLocation(void *L, int idx, ByGUIDResult *out) {
 
     // A table is only ever a location, and so is a string that parses as an
     // item GUID — a strict `0x` + 16 hex digits, which no item link or item
-    // name can look like. Decide from the argument alone, and commit: a
-    // location resolve STOMPS the Lua stack (`PackBagSlot` overwrites the
-    // first stack slots with its own arguments), so falling back to the
-    // reference forms after one has run would re-read the argument as
-    // whatever it left behind — a bag index read as an itemID, which names
-    // an unrelated item.
+    // name can look like. Decide from the argument alone, and commit.
     if (t == Game::Lua::TYPE_TABLE)
         return ResolveLocationDetail(L, idx, out);
     if (t == Game::Lua::TYPE_STRING) {
@@ -513,7 +455,7 @@ bool FindItemArgOrLocation(void *L, int idx, ByGUIDResult *out) {
     const Item::Arg::Resolved arg = Item::Arg::Resolve(L, idx);
     if (arg.itemID <= 0 && arg.name == nullptr)
         return false;
-    return FindByArgInBags(L, arg, out);
+    return FindByArgInBags(arg, out);
 }
 
 const uint8_t *ResolveItemArgOrLocation(void *L, int idx) {

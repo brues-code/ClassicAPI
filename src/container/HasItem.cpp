@@ -14,8 +14,7 @@
 // `C_Container.HasContainerItem(bagIndex, slotIndex)` — returns whether the
 // given bag slot currently holds an item (a Classic Era addition). It's the
 // occupancy sibling of `GetContainerItemID`: resolves the slot to its CGItem
-// the same way (`Item::Location::ResolveBag` → engine `PackBagSlot` →
-// `GetItemBySlot`), and a populated slot yields a non-null pointer while an
+// the same way (`Item::Location::ResolveBag`), and a populated slot yields a non-null pointer while an
 // empty slot yields null. Presence only — it does not depend on the item's
 // static data being cached. Returns `false` for empty slots and invalid
 // bag/slot indices.
@@ -35,7 +34,7 @@ int __fastcall Script_C_Container_HasContainerItem(void *L) {
     const int bagID = static_cast<int>(Game::Lua::ToNumber(L, 1));
     const int slotIndex = static_cast<int>(Game::Lua::ToNumber(L, 2));
 
-    const bool hasItem = Item::Location::ResolveBag(L, bagID, slotIndex) != nullptr;
+    const bool hasItem = Item::Location::ResolveBag(bagID, slotIndex) != nullptr;
     Game::Lua::PushBool(L, hasItem);
     return 1;
 }

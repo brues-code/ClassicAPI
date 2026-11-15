@@ -130,7 +130,7 @@ int ShowItem(void *L, int itemID, bool conditional) {
     Item::Location::ByGUIDResult found;
     Game::Lua::SetTop(L, 1); // keep self at stack[1]
     int n = 0;
-    if (Item::Location::FindByArgNoLua(arg, &found)) {
+    if (Item::Location::FindByArg(arg, &found)) {
         if (found.equipmentSlotIndex != 0) {
             Game::Lua::PushString(L, "player");
             Game::Lua::PushNumber(L, static_cast<double>(found.equipmentSlotIndex));

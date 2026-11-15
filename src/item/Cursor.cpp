@@ -31,12 +31,6 @@ using CursorPickupItem_t = void(__fastcall *)(uint32_t linearSlot, int count,
                                               uint32_t containerGuidLo,
                                               uint32_t containerGuidHi, int flag);
 
-// The container object stores its own GUID inline at +0x08/+0x0C (unlike a
-// CGItem, whose GUID sits behind the +0x08 instance-block pointer). This
-// is the "source container" the engine records for the eventual drop.
-constexpr int OFF_CONTAINER_GUID_LO = 0x08;
-constexpr int OFF_CONTAINER_GUID_HI = 0x0C;
-
 } // namespace
 
 void PickupEquipmentSlot(int equipmentSlotIndex) {
@@ -45,9 +39,9 @@ void PickupEquipmentSlot(int equipmentSlotIndex) {
         static_cast<uint32_t>(equipmentSlotIndex - 1));
 }
 
-bool PickupBagItem(void *L, int bagID, int slotIndex) {
+bool PickupBagItem(int bagID, int slotIndex) {
     Item::Location::BagSlotDetail d;
-    if (!Item::Location::ResolveBagSlotDetail(L, bagID, slotIndex, &d) || d.item == nullptr)
+    if (!Item::Location::ResolveBagSlotDetail(bagID, slotIndex, &d) || d.item == nullptr)
         return false;
 
     // Guards the Script_ wrapper applies that the raw primitive omits: only
@@ -59,10 +53,9 @@ bool PickupBagItem(void *L, int bagID, int slotIndex) {
     const uint64_t itemGuid = Item::Guid(d.item);
     if (itemGuid == 0)
         return false;
-    const uint32_t containerLo =
-        *reinterpret_cast<const uint32_t *>(d.container + OFF_CONTAINER_GUID_LO);
-    const uint32_t containerHi =
-        *reinterpret_cast<const uint32_t *>(d.container + OFF_CONTAINER_GUID_HI);
+    // The "source container" the engine records for the eventual drop.
+    const uint32_t containerLo = static_cast<uint32_t>(d.containerGuid);
+    const uint32_t containerHi = static_cast<uint32_t>(d.containerGuid >> 32);
 
     reinterpret_cast<CursorPickupItem_t>(Offsets::FUN_CURSOR_PICKUP_ITEM)(
         static_cast<uint32_t>(d.linearSlot), 1, static_cast<uint32_t>(itemGuid),

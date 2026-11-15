@@ -40,14 +40,14 @@ int __fastcall Script_C_Item_PickupItem(void *L) {
         return 0;
 
     Item::Location::ByGUIDResult found;
-    if (!Item::Location::FindByArg(L, arg, &found))
+    if (!Item::Location::FindByArg(arg, &found))
         return 0;
 
     // equipmentSlotIndex != 0 → equipped (paperdoll slot); else a bag slot.
     if (found.equipmentSlotIndex != 0)
         Item::Cursor::PickupEquipmentSlot(found.equipmentSlotIndex);
     else
-        Item::Cursor::PickupBagItem(L, found.bagID, found.slotIndex);
+        Item::Cursor::PickupBagItem(found.bagID, found.slotIndex);
     return 0;
 }
 

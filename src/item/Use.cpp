@@ -82,7 +82,6 @@ uint64_t ResolveUnitGuid(void *L, int idx) {
 }
 
 int __fastcall Script_C_Item_UseItemByName(void *L) {
-    // Read the unit first: the item resolve below stomps the Lua stack.
     const uint64_t targetGuid = ResolveUnitGuid(L, 2);
 
     const uint8_t *item = Item::Location::ResolveItemArgOrLocation(L, 1);

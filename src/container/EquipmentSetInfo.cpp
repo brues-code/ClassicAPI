@@ -52,11 +52,8 @@ int __fastcall Script_C_Container_GetContainerItemEquipmentSetInfo(void *L) {
     const int bagID = static_cast<int>(Game::Lua::ToNumber(L, 1));
     const int slotIndex = static_cast<int>(Game::Lua::ToNumber(L, 2));
 
-    // `ResolveBag` stomps stack slots 1 and 2 through the engine's
-    // `PackBagSlot`, so both arguments are already in locals above and
-    // nothing we need survives on the stack across it.
     const uint64_t guid =
-        Item::Guid(Item::Location::ResolveBag(L, bagID, slotIndex));
+        Item::Guid(Item::Location::ResolveBag(bagID, slotIndex));
 
     const std::string setList = EquipmentSet::Text::SetList(guid);
 

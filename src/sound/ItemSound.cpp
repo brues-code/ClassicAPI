@@ -85,9 +85,6 @@ int __fastcall Script_PlayItemSound(void *L) {
         Game::Lua::Error(L, "Usage: C_Sound.PlayItemSound(soundType, item)");
         return 0;
     }
-    // Read the sound type BEFORE resolving: the location resolver stomps
-    // the Lua stack (it drives PackBagSlot), so argument 1 must be off the
-    // stack first.
     const int soundType = static_cast<int>(Game::Lua::ToNumber(L, 1));
     if (soundType < 0 || soundType > kSoundTypeMax)
         return 0;

@@ -14,9 +14,8 @@
 // `C_Container.GetContainerItemDurability(containerIndex, slotIndex)` —
 // modern positional-arg accessor. Same `(current, max)` shape as the
 // global `GetInventoryItemDurability`, but for bag slots instead of
-// the character pane. Goes through `Item::Location::ResolveBag` →
-// engine's `PackBagSlot` → `GetItemBySlot` (same chain
-// `C_Container.GetContainerItemID` uses). The descriptor read itself
+// the character pane. Goes through `Item::Location::ResolveBag` (same
+// chain `C_Container.GetContainerItemID` uses). The descriptor read itself
 // is the shared `Item::Durability::PushDurabilityForItem` helper from
 // [[item/Durability.h]].
 
@@ -37,7 +36,7 @@ int __fastcall Script_C_Container_GetContainerItemDurability(void *L) {
     const int bagID = static_cast<int>(Game::Lua::ToNumber(L, 1));
     const int slotIndex = static_cast<int>(Game::Lua::ToNumber(L, 2));
     return Item::Durability::PushDurabilityForItem(
-        L, Item::Location::ResolveBag(L, bagID, slotIndex));
+        L, Item::Location::ResolveBag(bagID, slotIndex));
 }
 
 const Game::Doc::Field kArgs[] = {

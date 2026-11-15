@@ -34,9 +34,6 @@ namespace Item::Location {
 // the resolved slot is empty / the GUID isn't resident. Does NOT
 // raise a Lua error — callers should validate the argument type
 // beforehand with `IsLocationArg` if they want a typed error.
-//
-// The bag-form table may stomp the Lua stack (`PackBagSlot`). Only
-// safe to call from inside a Lua callback.
 const uint8_t *Resolve(void *L, int locIdx);
 
 // Type-check helper: returns true if the value at `idx` could be a
@@ -47,9 +44,9 @@ bool IsLocationArg(void *L, int idx);
 
 // Resolves a `(bagID, slotIndex)` pair directly to a `CGItem *`. Used by
 // the positional-arg C_Container.* APIs that don't go through the
-// ItemLocation table shape. Stomps the Lua stack — same caveat as
-// `Resolve()` above.
-const uint8_t *ResolveBag(void *L, int bagID, int slotIndex);
+// ItemLocation table shape, and by every Lua-free bag walk. Null for an empty
+// slot or a slot `ResolveBagSlotDetail` does not resolve. No Lua stack.
+const uint8_t *ResolveBag(int bagID, int slotIndex);
 
 // Resolves the `(bagID, slotIndex)` a script was called with — Lua stack[1]
 // and stack[2], read the way the engine's own container scripts read them —
@@ -90,7 +87,7 @@ void *ContainerInventory(const uint8_t *container);
 // bag (5..10) — as its CGContainer, which is also its CGItem. The GUID comes
 // from `FUN_GET_EQUIPPED_BAG_GUID`, which itself answers 0 for a bank bag
 // while no bank window is open, so bank bags resolve only at a banker, the
-// way `PackBagSlot` resolves them. Null for any other `bagID` or an empty
+// way the engine's bag map resolves them. Null for any other `bagID` or an empty
 // bag slot. Pure C — no Lua stack.
 const uint8_t *BagContainer(int bagID);
 
@@ -149,24 +146,36 @@ bool FindLocationByGUID(uint64_t guid, ByGUIDResult *out);
 // when we only have the itemID for a slot (e.g. cursor-held items
 // picked up from the action bar, which the engine stores as a
 // bare itemID with no GUID) and want to recover the live CGItem
-// for link-decoration purposes. Stomps the Lua stack.
-bool FindByItemID(void *L, int itemID, ByGUIDResult *out);
+// for link-decoration purposes. No Lua stack.
+bool FindByItemID(int itemID, ByGUIDResult *out);
 
-// Full detail for a bag slot, for callers that drive the engine's
-// cursor-pickup primitive — which needs the *container object* and the
-// engine *linear slot*, not just the CGItem.
+// A bag slot as the engine addresses it, for callers that drive the engine's
+// cursor and swap primitives, which need the container and the linear slot,
+// not only the CGItem.
 struct BagSlotDetail {
-    const uint8_t *container; // PackBagSlot container (invMgr for the backpack, else the bag)
-    int linearSlot;           // engine linear inventory slot
+    const uint8_t *container; // the inventory list: the player's (backpack, bank, keyring), else the bag's
+    uint64_t containerGuid;   // the list's owner, the container GUID the engine's pickup and swap send
+    int linearSlot;           // the slot's 0-based index in that list
+    bool isBank;              // a bank position: bagID -1 or 5..10
     const uint8_t *item;      // CGItem at the slot, or null if the slot is empty
 };
 
-// Resolves `(bagID, slotIndex)` to its `BagSlotDetail`. Returns false when
-// the coordinates don't resolve (bad bag / out-of-range slot); a resolved
-// but empty slot returns true with `out->item == nullptr`. Stomps the Lua
-// stack (PackBagSlot). `ResolveBag`/`ResolveBagSlot` are thin wrappers that
-// keep only `out->item`.
-bool ResolveBagSlotDetail(void *L, int bagID, int slotIndex, BagSlotDetail *out);
+// Resolves `(bagID, slotIndex)` the way the engine's own map does
+// (`FUN_PACK_BAG_SLOT` 0x004F9820, which every container Script_ function
+// calls), without its Lua stack. Backpack, main bank and keyring are ranges of
+// the player's list (linear bases 23, 39 and 81); bags and bank bags 1..10
+// each have their own list, reached through `BagContainer`. Like the engine,
+// it bounds the slot only by the list's own count, so a backpack slot past 16
+// reaches the bank range. False for a slot outside the list or a bag that is
+// not there; a resolved but empty slot returns true with `out->item` null.
+// `GetItemBySlot` returns null for a bank slot while no banker is open. No Lua
+// stack.
+bool ResolveBagSlotDetail(int bagID, int slotIndex, BagSlotDetail *out);
+
+// The CGItem in 0-based `linearSlot` of the inventory list `inventory`, or
+// null (`FUN_ITEMMGR_GET_ITEM_BY_SLOT`; slots 39..68 of the player's list
+// only while a banker is open).
+const uint8_t *SlotItem(const void *inventory, int linearSlot);
 
 } // namespace Item::Location
 
@@ -209,21 +218,20 @@ int IDForArg(void *L, int idx, uint32_t flags);
 // Walks the player's bags (0..4 only — no equipment) looking for the
 // first item matching `arg` (via `MatchesArg`). On hit, populates
 // `out->bagID` / `out->slotIndex` / `out->item` and sets
-// `equipmentSlotIndex = 0`. Stomps the Lua stack.
+// `equipmentSlotIndex = 0`. No Lua stack.
 //
 // Used by the by-name action APIs (`C_Item.EquipItemByName`,
 // `C_Item.UseItemByName`, `C_Item.UseAtCursor`) — none of them want
 // equipment in the candidate pool (the engine doesn't equip-from-
 // equipped or use-from-equipped; the item has to be in bags first).
-bool FindByArgInBags(void *L, const Item::Arg::Resolved &arg, ByGUIDResult *out);
+bool FindByArgInBags(const Item::Arg::Resolved &arg, ByGUIDResult *out);
 
 // Like `FindByArgInBags` but searches **equipment (1..19) first, then
 // bags** — for callers that act on an item wherever it's carried (e.g.
 // `C_Item.PickupItem`). On hit `out->equipmentSlotIndex` is non-zero for
 // an equipped match, else `out->bagID`/`out->slotIndex` for a bag match.
-// `FindByItemID` is the itemID-only specialization of this. Stomps the
-// Lua stack.
-bool FindByArg(void *L, const Item::Arg::Resolved &arg, ByGUIDResult *out);
+// `FindByItemID` is the itemID-only specialization of this. No Lua stack.
+bool FindByArg(const Item::Arg::Resolved &arg, ByGUIDResult *out);
 
 // Resolves the item argument of the "use this item" APIs, which take
 // EITHER an item location or an item reference:
@@ -237,8 +245,7 @@ bool FindByArg(void *L, const Item::Arg::Resolved &arg, ByGUIDResult *out);
 // location says which one, a reference does not.
 //
 // Returns nullptr when the argument is neither form, or names nothing the
-// player has. Stomps the Lua stack (both paths) — read every other argument
-// off the stack before calling.
+// player has.
 const uint8_t *ResolveItemArgOrLocation(void *L, int idx);
 
 // Same resolution, for callers that need WHERE the item is and not only
@@ -248,22 +255,6 @@ const uint8_t *ResolveItemArgOrLocation(void *L, int idx);
 // the bags only, so it never resolves to an equipped item; a location can
 // name either.
 bool FindItemArgOrLocation(void *L, int idx, ByGUIDResult *out);
-
-// Resolves `(bagID, slotIndex)` to its `CGItem *` WITHOUT the Lua stack:
-// the backpack (bag 0) is indexed straight off the player inventory manager
-// at `INVMGR_BACKPACK_FIRST_SLOT + slot - 1`, bags 1..10 through `BagInventory`
-// (bank bags only at a banker) — both via the engine's `GetItemBySlot`. Returns
-// nullptr for a bad bag, an out-of-range slot, or an empty slot. Safe from
-// any context (world tick, packet hooks) — the `PackBagSlot`-based
-// `ResolveBag` is not, because it reads its inputs off the Lua stack.
-const uint8_t *ResolveBagSlotNoLua(int bagID, int slotIndex);
-
-// `FindByArg` for callers with no Lua callback context: same equipment-first,
-// bags-second walk and the same `MatchesArg` predicate, built on
-// `ResolveEquipmentSlot` + `ResolveBagSlotNoLua`. Pure C — used by the
-// `#showtooltip` evaluator on the world tick and by the action-bar display
-// overrides at hover time.
-bool FindByArgNoLua(const Item::Arg::Resolved &arg, ByGUIDResult *out);
 
 // Parses the `"0xHHHHHHHHLLLLLLLL"` GUID string format
 // `C_Item.GetItemGUID` returns. Strict: requires exactly `0x` prefix

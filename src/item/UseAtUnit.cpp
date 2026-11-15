@@ -55,8 +55,7 @@ int __fastcall Script_C_Item_UseAtUnit(void *L) {
         return 1;
     }
 
-    // Read every argument before the item resolve, which stomps the Lua
-    // stack. Omitted or nil `placeGroundSpell` means place it; only an
+    // Omitted or nil `placeGroundSpell` means place it; only an
     // explicit false holds the reticle (`lua_type` reports NONE, not nil,
     // past the top of the stack, so test the top first).
     const bool placeGround = Game::Lua::GetTop(L) < 3 ||

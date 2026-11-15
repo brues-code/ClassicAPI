@@ -90,7 +90,7 @@ static int __fastcall Script_C_Item_IsItemGUIDInInventory(void *L) {
     for (int bag = 0; bag <= 4 && !found; ++bag) {
         const int slots = Item::Location::GetBagSlotCount(bag);
         for (int slot = 1; slot <= slots; ++slot) {
-            const uint8_t *item = Item::Location::ResolveBag(L, bag, slot);
+            const uint8_t *item = Item::Location::ResolveBag(bag, slot);
             if (item != nullptr && Item::Guid(item) == target) {
                 found = true;
                 break;

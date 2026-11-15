@@ -33,7 +33,6 @@
 #include "item/Record.h"
 #include "model/Outfit.h"
 
-#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
@@ -83,7 +82,6 @@ uint32_t RecipeItem(const char *link) {
 
 Request ReadArgs(void *L) {
     Request request;
-    // Read before the name search below, which stomps the Lua stack.
     if (Game::Lua::Type(L, 3) == Game::Lua::TYPE_STRING)
         request.bodySlot = NamedHand(Game::Lua::ToString(L, 3));
     const bool enchantGiven = Game::Lua::IsNumber(L, 4) != 0;
@@ -92,9 +90,7 @@ Request ReadArgs(void *L) {
     if (Game::Lua::Type(L, 2) == Game::Lua::TYPE_NUMBER) {
         request.itemID = static_cast<uint32_t>(Game::Lua::ToNumber(L, 2));
     } else if (Game::Lua::Type(L, 2) == Game::Lua::TYPE_STRING) {
-        // Copied: the name search below stomps the Lua stack.
-        char s[256];
-        std::snprintf(s, sizeof(s), "%s", Game::Lua::ToString(L, 2));
+        const char *s = Game::Lua::ToString(L, 2);
         if (std::strstr(s, "enchant:") != nullptr) {
             request.itemID = RecipeItem(s);
         } else {
@@ -106,7 +102,7 @@ Request ReadArgs(void *L) {
                 request.itemID = static_cast<uint32_t>(arg.itemID);
                 if (!enchantGiven)
                     request.enchant = static_cast<uint32_t>(arg.enchant);
-            } else if (arg.name != nullptr && Item::Location::FindByArg(L, arg, &found))
+            } else if (arg.name != nullptr && Item::Location::FindByArg(arg, &found))
                 request.itemID = static_cast<uint32_t>(Item::ID::FromCGItem(found.item));
         }
     }

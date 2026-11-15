@@ -49,15 +49,13 @@ int __fastcall Script_C_Container_AutoStoreItem(void *L) {
             "Usage: C_Container.AutoStoreItem(srcBag, srcSlot [, dstBag])");
         return 0;
     }
-    // Read every arg before calling AutoStore — its source lookup goes
-    // through ResolveBag, which stomps the Lua stack via PackBagSlot.
     const int srcBag = static_cast<int>(Game::Lua::ToNumber(L, 1));
     const int srcSlot = static_cast<int>(Game::Lua::ToNumber(L, 2));
     const int dstBag = Game::Lua::IsNumber(L, 3)
                            ? static_cast<int>(Game::Lua::ToNumber(L, 3))
                            : 0;
 
-    const bool ok = Item::Swap::AutoStore(L, srcBag, srcSlot, dstBag);
+    const bool ok = Item::Swap::AutoStore(srcBag, srcSlot, dstBag);
     Game::Lua::PushBool(L, ok);
     return 1;
 }

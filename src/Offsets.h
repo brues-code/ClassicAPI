@@ -5688,6 +5688,9 @@ enum Offsets {
     // is what consumes it: a non-zero flag is what makes right-clicking
     // a bank item send `CMSG_AUTOSTORE_BANK_ITEM` instead of using it.
     // This is the engine's own definition of "is this a bank slot".
+    //
+    // Mirrored, not called, by `Item::Location::ResolveBagSlotDetail`:
+    // calling it means overwriting the caller's Lua stack[1] / stack[2].
     FUN_PACK_BAG_SLOT = 0x004F9820,
     // Equipped-bag container-GUID getter — `uint64 __fastcall(uint bagIndex0)`
     // where `bagIndex0` is 0-based (Lua bagID 1..4 → 0..3; 4..9 are bank bags,
@@ -5739,6 +5742,11 @@ enum Offsets {
     // it hides data that's present from boot. Reading the GUID array
     // directly recovers it without ever opening the bank window.
     OFF_INVMGR_GUID_ARRAY = 0x04,
+    // u64 — the GUID of the object that owns the list (the player for its own
+    // list, else the bag). Script_PickupContainerItem (0x004F9B30) passes
+    // `[list+8]` / `[list+0xC]` as the container to SetCursorItem, SwapItems,
+    // SplitItem, StoreLootInSlot and the buy-into-slot send.
+    OFF_INVMGR_OWNER_GUID = 0x08,
     // A 1-based backpack slot S is linear (S - 1) + INVMGR_BACKPACK_FIRST_SLOT
     // in the player invMgr GUID/item arrays: PackBagSlot's `*param_3 += 0x17`
     // for the backpack branch.

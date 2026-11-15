@@ -44,15 +44,13 @@ int __fastcall Script_C_Container_MoveItem(void *L) {
             "Usage: C_Container.MoveItem(srcBag, srcSlot, dstBag, dstSlot, count)");
         return 0;
     }
-    // Read all five args before Item::Swap::MoveCount — its internal
-    // ResolveBag stomps the Lua stack.
     const int srcBag = static_cast<int>(Game::Lua::ToNumber(L, 1));
     const int srcSlot = static_cast<int>(Game::Lua::ToNumber(L, 2));
     const int dstBag = static_cast<int>(Game::Lua::ToNumber(L, 3));
     const int dstSlot = static_cast<int>(Game::Lua::ToNumber(L, 4));
     const int count = static_cast<int>(Game::Lua::ToNumber(L, 5));
 
-    const bool ok = Item::Swap::MoveCount(L, srcBag, srcSlot, dstBag, dstSlot, count);
+    const bool ok = Item::Swap::MoveCount(srcBag, srcSlot, dstBag, dstSlot, count);
     Game::Lua::PushBool(L, ok);
     return 1;
 }

@@ -15,6 +15,7 @@
 #include "Offsets.h"
 #include "item/CGItem.h"
 #include "item/ID.h"
+#include "item/Location.h"
 #include "unit/Flags.h"
 
 #include <cstdint>
@@ -23,7 +24,6 @@ namespace Item::InventoryID {
 
 namespace {
 
-using GetItemBySlot_t = void *(__thiscall *)(void *invMgr, int slot);
 using GetVisibleItem_t = void *(__thiscall *)(void *unit, int slot);
 
 void *ResolveUnit(const char *token) {
@@ -35,10 +35,8 @@ void *ResolveUnit(const char *token) {
 // resolve here; we don't bound the slot up front since the engine's
 // own `GetItemBySlot` handles invalid slots by returning NULL.
 int ItemIDForLocalPlayer(void *playerPtr, int slot1Based) {
-    auto *player = static_cast<uint8_t *>(playerPtr);
-    auto *invMgr = player + Offsets::OFF_PLAYER_INVENTORY_MANAGER;
-    auto getBySlot = reinterpret_cast<GetItemBySlot_t>(Offsets::FUN_ITEMMGR_GET_ITEM_BY_SLOT);
-    return Item::ID::FromCGItem(static_cast<uint8_t *>(getBySlot(invMgr, slot1Based - 1)));
+    const auto *invMgr = static_cast<const uint8_t *>(playerPtr) + Offsets::OFF_PLAYER_INVENTORY_MANAGER;
+    return Item::ID::FromCGItem(Item::Location::SlotItem(invMgr, slot1Based - 1));
 }
 
 // For non-local-player units, the engine maintains a "visible items"

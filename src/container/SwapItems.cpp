@@ -37,14 +37,12 @@ int __fastcall Script_C_Container_SwapItems(void *L) {
             "Usage: C_Container.SwapItems(srcBag, srcSlot, dstBag, dstSlot)");
         return 0;
     }
-    // Read all four args before invoking Containers — its internal
-    // ResolveBag stomps the Lua stack via PackBagSlot.
     const int srcBag = static_cast<int>(Game::Lua::ToNumber(L, 1));
     const int srcSlot = static_cast<int>(Game::Lua::ToNumber(L, 2));
     const int dstBag = static_cast<int>(Game::Lua::ToNumber(L, 3));
     const int dstSlot = static_cast<int>(Game::Lua::ToNumber(L, 4));
 
-    const bool ok = Item::Swap::Containers(L, srcBag, srcSlot, dstBag, dstSlot);
+    const bool ok = Item::Swap::Containers(srcBag, srcSlot, dstBag, dstSlot);
     Game::Lua::PushBool(L, ok);
     return 1;
 }

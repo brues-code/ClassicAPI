@@ -53,7 +53,7 @@ bool FindHearthstone(void *L, const uint8_t **outItem, int *outItemID) {
     for (int bag = 0; bag <= 4; bag++) {
         const int slotCount = Item::Location::GetBagSlotCount(bag);
         for (int slot = 1; slot <= slotCount; slot++) {
-            const uint8_t *item = Item::Location::ResolveBag(L, bag, slot);
+            const uint8_t *item = Item::Location::ResolveBag(bag, slot);
             if (item == nullptr)
                 continue;
             const int itemID = Item::ID::FromCGItem(item);

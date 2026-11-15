@@ -382,8 +382,7 @@ int __fastcall Script_UseEquipmentSet(void *L) {
         return 1;
     }
 
-    // Copy what the swap needs: the free-slot scan below stomps the Lua
-    // stack, and the error messages run Lua handlers.
+    // Copy what the swap needs: the error messages run Lua handlers.
     const std::string name = s->name;
     uint64_t guids[SLOT_COUNT];
     std::memcpy(guids, s->items, sizeof(guids));

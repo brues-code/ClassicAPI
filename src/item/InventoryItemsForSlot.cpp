@@ -174,14 +174,6 @@ void CollectIfFits(int slot, const uint8_t *cgItem, int location,
     out.push_back({location, cgItem});
 }
 
-// Registry key for anchoring `returnTable` across the bag-walk
-// phase. `Item::Location::ResolveBag` internally calls
-// `SetTop(L, 0)` to set up `PackBagSlot`'s expected stack shape, so
-// the original arg at slot 2 doesn't survive the first bag deref.
-// Stashing the table in the Lua registry keeps a stable handle on
-// it until we rebuild the stack at the end.
-constexpr const char *kRegistryKey = "_classicapi_GIIFS_returnTable";
-
 int __fastcall Script_GetInventoryItemsForSlot(void *L) {
     if (!Game::Lua::IsNumber(L, 1) ||
         Game::Lua::Type(L, 2) != Game::Lua::TYPE_TABLE) {
@@ -191,46 +183,27 @@ int __fastcall Script_GetInventoryItemsForSlot(void *L) {
     }
     const int slot = static_cast<int>(Game::Lua::ToNumber(L, 1));
 
-    // Anchor the returnTable in the registry so it survives
-    // ResolveBag's stack stomp.
-    Game::Lua::PushString(L, kRegistryKey);
-    Game::Lua::PushValue(L, 2);
-    Game::Lua::SetTable(L, Game::Lua::REGISTRY_INDEX);
-
     std::vector<Hit> hits;
 
     if (slot >= Offsets::EQUIPMENT_SLOT_FIRST &&
         slot <= Offsets::EQUIPMENT_SLOT_LAST) {
-        // Equipment paperdoll — ResolveEquipmentSlot doesn't touch
-        // the Lua stack, but we still collect into the vector for a
-        // uniform two-pass shape.
+        // Equipment paperdoll, then bags 0..4 (backpack + 4 equipped bags).
         for (int s = Offsets::EQUIPMENT_SLOT_FIRST;
              s <= Offsets::EQUIPMENT_SLOT_LAST; ++s) {
             CollectIfFits(slot, Item::Location::ResolveEquipmentSlot(s),
                           EquipmentSet::PackEquipped(s), hits);
         }
-        // Bags 0..4 (backpack + 4 equipped bags). ResolveBag clobbers
-        // the stack on every call — that's why we collect first and
-        // push to the table after.
         for (int bag = 0; bag <= 4; ++bag) {
             const int slotCount = Item::Location::GetBagSlotCount(bag);
             for (int bs = 1; bs <= slotCount; ++bs) {
-                CollectIfFits(slot, Item::Location::ResolveBag(L, bag, bs),
+                CollectIfFits(slot, Item::Location::ResolveBag(bag, bs),
                               EquipmentSet::PackBag(bag, bs), hits);
             }
         }
     }
 
-    // Rebuild stack: empty it, retrieve the anchored table, clear
-    // the registry slot, then populate.
-    Game::Lua::SetTop(L, 0);
-    Game::Lua::PushString(L, kRegistryKey);
-    Game::Lua::GetTable(L, Game::Lua::REGISTRY_INDEX);
-    // Stack: [table]
-    Game::Lua::PushString(L, kRegistryKey);
-    Game::Lua::PushNil(L);
-    Game::Lua::SetTable(L, Game::Lua::REGISTRY_INDEX);
-    // Stack: [table]
+    // Stack: [slot, returnTable] — the table on top is the return value.
+    Game::Lua::SetTop(L, 2);
 
     for (const auto &hit : hits) {
         const char *link = Item::Link::FromCGItem(hit.cgItem);
@@ -238,7 +211,7 @@ int __fastcall Script_GetInventoryItemsForSlot(void *L) {
             continue;
         Game::Lua::PushNumber(L, static_cast<double>(hit.location));
         Game::Lua::PushString(L, link);
-        Game::Lua::SetTable(L, 1);
+        Game::Lua::SetTable(L, 2);
     }
     return 1;
 }

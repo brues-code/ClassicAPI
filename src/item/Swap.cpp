@@ -72,117 +72,19 @@ bool ReadGuid(const void *cgObject, uint32_t *lo, uint32_t *hi) {
     return true;
 }
 
-// Player-container linear-slot bases, DERIVED from the named
-// first-slot constants in Offsets.h rather than restated. The whole map
-// (paperdoll / backpack / bank / bank bags / keyring) is documented at
-// `Offsets::OFF_INVMGR_GUID_ARRAY`; a 1-based slot S in one of these
-// ranges maps to `base + S`, so each base is that range's first linear
-// slot minus one.
-constexpr int BACKPACK_LINEAR_OFFSET = Offsets::INVMGR_BACKPACK_FIRST_SLOT - 1;
-constexpr int BANK_MAIN_LINEAR_OFFSET = Offsets::INVMGR_BANK_MAIN_FIRST_SLOT - 1;
-constexpr int KEYRING_LINEAR_OFFSET = Offsets::INVMGR_KEYRING_FIRST_SLOT - 1;
-
-// Bank bag containers are addressed by bagID 5..10 — bagID 5 = first
-// bank bag. `ResolveEquipmentSlot` takes a 1-based equipment slot, so
-// the base is the bank-bag range's first linear slot plus one.
-// Requires bank window open; otherwise the engine's CGContainer for
-// the bag is unsynced and `ResolveEquipmentSlot` returns null.
-constexpr int FIRST_BANK_BAG_EQ_SLOT = Offsets::INVMGR_BANK_BAG_FIRST_SLOT + 1;
-constexpr int FIRST_BANK_BAG_ID = 5;
-constexpr int LAST_BANK_BAG_ID = 10;
-
-// Bounds a player-container linear slot the way `FUN_PACK_BAG_SLOT`
-// does — against the invMgr's own live slot count, not a hardcoded
-// size. That is what makes the keyring addressable without knowing its
-// capacity, which grows as the character unlocks slots.
-bool LinearSlotInRange(const void *player, uint32_t linearSlot) {
-    const uint32_t count = Game::Read<uint32_t>(
-        player,
-        Offsets::OFF_PLAYER_INVENTORY_MANAGER + Offsets::OFF_INVMGR_SLOT_COUNT);
-    return linearSlot < count;
-}
-
-// (bagID, 1-based slot) → (containerGUID, engine linear slot). Returns
-// false for unequipped bags or out-of-range slots; does NOT validate
-// that the slot is occupied (caller checks separately).
-//
-//   bagID  0     → container = player, linear = 22 + slot (backpack)
-//   bagID  1..4  → container = equipped bag's CGContainer, linear = slot - 1
-//   bagID -1     → container = player, linear = 38 + slot (bank main)
-//   bagID -2     → container = player, linear = 80 + slot (keyring)
-//   bagID  5..10 → container = bank bag's CGContainer, linear = slot - 1
-//
-// This mirrors the engine's own bagID→(container, linear slot) map in
-// `FUN_PACK_BAG_SLOT`, minus that function's Lua coupling: it reads its
-// bagID and slot off the Lua stack and stomps it, which is why this is
-// a separate encoder rather than a call into it. Keep the two in step —
-// the keyring row above exists because this encoder was missing it
-// while the engine's map had it all along.
-//
-// Bank-side encodings only resolve once the bank window has been
-// opened in the current session (the engine doesn't sync the bank
-// CGContainers or bank-slot inventory entries before then).
+// (bagID, 1-based slot) → (container GUID, engine linear slot), through the
+// engine's own map (`Item::Location::ResolveBagSlotDetail`). Does NOT require
+// the slot to be occupied (the caller checks separately).
 bool EncodeBagSlot(int bagID, int slotInBag,
                    uint32_t *containerLo, uint32_t *containerHi,
                    uint32_t *linearSlot) {
-    if (slotInBag < 1)
+    Item::Location::BagSlotDetail d;
+    if (!Item::Location::ResolveBagSlotDetail(bagID, slotInBag, &d))
         return false;
-
-    // Backpack, main bank and keyring all live directly in the player's
-    // invMgr and differ only in their base — and in whether the range
-    // has a fixed end. `lastLinear == 0` means "no fixed end", which is
-    // the keyring: its capacity grows, so the invMgr count is the only
-    // correct bound.
-    int base = 0;
-    int lastLinear = 0;
-    bool inPlayer = true;
-    if (bagID == 0) {
-        base = BACKPACK_LINEAR_OFFSET;
-        lastLinear = Offsets::INVMGR_BACKPACK_LAST_SLOT;
-    } else if (bagID == -1) {
-        base = BANK_MAIN_LINEAR_OFFSET;
-        lastLinear = Offsets::INVMGR_BANK_MAIN_LAST_SLOT;
-    } else if (bagID == -2) {
-        base = KEYRING_LINEAR_OFFSET;
-    } else {
-        inPlayer = false;
-    }
-    if (inPlayer) {
-        const void *player = Unit::Identity::PlayerObject();
-        if (player == nullptr)
-            return false;
-        const uint32_t linear = static_cast<uint32_t>(base + slotInBag);
-        if (lastLinear != 0 && linear > static_cast<uint32_t>(lastLinear))
-            return false; // would alias into the next range
-        if (!LinearSlotInRange(player, linear))
-            return false;
-        if (!ReadGuid(player, containerLo, containerHi))
-            return false;
-        *linearSlot = linear;
-        return true;
-    }
-
-    if (bagID >= 1 && bagID <= 4) {
-        const uint8_t *bag = Item::Location::ResolveEquipmentSlot(
-            Offsets::INVSLOT_BAG1 + bagID - 1);
-        if (bag == nullptr)
-            return false;
-        if (!ReadGuid(bag, containerLo, containerHi))
-            return false;
-        *linearSlot = static_cast<uint32_t>(slotInBag - 1);
-        return true;
-    }
-    if (bagID >= FIRST_BANK_BAG_ID && bagID <= LAST_BANK_BAG_ID) {
-        const uint8_t *bag = Item::Location::ResolveEquipmentSlot(
-            FIRST_BANK_BAG_EQ_SLOT + (bagID - FIRST_BANK_BAG_ID));
-        if (bag == nullptr)
-            return false;
-        if (!ReadGuid(bag, containerLo, containerHi))
-            return false;
-        *linearSlot = static_cast<uint32_t>(slotInBag - 1);
-        return true;
-    }
-    return false;
+    *containerLo = static_cast<uint32_t>(d.containerGuid);
+    *containerHi = static_cast<uint32_t>(d.containerGuid >> 32);
+    *linearSlot = static_cast<uint32_t>(d.linearSlot);
+    return true;
 }
 
 // Container GUID for a bagID, with no slot involved — what the
@@ -191,27 +93,11 @@ bool EncodeBagSlot(int bagID, int slotInBag,
 // the player, which the engine's converter reports as `0xFF`
 // (INVENTORY_SLOT_BAG_0); the two are indistinguishable on the wire.
 bool EncodeContainerGuid(int bagID, uint32_t *containerLo, uint32_t *containerHi) {
-    if (bagID == 0 || bagID == -1) {
-        void *player = const_cast<uint8_t *>(Unit::Identity::PlayerObject());
-        if (player == nullptr)
-            return false;
-        return ReadGuid(player, containerLo, containerHi);
-    }
-    if (bagID >= 1 && bagID <= 4) {
-        const uint8_t *bag = Item::Location::ResolveEquipmentSlot(
-            Offsets::INVSLOT_BAG1 + bagID - 1);
-        if (bag == nullptr)
-            return false;
-        return ReadGuid(bag, containerLo, containerHi);
-    }
-    if (bagID >= FIRST_BANK_BAG_ID && bagID <= LAST_BANK_BAG_ID) {
-        const uint8_t *bag = Item::Location::ResolveEquipmentSlot(
-            FIRST_BANK_BAG_EQ_SLOT + (bagID - FIRST_BANK_BAG_ID));
-        if (bag == nullptr)
-            return false;
-        return ReadGuid(bag, containerLo, containerHi);
-    }
-    return false;
+    if (bagID == Offsets::BAG_INDEX_BACKPACK || bagID == Offsets::BAG_INDEX_BANK)
+        return ReadGuid(Unit::Identity::PlayerObject(), containerLo, containerHi);
+    // Null outside bags 1..10, for an empty bag slot, and for a bank bag
+    // while the bank is closed.
+    return ReadGuid(Item::Location::BagContainer(bagID), containerLo, containerHi);
 }
 
 // Common send path. All paperdoll-side state (player ptr, player
@@ -303,8 +189,8 @@ bool ToBag(const void *cgItem, int srcPaperdollSlot, int dstBagID, int dstSlotIn
     return true;
 }
 
-bool MoveCount(void *L, int srcBag, int srcSlot, int dstBag, int dstSlot, int count) {
-    return MoveCountFrom(Item::Location::ResolveBag(L, srcBag, srcSlot),
+bool MoveCount(int srcBag, int srcSlot, int dstBag, int dstSlot, int count) {
+    return MoveCountFrom(Item::Location::ResolveBag(srcBag, srcSlot),
                          srcBag, srcSlot, dstBag, dstSlot, count);
 }
 
@@ -371,7 +257,8 @@ bool AutoStoreFrom(const void *srcItem, int srcBag, int srcSlot, int dstBag) {
         return false;
 
     const bool srcIsBank =
-        srcBag == -1 || (srcBag >= FIRST_BANK_BAG_ID && srcBag <= LAST_BANK_BAG_ID);
+        srcBag == Offsets::BAG_INDEX_BANK ||
+        (srcBag >= Offsets::BAG_INDEX_BANK_BAG_FIRST && srcBag <= Offsets::BAG_INDEX_BANK_BAG_LAST);
 
     // Which of the two autostore opcodes serves this pair — and whether
     // either does. The bank opcode takes its direction from the source,
@@ -438,15 +325,13 @@ bool AutoStoreFrom(const void *srcItem, int srcBag, int srcSlot, int dstBag) {
     return true;
 }
 
-bool AutoStore(void *L, int srcBag, int srcSlot, int dstBag) {
-    // Resolving stomps the Lua stack, so callers must have read every
-    // argument they need before getting here.
-    return AutoStoreFrom(Item::Location::ResolveBag(L, srcBag, srcSlot),
+bool AutoStore(int srcBag, int srcSlot, int dstBag) {
+    return AutoStoreFrom(Item::Location::ResolveBag(srcBag, srcSlot),
                          srcBag, srcSlot, dstBag);
 }
 
-bool Containers(void *L, int srcBag, int srcSlot, int dstBag, int dstSlot) {
-    return ContainersFrom(Item::Location::ResolveBag(L, srcBag, srcSlot),
+bool Containers(int srcBag, int srcSlot, int dstBag, int dstSlot) {
+    return ContainersFrom(Item::Location::ResolveBag(srcBag, srcSlot),
                           srcBag, srcSlot, dstBag, dstSlot);
 }
 

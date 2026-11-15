@@ -87,7 +87,7 @@ void CastSpell(const char *name) {
 void UseItem(const char *name) {
     const Item::Arg::Resolved byName{0, 0, name};
     Item::Location::ByGUIDResult found{};
-    if (!Item::Location::FindByArgNoLua(byName, &found) || found.item == nullptr)
+    if (!Item::Location::FindByArg(byName, &found) || found.item == nullptr)
         return;
     Item::Use::UseItem(found.item, ModifiedTarget());
 }

@@ -73,13 +73,12 @@ int ItemQuality(uint32_t itemID) {
 // Player invMgr lives inline at player + 0x1D38. First uint32 is the
 // max slot count; +0x04 is the GUID array pointer.
 // Walk a single bag, invoking `cb(cgItem)` for each non-empty slot.
-// `cb` returns true to continue, false to stop iteration. Stomps
-// the Lua stack — caller must own it (`ResolveBag` does the stomping).
+// `cb` returns true to continue, false to stop iteration.
 template <typename Cb>
-void ForEachItemInBag(void *L, int bagID, Cb &&cb) {
+void ForEachItemInBag(int bagID, Cb &&cb) {
     const int slotCount = Item::Location::GetBagSlotCount(bagID);
     for (int slot = 1; slot <= slotCount; ++slot) {
-        const uint8_t *item = Item::Location::ResolveBag(L, bagID, slot);
+        const uint8_t *item = Item::Location::ResolveBag(bagID, slot);
         if (item == nullptr)
             continue;
         if (!cb(bagID, slot, item))
@@ -216,7 +215,7 @@ int __fastcall Script_GetNumJunkItems(void *L) {
 
     int junkCount = 0;
     for (int bag = 0; bag <= 4; ++bag) {
-        ForEachItemInBag(L, bag, [&](int, int, const uint8_t *item) {
+        ForEachItemInBag(bag, [&](int, int, const uint8_t *item) {
             const int itemID = Item::ID::FromCGItem(item);
             if (itemID > 0 && ItemQuality(static_cast<uint32_t>(itemID)) == 0)
                 ++junkCount;
@@ -325,7 +324,7 @@ int __fastcall Script_SellAllJunkItems(void *L) {
     g_pending.merchantHi = merchantHi;
 
     for (int bag = 0; bag <= 4; ++bag) {
-        ForEachItemInBag(L, bag, [&](int, int, const uint8_t *item) {
+        ForEachItemInBag(bag, [&](int, int, const uint8_t *item) {
             const int itemID = Item::ID::FromCGItem(item);
             if (itemID <= 0 || ItemQuality(static_cast<uint32_t>(itemID)) != 0)
                 return true;

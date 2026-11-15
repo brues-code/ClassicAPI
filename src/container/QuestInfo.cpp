@@ -58,11 +58,8 @@ int __fastcall Script_C_Container_GetContainerItemQuestInfo(void *L) {
     const int bagID = static_cast<int>(Game::Lua::ToNumber(L, 1));
     const int slotIndex = static_cast<int>(Game::Lua::ToNumber(L, 2));
 
-    // Resolve before building the table: `ResolveBag` stomps stack
-    // slots 1 and 2 through the engine's `PackBagSlot`, so nothing we
-    // want to keep may be on the stack across this call.
     const int itemID =
-        Item::ID::FromCGItem(Item::Location::ResolveBag(L, bagID, slotIndex));
+        Item::ID::FromCGItem(Item::Location::ResolveBag(bagID, slotIndex));
 
     bool isQuestItem = false;
     uint32_t startQuest = 0;
