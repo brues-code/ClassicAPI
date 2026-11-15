@@ -66,6 +66,7 @@
 #include "Common.h"
 #include "Game.h"
 #include "Offsets.h"
+#include "frame/Flags.h"
 #include "frame/Layout.h"
 #include "frame/AlphaGradient.h"
 #include "frame/ClipChildren.h"
@@ -87,7 +88,6 @@ using EmitLayer_t = void(__fastcall *)(void *frame, void *edx, void *batch, int 
 using BatchOp_t = void(__fastcall *)(void *batch);
 using Callback_t = void(__fastcall *)(void *arg);
 using AddCallback_t = void(__fastcall *)(void *batch, void *edx, Callback_t fn, void *arg);
-using SetFrameFlag_t = void(__fastcall *)(void *frame, void *edx, uint32_t mask, int on);
 using HitTest_t = int(__fastcall *)(void *frame, void *edx, const float *point);
 using SetupOrtho_t = void(__fastcall *)(const float *rect, const float *point, int unused);
 
@@ -109,7 +109,7 @@ std::map<Key, Record *> g_records;
 int g_clipping = 0; // frames with the flag; nothing to look up while 0
 
 bool Clips(const void *frame) {
-    return (Game::Read<uint32_t>(frame, Offsets::OFF_FRAME_FLAGS) & Offsets::FRAME_FLAG_CLIPS_CHILDREN) != 0;
+    return Frame::Flags::Has(frame, Offsets::FRAME_FLAG_CLIPS_CHILDREN);
 }
 
 void *Parent(const void *frame) { return Game::Read<void *>(frame, Offsets::OFF_REGION_PARENT); }
@@ -343,11 +343,10 @@ void MarkSubtree(void *frame) {
 void Set(void *frame, bool on) {
     if (Clips(frame) == on)
         return;
-    reinterpret_cast<SetFrameFlag_t>(Offsets::FUN_FRAME_SET_FRAME_FLAG)(
-        frame, nullptr, Offsets::FRAME_FLAG_CLIPS_CHILDREN, on);
+    Frame::Flags::Set(frame, Offsets::FRAME_FLAG_CLIPS_CHILDREN, on);
     g_clipping += on ? 1 : -1;
     // A gradient draws only while its frame clips, its own regions included.
-    if ((Game::Read<uint32_t>(frame, Offsets::OFF_FRAME_FLAGS) & Offsets::FRAME_FLAG_ALPHA_GRADIENT) != 0)
+    if (Frame::Flags::Has(frame, Offsets::FRAME_FLAG_ALPHA_GRADIENT))
         MarkLayers(frame);
     MarkSubtree(frame);
 }

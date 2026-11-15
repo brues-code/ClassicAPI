@@ -32,6 +32,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "frame/EnableScripts.h"
+#include "frame/Flags.h"
 
 #include <cstdint>
 
@@ -44,7 +45,7 @@ using MouseDown_t = void(__fastcall *)(void *frame, void *edx, void *event);
 MouseDown_t g_origMouseDown = nullptr;
 
 bool IsDisabled(void *slider) {
-    return (Game::Read<uint32_t>(slider, Offsets::OFF_FRAME_FLAGS) & Offsets::FRAME_FLAG_DISABLED) != 0;
+    return Frame::Flags::Has(slider, Offsets::FRAME_FLAG_DISABLED);
 }
 
 void __fastcall MouseDown_h(void *slider, void *edx, void *event) {

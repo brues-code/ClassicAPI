@@ -32,6 +32,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "frame/ExtraScripts.h"
+#include "frame/Flags.h"
 #include "frame/ScriptArgs.h"
 
 #include <cstdint>
@@ -43,7 +44,6 @@ namespace {
 const Frame::ExtraScripts::Script g_onEnable{"onenable", Offsets::VAR_FRAME_LUA_TYPE_ID};
 const Frame::ExtraScripts::Script g_onDisable{"ondisable", Offsets::VAR_FRAME_LUA_TYPE_ID};
 
-using SetFrameFlag_t = void(__fastcall *)(void *frame, void *edx, uint32_t mask, int on);
 using ButtonEnable_t = void(__fastcall *)(void *button, void *edx, int enable);
 
 ButtonEnable_t g_origButtonEnable = nullptr;
@@ -63,8 +63,7 @@ const Game::HookAutoRegister _buttonEnableHook{Offsets::FUN_BUTTON_ENABLE,
 } // namespace
 
 void RunOnEnableScript(void *frame, bool disabled) {
-    reinterpret_cast<SetFrameFlag_t>(Offsets::FUN_FRAME_SET_FRAME_FLAG)(frame, nullptr,
-                                                                       Offsets::FRAME_FLAG_DISABLED, disabled);
+    Frame::Flags::Set(frame, Offsets::FRAME_FLAG_DISABLED, disabled);
     const uint32_t *slot = (disabled ? g_onDisable : g_onEnable).Slot(frame);
     if (slot == nullptr || slot[0] == 0)
         return;

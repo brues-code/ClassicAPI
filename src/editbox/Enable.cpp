@@ -23,6 +23,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "frame/EnableScripts.h"
+#include "frame/Flags.h"
 
 #include <cstdint>
 
@@ -56,8 +57,7 @@ int __fastcall Script_IsEnabled(void *L) {
     void *editBox = Game::Lua::ResolveEditBox(L);
     if (editBox == nullptr)
         return 0;
-    const uint32_t flags = Game::Read<uint32_t>(editBox, Offsets::OFF_FRAME_FLAGS);
-    Game::Lua::PushBool(L, (flags & Offsets::FRAME_FLAG_DISABLED) == 0);
+    Game::Lua::PushBool(L, !Frame::Flags::Has(editBox, Offsets::FRAME_FLAG_DISABLED));
     return 1;
 }
 

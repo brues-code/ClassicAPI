@@ -44,6 +44,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "frame/Flags.h"
 
 #include <cstdint>
 
@@ -62,7 +63,7 @@ int g_depth = 0;
 
 void __fastcall SetScrolled_h(void *frame, void * /*edx*/, int scrolled, int scrollChild) {
     if (g_depth > 0 &&
-        (Game::Read<uint32_t>(frame, Offsets::OFF_FRAME_FLAGS) & Offsets::FRAME_FLAG_SCROLL_CHILD) != 0)
+        Frame::Flags::Has(frame, Offsets::FRAME_FLAG_SCROLL_CHILD))
         return; // its ScrollFrame draws it, whatever its ancestors are
     ++g_depth;
     g_origSetScrolled(frame, scrolled, scrollChild);

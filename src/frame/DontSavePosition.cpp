@@ -28,6 +28,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "frame/Flags.h"
 #include "xml/FrameLoad.h"
 
 #include <cstdint>
@@ -37,12 +38,11 @@ namespace Frame::DontSavePosition {
 namespace {
 
 using SaveFrame_t = void(__fastcall *)(void *frame, void *file);
-using SetFrameFlag_t = void(__fastcall *)(void *frame, void *edx, uint32_t mask, int on);
 
 SaveFrame_t g_origSaveFrame = nullptr;
 
 bool DontSave(void *frame) {
-    return (Game::Read<uint32_t>(frame, Offsets::OFF_FRAME_FLAGS) & Offsets::FRAME_FLAG_DONT_SAVE_POSITION) != 0;
+    return Frame::Flags::Has(frame, Offsets::FRAME_FLAG_DONT_SAVE_POSITION);
 }
 
 void __fastcall SaveFrame_h(void *frame, void *file) {
@@ -60,8 +60,7 @@ int __fastcall Script_SetDontSavePosition(void *L) {
     if (frame == nullptr)
         return 0;
     const bool on = Game::Lua::ToFlag(L, 2, true);
-    reinterpret_cast<SetFrameFlag_t>(Offsets::FUN_FRAME_SET_FRAME_FLAG)(
-        frame, nullptr, Offsets::FRAME_FLAG_DONT_SAVE_POSITION, on);
+    Frame::Flags::Set(frame, Offsets::FRAME_FLAG_DONT_SAVE_POSITION, on);
     return 0;
 }
 
@@ -71,8 +70,7 @@ void OnFrameNode(void *object, const void *node, void * /*status*/) {
     const char *value = Xml::Attr(node, "dontSavePosition");
     if (value == nullptr || *value == '\0')
         return;
-    reinterpret_cast<SetFrameFlag_t>(Offsets::FUN_FRAME_SET_FRAME_FLAG)(
-        object, nullptr, Offsets::FRAME_FLAG_DONT_SAVE_POSITION, Game::StringToFlag(value));
+    Frame::Flags::Set(object, Offsets::FRAME_FLAG_DONT_SAVE_POSITION, Game::StringToFlag(value));
 }
 
 const Xml::FrameLoad::AutoSubscribe _xmlSub{&OnFrameNode};

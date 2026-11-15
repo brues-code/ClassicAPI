@@ -54,6 +54,7 @@
 #include "Offsets.h"
 #include "frame/ClipChildren.h"
 #include "frame/Destruction.h"
+#include "frame/Flags.h"
 #include "frame/Layout.h"
 #include "gx/Device.h"
 #include "texture/Load.h"
@@ -67,7 +68,6 @@ namespace {
 
 using SetProjection_t = void(__fastcall *)(const float *m);
 using SetViewport_t = void(__stdcall *)(float minX, float maxX, float minY, float maxY, float minZ, float maxZ);
-using SetFrameFlag_t = void(__fastcall *)(void *frame, void *edx, uint32_t mask, int on);
 
 // A rect: {bottom, left, top, right}.
 enum { BOTTOM, LEFT, TOP, RIGHT };
@@ -99,13 +99,13 @@ const uint32_t kRampTexels[4] = {0x00FFFFFF, 0x00FFFFFF, 0x00FFFFFF, 0xFFFFFFFF}
 void *g_ramp = nullptr;
 
 bool Has(const void *frame) {
-    return (Game::Read<uint32_t>(frame, Offsets::OFF_FRAME_FLAGS) & Offsets::FRAME_FLAG_ALPHA_GRADIENT) != 0;
+    return Frame::Flags::Has(frame, Offsets::FRAME_FLAG_ALPHA_GRADIENT);
 }
 
 // The frame's gradient is drawn: it has one and clips its children.
 bool Applies(const void *frame) {
     constexpr uint32_t both = Offsets::FRAME_FLAG_ALPHA_GRADIENT | Offsets::FRAME_FLAG_CLIPS_CHILDREN;
-    return (Game::Read<uint32_t>(frame, Offsets::OFF_FRAME_FLAGS) & both) == both;
+    return Frame::Flags::HasAll(frame, both);
 }
 
 void *Parent(const void *frame) { return Game::Read<void *>(frame, Offsets::OFF_REGION_PARENT); }
@@ -222,8 +222,7 @@ const Game::HookAutoRegister _viewportHook{Offsets::FUN_GX_SET_VIEWPORT, reinter
 void SetFlag(void *frame, bool on) {
     if (Has(frame) == on)
         return;
-    reinterpret_cast<SetFrameFlag_t>(Offsets::FUN_FRAME_SET_FRAME_FLAG)(frame, nullptr,
-                                                                       Offsets::FRAME_FLAG_ALPHA_GRADIENT, on);
+    Frame::Flags::Set(frame, Offsets::FRAME_FLAG_ALPHA_GRADIENT, on);
     Frame::ClipChildren::Regroup(frame);
 }
 

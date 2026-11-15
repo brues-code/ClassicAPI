@@ -29,6 +29,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "frame/Flags.h"
 #include "xml/FrameLoad.h"
 
 #include <cstdint>
@@ -38,12 +39,11 @@ namespace Frame::UseParentLevel {
 namespace {
 
 using SetFrameLevel_t = void(__fastcall *)(void *frame, void *edx, int level, int children);
-using SetFrameFlag_t = void(__fastcall *)(void *frame, void *edx, uint32_t mask, int on);
 
 SetFrameLevel_t g_origSetFrameLevel = nullptr;
 
 bool Using(void *frame) {
-    return (Game::Read<uint32_t>(frame, Offsets::OFF_FRAME_FLAGS) & Offsets::FRAME_FLAG_USE_PARENT_LEVEL) != 0;
+    return Frame::Flags::Has(frame, Offsets::FRAME_FLAG_USE_PARENT_LEVEL);
 }
 
 void __fastcall SetFrameLevel_h(void *frame, void *edx, int level, int children) {
@@ -58,8 +58,7 @@ const Game::HookAutoRegister _hook{Offsets::FUN_FRAME_SET_FRAME_LEVEL, reinterpr
 
 // 4.3.4's CSimpleFrame::SetUseParentLevel.
 void Set(void *frame, bool on) {
-    reinterpret_cast<SetFrameFlag_t>(Offsets::FUN_FRAME_SET_FRAME_FLAG)(
-        frame, nullptr, Offsets::FRAME_FLAG_USE_PARENT_LEVEL, on);
+    Frame::Flags::Set(frame, Offsets::FRAME_FLAG_USE_PARENT_LEVEL, on);
     void *parent = Game::Read<void *>(frame, Offsets::OFF_REGION_PARENT);
     if (on && parent != nullptr)
         SetFrameLevel_h(frame, nullptr, Game::Read<int>(parent, Offsets::OFF_FRAME_LEVEL), 1);
