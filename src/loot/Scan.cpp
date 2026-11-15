@@ -53,6 +53,7 @@
 #include "../tick/WorldTick.h"
 #include "../time/Clock.h"
 #include "Request.h"
+#include "loot/Window.h"
 #include "unit/Identity.h"
 
 #include <algorithm>
@@ -127,16 +128,9 @@ bool IsKnownEmpty(uint64_t guid) {
 
 // === Typedefs for engine helpers ===
 
-using CloseLootInner_t = void(__fastcall *)(int sendRelease,
-                                             char earlyReturnOnGameObject,
-                                             char showError);
 using LootSlotLinkBuilder_t = const char *(__fastcall *)(uint32_t userFacingSlot,
                                                           char *outBuf,
                                                           int bufSize);
-// `FUN_CMSG_LOOT_ITEM` — `__stdcall(uint8_t wireSlot)`, sends CMSG_LOOT_ITEM
-// for one slot of the open window (see the offset comment for the
-// __stdcall-vs-__fastcall stack-corruption hazard).
-using SendLootItem_t = void(__stdcall *)(uint8_t wireSlot);
 // `FUN_CMSG_LOOT_MONEY` — `__fastcall(player)`, sends the coin request.
 using LootMoney_t = void(__fastcall *)(void *player);
 // `FUN_LOOT_CONTROLLER` is `__fastcall(int, undefined4, int)` — three
@@ -178,16 +172,13 @@ void ScrapeCurrentLoot(LootEntry *out) {
         Offsets::FUN_LOOT_SLOT_LINK_BUILDER);
 
     for (int slot = 0; slot < Offsets::LOOT_MAX_SLOTS; ++slot) {
-        auto *entry = reinterpret_cast<const uint8_t *>(
-            Offsets::VAR_LOOT_SLOTS + slot * Offsets::LOOT_SLOT_STRIDE);
-        const uint32_t itemID = *reinterpret_cast<const uint32_t *>(entry);
-        if (itemID == 0)
+        Window::Slot row;
+        if (!Window::ReadSlot(slot, &row))
             continue;
-        const uint32_t count = *reinterpret_cast<const uint32_t *>(entry + 8);
 
         SlotItem item;
-        item.itemID = itemID;
-        item.count = count;
+        item.itemID = row.itemID;
+        item.count = row.count;
 
         char linkBuf[0x400];
         const uint32_t slotArg = hasCoin ? static_cast<uint32_t>(slot + 1)
@@ -204,7 +195,7 @@ void ScrapeCurrentLoot(LootEntry *out) {
 // populated item slot. Called from the controller hook (loot mode) after the
 // original populated `VAR_LOOT_SLOTS`, so the slot table is fully filled in.
 //
-// Items go through `FUN_CMSG_LOOT_ITEM` directly — the same silent path
+// Items go through `Window::SendLootItem` directly — the same silent path
 // `C_Loot.LootUnitItem` uses, which bypasses the BoP/unique confirm dialog
 // the Lua `LootSlot` wrapper would raise (appropriate for a programmatic
 // loot-all; the server still enforces real permissions). Coin goes through
@@ -224,14 +215,10 @@ void LootCurrentWindow() {
         LootMoney(s_scan.player);
     }
 
-    auto SendItem = reinterpret_cast<SendLootItem_t>(Offsets::FUN_CMSG_LOOT_ITEM);
     for (int slot = 0; slot < Offsets::LOOT_MAX_SLOTS; ++slot) {
-        auto *entry = reinterpret_cast<const uint8_t *>(
-            Offsets::VAR_LOOT_SLOTS + slot * Offsets::LOOT_SLOT_STRIDE);
-        const uint32_t itemID = *reinterpret_cast<const uint32_t *>(entry);
-        if (itemID == 0)
-            continue;
-        SendItem(*(entry + Offsets::OFF_LOOT_SLOT_WIRE_INDEX));
+        Window::Slot row;
+        if (Window::ReadSlot(slot, &row))
+            Window::SendLootItem(row.wireIndex);
     }
 }
 
@@ -241,8 +228,7 @@ void StartLoot(uint64_t guid);
 void TryStartNext();
 
 void SendCloseLoot() {
-    auto Close = reinterpret_cast<CloseLootInner_t>(Offsets::FUN_CLOSE_LOOT_INNER);
-    Close(1, '\0', '\0');
+    Window::Close(true);
 }
 
 void Complete() {

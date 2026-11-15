@@ -16,6 +16,7 @@
 #include "../Game.h"
 #include "../Offsets.h"
 #include "../unit/Position.h"
+#include "loot/Window.h"
 #include "object/Resolve.h"
 
 namespace Loot::Request {
@@ -29,9 +30,6 @@ namespace {
 using LootUnit_t = void(__thiscall *)(void *player, void *target,
                                       char useDistanceCheck);
 using UpdateBaseAnimation_t = void(__thiscall *)(void *unit, uint32_t mask);
-using CloseLootInner_t = void(__fastcall *)(int sendRelease,
-                                             char earlyReturnOnGameObject,
-                                             char showError);
 
 // The per-unit reach `CanLootNow` adds for each side (`[m_objectFields +
 // 0x1F0]`).
@@ -94,8 +92,7 @@ void ReleaseIfUnanswered(void *player, uint64_t guid) {
     auto UpdateBaseAnimation = reinterpret_cast<UpdateBaseAnimation_t>(
         Offsets::FUN_UNIT_UPDATE_BASE_ANIMATION);
     UpdateBaseAnimation(player, 0xFFFFFFFFu);
-    auto Close = reinterpret_cast<CloseLootInner_t>(Offsets::FUN_CLOSE_LOOT_INNER);
-    Close(0, '\0', '\0');
+    Window::Close(false);
 }
 
 } // namespace Loot::Request

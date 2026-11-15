@@ -13,6 +13,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "loot/Window.h"
 
 #include <cstdint>
 
@@ -49,16 +50,11 @@ static int __fastcall Script_GetLootSlotItemID(void *L) {
             return 0;
         slot -= 1;
     }
-    if (slot < 0 || slot >= Offsets::LOOT_MAX_SLOTS)
+    Loot::Window::Slot row;
+    if (!Loot::Window::ReadSlot(slot, &row))
         return 0;
 
-    auto *entry = reinterpret_cast<const uint8_t *>(
-        Offsets::VAR_LOOT_SLOTS + slot * Offsets::LOOT_SLOT_STRIDE);
-    const int itemID = static_cast<int>(*reinterpret_cast<const uint32_t *>(entry));
-    if (itemID == 0)
-        return 0;
-
-    Game::Lua::PushNumber(L, static_cast<double>(itemID));
+    Game::Lua::PushNumber(L, static_cast<double>(row.itemID));
     return 1;
 }
 
