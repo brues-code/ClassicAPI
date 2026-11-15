@@ -61,7 +61,6 @@ namespace Turtle::StingingNettle {
 
 namespace {
 
-constexpr uint32_t kHunter = 9; // SPELLFAMILY_HUNTER
 // Serpent Sting's SpellFamilyFlags bit — all player ranks carry it (1978,
 // 13549..13555, 25295, and Turtle's added Rank 9, 33459; client DBC
 // verified).
@@ -106,15 +105,15 @@ void RegisterAll() {
     // Higher rank first — rules matching the same trigger arm in
     // registration order, first live gate wins.
     Aura::Source::AddTriggeredApplicationByFamily(
-        kHunter, kFireTrapEffectFlag, kNettleR2, kHunter, kSerpentStingFlag,
+        Offsets::SPELLFAMILY_HUNTER, kFireTrapEffectFlag, kNettleR2, Offsets::SPELLFAMILY_HUNTER, kSerpentStingFlag,
         pctR2);
     Aura::Source::AddTriggeredApplicationByFamily(
-        kHunter, kFireTrapEffectFlag, kNettleR1, kHunter, kSerpentStingFlag,
+        Offsets::SPELLFAMILY_HUNTER, kFireTrapEffectFlag, kNettleR1, Offsets::SPELLFAMILY_HUNTER, kSerpentStingFlag,
         pctR1);
     for (uint32_t id : kMongooseBite) {
-        Aura::Source::AddTriggeredApplication(id, kNettleR2, kHunter,
+        Aura::Source::AddTriggeredApplication(id, kNettleR2, Offsets::SPELLFAMILY_HUNTER,
                                               kSerpentStingFlag, pctR2);
-        Aura::Source::AddTriggeredApplication(id, kNettleR1, kHunter,
+        Aura::Source::AddTriggeredApplication(id, kNettleR1, Offsets::SPELLFAMILY_HUNTER,
                                               kSerpentStingFlag, pctR1);
     }
 }

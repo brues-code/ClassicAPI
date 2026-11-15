@@ -40,12 +40,9 @@ namespace {
 // Attributes bits 0x04 (SPELL_ATTR_ON_NEXT_SWING) and 0x400
 // (SPELL_ATTR_ON_NEXT_SWING_2) both mark an on-next-melee-swing ability
 // (server Spell.h:434 tests the pair).
-constexpr uint32_t SPELL_ATTR_ON_NEXT_SWING = 0x04 | 0x400;
 // InterruptFlags bit 0x08 = SPELL_INTERRUPT_FLAG_AUTOATTACK.
-constexpr uint32_t SPELL_INTERRUPT_AUTOATTACK = 0x08;
 // AttributesEx2 bit 0x20000 = NOT_RESET_AUTO_ACTIONS — exempts the spell
 // from the swing reset the AUTOATTACK interrupt flag would otherwise cause.
-constexpr uint32_t SPELL_ATTR_EX2_NOT_RESET_AUTO_ACTIONS = 0x20000;
 
 uint32_t ReadField(const uint8_t *rec, int offset) {
     return *reinterpret_cast<const uint32_t *>(rec + offset);
@@ -70,7 +67,7 @@ static int __fastcall Script_IsNextMeleeSpell(void *L) {
     const uint8_t *rec = Spell::Lookup::RecordForID(Spell::Arg::ResolveSpellID(L, 1));
     const bool onNextSwing =
         rec != nullptr &&
-        (ReadField(rec, Offsets::OFF_SPELL_RECORD_ATTRIBUTES) & SPELL_ATTR_ON_NEXT_SWING) != 0;
+        (ReadField(rec, Offsets::OFF_SPELL_RECORD_ATTRIBUTES) & Offsets::SPELL_ATTR_ON_NEXT_SWING) != 0;
     Game::Lua::PushBool(L, onNextSwing);
     return 1;
 }
@@ -83,9 +80,9 @@ static int __fastcall Script_ResetsMeleeSwing(void *L) {
     const bool resets =
         rec != nullptr &&
         (ReadField(rec, Offsets::OFF_SPELL_RECORD_INTERRUPT_FLAGS) &
-         SPELL_INTERRUPT_AUTOATTACK) != 0 &&
+         Offsets::SPELL_INTERRUPT_FLAG_AUTOATTACK) != 0 &&
         (ReadField(rec, Offsets::OFF_SPELL_RECORD_ATTRIBUTES_EX2) &
-         SPELL_ATTR_EX2_NOT_RESET_AUTO_ACTIONS) == 0;
+         Offsets::SPELL_ATTR_EX2_NOT_RESET_AUTO_ACTIONS) == 0;
     Game::Lua::PushBool(L, resets);
     return 1;
 }

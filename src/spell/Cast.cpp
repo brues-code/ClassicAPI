@@ -101,7 +101,6 @@ using GetCastTime_t = uint32_t(__fastcall *)(int spellID, int pet, int allowNega
 // SPELL_ATTR_RANGED — every ranged ability carries it; the server adds a
 // flat +500ms "aim time" to these (SpellEntry::GetCastTime). Auto-repeat
 // shots (Auto Shot / Shoot, AttributesEx2 bit 0x20) are the one exclusion.
-constexpr uint32_t SPELL_ATTR_RANGED = 0x2;
 
 // SMSG_SPELL_START target block: SpellCastTargets writes a u16 target mask,
 // then a packed GUID for the unit target when this bit is set (1.12 server
@@ -274,7 +273,7 @@ int CastTimeMs(int spellID) {
                 Game::Read<uint32_t>(rec, Offsets::OFF_SPELL_RECORD_ATTRIBUTES);
             const uint32_t attrEx2 =
                 Game::Read<uint32_t>(rec, Offsets::OFF_SPELL_RECORD_ATTRIBUTES_EX2);
-            if ((attr & SPELL_ATTR_RANGED) && !(attrEx2 & Offsets::SPELL_ATTR_EX2_AUTOREPEAT_FLAG))
+            if ((attr & Offsets::SPELL_ATTR_RANGED) && !(attrEx2 & Offsets::SPELL_ATTR_EX2_AUTOREPEAT_FLAG))
                 ms += 500;
         }
     }

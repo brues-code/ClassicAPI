@@ -40,17 +40,17 @@ namespace {
 
 // Push the modern FriendInfo table for `entry` on top of the Lua stack.
 void PushFriendInfo(void *L, const uint8_t *entry) {
-    const bool connected = *(entry + OFF_FRIEND_CONNECTED) != 0;
+    const bool connected = *(entry + Offsets::OFF_FRIEND_CONNECTED) != 0;
     const char *name =
-        *reinterpret_cast<const char *const *>(entry + OFF_FRIEND_NAME);
-    const int level = *reinterpret_cast<const int *>(entry + OFF_FRIEND_LEVEL);
+        *reinterpret_cast<const char *const *>(entry + Offsets::OFF_FRIEND_NAME);
+    const int level = *reinterpret_cast<const int *>(entry + Offsets::OFF_FRIEND_LEVEL);
     const uint64_t guid =
-        *reinterpret_cast<const uint64_t *>(entry + OFF_FRIEND_GUID);
-    const uint8_t status = *(entry + OFF_FRIEND_STATUS);
+        *reinterpret_cast<const uint64_t *>(entry + Offsets::OFF_FRIEND_GUID);
+    const uint8_t status = *(entry + Offsets::OFF_FRIEND_STATUS);
     const uint32_t classIndex =
-        *reinterpret_cast<const uint32_t *>(entry + OFF_FRIEND_CLASS_INDEX);
+        *reinterpret_cast<const uint32_t *>(entry + Offsets::OFF_FRIEND_CLASS_INDEX);
     const uint32_t areaIndex =
-        *reinterpret_cast<const uint32_t *>(entry + OFF_FRIEND_AREA_INDEX);
+        *reinterpret_cast<const uint32_t *>(entry + Offsets::OFF_FRIEND_AREA_INDEX);
 
     Game::Lua::NewTable(L);
     Game::Lua::SetFieldString(L, "name", name);
@@ -81,8 +81,8 @@ void PushFriendInfo(void *L, const uint8_t *entry) {
     // A logoff (SMSG_FRIEND_STATUS result 3 → SetFriendStatus, 0x005AEB30)
     // clears only the online byte and leaves the status byte, so gate on
     // `connected` — as the engine's GetFriendInfo does for its status text.
-    Game::Lua::SetFieldBool(L, "afk", connected && (status & FRIEND_STATUS_AFK) != 0);
-    Game::Lua::SetFieldBool(L, "dnd", connected && (status & FRIEND_STATUS_DND) != 0);
+    Game::Lua::SetFieldBool(L, "afk", connected && (status & Offsets::FRIEND_STATUS_AFK) != 0);
+    Game::Lua::SetFieldBool(L, "dnd", connected && (status & Offsets::FRIEND_STATUS_DND) != 0);
     Game::Lua::SetFieldBool(L, "mobile", false);
     Game::Lua::SetFieldBool(L, "referAFriend", false);
     Game::Lua::SetFieldNumber(L, "rafLinkType", 0);
@@ -135,7 +135,7 @@ int __fastcall Script_GetNumOnlineFriends(void *L) {
         const uint8_t *entry = FriendList::EntryByIndex(i);
         if (entry == nullptr)
             break;
-        if (*(entry + OFF_FRIEND_CONNECTED) != 0)
+        if (*(entry + Offsets::OFF_FRIEND_CONNECTED) != 0)
             ++online;
     }
     Game::Lua::PushNumber(L, static_cast<double>(online));
@@ -189,7 +189,7 @@ int __fastcall Script_GetFriendInfo(void *L) {
         if (entry == nullptr)
             break;
         const char *fname =
-            *reinterpret_cast<const char *const *>(entry + OFF_FRIEND_NAME);
+            *reinterpret_cast<const char *const *>(entry + Offsets::OFF_FRIEND_NAME);
         if (fname != nullptr && _stricmp(fname, name) == 0) {
             PushFriendInfo(L, entry);
             return 1;

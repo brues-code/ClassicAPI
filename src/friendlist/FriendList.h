@@ -18,40 +18,11 @@
 #include <cstdint>
 #include <cstring>
 
-// Shared access to the client's friend list. The friend entries live inline
-// in the social singleton (`VAR_SOCIAL_SYSTEM`, shared with the ignore list
-// and /who): up to 50 entries from offset 0, stride 0x20. The field offsets
-// are verified from GetNumFriends (FUN_005AD000), GetFriendInfo
-// (FUN_005AD060), and the count walker FUN_005AE490.
-//
-// The ignore list lives in the same singleton: a flat array of u64 GUIDs at
-// `+0x650`, stride 8, up to 25 entries. Vanilla ignores are GUID-keyed, not
-// name-keyed — GetIgnoreName (0x005AD460) reads the GUID via FUN_005AE570
-// (`social + 0x650 + index*8`) and resolves it to a name through the
-// NameCache. GetNumIgnores (0x005AD400 → FUN_005AE550) stops at the first zero
-// GUID, but the array is NOT always contiguous: removing an ignore zeroes its
-// slot and re-sorts only when no ignore name lookup is pending, so membership
-// checks must scan all 25 slots (as the engine's IsIgnored, 0x005AE5A0, does).
+// Shared access to the client's friend list and ignore list in the social
+// singleton; the layout is documented at VAR_SOCIAL_SYSTEM in Offsets.h.
 
 namespace FriendList {
 
-constexpr int FRIEND_ENTRY_STRIDE = 0x20;
-constexpr int MAX_FRIENDS = 50;
-
-constexpr int OFF_FRIEND_CONNECTED = 0x00; // u8  — 0 = offline
-constexpr int OFF_FRIEND_STATUS = 0x01;    // u8  — bit 0x02 AFK, 0x04 DND
-constexpr int OFF_FRIEND_NAME = 0x04;      // char*
-constexpr int OFF_FRIEND_GUID = 0x08;      // u64
-constexpr int OFF_FRIEND_LEVEL = 0x10;     // i32
-constexpr int OFF_FRIEND_CLASS_INDEX = 0x14; // i32 → ChrClasses.dbc
-constexpr int OFF_FRIEND_AREA_INDEX = 0x18;  // i32 → AreaTable.dbc
-
-constexpr uint8_t FRIEND_STATUS_AFK = 0x02;
-constexpr uint8_t FRIEND_STATUS_DND = 0x04;
-
-constexpr int OFF_IGNORE_LIST = 0x650;   // u64 GUID array in the social singleton
-constexpr int IGNORE_ENTRY_STRIDE = 0x8; // one packed u64 GUID per entry
-constexpr int MAX_IGNORES = 25;          // 0x19 — GetNumIgnores' cap
 
 // The social singleton, or null before login.
 inline const uint8_t *Social() {
@@ -86,9 +57,9 @@ inline bool IsGuidFriend(uint64_t guid) {
 // count — callers that iterate should use `Count()`.
 inline const uint8_t *EntryByIndex(int index) {
     const uint8_t *social = Social();
-    if (social == nullptr || index < 0 || index >= MAX_FRIENDS)
+    if (social == nullptr || index < 0 || index >= Offsets::MAX_FRIENDS)
         return nullptr;
-    return social + index * FRIEND_ENTRY_STRIDE;
+    return social + index * Offsets::FRIEND_ENTRY_STRIDE;
 }
 
 // The inline name of the friend with GUID `guid`, or null if that GUID is
@@ -103,9 +74,9 @@ inline const char *NameForGuid(uint64_t guid) {
         const uint8_t *entry = EntryByIndex(i);
         if (entry == nullptr)
             break;
-        if (*reinterpret_cast<const uint64_t *>(entry + OFF_FRIEND_GUID) == guid) {
+        if (*reinterpret_cast<const uint64_t *>(entry + Offsets::OFF_FRIEND_GUID) == guid) {
             const char *name =
-                *reinterpret_cast<const char *const *>(entry + OFF_FRIEND_NAME);
+                *reinterpret_cast<const char *const *>(entry + Offsets::OFF_FRIEND_NAME);
             return (name != nullptr && *name != '\0') ? name : nullptr;
         }
     }
@@ -124,9 +95,9 @@ inline uint64_t GuidForName(const char *name) {
         if (entry == nullptr)
             break;
         const char *fname =
-            *reinterpret_cast<const char *const *>(entry + OFF_FRIEND_NAME);
+            *reinterpret_cast<const char *const *>(entry + Offsets::OFF_FRIEND_NAME);
         if (fname != nullptr && _stricmp(fname, name) == 0)
-            return *reinterpret_cast<const uint64_t *>(entry + OFF_FRIEND_GUID);
+            return *reinterpret_cast<const uint64_t *>(entry + Offsets::OFF_FRIEND_GUID);
     }
     return 0;
 }
@@ -135,10 +106,10 @@ inline uint64_t GuidForName(const char *name) {
 // index is past the fixed cap. Mirrors FUN_005AE570.
 inline uint64_t IgnoreGuidByIndex(int index) {
     const uint8_t *social = Social();
-    if (social == nullptr || index < 0 || index >= MAX_IGNORES)
+    if (social == nullptr || index < 0 || index >= Offsets::MAX_IGNORES)
         return 0;
     return *reinterpret_cast<const uint64_t *>(
-        social + OFF_IGNORE_LIST + index * IGNORE_ENTRY_STRIDE);
+        social + Offsets::OFF_IGNORE_LIST + index * Offsets::IGNORE_ENTRY_STRIDE);
 }
 
 // True if `guid` is on the ignore list — the engine's own FriendList::IsIgnored,

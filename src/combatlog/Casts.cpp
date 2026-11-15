@@ -63,12 +63,11 @@ constexpr uint8_t SPELL_MISS_REFLECT = 11;
 // 4.3.4's SpellHasOpenLockEffect tests 33 alone; 1.12's success line also
 // drops 59 (0x0062AD90), which 4.3.4 logs.
 constexpr int SPELL_EFFECT_OPEN_LOCK = 33;
-constexpr int SPELL_EFFECT_LEARN_SPELL = 36;
 // AttributesEx4 0x1: the cast writes no line (the 1.12 start line tests it,
 // 0x0062B30D, as 4.3.4 does).
 constexpr uint32_t ATTR_EX4_NO_CAST_LOG = 0x1;
-// 4.3.4's failure builder drops only this Attributes bit, not 0x100.
-constexpr uint32_t ATTR_FAIL_HIDDEN = 0x80;
+// 4.3.4's failure builder drops only SPELL_ATTR_DO_NOT_DISPLAY, not
+// SPELL_ATTR_DO_NOT_LOG.
 
 bool Overrun(const CDataStore *p) { return p->m_read > p->m_size; }
 
@@ -82,7 +81,7 @@ int CastingTime(void *unit, int spellId) {
 
 // The rules both cast builders share.
 bool Logged(const uint8_t *spell) {
-    return !Hidden(spell) && !Spell::Lookup::HasEffect(spell, SPELL_EFFECT_LEARN_SPELL) &&
+    return !Hidden(spell) && !Spell::Lookup::HasEffect(spell, Offsets::SPELL_EFFECT_LEARN_SPELL) &&
            (Game::Read<uint32_t>(spell, Offsets::OFF_SPELL_RECORD_ATTRIBUTES_EX4) &
             ATTR_EX4_NO_CAST_LOG) == 0;
 }
@@ -155,7 +154,7 @@ SpellFail_t SpellFail_o = nullptr;
 void __fastcall SpellFail_h(void *player, int spellId, const char *text) {
     const uint8_t *spell = SpellRecord(spellId);
     if (player != nullptr && text != nullptr && *text != '\0' && spell != nullptr &&
-        (Game::Read<uint32_t>(spell, Offsets::OFF_SPELL_RECORD_ATTRIBUTES) & ATTR_FAIL_HIDDEN) ==
+        (Game::Read<uint32_t>(spell, Offsets::OFF_SPELL_RECORD_ATTRIBUTES) & Offsets::SPELL_ATTR_DO_NOT_DISPLAY) ==
             0 &&
         Spell::Lookup::Name(spell) != nullptr) {
         Entry e = Begin(Unit::Identity::GuidForObject(player), 0, SPELL_CAST_FAILED, spell);

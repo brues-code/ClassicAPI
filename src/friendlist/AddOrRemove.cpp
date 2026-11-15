@@ -50,11 +50,11 @@ namespace {
 std::vector<std::pair<std::string, std::string>> g_pendingNotes;
 
 const uint8_t *FindByName(const char *name) {
-    for (int i = 0; i < MAX_FRIENDS; ++i) {
+    for (int i = 0; i < Offsets::MAX_FRIENDS; ++i) {
         const uint8_t *entry = EntryByIndex(i);
         if (entry == nullptr)
             return nullptr;
-        const char *fname = *reinterpret_cast<const char *const *>(entry + OFF_FRIEND_NAME);
+        const char *fname = *reinterpret_cast<const char *const *>(entry + Offsets::OFF_FRIEND_NAME);
         if (fname != nullptr && Game::StrCmpI(fname, name) == 0)
             return entry;
     }
@@ -96,7 +96,7 @@ int __fastcall Script_AddOrRemoveFriend(void *L) {
     if (const uint8_t *entry = FindByName(name)) {
         using SendRemoveFn = void(__fastcall *)(const void *social, void *edx, uint64_t guid);
         reinterpret_cast<SendRemoveFn>(static_cast<uintptr_t>(Offsets::FUN_FRIEND_LIST_SEND_REMOVE_FRIEND))(
-            Social(), nullptr, *reinterpret_cast<const uint64_t *>(entry + OFF_FRIEND_GUID));
+            Social(), nullptr, *reinterpret_cast<const uint64_t *>(entry + Offsets::OFF_FRIEND_GUID));
         return 0;
     }
 

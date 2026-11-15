@@ -190,9 +190,9 @@ std::vector<Entry> Collect(Match match) {
         const uint8_t *entry = FriendList::EntryByIndex(i);
         if (entry == nullptr)
             break;
-        add(Game::Read<uint64_t>(entry, FriendList::OFF_FRIEND_GUID),
-            Game::Read<const char *>(entry, FriendList::OFF_FRIEND_NAME), FLAG_FRIEND, true,
-            Game::Read<uint8_t>(entry, FriendList::OFF_FRIEND_CONNECTED) != 0, 0);
+        add(Game::Read<uint64_t>(entry, Offsets::OFF_FRIEND_GUID),
+            Game::Read<const char *>(entry, Offsets::OFF_FRIEND_NAME), FLAG_FRIEND, true,
+            Game::Read<uint8_t>(entry, Offsets::OFF_FRIEND_CONNECTED) != 0, 0);
     }
 
     using GetCurrentFn = const uint8_t *(__cdecl *)();

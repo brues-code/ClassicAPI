@@ -1223,11 +1223,10 @@ constexpr uint32_t kSpellJudgement = 20271; // server SPELL_PALADIN_JUDGEMENT
 // verified); no shared family-flag mask exists (each seal's debuff has its
 // own bit), which is why this isn't an AddDurationMod rule.
 bool IsJudgementSpell(const uint8_t *rec) {
-    constexpr uint32_t kPaladinFamily = 10; // SPELLFAMILY_PALADIN
     if (rec == nullptr)
         return false;
     if (*reinterpret_cast<const uint32_t *>(
-            rec + Offsets::OFF_SPELL_RECORD_FAMILY_NAME) != kPaladinFamily)
+            rec + Offsets::OFF_SPELL_RECORD_FAMILY_NAME) != Offsets::SPELLFAMILY_PALADIN)
         return false;
     return (*reinterpret_cast<const uint32_t *>(
                 rec + Offsets::OFF_SPELL_RECORD_ATTRIBUTES_EX3) &

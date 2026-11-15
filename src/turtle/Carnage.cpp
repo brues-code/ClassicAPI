@@ -54,7 +54,6 @@ namespace Turtle::Carnage {
 
 namespace {
 
-constexpr uint32_t kDruidFamily = 7;
 constexpr uint64_t kRipFlag = 0x800000;
 constexpr uint32_t kRipIcon = 108;
 constexpr uint64_t kRakeFlag = 0x1000;
@@ -70,7 +69,7 @@ constexpr uint32_t kRakeIcon = 494;
 // flag but has no damage effect, and Rake carries a different flag.
 bool IsFerociousBite(uint32_t spellId) {
     const uint8_t *rec = Spell::Lookup::RecordForID(static_cast<int>(spellId));
-    if (!Spell::Lookup::IsFitToFamily(rec, kDruidFamily, kRipFlag))
+    if (!Spell::Lookup::IsFitToFamily(rec, Offsets::SPELLFAMILY_DRUID, kRipFlag))
         return false;
     // The direct-damage effect separates Bite from Rip, its DoT sibling that
     // shares the flag (Rip's effect is APPLY_AURA, not SCHOOL_DAMAGE).
@@ -139,9 +138,9 @@ void OnTick() {
     g_lastCp = cp;
     if (cp > 0) {
         const uint64_t self = Unit::Identity::PlayerGuid();
-        Aura::Source::RefreshDurationByFamily(g_target, kDruidFamily, kRipFlag,
+        Aura::Source::RefreshDurationByFamily(g_target, Offsets::SPELLFAMILY_DRUID, kRipFlag,
                                               kRipIcon, self);
-        Aura::Source::RefreshDurationByFamily(g_target, kDruidFamily, kRakeFlag,
+        Aura::Source::RefreshDurationByFamily(g_target, Offsets::SPELLFAMILY_DRUID, kRakeFlag,
                                               kRakeIcon, self);
         g_target = 0;
     }

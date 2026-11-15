@@ -49,8 +49,6 @@ namespace {
 // SpellFamilyName + family-flag bits of the affected auras (SpellClassMask):
 // Immolate is warlock CF_WARLOCK_IMMOLATE (bit 2); Flame Shock is shaman
 // CF_SHAMAN_FLAME_SHOCK (bit 28).
-constexpr uint32_t kWarlock = 5;
-constexpr uint32_t kShaman = 11;
 constexpr uint64_t kImmolateFlag = 0x4;
 constexpr uint64_t kFlameShockFlag = 0x10000000;
 
@@ -74,7 +72,6 @@ constexpr uint64_t kFlameShockFlag = 0x10000000;
 // SpellFamilyFlags of 0, so no mask can name this aura, while icon 2245 picks
 // out exactly the four Scent of Blood records in the hunter family and nothing
 // else (client DBC verified) — and it keeps picking them if Turtle adds a rank.
-constexpr uint32_t kHunter = 9;
 constexpr uint32_t kBestialWrath = 19574;
 constexpr uint32_t kScentOfBloodIcon = 2245;
 // The server hardcodes 18s; Bestial Wrath's own DBC duration agrees, so we
@@ -99,18 +96,18 @@ bool g_registered = false;
 void RegisterAll() {
     constexpr uint32_t kConflagrate[] = {17962, 18930, 18931, 18932};
     for (uint32_t id : kConflagrate)
-        Aura::Source::AddDurationMod(id, kWarlock, kImmolateFlag, /*icon*/ 0,
+        Aura::Source::AddDurationMod(id, Offsets::SPELLFAMILY_WARLOCK, kImmolateFlag, /*icon*/ 0,
                                      Aura::Source::DURATION_MOD_REDUCE,
                                      /*valueMs*/ 3000);
 
     constexpr uint32_t kMoltenBlast[] = {36916, 36917, 36918,
                                          36919, 36920, 36921};
     for (uint32_t id : kMoltenBlast)
-        Aura::Source::AddDurationMod(id, kShaman, kFlameShockFlag, /*icon*/ 0,
+        Aura::Source::AddDurationMod(id, Offsets::SPELLFAMILY_SHAMAN, kFlameShockFlag, /*icon*/ 0,
                                      Aura::Source::DURATION_MOD_REFRESH,
                                      /*valueMs*/ 0);
 
-    Aura::Source::AddDurationMod(kBestialWrath, kHunter, /*mask*/ 0,
+    Aura::Source::AddDurationMod(kBestialWrath, Offsets::SPELLFAMILY_HUNTER, /*mask*/ 0,
                                  kScentOfBloodIcon,
                                  Aura::Source::DURATION_MOD_SET,
                                  BestialWrathDurationMs());

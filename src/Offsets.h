@@ -7844,6 +7844,38 @@ enum Offsets {
     // client gets silent-dropped, so any client-side gating just
     // matches that.
     VAR_SOCIAL_SYSTEM = 0x00C28168,
+    // The client's friend list. The friend entries live inline
+    // in the social singleton (`VAR_SOCIAL_SYSTEM`, shared with the ignore list
+    // and /who): up to 50 entries from offset 0, stride 0x20. The field offsets
+    // are verified from GetNumFriends (FUN_005AD000), GetFriendInfo
+    // (FUN_005AD060), and the count walker FUN_005AE490.
+    //
+    // The ignore list lives in the same singleton: a flat array of u64 GUIDs at
+    // `+0x650`, stride 8, up to 25 entries. Vanilla ignores are GUID-keyed, not
+    // name-keyed — GetIgnoreName (0x005AD460) reads the GUID via FUN_005AE570
+    // (`social + 0x650 + index*8`) and resolves it to a name through the
+    // NameCache. GetNumIgnores (0x005AD400 → FUN_005AE550) stops at the first zero
+    // GUID, but the array is NOT always contiguous: removing an ignore zeroes its
+    // slot and re-sorts only when no ignore name lookup is pending, so membership
+    // checks must scan all 25 slots (as the engine's IsIgnored, 0x005AE5A0, does).
+    FRIEND_ENTRY_STRIDE = 0x20,
+    MAX_FRIENDS = 50,
+
+    OFF_FRIEND_CONNECTED = 0x00, // u8  — 0 = offline
+    OFF_FRIEND_STATUS = 0x01,    // u8  — bit 0x02 AFK, 0x04 DND
+    OFF_FRIEND_NAME = 0x04,      // char*
+    OFF_FRIEND_GUID = 0x08,      // u64
+    OFF_FRIEND_LEVEL = 0x10,     // i32
+    OFF_FRIEND_CLASS_INDEX = 0x14, // i32 → ChrClasses.dbc
+    OFF_FRIEND_AREA_INDEX = 0x18,  // i32 → AreaTable.dbc
+
+    FRIEND_STATUS_AFK = 0x02,
+    FRIEND_STATUS_DND = 0x04,
+
+    OFF_IGNORE_LIST = 0x650,   // u64 GUID array in the social singleton
+    IGNORE_ENTRY_STRIDE = 0x8, // one packed u64 GUID per entry
+    MAX_IGNORES = 25,          // 0x19 — GetNumIgnores' cap
+
     VAR_WHO_TO_UI_FLAG = 0x00C2A12C,
     FUN_WHO_SYSTEM_SEND_QUERY = 0x005AEBB0,
     // Friend count: `__fastcall(socialSingleton) -> uint` — walks the inline
@@ -12800,6 +12832,18 @@ enum Offsets {
     // disables spell mods — the client reads [record + 0x24] in FUN_006e6b30.
     OFF_SPELL_RECORD_FAMILY_NAME = 0x280,             // u32
     OFF_SPELL_RECORD_FAMILY_FLAGS = 0x284,            // u64
+    // SpellFamilyName values (vmangos SpellDefines.h SpellFamilyNames).
+    SPELLFAMILY_GENERIC = 0,
+    SPELLFAMILY_MAGE = 3,
+    SPELLFAMILY_WARRIOR = 4,
+    SPELLFAMILY_WARLOCK = 5,
+    SPELLFAMILY_PRIEST = 6,
+    SPELLFAMILY_DRUID = 7,
+    SPELLFAMILY_ROGUE = 8,
+    SPELLFAMILY_HUNTER = 9,
+    SPELLFAMILY_PALADIN = 10,
+    SPELLFAMILY_SHAMAN = 11,
+    SPELLFAMILY_POTION = 13,
     OFF_SPELL_RECORD_ICON_ID = 0x1D4,                 // u32 SpellIconID (→ SpellIcon.dbc)
     OFF_SPELL_RECORD_SPEED = 0x94,                    // float missile speed, yards/s (column 37; read by the missile launcher 0x0060A3D0 as m_speed; verified in Spell.dbc). 24.0 for Fireball 133
     OFF_SPELL_RECORD_ACTIVE_ICON_ID = 0x1D8,          // u32 activeIconID (→ SpellIcon.dbc) — shown while the spell's toggle is up (FUN_ACTION_SLOT_TEXTURE)
@@ -12816,6 +12860,11 @@ enum Offsets {
     // SetHyperlink's `enchant:` on this bit, and its UnitCastingInfo reports
     // it as isTradeskill.
     SPELL_ATTR_TRADESPELL = 0x20,
+    // Attributes bit 7: not shown in the spellbook or on the aura bar (the
+    // "hidden clientside" helpers, e.g. Defensive Stance Passive 7376), and
+    // bit 8: written to no combat log (vmangos SpellDefines.h).
+    SPELL_ATTR_DO_NOT_DISPLAY = 0x80,
+    SPELL_ATTR_DO_NOT_LOG = 0x100,
     // Column 3, castUI: the tab a learned spell without SPELL_ATTR_TRADESPELL
     // is filed under. The learn function (0x005E9C20) puts a TRADESPELL
     // spell in its skill line's list (CGPlayer_C::FindSkillLineSpells) and

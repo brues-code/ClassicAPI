@@ -66,7 +66,6 @@ constexpr uint32_t SMSG_DISPEL_FAILED = 0x262;
 constexpr uint32_t SMSG_SPELLDISPELLOG = 0x27b;
 
 // The effects a dispelling cast has.
-constexpr int SPELL_EFFECT_DISPEL = 38;
 constexpr int SPELL_EFFECT_DISPEL_MECHANIC = 108;
 
 bool Overrun(const CDataStore *p) { return p->m_read > p->m_size; }
@@ -133,7 +132,7 @@ bool Harmful(uint64_t target, uint32_t spellId) {
 void SendDispel(uint64_t caster, uint64_t target, int event, int dispelledId, bool auraType) {
     if (Hidden(SpellRecord(dispelledId)))
         return;
-    const uint8_t *spell = RecentCasts::SpellByEffect(caster, target, SPELL_EFFECT_DISPEL,
+    const uint8_t *spell = RecentCasts::SpellByEffect(caster, target, Offsets::SPELL_EFFECT_DISPEL,
                                                       SPELL_EFFECT_DISPEL_MECHANIC);
     Entry e = Begin(caster, target, event, Hidden(spell) ? nullptr : spell);
     e.spellPrefix = true; // with no cast seen, the spell 1.12 does not name

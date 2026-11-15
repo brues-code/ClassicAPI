@@ -54,7 +54,6 @@ int SpellBaseLevel(int spellID) {
 // race/class, 1 = profession, 0 = trainer-taught), not a Spell.dbc bit;
 // this feature deliberately reports the broader "trainable at level" set,
 // so it applies no learnOnGetSkill filter.
-constexpr uint32_t SPELL_ATTR_HIDDEN_CLIENTSIDE = 0x80;
 
 bool SpellHiddenFromSpellbook(int spellID) {
     const uint8_t *record = Spell::Lookup::RecordForID(spellID);
@@ -62,7 +61,7 @@ bool SpellHiddenFromSpellbook(int spellID) {
         return false;
     const uint32_t attributes = Game::Read<uint32_t>(
         record, Offsets::OFF_SPELL_RECORD_ATTRIBUTES);
-    return (attributes & SPELL_ATTR_HIDDEN_CLIENTSIDE) != 0;
+    return (attributes & Offsets::SPELL_ATTR_DO_NOT_DISPLAY) != 0;
 }
 
 // ---- Target-level gate for ranked beneficial auras ----------------------

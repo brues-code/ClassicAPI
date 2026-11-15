@@ -114,9 +114,10 @@ constexpr const char *kMissNames[MISS_COUNT] = {
 constexpr const char *kEnvironmentalNames[] = {"FATIGUE", "DROWNING", "FALLING",
                                                "LAVA",    "SLIME",    "FIRE"};
 
-// Spell.dbc Attributes bits 0x80 and 0x100: the 1.12 combat log's own
-// formatters drop these spells too (benilla-re objectlayer/combatlogmessages).
-constexpr uint32_t kHiddenAttributes = 0x180;
+// The 1.12 combat log's own formatters drop these spells too (benilla-re
+// objectlayer/combatlogmessages).
+constexpr uint32_t kHiddenAttributes =
+    Offsets::SPELL_ATTR_DO_NOT_DISPLAY | Offsets::SPELL_ATTR_DO_NOT_LOG;
 constexpr uint32_t kRangedAttributeEx3 = 0x8000;
 constexpr int kSchoolCount = 7;
 

@@ -70,7 +70,6 @@ using Net::ReadPackedGuid;
 
 constexpr uint32_t SMSG_SPELLHEALLOG = 0x150;
 constexpr uint32_t SMSG_SPELLENERGIZELOG = 0x151;
-constexpr uint32_t SMSG_ATTACKERSTATEUPDATE = 0x14a;
 constexpr uint32_t SMSG_ENVIRONMENTALDAMAGELOG = 0x1fc;
 constexpr uint32_t SMSG_PROCRESIST = 0x260;
 constexpr uint32_t SMSG_PERIODICAURALOG = 0x24e;
@@ -79,7 +78,6 @@ constexpr uint32_t SMSG_SPELLNONMELEEDAMAGELOG = 0x250;
 constexpr uint32_t SMSG_SPELLORDAMAGE_IMMUNE = 0x263;
 
 // 1.12 melee hit info (the swing line's own tests, 0x00629B60 / 0x00629D30).
-constexpr uint32_t HITINFO_LEFTSWING = 0x4;
 constexpr uint32_t HITINFO_MISS = 0x10;
 constexpr uint32_t HITINFO_ABSORB = 0x20;
 constexpr uint32_t HITINFO_RESIST = 0x40;
@@ -335,7 +333,7 @@ void AttackerState(CDataStore *p) {
     if (Unit(attacker) == nullptr && (victimUnit == nullptr || !PlayerControlled(victimUnit)))
         return;
 
-    const bool offHand = (hitInfo & HITINFO_LEFTSWING) != 0;
+    const bool offHand = (hitInfo & Offsets::HITINFO_LEFTSWING) != 0;
     if ((state == VICTIMSTATE_NORMAL || state == VICTIMSTATE_BLOCKS) && damage != 0) {
         SendDamage(attacker, victim, SWING_DAMAGE, nullptr, damage, SchoolMask(school), resisted,
                    blocked, absorbed, (hitInfo & HITINFO_CRITICAL) != 0,
@@ -589,7 +587,7 @@ void SpellOrDamageImmune(CDataStore *p) {
 
 void OnPacket(uint32_t opcode, CDataStore *p) {
     switch (opcode) {
-    case SMSG_ATTACKERSTATEUPDATE:
+    case Offsets::SMSG_ATTACKERSTATEUPDATE:
         AttackerState(p);
         break;
     case SMSG_SPELLNONMELEEDAMAGELOG:

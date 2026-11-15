@@ -75,12 +75,6 @@ bool ReadGuid(const void *cgObject, uint32_t *lo, uint32_t *hi) {
     return true;
 }
 
-// Bag-container linear-slot range — the four equipped-bag slots
-// the engine treats as "directly in the player's invMgr" for the
-// purposes of opcode 0x10D's same-container check. Just here so
-// the magic +19 in FromBag is explained at the call site.
-constexpr int FIRST_BAG_CONTAINER_LINEAR = 19;
-
 // Player-container linear-slot bases, DERIVED from the named
 // first-slot constants in Offsets.h rather than restated. The whole map
 // (paperdoll / backpack / bank / bank bags / keyring) is documented at
@@ -173,7 +167,7 @@ bool EncodeBagSlot(int bagID, int slotInBag,
 
     if (bagID >= 1 && bagID <= 4) {
         const uint8_t *bag = Item::Location::ResolveEquipmentSlot(
-            FIRST_BAG_CONTAINER_LINEAR + bagID);
+            Offsets::INVSLOT_BAG1 + bagID - 1);
         if (bag == nullptr)
             return false;
         if (!ReadGuid(bag, containerLo, containerHi))
@@ -208,7 +202,7 @@ bool EncodeContainerGuid(int bagID, uint32_t *containerLo, uint32_t *containerHi
     }
     if (bagID >= 1 && bagID <= 4) {
         const uint8_t *bag = Item::Location::ResolveEquipmentSlot(
-            FIRST_BAG_CONTAINER_LINEAR + bagID);
+            Offsets::INVSLOT_BAG1 + bagID - 1);
         if (bag == nullptr)
             return false;
         return ReadGuid(bag, containerLo, containerHi);

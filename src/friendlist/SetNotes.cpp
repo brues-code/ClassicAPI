@@ -40,7 +40,7 @@ const uint8_t *FindByName(const char *name) {
         if (entry == nullptr)
             break;
         const char *fname = *reinterpret_cast<const char *const *>(
-            entry + FriendList::OFF_FRIEND_NAME);
+            entry + Offsets::OFF_FRIEND_NAME);
         if (fname != nullptr && _stricmp(fname, name) == 0)
             return entry;
     }
@@ -51,9 +51,9 @@ void ApplyNote(const uint8_t *entry, const char *note) {
     if (entry == nullptr)
         return;
     const uint64_t guid = *reinterpret_cast<const uint64_t *>(
-        entry + FriendList::OFF_FRIEND_GUID);
+        entry + Offsets::OFF_FRIEND_GUID);
     const char *name = *reinterpret_cast<const char *const *>(
-        entry + FriendList::OFF_FRIEND_NAME);
+        entry + Offsets::OFF_FRIEND_NAME);
     if (Notes::Set(guid, name, note))
         Event::Custom::Fire(Offsets::EVENT_FRIENDLIST_UPDATE, "");
 }

@@ -55,7 +55,6 @@ namespace Turtle::DarkHarvest {
 
 namespace {
 
-constexpr uint32_t kWarlock = 5; // SPELLFAMILY_WARLOCK
 constexpr uint64_t kDarkHarvestFlag = 0x4000000000ULL;
 constexpr uint64_t kAfflictionMask = 0x2ULL | 0x8ULL | 0x400ULL | 0x4000ULL |
                                      0x100000000ULL | 0x200000000ULL;
@@ -80,7 +79,7 @@ bool g_registered = false;
 void OnTick() {
     if (g_registered || !Turtle::Detected())
         return;
-    Aura::Source::AddTickCompression(kWarlock, kDarkHarvestFlag, kWarlock,
+    Aura::Source::AddTickCompression(Offsets::SPELLFAMILY_WARLOCK, kDarkHarvestFlag, Offsets::SPELLFAMILY_WARLOCK,
                                      kAfflictionMask, HarvestPct());
     g_registered = true;
 }
