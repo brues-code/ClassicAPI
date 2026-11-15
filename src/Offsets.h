@@ -167,20 +167,14 @@ enum Offsets {
     // " " — the token delimiter LoadBindings splits a `bind` line's key with.
     VAR_STR_SPACE_DELIM = 0x0082EE00,
 
-    // GameTooltip script-method prologue helpers (used to resolve self → CFrameScriptObject*).
-    // Underlying Lua C API names per [[docs/LuaCAPI.md]] are `lua_rawgeti`
-    // (0x6F3BC0) and `lua_touserdata` (0x6F3740). The Set* method prologue's
-    // call sequence
-    //   PushObject(L, idx, 0);  // == lua_rawgeti(L, idx, 0) — pushes the
-    //                             // lightuserdata at table[0]
-    //   GetObject(L, -1);       // == lua_touserdata(L, -1) — extracts
-    //                             // the raw CFrameScriptObject *
-    // is the canonical "Lua frame table → C++ object" path. The reverse
-    // (`GameTooltip:GetOwner` etc.) is just `lua_rawgeti(L, REGISTRY,
-    // [cobj+OFF_COBJECT_LUA_REF])` — the engine pre-allocates
-    // the registry handle when the frame is created from Lua.
-    FUN_FRAMESCRIPT_PUSH_OBJECT = 0x6F3BC0,
-    FUN_FRAMESCRIPT_GET_OBJECT = 0x6F3740,
+    // `lua_touserdata` (per [[docs/LuaCAPI.md]]). With `lua_rawgeti`
+    // (LUA_RAWGETI) it is the Set* method prologue's "Lua frame table → C++
+    // object" path: rawgeti(L, idx, 0) pushes the lightuserdata at table[0],
+    // touserdata(L, -1) extracts the CFrameScriptObject * (Game::Lua::
+    // ResolveObject). The reverse (`GameTooltip:GetOwner` etc.) is
+    // rawgeti(L, REGISTRY, [cobj+OFF_COBJECT_LUA_REF]) — the engine
+    // pre-allocates the registry handle when the frame is created from Lua.
+    LUA_TO_USERDATA = 0x6F3740,
 
     // Within a CGFrame, the embedded LayoutFrame sub-object starts here.
     // Engine code that wants to invoke LayoutFrame methods polymorphically
@@ -2491,7 +2485,6 @@ enum Offsets {
     // pets are Beasts, warlock minions are Demons (type 3) — so `!= 1`
     // cleanly separates them, which neither the GUID (pets and guardians
     // share the 0xF14… prefix) nor UNIT_FLAG_PLAYER_CONTROLLED reliably does.
-    FUN_UNIT_PET_MINION_CLASS = 0x00605570,
     FUN_UNIT_CREATURE_TYPE = 0x00605570,
 
     // Party / raid roster counts and the party GUID array referenced
@@ -3587,11 +3580,10 @@ enum Offsets {
     // The taxi map opener (0x004DB710) ends like 4.3.4's: TAXIMAP_OPENED,
     // then tutorial 34 through FUN_TRIGGER_TUTORIAL (`void __fastcall(int
     // id, int)`) at this call; 4.3.4 then stands, dismounts and leaves the
-    // form when the map has more than one node (VAR_TAXI_MAP_NODE_COUNT,
+    // form when the map has more than one node (VAR_TAXI_NODE_COUNT,
     // the count the opener's TaxiNodeSetCurrent loop runs to).
     CALL_TAXI_MAP_OPENED_TUTORIAL = 0x004DBAA2,
     FUN_TRIGGER_TUTORIAL = 0x004B5390,
-    VAR_TAXI_MAP_NODE_COUNT = 0x00BB4AA8,
 
     // Effective spell/channel duration (ms):
     // `__fastcall int(const void *spellRecord, int pet /*0 = player,
@@ -5702,10 +5694,6 @@ enum Offsets {
     // returns the container's inventory object — `void* __thiscall(container)`.
     // The inventory object's slot count lives at its +0x00 (OFF_INVMGR_SLOT_COUNT).
     OFF_CONTAINER_GET_INVENTORY = 0x10,
-    // Backpack (bagID 0) linear-slot base in the player invMgr GUID/item
-    // arrays: a 1-based backpack slot S maps to linear (S - 1) + 23. Matches
-    // PackBagSlot's `*param_3 += 0x17` for the backpack branch.
-    BACKPACK_LINEAR_BASE = 23,
     // Lua container indices (bagID), as `PackBagSlot` reads them and FrameXML
     // names them (KEYRING_CONTAINER, BANK_CONTAINER, BACKPACK_CONTAINER,
     // NUM_BAG_SLOTS, NUM_BANKBAGSLOTS): keyring -2, bank -1, backpack 0,
@@ -5741,6 +5729,9 @@ enum Offsets {
     // it hides data that's present from boot. Reading the GUID array
     // directly recovers it without ever opening the bank window.
     OFF_INVMGR_GUID_ARRAY = 0x04,
+    // A 1-based backpack slot S is linear (S - 1) + INVMGR_BACKPACK_FIRST_SLOT
+    // in the player invMgr GUID/item arrays: PackBagSlot's `*param_3 += 0x17`
+    // for the backpack branch.
     INVMGR_BACKPACK_FIRST_SLOT = 23,
     INVMGR_BACKPACK_LAST_SLOT = 38,
     INVMGR_BANK_MAIN_FIRST_SLOT = 39,
@@ -9034,8 +9025,8 @@ enum Offsets {
     //   - `0x20` source world location needed
     //   - `0x40` dest world location needed
     // The `0x60` mask therefore identifies "ground-target placement"
-    // (vs. unit-target, trade-target, etc.). See `Spell::Placement`.
-    VAR_SPELL_PLACEMENT_STATE = 0x00CECAC0,
+    // (vs. unit-target, trade-target, etc.). See `Spell::Placement`. The
+    // word itself is VAR_SPELL_TARGETING_FLAGS.
     SPELL_PLACEMENT_GROUND_MASK = 0x60,
 
     // `FUN_006E60F0(float *xyz)` — commits the in-flight ground-target
@@ -9056,8 +9047,8 @@ enum Offsets {
     // `Script_SpellStopTargeting`.
     FUN_STOP_PLACEMENT = 0x006E4900,
 
-    // `*VAR_WORLDFRAME_CLICK_INFO` is a pointer to the engine's
-    // CWorldFrame "click info" struct — the data block where the input
+    // `*VAR_GAME_STATE_PTR` is also the engine's CWorldFrame "click info"
+    // struct — the data block where the input
     // dispatcher stashes "what is the cursor pointed at right now"
     // after every mouse motion. Allocated at world enter, populated
     // continuously by the rendering pipeline (viewport bounds and
@@ -9068,7 +9059,6 @@ enum Offsets {
     //       `1` = world / terrain hit
     //       `2` = unit / object hit
     //   - `+0x360..+0x368` (3 floats) hit world position (when type == 1)
-    VAR_WORLDFRAME_CLICK_INFO = 0x00B4B2BC,
     OFF_CLICK_INFO_TYPE = 0x350,
     OFF_CLICK_INFO_COORDS = 0x360,
 
@@ -9277,7 +9267,7 @@ enum Offsets {
     // belongs to exactly one school. Mapping:
     //   0 = Physical  1 = Holy  2 = Fire    3 = Nature
     //   4 = Frost     5 = Shadow 6 = Arcane
-    OFF_SPELL_SCHOOL = 0x04,
+    OFF_SPELL_RECORD_SCHOOL = 0x04,
     SPELL_SCHOOL_COUNT = 7,
 
     // Spell.dbc DispelType field — u32 at record +0x10, indexes into
@@ -9536,13 +9526,12 @@ enum Offsets {
     // `FUN_RESOLVE_UNIT_TOKEN`, which only resolves to a local CGUnit
     // and returns NULL for group members in other zones.
     //
-    // Party: 4 entries × 8 bytes (lo + hi). `guids[i]` corresponds to
-    // "partyN" where N = i+1.
+    // Party: VAR_PARTY_GUIDS, 4 entries × 8 bytes (lo + hi). `guids[i]`
+    // corresponds to "partyN" where N = i+1.
     //
     // Raid: 40 entries × 4 bytes — each is a `RaidMember *`. GUID is
     // at `*member + 0` (lo) and `*member + 4` (hi). Verified from
     // `FUN_004bb0f0`. Slot may be NULL (empty / offline raid member).
-    VAR_PARTY_MEMBER_GUIDS = 0x00BC6F48,
     VAR_RAID_MEMBER_PTRS = 0x00B712A8,
 
     // Raid-target-marker GUID table — 8 contiguous `uint64` slots, one
@@ -12511,13 +12500,6 @@ enum Offsets {
     // modern `duration` arg (1/2/3) indexes this table.
     VAR_AUCTION_DURATION_TABLE = 0x00807028,
     AUCTION_DURATION_TABLE_COUNT = 3,
-    // `__fastcall(ECX = typeCode, EDX = unused, [stack] = guidLo,
-    //             [stack] = guidHi, [stack] = anyInt) → CGObject *`.
-    // Returns NULL when no object matches or the type doesn't match.
-    // The third stack arg (originally a `__FILE__/__LINE__` debug
-    // hint) is read by debug paths only — anything works at runtime.
-    FUN_GET_OBJECT_BY_GUID = 0x00468460,
-    OBJECT_TYPE_ITEM = 2,
 
     // Melee auto-attack primitives (back StartAttack / StopAttack). 1.12
     // exposes only the toggling AttackTarget (0x00489B50 -> FUN_006131A0);
@@ -12694,12 +12676,10 @@ enum Offsets {
     // 3 pet. Script_IsTradeskillTrainer (0x004D8EA0) tests `== 2`.
     VAR_TRAINER_TYPE = 0x00B73A08,
     TRAINER_TYPE_TRADESKILLS = 2,
-    // Spell.dbc "produced item" field for crafting recipes — the
-    // itemID this spell creates when cast. Reagent itemIDs and
-    // counts live at `OFF_SPELL_REAGENT_ID` / `OFF_SPELL_REAGENT_COUNT`
-    // above (shared with all spells that consume reagents, not just
-    // recipes).
-    OFF_SPELL_RECORD_CREATED_ITEM = 0x19C,
+    // A crafting recipe's produced item is its first effect's item,
+    // OFF_SPELL_RECORD_EFFECT_ITEM_TYPE[0]. Reagent itemIDs and counts live at
+    // `OFF_SPELL_REAGENT_ID` / `OFF_SPELL_REAGENT_COUNT` above (shared with all
+    // spells that consume reagents, not just recipes).
     SPELL_RECIPE_MAX_REAGENTS = 8,
 
     // Spell.dbc effect arrays — three effects per spell. Derived
@@ -12938,7 +12918,6 @@ enum Offsets {
     // MASK is `1 << School` (the server's GetSpellSchoolMask). Verified in
     // Spell.dbc: Kick 0, Fireball 2, Earth Shock 3, Shadow Bolt 5,
     // Counterspell 6. Read by Spell::Interruptible.
-    OFF_SPELL_RECORD_SCHOOL = 0x04,                   // u32 (column 1)
     OFF_SPELL_RECORD_CASTING_TIME_INDEX = 0x48,       // u32 → SpellCastTimes.dbc
     OFF_SPELL_RECORD_MAX_LEVEL = 0x6C,                // u32 (scaling cap level)
     OFF_SPELL_RECORD_SPELL_LEVEL = 0x74,              // u32 (this rank's effective level)
@@ -13443,11 +13422,6 @@ enum Offsets {
     // payload globals, not VAR_CURSOR_TYPE. Disassembled.
     FUN_WORLD_BUTTON_HOOK = 0x00492B50,
 
-    // GUID → CGObject resolver. `__fastcall(type_filter, guid_lo,
-    // guid_hi) → CGObject *` at `0x00468460`. Type filter 0x2 = item,
-    // matching what `FUN_00494B60` and the trade-attached paths pass
-    // when re-resolving the cursor GUID to a `CGItem *`.
-    FUN_OBJECT_FROM_GUID = 0x00468460,
 
     // Virtual XML-template registry (a Storm hash table) — the store that
     // backs `inherits=` and `C_XMLUtil.GetTemplates`. The XML parser

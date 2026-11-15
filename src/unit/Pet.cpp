@@ -59,7 +59,7 @@ namespace {
 
 // `int __fastcall(unit)` → 1 for a controllable pet, non-1 otherwise.
 // The engine's pet-vs-minion title discriminator. See
-// FUN_UNIT_PET_MINION_CLASS.
+// FUN_UNIT_CREATURE_TYPE.
 using PetMinionClass_t = int(__fastcall *)(const void *unit);
 
 const uint8_t *ResolveUnit(void *L) {
@@ -93,7 +93,7 @@ int __fastcall Script_UnitIsMinion(void *L) {
 
 // `UnitIsPet(unit)` — true iff the unit is a **pet** of a player (as
 // opposed to a guardian/totem "minion"): owned by a player AND the
-// engine's pet/minion classifier `FUN_UNIT_PET_MINION_CLASS` returns 1.
+// engine's pet/minion classifier `FUN_UNIT_CREATURE_TYPE` returns 1.
 // That classifier — reading the creature *family*, not the GUID or the
 // player-controlled flag — is exactly what the engine uses to title a unit
 // "X's Pet" vs "X's Minion". On 1.12/Turtle the GUID can't be used (pets
@@ -116,7 +116,7 @@ int __fastcall Script_UnitIsPet(void *L) {
     bool pet = false;
     if (Guid::IsPlayer(Unit::Identity::OwnerGuid(unit))) {
         auto classify = reinterpret_cast<PetMinionClass_t>(
-            Offsets::FUN_UNIT_PET_MINION_CLASS);
+            Offsets::FUN_UNIT_CREATURE_TYPE);
         pet = (classify(unit) == 1);
     }
     Game::Lua::PushBool(L, pet);

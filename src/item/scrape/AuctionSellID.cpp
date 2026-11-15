@@ -14,6 +14,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "item/ID.h"
+#include "object/Resolve.h"
 
 #include <cstdint>
 
@@ -25,9 +26,6 @@ namespace {
 // 64-bit GUID split into low/high on the stack. The third stack arg
 // is a `__LINE__`-style debug hint that the function reads only for
 // asserts — anything works at runtime.
-using GetObjectByGUID_t = void *(__fastcall *)(int typeCode, void *unused,
-                                                uint32_t guidLo, uint32_t guidHi,
-                                                int debugLine);
 
 } // namespace
 
@@ -43,9 +41,9 @@ static int __fastcall Script_GetAuctionSellItemID(void *L) {
     if ((guidLo | guidHi) == 0)
         return 0;
 
-    auto lookup = reinterpret_cast<GetObjectByGUID_t>(Offsets::FUN_GET_OBJECT_BY_GUID);
+    const uint64_t guid = (static_cast<uint64_t>(guidHi) << 32) | guidLo;
     auto *item = static_cast<uint8_t *>(
-        lookup(Offsets::OBJECT_TYPE_ITEM, nullptr, guidLo, guidHi, 0));
+        Object::ByGuid(Offsets::TYPEMASK_ITEM, guid, nullptr, 0));
     if (item == nullptr)
         return 0;
 

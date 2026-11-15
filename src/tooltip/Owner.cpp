@@ -39,11 +39,6 @@
 
 namespace Tooltip::Owner {
 
-namespace {
-// FUN_FRAMESCRIPT_PUSH_OBJECT is `lua_rawgeti` — see Offsets.h comment.
-using LuaRawGetI_t = void(__fastcall *)(void *L, int idx, int n);
-} // namespace
-
 static int __fastcall Script_GameTooltipGetOwner(void *L) {
     if (Game::Lua::Type(L, 1) != Game::Lua::TYPE_TABLE) {
         Game::Lua::Error(L, "Usage: GameTooltip:GetOwner()");
@@ -61,9 +56,7 @@ static int __fastcall Script_GameTooltipGetOwner(void *L) {
     auto *ownerFrame = layoutFrame - Offsets::OFF_FRAME_LAYOUT_SUBOBJECT;
     const int refKey =
         Game::Read<int>(ownerFrame, Offsets::OFF_COBJECT_LUA_REF);
-    auto rawgeti = reinterpret_cast<LuaRawGetI_t>(
-        Offsets::FUN_FRAMESCRIPT_PUSH_OBJECT);
-    rawgeti(L, Game::Lua::REGISTRY_INDEX, refKey);
+    Game::Lua::RawGetI(L, Game::Lua::REGISTRY_INDEX, refKey);
     return 1;
 }
 

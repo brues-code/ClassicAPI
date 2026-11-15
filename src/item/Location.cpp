@@ -279,7 +279,7 @@ const uint8_t *ResolveBagSlotNoLua(int bagID, int slotIndex) {
         if (invMgr == nullptr)
             return nullptr;
         return static_cast<const uint8_t *>(
-            GetItemBySlot(invMgr, Offsets::BACKPACK_LINEAR_BASE + slotIndex - 1));
+            GetItemBySlot(invMgr, Offsets::INVMGR_BACKPACK_FIRST_SLOT + slotIndex - 1));
     }
     void *bagInv = BagInventory(bagID);
     if (bagInv == nullptr)

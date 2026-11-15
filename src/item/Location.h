@@ -100,7 +100,7 @@ const uint8_t *BagContainer(int bagID);
 // `+OFF_INVMGR_GUID_ARRAY`) and is what `GetItemBySlot` indexes with a
 // 0-based slot. Null when `BagContainer` is. Pure C — no Lua stack. (The
 // backpack, `bagID` 0, has no container object; index it directly off the
-// player inventory manager at `BACKPACK_LINEAR_BASE + slot - 1`.)
+// player inventory manager at `INVMGR_BACKPACK_FIRST_SLOT + slot - 1`.)
 void *BagInventory(int bagID);
 
 // Where a found item sits. Bank covers the main bank, the bank bags and
@@ -251,7 +251,7 @@ bool FindItemArgOrLocation(void *L, int idx, ByGUIDResult *out);
 
 // Resolves `(bagID, slotIndex)` to its `CGItem *` WITHOUT the Lua stack:
 // the backpack (bag 0) is indexed straight off the player inventory manager
-// at `BACKPACK_LINEAR_BASE + slot - 1`, bags 1..10 through `BagInventory`
+// at `INVMGR_BACKPACK_FIRST_SLOT + slot - 1`, bags 1..10 through `BagInventory`
 // (bank bags only at a banker) — both via the engine's `GetItemBySlot`. Returns
 // nullptr for a bad bag, an out-of-range slot, or an empty slot. Safe from
 // any context (world tick, packet hooks) — the `PackBagSlot`-based

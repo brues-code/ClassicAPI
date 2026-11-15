@@ -22,7 +22,6 @@ namespace UI::FrameObject {
 
 namespace {
 
-using LuaRawGetI_t = void(__fastcall *)(void *L, int idx, int n);
 using ScriptRegister_t = void(__fastcall *)(void *this_, void *edx_unused,
                                             const char *name);
 
@@ -54,8 +53,6 @@ using ScriptRegister_t = void(__fastcall *)(void *this_, void *edx_unused,
 // more (freed elsewhere), re-register to rebuild a fresh wrapper. This
 // shouldn't happen in practice — engines only unref on frame destruction.
 void Push(void *L, void *frame) {
-    auto rawgeti = reinterpret_cast<LuaRawGetI_t>(
-        Offsets::FUN_FRAMESCRIPT_PUSH_OBJECT);
     auto scriptRegister = reinterpret_cast<ScriptRegister_t>(
         static_cast<uintptr_t>(Offsets::FUN_FRAMESCRIPT_OBJECT_SCRIPT_REGISTER));
 
@@ -66,7 +63,7 @@ void Push(void *L, void *frame) {
         refKey = Game::Read<int>(cobj, Offsets::OFF_COBJECT_LUA_REF);
     }
 
-    rawgeti(L, Game::Lua::REGISTRY_INDEX, refKey);
+    Game::Lua::RawGetI(L, Game::Lua::REGISTRY_INDEX, refKey);
     if (Game::Lua::Type(L, -1) == Game::Lua::TYPE_TABLE)
         return;
     Game::Lua::SetTop(L, -2);
@@ -77,7 +74,7 @@ void Push(void *L, void *frame) {
     Game::Ref<int>(cobj, Offsets::OFF_COBJECT_LUA_REFCOUNT) = 0;
     scriptRegister(frame, nullptr, nullptr);
     refKey = Game::Read<int>(cobj, Offsets::OFF_COBJECT_LUA_REF);
-    rawgeti(L, Game::Lua::REGISTRY_INDEX, refKey);
+    Game::Lua::RawGetI(L, Game::Lua::REGISTRY_INDEX, refKey);
 }
 
 } // namespace UI::FrameObject

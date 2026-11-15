@@ -39,7 +39,7 @@ int __fastcall Script_GetTradeSkillItemID(void *L) {
         return 0;
 
     const int itemID = static_cast<int>(*reinterpret_cast<const uint32_t *>(
-        record + Offsets::OFF_SPELL_RECORD_CREATED_ITEM));
+        record + Offsets::OFF_SPELL_RECORD_EFFECT_ITEM_TYPE));
     if (itemID == 0)
         return 0;
 

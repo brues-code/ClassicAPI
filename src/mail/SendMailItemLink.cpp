@@ -26,7 +26,7 @@
 // The attached item still exists as a live CGItem in the player's
 // inventory until the mail is actually sent — the engine stores its
 // GUID at `VAR_SEND_MAIL_ITEM_GUID_LO/HI`. We resolve the GUID via
-// `FUN_GET_OBJECT_BY_GUID(OBJECT_TYPE_ITEM, ...)` and feed the
+// `Object::ByGuid(TYPEMASK_ITEM, ...)` and feed the
 // resulting CGItem to the standard `Item::Link::FromCGItem` builder,
 // so enchant / random-suffix / unique-ID decoration matches what
 // `GetContainerItemLink` would return for the same item back in
@@ -36,6 +36,7 @@
 #include "Offsets.h"
 #include "item/ID.h"
 #include "item/Link.h"
+#include "object/Resolve.h"
 
 #include <cstdint>
 
@@ -43,9 +44,6 @@ namespace Mail::SendMailItemLink {
 
 namespace {
 
-using GetObjectByGuid_t = void *(__fastcall *)(uint32_t typeMask, const char *debugMsg,
-                                                uint32_t guidLo, uint32_t guidHi,
-                                                int debugCode);
 
 int __fastcall Script_GetSendMailItemLink(void *L) {
     // Optional 1-based attachment index. Anything other than 1 is a
@@ -63,9 +61,9 @@ int __fastcall Script_GetSendMailItemLink(void *L) {
     if (guidLo == 0 && guidHi == 0)
         return 0;
 
-    auto fn = reinterpret_cast<GetObjectByGuid_t>(Offsets::FUN_GET_OBJECT_BY_GUID);
+    const uint64_t guid = (static_cast<uint64_t>(guidHi) << 32) | guidLo;
     auto *cgItem = static_cast<const uint8_t *>(
-        fn(Offsets::OBJECT_TYPE_ITEM, nullptr, guidLo, guidHi, 0));
+        Object::ByGuid(Offsets::TYPEMASK_ITEM, guid, nullptr, 0));
     if (cgItem == nullptr)
         return 0;
 

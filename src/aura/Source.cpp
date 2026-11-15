@@ -615,7 +615,7 @@ bool TriggerMatches(const DurationMod &m, uint32_t triggerSpellId,
         return false;
     if (m.triggerSchool >= 0 &&
         static_cast<int32_t>(*reinterpret_cast<const uint32_t *>(
-            triggerRec + Offsets::OFF_SPELL_SCHOOL)) != m.triggerSchool)
+            triggerRec + Offsets::OFF_SPELL_RECORD_SCHOOL)) != m.triggerSchool)
         return false;
     return true;
 }

@@ -504,7 +504,7 @@ __declspec(naked) void StartAttackPassedThunk() {
 // stand, dismount and form cancel for a map with more than one node.
 void __fastcall TaxiMapOpenedTutorial(int id, int arg) {
     reinterpret_cast<TriggerTutorial_t>(Offsets::FUN_TRIGGER_TUTORIAL)(id, arg);
-    if (Game::Read<int>(static_cast<uintptr_t>(Offsets::VAR_TAXI_MAP_NODE_COUNT)) <= 1)
+    if (Game::Read<int>(static_cast<uintptr_t>(Offsets::VAR_TAXI_NODE_COUNT)) <= 1)
         return;
     const void *player = Unit::Identity::PlayerObject();
     if (player == nullptr)

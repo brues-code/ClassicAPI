@@ -74,7 +74,7 @@ const char *SpellIconPath(const uint8_t *rec) {
 }
 
 int SpellSchoolIndex(const uint8_t *rec) {
-    return Game::Read<int>(rec, Offsets::OFF_SPELL_SCHOOL);
+    return Game::Read<int>(rec, Offsets::OFF_SPELL_RECORD_SCHOOL);
 }
 
 // The control-loss classifier lives in `Spell::CrowdControl::Classify` so the

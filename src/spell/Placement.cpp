@@ -46,7 +46,7 @@ using CastDispatch_t = void(__fastcall *)(unsigned slot, int bookType,
 using NameToSlot_t = int(__fastcall *)(const char *name, void *out);
 
 uint32_t State() {
-    return *reinterpret_cast<const uint32_t *>(Offsets::VAR_SPELL_PLACEMENT_STATE);
+    return *reinterpret_cast<const uint32_t *>(Offsets::VAR_SPELL_TARGETING_FLAGS);
 }
 
 bool InWorld() {
@@ -117,7 +117,7 @@ bool CommitAtCursor() {
         return false;
 
     void *clickInfo = *reinterpret_cast<void *const *>(
-        Offsets::VAR_WORLDFRAME_CLICK_INFO);
+        Offsets::VAR_GAME_STATE_PTR);
     if (clickInfo == nullptr)
         return false;
 

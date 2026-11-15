@@ -58,7 +58,7 @@ int __fastcall Script_GetSpellSchool(void *L) {
     if (rec == nullptr)
         return 0;
     const uint32_t school0 = *reinterpret_cast<const uint32_t *>(
-        rec + Offsets::OFF_SPELL_SCHOOL);
+        rec + Offsets::OFF_SPELL_RECORD_SCHOOL);
     if (school0 >= Offsets::SPELL_SCHOOL_COUNT)
         return 0;
     Game::Lua::PushNumber(L, static_cast<double>(school0 + 1));

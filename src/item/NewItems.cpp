@@ -231,7 +231,7 @@ int ScanBags(const uint8_t *player, uint64_t *out) {
     const int backpackSlots = Item::Location::GetBagSlotCount(0);
     for (int slot = 1; slot <= backpackSlots; ++slot) {
         auto *item = static_cast<const uint8_t *>(
-            getItemBySlot(invMgr, Offsets::BACKPACK_LINEAR_BASE + slot - 1));
+            getItemBySlot(invMgr, Offsets::INVMGR_BACKPACK_FIRST_SLOT + slot - 1));
         const uint64_t guid = ItemGUID(item);
         if (guid != 0)
             AddUnique(out, &count, guid);

@@ -451,7 +451,7 @@ static void RebuildOwned() {
         // Player invMgr linear slots 0..38: equipment + bag-slot items +
         // backpack (bank starts at INVMGR_BANK_MAIN_FIRST_SLOT = 39).
         CollectOwnedFrom(invMgr, 0,
-                         Offsets::BACKPACK_LINEAR_BASE + Offsets::BACKPACK_NUM_SLOTS - 1);
+                         Offsets::INVMGR_BACKPACK_FIRST_SLOT + Offsets::BACKPACK_NUM_SLOTS - 1);
         // Contents of each equipped bag (its own invMgr, slot count at +0).
         for (int bagID = 1; bagID <= 4; ++bagID) {
             auto *bagInv =

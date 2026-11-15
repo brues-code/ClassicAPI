@@ -43,13 +43,13 @@ int ParseSlot(const char *s, int max) {
 }
 
 // Look up the GUID stored in the party member slot directly. Slots are
-// 0..3 in the parallel GUID table at `VAR_PARTY_MEMBER_GUIDS` (8-byte
+// 0..3 in the parallel GUID table at `VAR_PARTY_GUIDS` (8-byte
 // stride). Returns 0 if the slot is empty (no party member there).
 uint64_t PartySlotGUID(int slot) {
     if (slot < 0 || slot >= 4)
         return 0;
     auto *guids = reinterpret_cast<const uint64_t *>(
-        static_cast<uintptr_t>(Offsets::VAR_PARTY_MEMBER_GUIDS));
+        static_cast<uintptr_t>(Offsets::VAR_PARTY_GUIDS));
     return guids[slot];
 }
 

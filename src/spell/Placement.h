@@ -30,7 +30,7 @@
 namespace Spell::Placement {
 
 // True while the engine has an in-flight targeting placement of any kind
-// (ground reticle, unit/item/corpse select). `VAR_SPELL_PLACEMENT_STATE != 0`.
+// (ground reticle, unit/item/corpse select). `VAR_SPELL_TARGETING_FLAGS != 0`.
 bool IsActive();
 
 // Cancels any in-flight placement. No-op when none is active.
