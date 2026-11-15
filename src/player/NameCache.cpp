@@ -78,6 +78,7 @@
 #include "settings/Account.h"
 #include "settings/Paths.h"
 #include "unit/Identity.h"
+#include "time/Clock.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -146,7 +147,7 @@ bool g_enabled = false;
 // realm, and LoadCacheIfNeeded swaps the store when it does.
 std::string g_loadedPath;
 bool g_dirty = false;
-DWORD g_lastSaveTick = 0;
+uint32_t g_lastSaveTick = 0;
 // The v4 file this session migrated from, deleted once the v5 file is saved.
 std::string g_migratedV4Path;
 // Set once the process is exiting (`Shutdown`). The engine's exit handler is
@@ -535,7 +536,7 @@ void SaveCache() {
     if (std::rename(tmp.c_str(), path.c_str()) != 0)
         return; // stays dirty, so the next flush tries again
     g_dirty = false;
-    g_lastSaveTick = GetTickCount();
+    g_lastSaveTick = Time::Clock::NowMs();
     DeleteMigratedV4();
 }
 
@@ -576,8 +577,7 @@ void LoadCacheIfNeeded() {
 void MaybeFlush() {
     if (!g_dirty)
         return;
-    const DWORD now = GetTickCount();
-    if ((now - g_lastSaveTick) < kFlushIntervalMs)
+    if (Time::Clock::Elapsed(g_lastSaveTick) < kFlushIntervalMs)
         return;
     SaveCache();
 }

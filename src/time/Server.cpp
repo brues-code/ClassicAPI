@@ -15,6 +15,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "time/Clock.h"
 
 #include <cstdint>
 #include <ctime>
@@ -61,9 +62,10 @@ int64_t EpochFromServerSync() {
 // granularity — `SMSG_LOGIN_SETTIMESPEED`'s packed gametime field has
 // no seconds — so the engine's stored hour/minute fields only step
 // every minute. To produce a Unix timestamp that ticks every second
-// (which is what callers of `GetServerTime` actually need), we anchor
-// to `GetTickCount` whenever we observe the engine's minute change,
-// then add `(now - anchor) / 1000` to interpolate within the minute.
+// (which is what callers of `GetServerTime` actually need), we anchor to
+// the engine's millisecond tick (`Time::Clock`) whenever we observe the
+// engine's minute change, then add `(now - anchor) / 1000` to interpolate
+// within the minute.
 //
 // First-call accuracy: we have no way to know how far into the current
 // minute we are when the engine first reports it, so the cold-start
@@ -75,7 +77,7 @@ int g_lastMonth = -1;
 int g_lastDay = -1;
 int g_lastHour = -1;
 int g_lastMinute = -1;
-DWORD g_anchorTick = 0;
+uint32_t g_anchorTick = 0;
 
 // Fallback: rebuild an epoch from the broadcast gametime struct. Used only
 // until the sync above lands, and on servers that don't implement
@@ -96,7 +98,7 @@ int64_t EpochFromGameTime() {
     const int hour = Game::Read<int>(base, Offsets::OFF_GAMETIME_HOUR);
     const int minute = Game::Read<int>(base, Offsets::OFF_GAMETIME_MINUTE);
 
-    const DWORD now = GetTickCount();
+    const uint32_t now = Time::Clock::NowMs();
     if (year != g_lastYear || month != g_lastMonth || day != g_lastDay ||
         hour != g_lastHour || minute != g_lastMinute) {
         g_lastYear = year;
@@ -120,9 +122,7 @@ int64_t EpochFromGameTime() {
     if (minuteStart < 0)
         return 0;
 
-    // GetTickCount is unsigned and wraps every ~49 days; subtraction in
-    // DWORD arithmetic gives the right elapsed value across wraparound.
-    const DWORD elapsedMs = now - g_anchorTick;
+    const uint32_t elapsedMs = Time::Clock::Elapsed(g_anchorTick, now);
     int elapsedSec = static_cast<int>(elapsedMs / 1000);
     if (elapsedSec > 59) elapsedSec = 59; // clamp at minute end
 
