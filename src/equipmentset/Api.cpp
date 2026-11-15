@@ -36,6 +36,7 @@
 #include "Pending.h"
 #include "Set.h"
 #include "Text.h"
+#include "container/Bag.h"
 #include "item/CGItem.h"
 #include "item/Location.h"
 #include "item/Swap.h"
@@ -452,11 +453,16 @@ int __fastcall Script_UseEquipmentSet(void *L) {
     };
     FreeSlot freeSlots[SLOT_COUNT];
     int freeSlotCount = 0;
+    // Normal bags only, as Blizzard's EquipmentManager_UpdateFreeBagSpace takes
+    // a slot only when GetContainerNumFreeSlots' bagType is 0: a quiver or
+    // soul bag cannot hold the gear that comes off.
     for (int bag = 0; bag <= 4 && freeSlotCount < SLOT_COUNT; ++bag) {
-        const int slots = Item::Location::GetBagSlotCount(bag);
-        for (int slot = 1; slot <= slots && freeSlotCount < SLOT_COUNT; ++slot) {
-            if (Item::Location::ResolveBag(L, bag, slot) == nullptr)
-                freeSlots[freeSlotCount++] = {bag, slot};
+        Container::Bag::View view;
+        if (!Container::Bag::ViewFor(bag, &view) || view.family != 0)
+            continue;
+        for (int i = 0; i < view.slotCount && freeSlotCount < SLOT_COUNT; ++i) {
+            if (Container::Bag::SlotGuid(view, i) == 0)
+                freeSlots[freeSlotCount++] = {bag, i + 1};
         }
     }
     int nextFreeSlot = 0;
