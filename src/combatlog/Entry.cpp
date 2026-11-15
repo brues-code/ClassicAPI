@@ -32,6 +32,7 @@
 // The timestamp is 4.3.4's: the Unix time the log started plus the
 // milliseconds since, in seconds.
 
+#include "cache/Record.h"
 #include "combatlog/Entry.h"
 
 #include "Game.h"
@@ -290,8 +291,6 @@ uint32_t RaidFlags(uint64_t guid) {
     return 0;
 }
 
-using CacheRecord_t = const uint8_t *(__thiscall *)(void *cache, uint32_t id, const uint64_t *guid,
-                                                    void *callback, void *userData, char dedup);
 using NameCache_t = const uint8_t *(__thiscall *)(void *cache, uint32_t lo, uint32_t hi,
                                                   const uint64_t *guid, void *callback,
                                                   void *userData, char dedup);
@@ -301,9 +300,8 @@ void *QueryDone() { return reinterpret_cast<void *>(Offsets::FUN_COMBAT_LOG_NAME
 
 // An item's name from the item cache, asked so a miss sends the query.
 const char *ItemName(uint32_t itemId) {
-    const uint64_t none = 0;
-    const uint8_t *rec = reinterpret_cast<CacheRecord_t>(Offsets::FUN_DBCACHE_ITEMSTATS_GET_RECORD)(
-        reinterpret_cast<void *>(Offsets::VAR_ITEMDB_CACHE), itemId, &none, nullptr, nullptr, 0);
+    const uint8_t *rec = Cache::Record::Peek(Offsets::FUN_DBCACHE_ITEMSTATS_GET_RECORD,
+                                             Offsets::VAR_ITEMDB_CACHE, itemId);
     return rec != nullptr ? Game::Read<const char *>(rec, Offsets::OFF_ITEMSTATS_NAME) : nullptr;
 }
 
@@ -335,9 +333,9 @@ const char *ObjectName(uint64_t guid) {
     }
     const uint32_t entry = Guid::CreatureEntry(guid);
     if (entry != 0) {
-        const uint8_t *rec = reinterpret_cast<CacheRecord_t>(Offsets::FUN_CREATURE_GET_RECORD)(
-            reinterpret_cast<void *>(Offsets::VAR_CREATURE_CACHE), entry, &guid, QueryDone(),
-            nullptr, 0);
+        const uint8_t *rec =
+            Cache::Record::Get(Offsets::FUN_CREATURE_GET_RECORD, Offsets::VAR_CREATURE_CACHE,
+                               entry, &guid, QueryDone(), nullptr, false);
         return rec != nullptr ? Game::Read<const char *>(rec, 0) : nullptr;
     }
     return nullptr;

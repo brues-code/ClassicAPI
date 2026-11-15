@@ -53,6 +53,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "cache/QueryLoad.h"
+#include "cache/Record.h"
 #include "creature/Info.h"
 #include "dbc/Lookup.h"
 #include "dbc/Names.h"
@@ -80,18 +81,10 @@ const Game::Doc::Event kLoadResultDoc{
     kLoadResultPayload};
 const Event::Custom::AutoReserve _reserveLoadResult{kCreatureDataLoadResult, &kLoadResultDoc};
 
-// Generic cache `_GetRecord`. With callback=nullptr it only peeks the
-// hash table (no network query) and returns the data block (entry+0x18)
-// if the creature is loaded, else nullptr.
-using GetCacheRecord_t = const uint8_t *(__thiscall *)(void *cache, uint32_t id,
-                                                       const uint64_t *guid, void *callback,
-                                                       void *userData, char dedup);
-
+// The loaded record (the entry's data block at +0x18), else nullptr.
 const uint8_t *PeekCreature(uint32_t creatureID) {
-    auto fn = reinterpret_cast<GetCacheRecord_t>(Offsets::FUN_CREATURE_GET_RECORD);
-    auto *cache = reinterpret_cast<void *>(Offsets::VAR_CREATURE_CACHE);
-    const uint64_t zeroGuid = 0;
-    return fn(cache, creatureID, &zeroGuid, nullptr, nullptr, 0);
+    return Cache::Record::Peek(Offsets::FUN_CREATURE_GET_RECORD, Offsets::VAR_CREATURE_CACHE,
+                               creatureID);
 }
 
 int __fastcall Script_GetCreatureInfoByID(void *L) {

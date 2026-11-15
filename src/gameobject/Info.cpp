@@ -38,6 +38,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "cache/QueryLoad.h"
+#include "cache/Record.h"
 #include "event/Custom.h"
 
 #include <cstdint>
@@ -60,16 +61,10 @@ const Game::Doc::Event kLoadResultDoc{
 const Event::Custom::AutoReserve _reserveLoadResult{kGameObjectDataLoadResult,
                                                     &kLoadResultDoc};
 
-using GetCacheRecord_t = const uint8_t *(__thiscall *)(void *cache, uint32_t id,
-                                                       const uint64_t *guid, void *callback,
-                                                       void *userData, char dedup);
-
 // Peek the GO cache (no network query).
 const uint8_t *PeekGameObject(uint32_t goID) {
-    auto fn = reinterpret_cast<GetCacheRecord_t>(Offsets::FUN_GAMEOBJECT_GET_RECORD);
-    auto *cache = reinterpret_cast<void *>(Offsets::VAR_GAMEOBJECT_CACHE);
-    const uint64_t zeroGuid = 0;
-    return fn(cache, goID, &zeroGuid, nullptr, nullptr, 0);
+    return Cache::Record::Peek(Offsets::FUN_GAMEOBJECT_GET_RECORD,
+                               Offsets::VAR_GAMEOBJECT_CACHE, goID);
 }
 
 int __fastcall Script_GetGameObjectInfoByID(void *L) {

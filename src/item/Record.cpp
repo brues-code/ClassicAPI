@@ -14,20 +14,13 @@
 #include "Record.h"
 
 #include "Offsets.h"
+#include "cache/Record.h"
 
 namespace Item {
 
 const uint8_t *PeekRecord(uint32_t itemID) {
-    using GetRecord_t = const uint8_t *(__thiscall *)(void *cache, uint32_t itemID,
-                                                      const uint64_t *guid,
-                                                      void *callback, void *userData,
-                                                      int dedup);
-    auto fn = reinterpret_cast<GetRecord_t>(Offsets::FUN_DBCACHE_ITEMSTATS_GET_RECORD);
-    auto *cache = reinterpret_cast<void *>(Offsets::VAR_ITEMDB_CACHE);
-    const uint64_t zeroGuid = 0;
-    // Null callback = passive peek (no network query). dedup is irrelevant
-    // with a null callback (nothing is appended to the pending list).
-    return fn(cache, itemID, &zeroGuid, nullptr, nullptr, false);
+    return Cache::Record::Peek(Offsets::FUN_DBCACHE_ITEMSTATS_GET_RECORD,
+                               Offsets::VAR_ITEMDB_CACHE, itemID);
 }
 
 } // namespace Item

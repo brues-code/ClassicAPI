@@ -14,31 +14,20 @@
 #include "Cache.h"
 
 #include "Offsets.h"
+#include "cache/Record.h"
 #include "unit/Identity.h"
 
 namespace Quest::Cache {
 
-// Engine cache `_GetRecord` for quest static info. Same five-arg shape as
-// the item cache. `outBuf` is engine bookkeeping (8 bytes copied into the
-// pending entry); we pass an 8-byte zero block to mirror the engine's own
-// usage in `Script_GetQuestLogQuestText` at `0x004DFF20`.
-//
-//   __thiscall(this=cache, questID, &outBuf, callback, userData, unique)
-//
-// `unique` (a byte): for a record that is still pending, the engine walks the
-// entry's callback list (`entry+0x1904`, nodes with the callback at `+0x08`
-// and userData at `+0x18`) and returns without registering when the same
-// pair is already queued (`0x00562BC3..0x00562BF3`). With 0 every call
-// appends a node. A new record is created, and its query sent, either way.
-using GetQuestRecord_t = const uint8_t *(__thiscall *)(void *cache, uint32_t questID,
-                                                       void *outBuf, void *callback,
-                                                       void *userData, int unique);
-
+// The quest cache's `_GetRecord` (Cache::Record). The 8-byte zero block
+// mirrors the engine's own call in `Script_GetQuestLogQuestText` at
+// `0x004DFF20`. `unique` is the dedup byte: the pending entry's callback list
+// is at `entry+0x1904`, with the callback at node `+0x08` and userData at
+// `+0x18`.
 const uint8_t *Lookup(uint32_t questID, void *callback, void *userData, bool unique) {
-    auto fn = reinterpret_cast<GetQuestRecord_t>(Offsets::FUN_DBCACHE_QUEST_GET_RECORD);
-    auto *cache = reinterpret_cast<void *>(Offsets::VAR_QUEST_CACHE);
-    uint64_t outBuf = 0;
-    return fn(cache, questID, &outBuf, callback, userData, unique ? 1 : 0);
+    const uint64_t outBuf = 0;
+    return ::Cache::Record::Get(Offsets::FUN_DBCACHE_QUEST_GET_RECORD, Offsets::VAR_QUEST_CACHE,
+                                questID, &outBuf, callback, userData, unique);
 }
 
 using Substitute_t = void(__fastcall *)(const char *src, char *dst, uint32_t size,

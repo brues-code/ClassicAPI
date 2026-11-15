@@ -15,6 +15,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "cache/Record.h"
 #include "event/Custom.h"
 #include "tick/WorldTick.h"
 
@@ -23,15 +24,6 @@
 namespace Cache::QueryLoad {
 
 namespace {
-
-// A cache class's `_GetRecord`. callback=nullptr → pure peek (returns the
-// loaded data block or nullptr, no query). Non-null callback → also fires
-// the network query on a miss and stores `(callback, userData)` on the
-// entry's pending list. dedup=1 so repeat fetches for the same id before
-// the response lands don't queue the callback twice.
-using GetCacheRecord_t = const uint8_t *(__thiscall *)(void *cache, uint32_t id,
-                                                       const uint64_t *guid, void *callback,
-                                                       void *userData, char dedup);
 
 // A cache class's response parser, which we hook (e.g.
 // FUN_CREATURE_QUERY_RESPONSE / FUN_GAMEOBJECT_QUERY_RESPONSE).
@@ -42,12 +34,14 @@ using CacheResponse_t = void(__thiscall *)(void *cache, void *packetReader, int 
 // completion is observed via the response hook + tick sweep.
 void __stdcall NoOpCallback(void * /*userData*/, int /*success*/) {}
 
+// A class's `_GetRecord` (Cache::Record). With dedup, repeat fetches for the
+// same id before the response lands don't queue the callback twice.
 const uint8_t *CacheFetch(uintptr_t getRecord, void *cache, uint32_t id, void *callback) {
-    auto fn = reinterpret_cast<GetCacheRecord_t>(getRecord);
     const uint64_t zeroGuid = 0;
     void *userData =
         callback ? reinterpret_cast<void *>(static_cast<uintptr_t>(id)) : nullptr;
-    return fn(cache, id, &zeroGuid, callback, userData, 1);
+    return Cache::Record::Get(getRecord, reinterpret_cast<uintptr_t>(cache), id, &zeroGuid,
+                              callback, userData, true);
 }
 
 struct Pending {

@@ -14,6 +14,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "cache/Query.h"
+#include "cache/Record.h"
 #include "event/Custom.h"
 #include "item/Arg.h"
 #include "item/CGItem.h"
@@ -28,9 +29,6 @@
 
 namespace Item::Data {
 
-using GetItemRecord_t = const uint8_t *(__thiscall *)(void *cache, uint32_t itemID,
-                                                       const uint64_t *guid, void *callback,
-                                                       void *userData, int unused);
 
 // Two events fire on item-data arrival; they are **mutually exclusive**
 // based on what triggered the cache fill:
@@ -91,36 +89,23 @@ static void FireItemDataLoadResult(int itemID, bool success) {
 // crash, so stdcall is verified by induction.
 using ItemLoadCallback_t = void(__stdcall *)(void *userData, int success);
 
-// Calls DBCache_ItemStats_C_GetRecord. With `callback=nullptr`,
-// performs only the hash-table lookup; returns the cached record or
-// nullptr. With a non-null callback, also kicks off the
-// SMSG_ITEM_QUERY_SINGLE if the item isn't cached — the engine fills
-// the cache asynchronously and invokes the supplied callback with the
-// itemID smuggled through `userData` (the engine just stores and
-// replays it without dereferencing).
+// The item cache's `_GetRecord` (Cache::Record). A non-null callback sends
+// SMSG_ITEM_QUERY_SINGLE on a miss; the engine fills the cache
+// asynchronously and invokes the callback with the itemID smuggled through
+// `userData` (the engine just stores and replays it without dereferencing).
 //
-// Disassembly of `_GetRecord` at 0x55BAAC shows it branches on the
-// callback arg (stack slot +0x10), not on the 6th `bool` arg that
-// VanillaHelpers documented as `requestIfMissing` — that slot is reused
-// as a local immediately after entry, never read. The trigger for the
-// request path is `callback != NULL`.
-//
-// The 6th arg IS used elsewhere though: when non-zero, the engine
-// walks the entry's existing pending-callback list and skips the
-// append if a node with matching `(callback, userData)` is already
-// queued. We always pass `1` so that bursts of `WarmCache` calls for
+// We always pass dedup so that bursts of `WarmCache` calls for
 // the same itemID (e.g. Bagnon enumerating the same slot repeatedly
 // while the SMSG_ITEM_QUERY_SINGLE_RESPONSE is in flight) collapse to
 // a single callback registration — otherwise the response fires our
 // `GET_ITEM_INFO_RECEIVED` once per call.
 static const uint8_t *CacheFetch(uint32_t itemID, ItemLoadCallback_t callback) {
-    auto fn = reinterpret_cast<GetItemRecord_t>(Offsets::FUN_DBCACHE_ITEMSTATS_GET_RECORD);
-    auto *cache = reinterpret_cast<void *>(Offsets::VAR_ITEMDB_CACHE);
     const uint64_t zeroGuid = 0;
-    void *cb = reinterpret_cast<void *>(callback);
     void *userData =
         callback ? reinterpret_cast<void *>(static_cast<uintptr_t>(itemID)) : nullptr;
-    return fn(cache, itemID, &zeroGuid, cb, userData, 1);
+    return Cache::Record::Get(Offsets::FUN_DBCACHE_ITEMSTATS_GET_RECORD,
+                              Offsets::VAR_ITEMDB_CACHE, itemID, &zeroGuid,
+                              reinterpret_cast<void *>(callback), userData, true);
 }
 
 // Resolves an item-location table at stack idx to the itemID by walking
