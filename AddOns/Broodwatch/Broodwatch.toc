@@ -14,6 +14,7 @@ Items.lua
 Chests.lua
 Vents.lua
 Foes.lua
+Onyxia.lua
 Gear.lua
 Markers.lua
 Broodwatch.lua

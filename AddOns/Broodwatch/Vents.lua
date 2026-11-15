@@ -56,16 +56,16 @@ local function ResetVents()
 	BW.run.nextVents = TUNING.VENT_FIRST;
 end
 
-local function MarkWave()
-	local size = 1 + math.floor((BW.run.time - TUNING.VENT_FIRST) / TUNING.VENT_WAVE_GROWTH);
-	size = math.max(1, math.min(size, TUNING.VENT_WAVE_MAX)); -- at least one (a test's early wave)
+-- Marks `size` idle cracks for `warn` seconds (Onyxia's roar marks more,
+-- and longer: it fears you first).
+local function MarkVents(size, warn)
 	for _ = 1, size do
 		-- A random idle crack (a few tries; a busy lair skips the rest).
 		for _ = 1, 5 do
 			local vent = vents[math.random(table.getn(vents))];
 			if vent.state == "idle" then
 				vent.state = "marked";
-				vent.left = TUNING.VENT_WARN;
+				vent.left = warn;
 				vent.actor:SetGroundReticle(vent.radius, false);
 				break;
 			end
@@ -97,6 +97,12 @@ local function Erupt(vent, hx, hy, sound)
 	end
 end
 
+local function MarkWave()
+	local size = 1 + math.floor((BW.run.time - TUNING.VENT_FIRST) / TUNING.VENT_WAVE_GROWTH);
+	size = math.max(1, math.min(size, TUNING.VENT_WAVE_MAX)); -- at least one (a test's early wave)
+	MarkVents(size, TUNING.VENT_WARN);
+end
+
 local function UpdateVents(dt, hx, hy)
 	if BW.run.time >= BW.run.nextVents then
 		BW.run.nextVents = BW.run.nextVents + TUNING.VENT_EVERY;
@@ -121,3 +127,4 @@ end
 -- For the files that load after this one.
 BW.ResetVents = ResetVents
 BW.UpdateVents = UpdateVents
+BW.MarkVents = MarkVents

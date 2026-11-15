@@ -48,7 +48,7 @@ local function Hatch(e)
 end
 
 local function UpdateEggs()
-	if BW.run.time >= BW.run.nextClutch then
+	if BW.run.time >= BW.run.nextClutch and not BW.run.boss then -- Onyxia lays none
 		BW.run.nextClutch = BW.run.nextClutch + TUNING.EGG_EVERY;
 		LayClutch();
 	end

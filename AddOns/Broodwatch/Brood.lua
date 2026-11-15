@@ -97,7 +97,8 @@ local function Spawn(kind, x, y)
 	e.frozenUntil = nil;
 	e.weakUntil, e.weakShare = nil, nil;
 	e.taunter, e.tauntUntil = nil, nil;
-	e.actState, e.actNext = nil, nil;
+	e.deathless, e.flying = nil, nil;
+	BW.ResetActs(e); -- Foes.lua
 	ClearAuras(e);
 	e.angle = math.random() * 2 * math.pi;
 	local actor = e.actor;
@@ -130,7 +131,9 @@ local function Retire(e)
 	if e.kind.crackAnim then
 		e.dying = e.kind.crackSeconds;
 		e.actor:SetAnimation(e.kind.crackAnim);
-		e.actor:PlaySound(e.kind.crackSound);
+		if e.kind.crackSound then
+			e.actor:PlaySound(e.kind.crackSound);
+		end
 	else
 		e.dying = DEATH_SECONDS;
 		e.actor:SetAnimation(ANIM_DEATH);
@@ -145,7 +148,9 @@ local function Kill(e)
 	Retire(e);
 	BW.run.kills = BW.run.kills + 1;
 	local x, y, z = e.actor:GetPosition();
-	DropGem(x, y, z, e.kind.xp, e.kind.gemScale);
+	if e.kind.xp > 0 then
+		DropGem(x, y, z, e.kind.xp, e.kind.gemScale);
+	end
 	BW.DropItem(e, x, y, z);
 	if e.kind == ELITE then
 		BW.DropChest(x, y, z);
@@ -278,7 +283,11 @@ local function Damage(e, amount, color)
 	Flash(e);
 	ShowNumber(e, dealt, color);
 	if e.hp <= 0 then
-		Kill(e);
+		if e.deathless then -- Onyxia in the air: she dies on the ground
+			e.hp = 1;
+		else
+			Kill(e);
+		end
 	end
 end
 

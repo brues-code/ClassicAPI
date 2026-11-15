@@ -145,6 +145,35 @@
 					</Layer>
 				</Layers>
 				<Frames>
+					<!-- Onyxia's health while she fights (Onyxia.lua): her name and what is
+					     left; under it, her announcements, which fade. -->
+					<StatusBar name="$parentBoss" hidden="true">
+						<Size x="420" y="18"/>
+						<Anchors>
+							<Anchor point="TOP" x="0" y="-16"/>
+						</Anchors>
+						<BarTexture file="Interface\TargetingFrame\UI-StatusBar"/>
+						<BarColor r="0.85" g="0.2" b="0.1"/>
+						<Layers>
+							<Layer level="BACKGROUND">
+								<Texture setAllPoints="true">
+									<Color r="0" g="0" b="0" a="0.6"/>
+								</Texture>
+							</Layer>
+							<Layer level="OVERLAY">
+								<FontString name="$parentText" inherits="GameFontHighlight">
+									<Anchors>
+										<Anchor point="CENTER"/>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentAlert" inherits="GameFontNormalLarge" hidden="true">
+									<Anchors>
+										<Anchor point="TOP" relativePoint="BOTTOM" x="0" y="-8"/>
+									</Anchors>
+								</FontString>
+							</Layer>
+						</Layers>
+					</StatusBar>
 					<!-- Experience: on the health bar, as wide, with its level and what is left. -->
 					<StatusBar name="$parentXP">
 						<Size x="320" y="14"/>

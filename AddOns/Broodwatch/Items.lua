@@ -126,7 +126,9 @@ local function Sapper(item, hx, hy)
 		if e.alive then
 			local x, y = e.actor:GetPosition();
 			if Dist2(x, y, hx, hy) <= r2 then
-				if e.kind == ELITE then
+				if e.kind.boss then
+					Damage(e, e.maxHp * TUNING.SAPPER_BOSS / BW.run.damageScale, TUNING.ITEM_COLOR);
+				elseif e.kind == ELITE then
 					Damage(e, e.maxHp * TUNING.SAPPER_ELITE / BW.run.damageScale, TUNING.ITEM_COLOR);
 				else
 					Kill(e);
@@ -349,7 +351,7 @@ end
 
 -- Whether a Battle Chicken holds this whelp: taunted, and the chicken out.
 local function Taunted(e)
-	return e.taunter and not e.taunter.gone and BW.run.time < e.tauntUntil;
+	return e.taunter and not e.taunter.gone and BW.run.time < e.tauntUntil and not e.kind.boss;
 end
 
 local function UpdateItems(dt, hx, hy, hz)

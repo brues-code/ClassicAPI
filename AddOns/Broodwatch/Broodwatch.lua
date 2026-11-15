@@ -3,8 +3,8 @@
 -- You run with W A S D (in screen directions). Your spells cast themselves.
 -- Whelps pour into the lair and chase you; each kill drops a gem, and gems
 -- level you up. At each level you pick one of three upgrades (click, or
--- press 1 2 3). An elite dragonspawn joins every 90 seconds. Survive ten
--- minutes to win.
+-- press 1 2 3). An elite dragonspawn joins every 90 seconds. At ten minutes
+-- the brood stops coming and Onyxia descends (Onyxia.lua): slay her to win.
 --
 -- /broodwatch starts a run. P pauses. Escape leaves.
 --
@@ -109,6 +109,11 @@ local function Steer()
 	if not BW.run or BW.paused or BW.run.over or BW.run.charge then
 		return;
 	end
+	if BW.run.fearUntil then
+		-- Bellowing Roar's fear (Onyxia.lua): you run from her.
+		BW.Drive(1, 0, BW.run.fearYaw);
+		return;
+	end
 	local forward = Held("W") - Held("S");
 	local left = Held("A") - Held("D");
 	local pose = BW.run.pose and BW.run.poseYaw;
@@ -140,7 +145,8 @@ local function EndRun(won)
 	BW.run.hurtGlow = 0;
 	BW.hurtTexture:SetAlpha(0);
 	if won then
-		BW.bannerText:SetText("Victory! You held the lair for " .. Clock(RUN_SECONDS));
+		BW.bannerText:SetText(string.format("Victory! %s fell at %s, after a fight of %s", BW.BOSS.NAME,
+			Clock(BW.run.boss.slainAt), Clock(BW.run.boss.slainAt - BW.run.boss.startTime)));
 		BW.bannerText:SetTextColor(0.25, 1, 0.25);
 	else
 		BW.bannerText:SetText("You fell at " .. Clock(BW.run.time));
@@ -148,6 +154,8 @@ local function EndRun(won)
 	end
 	BW.hintText:SetText(string.format("Level %d, %d kills.  R: try again.  Escape: leave.", BW.run.level, BW.run.kills));
 end
+
+BW.EndRun = EndRun -- Onyxia.lua, when she falls
 
 BW.heroNumber = {}             -- ShowNumber's stand-in record for the hero
 local HEAL_COLOR = { 0.3, 1, 0.3 }
@@ -173,6 +181,7 @@ local function StartRun(spells)
 		BW.ClearKinds();
 		BW.ClearFoes();
 	end
+	BW.ClearOnyxia();
 	BW.hero:RemoveAuraVisual();
 	BW.hurtTexture:SetAlpha(0);
 	BW.run = {
@@ -266,19 +275,24 @@ local function Step(dt)
 	BW.run.time = BW.run.time + dt;
 	local hx, hy, hz = BW.hero:GetPosition();
 
-	-- Spawns.
-	BW.run.spawnGap = BW.run.spawnGap - dt;
-	if BW.run.spawnGap <= 0 then
-		BW.run.spawnGap = 0.1;
-		local want = TargetAlive(BW.run.time) - BW.run.alive;
-		for _ = 1, math.min(want, 5) do
-			Spawn(PickKind());
+	-- Spawns, until Onyxia comes; then only her whelps come (Onyxia.lua).
+	if not BW.run.boss then
+		BW.run.spawnGap = BW.run.spawnGap - dt;
+		if BW.run.spawnGap <= 0 then
+			BW.run.spawnGap = 0.1;
+			local want = TargetAlive(BW.run.time) - BW.run.alive;
+			for _ = 1, math.min(want, 5) do
+				Spawn(PickKind());
+			end
 		end
-	end
-	if BW.run.time >= BW.run.nextElite then
-		BW.run.nextElite = BW.run.nextElite + ELITE_EVERY;
-		for _ = 1, 1 + math.floor(BW.run.time / 180) do
-			Spawn(ELITE);
+		if BW.run.time >= BW.run.nextElite then
+			BW.run.nextElite = BW.run.nextElite + ELITE_EVERY;
+			for _ = 1, 1 + math.floor(BW.run.time / 180) do
+				Spawn(ELITE);
+			end
+		end
+		if BW.run.time >= RUN_SECONDS then
+			BW.SummonOnyxia();
 		end
 	end
 	UpdateEggs();
@@ -288,6 +302,10 @@ local function Step(dt)
 
 	Chase(dt, hx, hy, hz);
 	BW.UpdateFoes(dt, hx, hy, hz);
+	BW.UpdateOnyxia(dt, hx, hy, hz);
+	if BW.run.over then -- she fell
+		return;
+	end
 
 	-- Contact damage, and the corpses. Thorns burns the biters once a second.
 	local hurt = 0;
@@ -336,7 +354,8 @@ local function Step(dt)
 		if e.alive then
 			local x, y = e.actor:GetPosition();
 			local reach = e.kind.reach;
-			if e.kind.dps > 0 and not Taunted(e) and not e.fearUntil and not e.sheepUntil and Dist2(x, y, hx, hy) <= reach * reach then
+			if e.kind.dps > 0 and not e.flying and not Taunted(e) and not e.fearUntil and not e.sheepUntil
+				and Dist2(x, y, hx, hy) <= reach * reach then
 				hurt = hurt + e.dps * BiteShare(e) * (1 - PASSIVES.devotion.per * (BW.run.passives.devotion or 0) / 100);
 				Zap(e);
 				if thorns then
@@ -473,7 +492,7 @@ local function Step(dt)
 				if e.alive then
 					local x, y = e.actor:GetPosition();
 					if Dist2(x, y, hx, hy) <= r2 then
-						if e.kind ~= ELITE then
+						if e.kind ~= ELITE and not e.kind.boss then
 							Kill(e);
 						end
 						Blast(e, hx, hy, TUNING.SOULSTONE_KNOCK);
@@ -535,10 +554,6 @@ local function Step(dt)
 	BW.run.castGap = BW.run.castGap - dt;
 	if BW.run.castGap <= 0 then
 		CastNext();
-	end
-
-	if BW.run.time >= RUN_SECONDS then
-		EndRun(true);
 	end
 end
 
@@ -670,6 +685,9 @@ function Broodwatch_OnLoad(self)
 	BW.healthBar = getglobal(hud .. "Health");
 	BW.healthText = getglobal(hud .. "HealthText");
 	BW.cards = getglobal(hud .. "Cards");
+	BW.bossBar = getglobal(hud .. "Boss");
+	BW.bossText = getglobal(hud .. "BossText");
+	BW.alertText = getglobal(hud .. "BossAlert");
 	BW.build = getglobal(hud .. "Build");
 	self:SetScript("OnUpdate", OnUpdate);
 	self:SetScript("OnKeyDown", OnKeyDown);
@@ -691,7 +709,9 @@ SLASH_BROODWATCH1 = "/broodwatch";
 -- them: `/broodwatch charge 5 whirlwind 5` makes Intercept the next pick.
 -- `/broodwatch chest` (or `golden`) starts the run with a chest close by,
 -- `/broodwatch eggs` with a clutch of eggs, `/broodwatch vents` with the
--- lava vents erupting from the start, `/broodwatch <kind>` (a key of
+-- lava vents erupting from the start, `/broodwatch onyxia [2|3]` with
+-- Onyxia coming at once (with 2 or 3, at the health that starts that
+-- phase: she lands, then takes to the air), `/broodwatch <kind>` (a key of
 -- KINDS, or `elite`) with three of that kind, and `/broodwatch <gear> ...`
 -- (keys of GEAR) wearing that gear.
 SlashCmdList["BROODWATCH"] = function(msg)
@@ -725,6 +745,10 @@ SlashCmdList["BROODWATCH"] = function(msg)
 		BW.LayClutch();
 	elseif key == "vents" then
 		BW.run.nextVents = 0;
+	elseif key == "onyxia" then
+		local _, _, phase = string.find(msg, "(%d)");
+		local shares = { ["2"] = BW.BOSS.PHASE_TWO - 0.01, ["3"] = BW.BOSS.PHASE_THREE - 0.01 };
+		BW.SummonOnyxia(phase and shares[phase]);
 	elseif key and BW.GEAR[key] then
 		for gear in string.gfind(msg, "(%a+)") do
 			if BW.GEAR[gear] then

@@ -15,7 +15,7 @@ local CAMERA_YAW = 3.09
 local CAMERA_PITCH = 1.0
 local CAMERA_ZOOM = 50 -- each run starts zoomed out; the wheel zooms in
 
-local RUN_SECONDS = 600
+local RUN_SECONDS = 600 -- the second Onyxia comes (Onyxia.lua); her death wins
 local ELITE_EVERY = 90
 local MAX_ALIVE = 200
 local RETARGET_SECONDS = 0.3 -- each chaser gets a new MoveTo this often
@@ -39,20 +39,20 @@ local KINDS = {
 	-- Red whelps breathe fire: Flame Breath 16396, whose flame hangs where a
 	-- whelp's own fireball leaves (its cast kit's sixth slot).
 	{ key = "red", display = 956, hp = 30, dps = 6, xp = 2, reach = 1.4, speed = 4.4, from = 120,
-		act = { kind = "breath", spell = 16396, school = "Fire", every = 7, range = 4.5, near = 2, cast = 0.9, recover = 0.5,
-			length = 6, arc = math.pi / 3, hit = 1.5 } },
+		acts = { { kind = "cone", breath = true, spell = 16396, school = "Fire", every = 7, range = 4.5, near = 2, cast = 0.9,
+			recover = 0.5, length = 6, arc = math.pi / 3, hit = 1.5 } } },
 	{ key = "green", display = 694, hp = 70, dps = 9, xp = 3, reach = 1.4, speed = 2.4, from = 240 },
 	-- Onyxian Warders (creature 12129's display) keep their distance and
 	-- throw Fireball (133) at where you stand.
 	{ key = "warder", display = 8711, hp = 120, dps = 8, xp = 8, reach = 2.6, speed = 3.2, from = 180, max = 5,
 		keep = 13, gemScale = 0.5, knockShare = 0.6,
-		act = { kind = "bolt", spell = 133, school = "Fire", every = 5, range = 20, cast = 1.2, recover = 0.6, radius = 2.5, hit = 2 } },
+		acts = { { kind = "bolt", spell = 133, school = "Fire", every = 5, range = 20, cast = 1.2, recover = 0.6, radius = 2.5, hit = 2 } } },
 	-- Onyxian Drakes (creature 12260's display) charge along a line through
 	-- you, with Charge's trail (100).
 	{ key = "drake", display = 6369, hp = 260, dps = 12, xp = 12, reach = 3, speed = 4.0, from = 300, max = 3,
 		gemScale = 0.6, holdShare = 0.5, knockShare = 0.3,
-		act = { kind = "charge", spell = 100, school = "Physical", every = 8, range = 18, near = 4, cast = 1.2, recover = 1.2,
-			speed = 24, past = 6, width = 1.6, hit = 2.5, knock = { 9, 6 } } },
+		acts = { { kind = "charge", spell = 100, school = "Physical", every = 8, range = 18, near = 4, cast = 1.2, recover = 1.2,
+			speed = 24, past = 6, width = 1.6, hit = 2.5, knock = { 9, 6 } } } },
 }
 -- `speed` is the run speed in yards a second (the hero runs at 7): black
 -- whelps plod, red ones dart, green ones are slow and tough, and the elite
@@ -65,18 +65,23 @@ local KINDS = {
 -- - `path`: a model file, in place of the creature `display`.
 -- - `max`: the most of the kind alive at once.
 -- - `keep`: it holds this many yards from you instead of closing in.
--- - `act`: what it does besides bite (Foes.lua). It acts every `every`
---   seconds while you are within `range` (and no closer than `near`): it
---   stands for `cast` seconds with the floor marked where it will strike,
---   strikes, then stands for `recover`. A strike that lands on you hurts for
---   `hit` seconds of its bite, of `school`. `kind`: "bolt" (`spell` thrown at your spot,
---   `radius` wide), "breath" (a cone `length` long and `arc` wide) or
---   "charge" (a run at `speed` along a line `past` yards beyond you, `width`
---   wide; it throws you by `knock`).
+-- - `acts`: what it does besides bite (Foes.lua), each on its own timer.
+--   An act comes every `every` seconds (and up to `spread` more) while you
+--   are within `range` (and no closer than `near`; with `side`, "front" or
+--   "back" of it): it stands for `cast` seconds with the floor marked where
+--   it will strike, strikes, then stands for `recover`. A strike that lands
+--   on you hurts for `hit` seconds of its bite (or `share` of your maximum
+--   health), of `school`; `breath`: it is a dragon's breath. `kind`: "bolt"
+--   (`spell` thrown at your spot, `radius` wide), "cone" (`length` long and
+--   `arc` wide, at you or with `back` behind it), "nova" (all around it,
+--   `radius` wide) or "charge" (a run at `speed` along a line `past` yards
+--   beyond you, `width` wide). A strike with `knock` throws you.
 -- - `crackAnim`, `crackSound`, `crackSeconds`: it ends with this animation
---   and sound, holds the frame at `crackSeconds` (just short of the
+--   (and sound), holds the frame at `crackSeconds` (just short of the
 --   animation's end, before it loops) and fades, in place of Death and a
 --   corpse.
+-- - `boss`: Onyxia (Onyxia.lua). She moves herself, and no taunt, hold,
+--   knockback or instant kill reaches her.
 local ELITE = { key = "elite", display = 2534, hp = 220, dps = 9, xp = 20, reach = 2.2, speed = 4.8, gemScale = 0.6,
 	holdShare = 0.5, knockShare = 0.4 }
 -- A black dragon egg (Blackwing Lair's). Broken or hatched, it cracks with
@@ -85,6 +90,90 @@ local ELITE = { key = "elite", display = 2534, hp = 220, dps = 9, xp = 20, reach
 local EGG = { key = "egg", path = "World\\Goober\\G_DragonEggBlack.m2", hp = 60, dps = 0, xp = 6, reach = 0, speed = 0,
 	gemScale = 0.5, holdShare = 0, knockShare = 0, crackAnim = 153, crackSound = 4785, crackSeconds = 0.95,
 	icon = "Interface\\Icons\\INV_Egg_01" }
+
+-- Onyxia (Onyxia.lua): she comes at RUN_SECONDS, and her death wins the run.
+-- Her display (8570, DragonOnyxia at scale 1.8) has every move she needs
+-- (DragonOnyxia.m2's sequences): LiftOff 192, Hover 193, Fly 135 and Land
+-- 200 (3 s each but Hover and Fly), DragonTail 180, DragonSpitHover 183 and
+-- Death 1 (4.5 s; no Dead, so she holds Death's last frame). Her health and
+-- bite grow as the brood's do (KindStats) to the second she comes.
+local ONYXIA = { key = "onyxia", display = 8570, boss = true, hp = 5000, dps = 8, xp = 0, reach = 6, speed = 4.5,
+	holdShare = 0, knockShare = 0, crackAnim = 1, crackSeconds = 4.4 }
+
+-- Her acts (Foes.lua), with her own spells' visuals and cast times
+-- (SpellCastTimes), on the timers of the server's script (vmangos
+-- boss_onyxia: Flame Breath every 10-20 s, Tail Sweep every 3.5 s on whoever
+-- stands behind, Wing Buffet every 15-30 s in melee, Fireball every 3 s,
+-- Bellowing Roar every 15-30 s). Her blows take a `share` of your maximum
+-- health, not seconds of a bite.
+local ONYXIA_ACTS = {
+	-- Tail Sweep (15847): instant in the world; here a short wind-up shows it.
+	tail = { kind = "cone", back = true, spell = 15847, school = "Physical", every = 3.5, first = 5, range = 14,
+		side = "back", cast = 0.8, recover = 0.6, length = 14, arc = math.pi * 2 / 3, share = 0.15, knock = { 14, 7 } },
+	-- Wing Buffet (18500, 1 s): its precast kit is SpellCastOmni.
+	buffet = { kind = "nova", spell = 18500, school = "Physical", every = 15, spread = 15, first = 10, range = 11,
+		cast = 1, recover = 0.6, radius = 11, share = 0.1, knock = { 16, 8 } },
+	-- Flame Breath (18435, 2 s): the Dragon Flame Breath stream at her mouth.
+	breath = { kind = "cone", breath = true, spell = 18435, school = "Fire", every = 10, spread = 10, first = 6, range = 20,
+		side = "front", cast = 2, recover = 0.8, length = 22, arc = math.pi / 3, share = 0.35 },
+	-- Fireball (18392, 3 s), thrown from the air (DragonSpitHover).
+	fireball = { kind = "bolt", spell = 18392, school = "Fire", every = 0.3, first = 2, range = 80, cast = 3, recover = 0.3,
+		radius = 4, share = 0.15 },
+	-- Deep Breath (17086, 5 s; the Breath triggers' chain lands fire along
+	-- her flight, Explosive Trap Effect's burning ground here): she flies
+	-- across the lair over a marked lane, `width` wide, at the breath speed.
+	-- The Onyxia Scale Cloak stops it, as it does in the world.
+	deep = { kind = "deep", breath = true, spell = 17086, school = "Fire", every = 0, cast = 5, recover = 1, width = 5,
+		step = 4, share = 0.6, area = 13812, areaSeconds = 2 },
+	-- Bellowing Roar (18431, 1.5 s): it fears you, and the lair's cracks
+	-- erupt (`vents` of them at once).
+	roar = { kind = "roar", spell = 18431, school = "Physical", every = 15, spread = 15, first = 12, range = 200,
+		cast = 1.5, recover = 0.5, fear = 2, vents = 5, warn = 3.5 },
+}
+
+-- The fight. Her three phases are the world's: on the ground to 65%, in
+-- the air to 40%, then on the ground with Bellowing Roar. In the air she
+-- holds one of RING_POINTS points around the lair, moves to a neighbour
+-- every MOVE_EVERY (+ MOVE_SPREAD) seconds or, one time in DEEP_CHANCE,
+-- breathes across to the opposite point. (The world's eight points circle
+-- the whole chamber, about 20 yards up; the game's lair is the circle of
+-- ROOM_RADIUS around CENTER, so hers circle that; the world's north point
+-- is that far from CENTER, with the wall just past it.) Whelps come from the
+-- lair's two caves, where the world summons them.
+local BOSS = {
+	NAME = "Onyxia",
+	PHASE_TWO = 0.65,
+	PHASE_THREE = 0.40,
+	ACTS = {
+		{ ONYXIA_ACTS.tail, ONYXIA_ACTS.buffet, ONYXIA_ACTS.breath },
+		{ ONYXIA_ACTS.fireball },
+		{ ONYXIA_ACTS.roar, ONYXIA_ACTS.tail, ONYXIA_ACTS.buffet, ONYXIA_ACTS.breath },
+	},
+	DEEP = ONYXIA_ACTS.deep,
+	ROAR = ONYXIA_ACTS.roar,
+	HEIGHT = 20,               -- yards above the floor that she flies
+	RING_RADIUS = 22,          -- yards from CENTER
+	RING_POINTS = 8,
+	FLY_SPEED = 9,             -- the script's run rate 1.28571, times 7
+	BREATH_SPEED = 21,         -- its Deep Breath rate 3, times 7
+	ARRIVE = 8,                -- yards from you, toward CENTER, that she lands
+	LIFT_RISE = 3,             -- yards she rises through LiftOff, before she flies up
+	MOVE_EVERY = 15,
+	MOVE_SPREAD = 10,
+	DEEP_CHANCE = 0.3,
+	DEEP_BROOD = 80,           -- Deep Breath's burn on the brood in the lane, grown with the run
+	REPATH = 0.4,              -- seconds between her MoveTos on the ground
+	CAVES = { { -30.127, -254.463, -89.440 }, { -30.817, -177.106, -89.258 } },
+	WHELPS_FIRST = 24,         -- the first wave in the air (the world's 16)
+	WHELPS_WAVE = 10,          -- each wave after it, and up to WHELPS_SPREAD more
+	WHELPS_SPREAD = 4,
+	WAVE_EVERY = 30,
+	WHELP_GAP = 0.5,           -- seconds between two of a wave's whelps from each cave
+	LATE_WHELP_EVERY = 2,      -- the last phase: a whelp from a cave this often (and up to LATE_SPREAD more)
+	LATE_SPREAD = 4,
+	ALERT_SECONDS = 3,         -- an announcement shows this long, then fades
+	ALERT_COLOR = { 1, 0.5, 0.15 },
+}
 
 -- Spells, by level 1 to 5. A missile spell hits `count` enemies in `range`;
 -- a nova spell hits every enemy within `radius` of the hero. At rank V a
@@ -710,6 +799,7 @@ local TUNING = {
 	SAPPER_RADIUS = 10,
 	SAPPER_SELF = 0.15,        -- of the maximum health; it never kills you
 	SAPPER_ELITE = 0.25,       -- of an elite's maximum health
+	SAPPER_BOSS = 0.03,        -- of Onyxia's
 	CHICKEN_DISPLAY = 6909,    -- the robot chicken (ChickenSkinRobot)
 	CHICKEN_SECONDS = 20,
 	CHICKEN_SPEED = 9,
@@ -886,6 +976,8 @@ BW.MAX_GEMS = MAX_GEMS
 BW.KINDS = KINDS
 BW.ELITE = ELITE
 BW.EGG = EGG
+BW.ONYXIA = ONYXIA
+BW.BOSS = BOSS
 BW.SPELLS = SPELLS
 BW.SPELL_ORDER = SPELL_ORDER
 BW.EVOLUTIONS = EVOLUTIONS
