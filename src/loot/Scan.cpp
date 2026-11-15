@@ -135,11 +135,6 @@ bool IsKnownEmpty(uint64_t guid) {
 
 // === Typedefs for engine helpers ===
 
-using ClntObjMgrEnumVisibleObjectsCallback_t = int(__fastcall *)(void *ctx,
-                                                                  void *unusedEdx,
-                                                                  uint64_t guid);
-using ClntObjMgrEnumVisibleObjects_t =
-    int(__fastcall *)(ClntObjMgrEnumVisibleObjectsCallback_t cb, void *ctx);
 using CloseLootInner_t = void(__fastcall *)(int sendRelease,
                                              char earlyReturnOnGameObject,
                                              char showError);
@@ -453,33 +448,15 @@ const Tick::WorldTick::AutoSubscribe _tick{&OnTick};
 
 // === Enumeration ===
 
-struct EnumCtx {
-    void *player;
-    std::vector<uint64_t> *out;
-    bool skipKnownEmpty;
-};
-
-int __fastcall EnumCallback(EnumCtx *ctx, void * /*unusedEdx*/, uint64_t guid) {
-    void *obj = Object::ByGuid(Offsets::TYPEMASK_UNIT, guid, nullptr, 0);
-    if (obj == nullptr)
-        return 1;
-    if (!Request::IsLootable(obj))
-        return 1;
-    if (ctx->skipKnownEmpty && IsKnownEmpty(guid))
-        return 1;
-    if (!Request::InReach(ctx->player, obj))
-        return 1;
-    ctx->out->push_back(guid);
-    return 1;
-}
-
 void BuildQueue(void *player, size_t maxCount, bool skipKnownEmpty) {
     s_scan.queue.clear();
-    auto Enum = reinterpret_cast<ClntObjMgrEnumVisibleObjects_t>(
-        Offsets::FUN_CLNT_OBJ_MGR_ENUM_VISIBLE_OBJECTS);
-    EnumCtx ctx{player, &s_scan.queue, skipKnownEmpty};
-    Enum(reinterpret_cast<ClntObjMgrEnumVisibleObjectsCallback_t>(&EnumCallback),
-         &ctx);
+    Object::ForEachVisible([&](uint64_t guid) {
+        void *obj = Object::ByGuid(Offsets::TYPEMASK_UNIT, guid, nullptr, 0);
+        if (obj != nullptr && Request::IsLootable(obj) &&
+            !(skipKnownEmpty && IsKnownEmpty(guid)) && Request::InReach(player, obj))
+            s_scan.queue.push_back(guid);
+        return true;
+    });
     // Cap to `maxCount` corpses (0 = unlimited). Order is engine
     // enumeration order, not distance-sorted, so the truncation is
     // arbitrary among in-range corpses.

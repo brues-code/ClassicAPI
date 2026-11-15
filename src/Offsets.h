@@ -12730,6 +12730,11 @@ enum Offsets {
     SPELL_EFFECT_APPLY_AURA = 6,                       // EffectApplyAuraName[i] then names the aura type
     SPELL_EFFECT_PERSISTENT_AREA_AURA = 27,            // vmangos SpellDefines.h
     SPELL_EFFECT_APPLY_AREA_AURA_PARTY = 35,           // vmangos SpellDefines.h
+    // SUMMON_TOTEM_SLOT1..4 = Fire / Earth / Water / Air, so slot = effect - 86
+    // (verified against Spell.dbc: Searing 87, Stoneskin 88, Healing Stream 89,
+    // Windfury 90). The spell in a totem's UNIT_CREATED_BY_SPELL carries one.
+    SPELL_EFFECT_SUMMON_TOTEM_SLOT1 = 87,
+    SPELL_EFFECT_SUMMON_TOTEM_SLOT4 = 90,
     SPELL_EFFECT_TRIGGER_SPELL = 64,                   // casts EffectTriggerSpell[i] (Feral Charge 16979 → 19675)
     // Kick / Pummel / Shield Bash / Counterspell / Earth Shock — 57 Spell.dbc
     // rows carry it. The server's Spell::EffectInterruptCast is its handler.

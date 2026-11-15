@@ -27811,6 +27811,16 @@ by target and spell ID:
 An application never replaces the data of a direct cast, so a
 directly-cast aura keeps its talented timing and its caster.
 
+**Totem auras.** The caster of an aura from a totem is the shaman who
+owns the totem, not the totem. This is a ClassicAPI extension. Thus
+`sourceUnit` is `"player"` for the auras of your own totems. This is true
+for an aura that a totem casts on a unit, such as Earthbind. It is also
+true for a buff that a totem gives to a group, such as Strength of Earth.
+For that buff, the caster comes from a visible totem that has the same
+buff. If the unit has its own totem with the buff, that totem is used.
+Otherwise, the totem nearest to the unit is used. If two groups put the
+same totem near each other, the result can be the wrong shaman.
+
 Implications:
 
 - **Best-effort.** Only auras observed *after* login carry data; auras

@@ -62,6 +62,7 @@
 #include "tick/WorldTick.h"
 #include "tooltip/Lines.h"
 #include "time/Clock.h"
+#include "totem/Owner.h"
 #include "ui/ColorData.h"
 #include "unit/Identity.h"
 #include "unit/TokenEvents.h"
@@ -72,10 +73,8 @@ namespace Totem::Tracker {
 
 namespace {
 
-// SUMMON_TOTEM_SLOT1..4 spell effects (verified against Spell.dbc: Searing
-// 87/Fire, Stoneskin 88/Earth, Healing Stream 89/Water, Windfury 90/Air).
-constexpr int kEffectSummonTotemSlot1 = 87;
-constexpr int kEffectSummonTotemSlot4 = 90;
+constexpr int kEffectSummonTotemSlot1 = Offsets::SPELL_EFFECT_SUMMON_TOTEM_SLOT1;
+constexpr int kEffectSummonTotemSlot4 = Offsets::SPELL_EFFECT_SUMMON_TOTEM_SLOT4;
 constexpr int kSlots = kSlotCount;
 
 
@@ -177,10 +176,6 @@ uint32_t SpellDurationMs(const uint8_t *rec) {
 
 // ---- the totem creature: find it, then follow it --------------------------
 
-using EnumCallback_t = int(__fastcall *)(void *ctx, void *unusedEdx,
-                                         uint64_t guid);
-using EnumVisibleObjects_t = int(__fastcall *)(EnumCallback_t cb, void *ctx);
-
 struct ScanCtx {
     uint64_t playerGuid;
     uint32_t entries[kSlots];   // 0 = slot not looking for its creature
@@ -188,36 +183,21 @@ struct ScanCtx {
     uint64_t found[kSlots];
 };
 
-int __fastcall ScanCallback(ScanCtx *ctx, void * /*unusedEdx*/, uint64_t guid) {
+// Records `guid` in the first slot still looking for its entry, when it is
+// OUR totem. The entry is a GUID bit-read, so most objects never resolve.
+void MatchCreature(ScanCtx &ctx, uint64_t guid) {
     if (!Guid::IsCreature(guid))
-        return 1;
+        return;
     const uint32_t entry = static_cast<uint32_t>((guid >> 24) & 0xFFFFFFu);
     if (entry == 0)
-        return 1;
-    int match = -1;
+        return;
     for (int s = 0; s < kSlots; ++s) {
-        if (ctx->entries[s] == entry && ctx->found[s] == 0 &&
-            ctx->stale[s] != guid) {
-            match = s;
-            break;
+        if (ctx.entries[s] == entry && ctx.found[s] == 0 && ctx.stale[s] != guid) {
+            if (Totem::Owner::OfTotem(guid) == ctx.playerGuid)
+                ctx.found[s] = guid;
+            return;
         }
     }
-    if (match < 0)
-        return 1;
-
-    // Confirm it's OUR totem: resolve + check CreatedBy == player.
-    void *obj = Object::ByGuid(Offsets::TYPEMASK_UNIT, guid, nullptr, 0);
-    if (obj == nullptr)
-        return 1;
-    auto *desc = Game::Read<const uint8_t *>(
-        obj, Offsets::OFF_UNIT_DESCRIPTOR);
-    if (desc == nullptr)
-        return 1;
-    const uint64_t createdBy = Game::Read<uint64_t>(
-        desc, Offsets::OFF_UNIT_FIELD_CREATEDBY);
-    if (createdBy == ctx->playerGuid)
-        ctx->found[match] = guid;
-    return 1; // keep scanning — other slots may match other creatures
 }
 
 // PLAYER_TOTEM_UPDATE(totemSlot 1-4) — a TBC event absent from vanilla's
@@ -314,9 +294,11 @@ void OnTick() {
                 }
             }
 
-            auto Enum = reinterpret_cast<EnumVisibleObjects_t>(
-                Offsets::FUN_CLNT_OBJ_MGR_ENUM_VISIBLE_OBJECTS);
-            Enum(reinterpret_cast<EnumCallback_t>(&ScanCallback), &ctx);
+            // Keep scanning after a match: other slots may match other creatures.
+            Object::ForEachVisible([&](uint64_t guid) {
+                MatchCreature(ctx, guid);
+                return true;
+            });
 
             for (int s = 0; s < kSlots; ++s) {
                 if (ctx.found[s] == 0)

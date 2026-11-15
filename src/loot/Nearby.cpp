@@ -23,48 +23,26 @@ namespace Loot::Nearby {
 
 namespace {
 
-// `ClntObjMgrEnumVisibleObjects(callback, context)` — walks the engine's
-// visible-object table. The callback shape's `void *unusedEdx` slot
-// absorbs the second `__fastcall` register so MSVC lays out the trailing
-// `uint64_t guid` on the stack exactly where the engine puts it. The
-// callback returns non-zero to keep iterating; zero stops the walk early.
-using ClntObjMgrEnumVisibleObjectsCallback_t = int(__fastcall *)(void *ctx,
-                                                                  void *unusedEdx,
-                                                                  uint64_t guid);
-using ClntObjMgrEnumVisibleObjects_t =
-    int(__fastcall *)(ClntObjMgrEnumVisibleObjectsCallback_t cb, void *ctx);
-
 // Only `TYPEMASK_UNIT` carries lootable-mob state in 1.12 — dead
 // creatures stay as CGCreature_C objects with the lootable bit flipped
 // on, rather than transitioning to a separate corpse object. Dead
 // players become CGCorpse_C (`TYPEMASK_CORPSE`) but those aren't
 // lootable by other players in vanilla — no reason to walk them here.
 
-struct ScanCtx {
-    void *L;
-    void *player; // resolved once outside the iterator
-    int idx;            // 1-based slot of the next entry to append
-};
-
-int __fastcall ScanCallback(ScanCtx *ctx, void * /*unusedEdx*/, uint64_t guid) {
+// Appends `{ guid = "0x..." }` at `idx` of the table on top of the stack
+// when `guid` is a unit that is lootable to us and inside click-loot range
+// of `player`.
+void AppendIfLootable(void *L, void *player, uint64_t guid, int &idx) {
     void *obj = Object::ByGuid(Offsets::TYPEMASK_UNIT, guid, nullptr, 0);
-    if (obj == nullptr)
-        return 1; // GUID isn't a unit; continue
-
-    if (!Request::IsLootable(obj))
-        return 1; // unit isn't lootable to us; continue
-
-    if (!Request::InReach(ctx->player, obj))
-        return 1; // out of click-loot range; continue
+    if (obj == nullptr || !Request::IsLootable(obj) || !Request::InReach(player, obj))
+        return;
 
     char guidBuf[Guid::STRING_SIZE];
-    Game::Lua::PushNumber(ctx->L, static_cast<double>(ctx->idx));
-    Game::Lua::NewTable(ctx->L);
-    Game::Lua::SetFieldString(ctx->L, "guid",
-                              Guid::FormatAsString(guid, guidBuf, sizeof guidBuf));
-    Game::Lua::SetTable(ctx->L, -3);
-    ++ctx->idx;
-    return 1;
+    Game::Lua::PushNumber(L, static_cast<double>(idx));
+    Game::Lua::NewTable(L);
+    Game::Lua::SetFieldString(L, "guid", Guid::FormatAsString(guid, guidBuf, sizeof guidBuf));
+    Game::Lua::SetTable(L, -3);
+    ++idx;
 }
 
 // `C_Loot.GetNearbyLootableUnits()` — returns a 1-indexed array of
@@ -78,10 +56,9 @@ int __fastcall Script_GetNearbyLootableUnits(void *L) {
     Game::Lua::SetTop(L, 0);
     Game::Lua::NewTable(L);
 
-    // The engine derefs the object manager unconditionally on iterator
-    // entry. NULL during glue / character-select; bail with an empty
-    // table rather than crashing.
-    if (*reinterpret_cast<void *volatile *>(Offsets::VAR_LOCAL_PLAYER_PTR) == nullptr)
+    // The token resolve below reads the object registry, NULL during glue /
+    // character-select; bail with an empty table rather than crashing.
+    if (!Object::RegistryReady())
         return 1;
 
     // Resolve the local player once — the canonical CGPlayer_C the
@@ -91,11 +68,11 @@ int __fastcall Script_GetNearbyLootableUnits(void *L) {
     if (player == nullptr)
         return 1;
 
-    auto Enum = reinterpret_cast<ClntObjMgrEnumVisibleObjects_t>(
-        Offsets::FUN_CLNT_OBJ_MGR_ENUM_VISIBLE_OBJECTS);
-    ScanCtx ctx{L, player, 1};
-    Enum(reinterpret_cast<ClntObjMgrEnumVisibleObjectsCallback_t>(&ScanCallback),
-         &ctx);
+    int idx = 1;
+    Object::ForEachVisible([&](uint64_t guid) {
+        AppendIfLootable(L, player, guid, idx);
+        return true;
+    });
     return 1;
 }
 

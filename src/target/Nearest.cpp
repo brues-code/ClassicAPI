@@ -68,8 +68,6 @@ namespace {
 using Cycle_t = void(__fastcall *)(int reverse, int mode);
 using Valid_t = int(__fastcall *)(void *player, void *cand, int mode);
 using SetSelection_t = void(__stdcall *)(uint32_t guidLo, uint32_t guidHi);
-using EnumCallback_t = int(__fastcall *)(void *ctx, void *unusedEdx, uint64_t guid);
-using EnumVisibleObjects_t = int(__fastcall *)(EnumCallback_t cb, void *ctx);
 using ScreenCoords_t = bool(__thiscall *)(void *worldFrame, const float *world, float *screen);
 using Transform_t = float *(__fastcall *)(float *out, const float *v, const float *m);
 using Forward_t = void(__thiscall *)(void *camera, float *out);
@@ -173,29 +171,29 @@ struct DirectionData {
 };
 
 // 4.3.4's TargetDirectionProc.
-int __fastcall DirectionProc(DirectionData *data, void * /*edx*/, uint64_t guid) {
+void DirectionProc(DirectionData *data, uint64_t guid) {
     void *unit = Object::ByGuid(Offsets::TYPEMASK_UNIT, guid, nullptr, 0);
     if (unit == nullptr || unit == data->unit || unit == data->origin ||
         !reinterpret_cast<Valid_t>(Offsets::FUN_TARGET_CANDIDATE_VALID)(data->unit, unit,
                                                                          data->mode))
-        return 1;
+        return;
 
     float position[3];
     if (!Unit::Position::Read(unit, position))
-        return 1;
+        return;
     const float dx = position[0] - data->playerPosition[0];
     const float dy = position[1] - data->playerPosition[1];
     const float dz = position[2] - data->playerPosition[2];
     if (dx * dx + dy * dy + dz * dz > data->maxDistanceSq)
-        return 1;
+        return;
     if (NotTabTarget(unit) ||
         !reinterpret_cast<Visible_t>(Offsets::FUN_WORLD_OBJECT_VISIBLE)(
             Game::Read<void *>(unit, Offsets::OFF_CGOBJECT_WORLD_OBJECT)))
-        return 1;
+        return;
 
     float screen[3];
     if (!ScreenCoords(data->worldFrame, position, screen))
-        return 1;
+        return;
 
     bool inCone = true;
     float dirX = position[0] - data->originPosition[0];
@@ -206,14 +204,14 @@ int __fastcall DirectionProc(DirectionData *data, void * /*edx*/, uint64_t guid)
     float sdY = screen[1] - data->originScreen[1];
     NormalizeSafe(sdX, sdY);
     if (data->screenDirection[1] * sdY + data->screenDirection[0] * sdX < 0.0f)
-        return 1;
+        return;
 
     if (data->cosHalfAngle <= dot) {
         if (!data->bestInCone)
             data->bestDistance = FLT_MAX;
     } else {
         if (data->bestInCone)
-            return 1;
+            return;
         inCone = false;
     }
 
@@ -224,12 +222,11 @@ int __fastcall DirectionProc(DirectionData *data, void * /*edx*/, uint64_t guid)
     if (!inCone)
         distance = distance * ((1.0f - dot) * (1.0f - dot));
     if (distance > data->bestDistance)
-        return 1;
+        return;
 
     data->bestDistance = distance;
     data->bestGuid = guid;
     data->bestInCone = inCone;
-    return 1;
 }
 
 // 4.3.4's CGGameUI::TargetDirection.
@@ -292,8 +289,10 @@ void TargetDirection(float facing, float angle, int mode) {
     const float range = CVarFloat(Offsets::VAR_CVAR_TARGET_NEAREST_DISTANCE);
     data.maxDistanceSq = range * range;
 
-    reinterpret_cast<EnumVisibleObjects_t>(Offsets::FUN_CLNT_OBJ_MGR_ENUM_VISIBLE_OBJECTS)(
-        reinterpret_cast<EnumCallback_t>(&DirectionProc), &data);
+    Object::ForEachVisible([&](uint64_t guid) {
+        DirectionProc(&data, guid);
+        return true;
+    });
 
     if (data.bestGuid != 0) {
         SetSelection(data.bestGuid);

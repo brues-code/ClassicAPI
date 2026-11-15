@@ -29,6 +29,7 @@
 #include "spell/Lookup.h"
 #include "tick/WorldTick.h"
 #include "time/Clock.h"
+#include "totem/Owner.h"
 #include "totem/Tracker.h"
 #include "unit/TokenEvents.h"
 #include "unit/Identity.h"
@@ -1636,12 +1637,21 @@ void HandleSpellGo(uint64_t caster, uint32_t spellId, const uint64_t *targets,
         numAuraTargets = 1;
     }
 
-    ApplyTriggeredAuras(caster, spellId, rec, auraTargets, numAuraTargets);
+    // An aura a totem casts (Earthbind, Stoneclaw's taunt) is attributed to the
+    // totem's owner — a ClassicAPI extension; the server's caster is the
+    // totem. The owner is also whose duration mods the server applies (a
+    // totem's spell-mod owner is its owner). The cast events above keep the
+    // totem: it is what cast the spell. A separate variable, because a cast
+    // with no hit list lands on the totem itself through `auraTargets`.
+    const uint64_t totemOwner = Totem::Owner::OfTotem(caster);
+    const uint64_t auraCaster = totemOwner != 0 ? totemOwner : caster;
+
+    ApplyTriggeredAuras(auraCaster, spellId, rec, auraTargets, numAuraTargets);
 
     if (!SpellAppliesAura(rec))
         return;
 
-    const bool casterIsPlayer = (caster == Unit::Identity::PlayerGuid());
+    const bool casterIsPlayer = (auraCaster == Unit::Identity::PlayerGuid());
     const uint32_t durationMs = CastDurationMs(rec, spellId, casterIsPlayer);
     const uint32_t expirationMs = durationMs > 0 ? NowMs() + durationMs : 0;
 
@@ -1652,7 +1662,7 @@ void HandleSpellGo(uint64_t caster, uint32_t spellId, const uint64_t *targets,
         RememberPlayerCast(spellId);
 
     for (int i = 0; i < numAuraTargets; ++i)
-        StoreFromCast(auraTargets[i], spellId, caster, expirationMs, durationMs);
+        StoreFromCast(auraTargets[i], spellId, auraCaster, expirationMs, durationMs);
 }
 
 // SMSG_SPELL_GO parse (funnel subscriber). At the leaf handler the engine has
@@ -1755,6 +1765,14 @@ void StampApplication(void *unit, uint32_t spellId, int slot) {
         // section.
         if (caster == 0 && IsJudgementSpell(rec))
             caster = ConsumeJudgementAttribution(unitGuid, NowMs());
+    }
+    // A totem's party area aura reaches the owner's group with no packet that
+    // names its caster; the visible totem carrying it does. Attributed to the
+    // totem's owner, as every totem aura is (see the SpellGo path).
+    if (caster == 0) {
+        caster = Totem::Owner::OfAreaAura(unitGuid, spellId);
+        if (caster != 0)
+            durationMs = SpellDurationMs(rec, caster == Unit::Identity::PlayerGuid());
     }
     const uint32_t expirationMs = durationMs > 0 ? NowMs() + durationMs : 0;
     StoreFromApplication(unitGuid, spellId, caster, expirationMs, durationMs,
