@@ -56,6 +56,7 @@
 #include "dbc/Lookup.h"
 #include "spell/Known.h"
 #include "spell/Lookup.h"
+#include "spell/SkillLine.h"
 #include "unit/Identity.h"
 
 #include <cstdint>
@@ -67,9 +68,6 @@ namespace TradeSkill::Link {
 
 namespace {
 
-using AbilityLookup_t = const uint8_t *(__fastcall *)(uint32_t race, uint32_t classId,
-                                                      uint32_t spellID);
-using SlotForSkill_t = int(__thiscall *)(const void *player, uint32_t skillLine);
 using NameCacheGet_t = const uint8_t *(__thiscall *)(void *cache, uint32_t lo, uint32_t hi,
                                                      const uint64_t *owner, void *callback,
                                                      void *userData, char dedupe);
@@ -106,17 +104,11 @@ bool MatchRaceClass(uint32_t race, uint32_t classId, uint32_t raceMask, uint32_t
 void PlayerRank(const uint8_t *player, uint32_t skillLine, int *rank, int *maxRank) {
     *rank = 0;
     *maxRank = 0;
-    const int slot =
-        reinterpret_cast<SlotForSkill_t>(Offsets::FUN_SKILL_LINE_TO_SLOT)(player, skillLine);
-    if (slot < 0)
+    Spell::SkillLine::Rank r;
+    if (!Spell::SkillLine::PlayerRank(player, skillLine, &r))
         return;
-    const uint8_t *skills = Game::Read<const uint8_t *>(player, Offsets::OFF_CGPLAYER_INFO) +
-                            Offsets::OFF_SKILL_INFO_TABLE + slot * Offsets::SKILL_INFO_STRIDE;
-    const int bonus = Game::Read<uint16_t>(skills, Offsets::OFF_SKILL_INFO_BONUS);
-    const int cur = Game::Read<uint16_t>(skills, Offsets::OFF_SKILL_INFO_CUR);
-    const int max = Game::Read<uint16_t>(skills, Offsets::OFF_SKILL_INFO_MAX);
-    *rank = cur != 0 ? cur + bonus : 0;
-    *maxRank = max != 0 ? max + bonus : 0;
+    *rank = r.rank != 0 ? r.rank + r.bonus : 0;
+    *maxRank = r.maxRank != 0 ? r.maxRank + r.bonus : 0;
 }
 
 // 3.3.5's CGTradeSkillInfo::GetTradeSkillListLink: the local player's link
@@ -136,8 +128,8 @@ bool Build(int spellID, char *buf, size_t size) {
         return false;
     const uint32_t race = desc[Offsets::OFF_UNIT_DESCRIPTOR_RACE_BYTE];
     const uint32_t classId = desc[Offsets::OFF_UNIT_DESCRIPTOR_CLASS_BYTE];
-    const uint8_t *ability = reinterpret_cast<AbilityLookup_t>(
-        Offsets::FUN_SKILL_LINE_ABILITY_LOOKUP)(race, classId, static_cast<uint32_t>(spellID));
+    const uint8_t *ability =
+        Spell::SkillLine::AbilityFor(race, classId, static_cast<uint32_t>(spellID));
     if (ability == nullptr)
         return false;
     const uint32_t skillLine = Game::Read<uint32_t>(ability, Offsets::OFF_SLA_SKILL_ID);

@@ -11,6 +11,8 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
+#include "spell/SkillLine.h"
+
 #include "Game.h"
 #include "Offsets.h"
 #include "dbc/Lookup.h"
@@ -21,8 +23,6 @@
 namespace Spell::SkillLine {
 
 namespace {
-
-using SkillLineToSlot_t = int(__thiscall *)(void *player, uint32_t skillLineID);
 
 // Reads UNIT_FIELD_BYTES_0 from the local player's descriptor. Same
 // pattern Spell::Level::PlayerDescriptor uses. Returns (0, 0) when the
@@ -227,38 +227,15 @@ int __fastcall Script_GetSkillLineRank(void *L) {
         return 1;
     }
 
-    auto *player = const_cast<uint8_t *>(Unit::Identity::PlayerObject());
-    if (player == nullptr) {
+    const uint8_t *player = Unit::Identity::PlayerObject();
+    Rank r;
+    if (player == nullptr || !PlayerRank(player, static_cast<uint32_t>(skillLineID), &r)) {
         Game::Lua::PushNil(L);
         return 1;
     }
-
-    auto toSlot = reinterpret_cast<SkillLineToSlot_t>(Offsets::FUN_SKILL_LINE_TO_SLOT);
-    const int slot = toSlot(player, static_cast<uint32_t>(skillLineID));
-    if (slot < 0) { // player doesn't have the skill line
-        Game::Lua::PushNil(L);
-        return 1;
-    }
-
-    auto *sub = Game::Read<const uint8_t *>(
-        player, Offsets::OFF_CGPLAYER_INFO);
-    if (sub == nullptr) {
-        Game::Lua::PushNil(L);
-        return 1;
-    }
-
-    const uint8_t *rec = sub + Offsets::OFF_SKILL_INFO_TABLE +
-                         slot * Offsets::SKILL_INFO_STRIDE;
-    const uint32_t cur =
-        Game::Read<uint16_t>(rec, Offsets::OFF_SKILL_INFO_CUR);
-    const uint32_t max =
-        Game::Read<uint16_t>(rec, Offsets::OFF_SKILL_INFO_MAX);
-    const uint32_t modifier =
-        Game::Read<uint16_t>(rec, Offsets::OFF_SKILL_INFO_BONUS);
-
-    Game::Lua::PushNumber(L, static_cast<double>(cur));
-    Game::Lua::PushNumber(L, static_cast<double>(max));
-    Game::Lua::PushNumber(L, static_cast<double>(modifier));
+    Game::Lua::PushNumber(L, static_cast<double>(r.rank));
+    Game::Lua::PushNumber(L, static_cast<double>(r.maxRank));
+    Game::Lua::PushNumber(L, static_cast<double>(r.bonus));
     return 3;
 }
 
@@ -311,5 +288,28 @@ void RegisterLuaFunctions() {
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 
 } // namespace
+
+bool PlayerRank(const uint8_t *player, uint32_t skillLine, Rank *out) {
+    using SlotForSkill_t = int(__thiscall *)(const void *player, uint32_t skillLine);
+    if (player == nullptr)
+        return false;
+    const int slot =
+        reinterpret_cast<SlotForSkill_t>(Offsets::FUN_SKILL_LINE_TO_SLOT)(player, skillLine);
+    const uint8_t *info = Game::Read<const uint8_t *>(player, Offsets::OFF_CGPLAYER_INFO);
+    if (slot < 0 || info == nullptr)
+        return false;
+    const uint8_t *rec = info + Offsets::OFF_SKILL_INFO_TABLE + slot * Offsets::SKILL_INFO_STRIDE;
+    out->rank = Game::Read<uint16_t>(rec, Offsets::OFF_SKILL_INFO_CUR);
+    out->maxRank = Game::Read<uint16_t>(rec, Offsets::OFF_SKILL_INFO_MAX);
+    out->bonus = Game::Read<uint16_t>(rec, Offsets::OFF_SKILL_INFO_BONUS);
+    return true;
+}
+
+const uint8_t *AbilityFor(uint32_t race, uint32_t classId, uint32_t spellID) {
+    using AbilityLookup_t =
+        const uint8_t *(__fastcall *)(char race, char classId, uint32_t spellID);
+    return reinterpret_cast<AbilityLookup_t>(Offsets::FUN_SKILL_LINE_ABILITY_LOOKUP)(
+        static_cast<char>(race), static_cast<char>(classId), spellID);
+}
 
 } // namespace Spell::SkillLine

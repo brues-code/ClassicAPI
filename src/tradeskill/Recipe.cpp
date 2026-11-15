@@ -50,6 +50,7 @@
 #include "object/Resolve.h"
 #include "spell/Description.h"
 #include "spell/Lookup.h"
+#include "spell/SkillLine.h"
 #include "unit/Identity.h"
 
 #include <cstdint>
@@ -59,8 +60,6 @@ namespace TradeSkill::Recipe {
 
 namespace {
 
-using AbilityLookup_t = const uint8_t *(__fastcall *)(char race, char classId,
-                                                      uint32_t spellID);
 
 // A 9-locale string field, in the client's locale; "" for an empty slot.
 const char *LocalizedName(const uint8_t *record, int offset) {
@@ -80,10 +79,8 @@ const uint8_t *PlayerSkillLineFor(int spellID) {
     if (desc == nullptr)
         return nullptr;
 
-    const uint8_t *ability = reinterpret_cast<AbilityLookup_t>(
-        Offsets::FUN_SKILL_LINE_ABILITY_LOOKUP)(
-        static_cast<char>(desc[Offsets::OFF_UNIT_DESCRIPTOR_RACE_BYTE]),
-        static_cast<char>(desc[Offsets::OFF_UNIT_DESCRIPTOR_CLASS_BYTE]),
+    const uint8_t *ability = Spell::SkillLine::AbilityFor(
+        desc[Offsets::OFF_UNIT_DESCRIPTOR_RACE_BYTE], desc[Offsets::OFF_UNIT_DESCRIPTOR_CLASS_BYTE],
         static_cast<uint32_t>(spellID));
     if (ability == nullptr)
         return nullptr;

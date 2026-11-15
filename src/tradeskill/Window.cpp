@@ -62,6 +62,7 @@
 #include "Offsets.h"
 #include "dbc/Lookup.h"
 #include "spell/Lookup.h"
+#include "spell/SkillLine.h"
 #include "unit/Identity.h"
 
 #include <cstddef>
@@ -75,12 +76,9 @@ namespace {
 
 using Toggle_t = void(__fastcall *)(uint32_t key);
 using Void_t = void(__cdecl *)();
-using AbilityLookup_t = const uint8_t *(__fastcall *)(uint32_t race, uint32_t classId,
-                                                      uint32_t spellID);
 using PlayerList_t = const void *(__thiscall *)(void *player, uint32_t key);
 using UnitAbility_t = const uint8_t *(__thiscall *)(void *unit, uint32_t spellID);
 using SkillTotal_t = int(__thiscall *)(void *player, uint32_t skillLine);
-using SlotForSkill_t = int(__thiscall *)(const void *player, uint32_t skillLine);
 using Script_t = int(__fastcall *)(void *L);
 
 // The only Craft type GetCraftDisplaySkillLine answers for (Enchanting).
@@ -120,8 +118,7 @@ uint32_t TradeSkillOpen() { return Game::Read<uint32_t>(Offsets::VAR_CURRENT_TRA
 uint32_t CraftOpen() { return Game::Read<uint32_t>(Offsets::VAR_CRAFT_WINDOW_STATE); }
 
 const uint8_t *Ability(uint32_t race, uint32_t classId, uint32_t spellID) {
-    return reinterpret_cast<AbilityLookup_t>(Offsets::FUN_SKILL_LINE_ABILITY_LOOKUP)(race, classId,
-                                                                                    spellID);
+    return Spell::SkillLine::AbilityFor(race, classId, spellID);
 }
 
 const char *SpellName(int spellID) {
@@ -221,13 +218,8 @@ const uint8_t *__fastcall TradeSkillAbility(uint32_t race, uint32_t classId, uin
 int __fastcall TradeSkillRank(const uint8_t *player, void *, uint32_t skillLine) {
     if (ShowsOtherLink(g_tradeSkill, TradeSkillOpen()))
         return g_tradeSkill.rank;
-    const int slot =
-        reinterpret_cast<SlotForSkill_t>(Offsets::FUN_SKILL_LINE_TO_SLOT)(player, skillLine);
-    if (slot < 0)
-        return 0;
-    return Game::Read<uint16_t>(Game::Read<const uint8_t *>(player, Offsets::OFF_CGPLAYER_INFO) +
-                                    Offsets::OFF_SKILL_INFO_TABLE + slot * Offsets::SKILL_INFO_STRIDE,
-                                Offsets::OFF_SKILL_INFO_CUR);
+    Spell::SkillLine::Rank r;
+    return Spell::SkillLine::PlayerRank(player, skillLine, &r) ? r.rank : 0;
 }
 
 // CALL_BUILD_CRAFT_SPELLS: CGPlayer_C::GetTabSpells.
