@@ -25,6 +25,7 @@
 #include "frame/RegionDestruction.h"
 #include "text/PtrProbe.h"
 #include "tick/FrameTick.h"
+#include "object/Resolve.h"
 
 #include <windows.h> // SEH (__try/__except, EXCEPTION_EXECUTE_HANDLER)
 
@@ -125,8 +126,7 @@ uint32_t FsColorKey(const void *fs) {
 uint32_t FadedColor(const Placement &p, uint32_t fsColor) {
     const uint32_t a = ((p.color >> 24) * (fsColor >> 24)) / 0xFFu;
     uint32_t rgb = p.color & 0x00FFFFFFu;
-    const bool inGlue =
-        *reinterpret_cast<void *volatile *>(Offsets::VAR_LOCAL_PLAYER_PTR) == nullptr;
+    const bool inGlue = !Object::RegistryReady();
     if (inGlue) {
         const uint32_t b = fsColor & 0xFFu, g = (fsColor >> 8) & 0xFFu,
                        r = (fsColor >> 16) & 0xFFu;

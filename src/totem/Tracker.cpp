@@ -249,7 +249,7 @@ void OnTick() {
     // Out of the world: empty every slot without an event, as 3.3.5's
     // EnterWorld does. The object-manager reads below deref the manager
     // unconditionally, so nothing else runs either.
-    if (Game::Read<void *volatile>(Offsets::VAR_LOCAL_PLAYER_PTR) == nullptr) {
+    if (!Object::RegistryReady()) {
         for (Slot &t : g_slots)
             t = Slot{};
         g_dirtyMask = 0;

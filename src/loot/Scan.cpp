@@ -471,7 +471,7 @@ void BuildQueue(void *player, size_t maxCount, bool skipKnownEmpty) {
 bool BeginWalk(bool lootMode, size_t maxCount) {
     if (s_scan.state != State::Idle)
         return false;
-    if (*reinterpret_cast<void *volatile *>(Offsets::VAR_LOCAL_PLAYER_PTR) == nullptr)
+    if (!Object::RegistryReady())
         return false;
     void *player = Game::ResolveUnitToken("player");
     if (player == nullptr || Request::IsMounted(player))

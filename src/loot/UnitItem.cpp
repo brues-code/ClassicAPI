@@ -156,7 +156,7 @@ int __fastcall Script_LootUnitItem(void *L) {
         Game::Lua::PushBool(L, false);
         return 1;
     }
-    if (*reinterpret_cast<void *volatile *>(Offsets::VAR_LOCAL_PLAYER_PTR) == nullptr) {
+    if (!Object::RegistryReady()) {
         Game::Lua::PushBool(L, false);
         return 1;
     }

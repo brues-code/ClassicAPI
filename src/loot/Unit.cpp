@@ -57,7 +57,7 @@ int __fastcall Script_LootUnit(void *L) {
 
     // Object manager NULL pre-login; bail silently rather than
     // crashing inside the resolver.
-    if (*reinterpret_cast<void *volatile *>(Offsets::VAR_LOCAL_PLAYER_PTR) == nullptr)
+    if (!Object::RegistryReady())
         return 0;
 
     void *target = Object::ByGuid(Offsets::TYPEMASK_UNIT, guid, nullptr, 0);
