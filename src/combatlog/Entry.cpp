@@ -298,7 +298,10 @@ using GameObjectName_t = const char *(__fastcall *)(void *object);
 
 void *QueryDone() { return reinterpret_cast<void *>(Offsets::FUN_COMBAT_LOG_NAME_QUERY_DONE); }
 
-// An item's name from the item cache, asked so a miss sends the query.
+// An item's name from the item cache. A lookup only, as in the namer: its item
+// branch passes a null callback (0x006264E0), so a miss sends no query and the
+// name falls back to UNKNOWNOBJECT. The item is an object in view, and the
+// client has already asked for its record.
 const char *ItemName(uint32_t itemId) {
     const uint8_t *rec = Cache::Record::Peek(Offsets::FUN_DBCACHE_ITEMSTATS_GET_RECORD,
                                              Offsets::VAR_ITEMDB_CACHE, itemId);
@@ -307,7 +310,8 @@ const char *ItemName(uint32_t itemId) {
 
 // The combat log namer's steps (0x006264E0): the object's own name (a unit,
 // a game object, an item's record), else a player's from the name cache or a
-// creature's from the creature cache, each asked so a miss sends the query.
+// creature's from the creature cache. Those two pass the namer's query-done
+// callback (0x00626620), so a miss sends the query.
 // The creature's entry is the GUID's (Guid::CreatureEntry): the namer takes
 // the high dword's low word, which is not the entry on this server's GUIDs.
 const char *ObjectName(uint64_t guid) {
