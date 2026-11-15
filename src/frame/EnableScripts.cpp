@@ -64,13 +64,7 @@ const Game::HookAutoRegister _buttonEnableHook{Offsets::FUN_BUTTON_ENABLE,
 
 void RunOnEnableScript(void *frame, bool disabled) {
     Frame::Flags::Set(frame, Offsets::FRAME_FLAG_DISABLED, disabled);
-    const uint32_t *slot = (disabled ? g_onDisable : g_onEnable).Slot(frame);
-    if (slot == nullptr || slot[0] == 0)
-        return;
-    void *L = Game::Lua::State();
-    if (L == nullptr)
-        return;
-    Frame::ScriptArgs::RunSlotWithValues(L, slot, frame, Game::Lua::GetTop(L) + 1, 0);
+    Frame::ScriptArgs::RunSlot((disabled ? g_onDisable : g_onEnable).Slot(frame), frame);
 }
 
 } // namespace Frame::EnableScripts

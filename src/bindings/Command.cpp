@@ -45,6 +45,7 @@
 #include "bindings/ModifiedClick.h"
 #include "frame/ClickEvents.h"
 #include "frame/ClickFrame.h"
+#include "frame/ScriptSlots.h"
 #include "item/Arg.h"
 #include "item/Location.h"
 #include "item/Use.h"
@@ -94,16 +95,8 @@ void UseItem(const char *name) {
 
 // The frame's OnMouseDown / OnMouseUp, fired as the engine fires them.
 void FireMouseScript(void *frame, uintptr_t slotOffset, const char *button) {
-    using FireVariadic_t = void(__cdecl *)(void *frame, uint32_t *slotPtr, const char *fmt, ...);
-    uint32_t *slot = Game::Ptr<uint32_t>(frame, slotOffset);
-    if (slot[0] == 0)
-        return;
-    void *L = Game::Lua::State();
-    const int top = L != nullptr ? Game::Lua::GetTop(L) : 0;
-    reinterpret_cast<FireVariadic_t>(Offsets::FUN_FRAME_RUN_SCRIPT_VARIADIC)(
-        frame, slot, reinterpret_cast<const char *>(Offsets::VAR_SCRIPT_FMT_S), button);
-    if (L != nullptr)
-        Game::Lua::SetTop(L, top);
+    Frame::ScriptSlots::Fire(frame, Game::Ptr<uint32_t>(frame, slotOffset), Offsets::VAR_SCRIPT_FMT_S,
+                             button);
 }
 
 using ButtonMethod_t = void(__thiscall *)(void *button, uint32_t arg, int flag);

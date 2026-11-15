@@ -1057,14 +1057,10 @@ bool HasScript(const Frame::ExtraScripts::Script &script, void *frame) {
 }
 
 void RunActorScript(const Frame::ExtraScripts::Script &script, void *frame, Actor *actor) {
-    const uint32_t *slot = script.Slot(frame);
-    void *L = slot != nullptr && slot[0] != 0 ? Game::Lua::State() : nullptr;
-    if (L == nullptr)
-        return;
-    const int top = Game::Lua::GetTop(L);
-    Animation::Push(L, actor);
-    Frame::ScriptArgs::RunSlotWithValues(L, slot, frame, top + 1, 1);
-    Game::Lua::SetTop(L, top);
+    Frame::ScriptArgs::RunSlot(script.Slot(frame), frame, [actor](void *L) {
+        Animation::Push(L, actor);
+        return 1;
+    });
 }
 
 bool IsMouseFocus(void *frame) {

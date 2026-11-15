@@ -635,13 +635,7 @@ const Frame::ExtraScripts::Script g_onCooldownDone{"oncooldowndone", g_class.Typ
 
 // From the update walk, where the engine runs OnUpdate.
 void RunOnCooldownDone(void *frame) {
-    const uint32_t *slot = g_onCooldownDone.Slot(frame);
-    if (slot == nullptr || slot[0] == 0)
-        return;
-    void *L = Game::Lua::State();
-    if (L == nullptr)
-        return;
-    Frame::ScriptArgs::RunSlotWithValues(L, slot, frame, Game::Lua::GetTop(L) + 1, 0);
+    Frame::ScriptArgs::RunSlot(g_onCooldownDone.Slot(frame), frame);
 }
 
 // OFFSET (4.3.4): 0x009FF570 (UpdateAlpha)

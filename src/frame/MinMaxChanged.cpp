@@ -66,15 +66,11 @@ bool StoreAndRun(SetMinMax_t orig, const Frame::ExtraScripts::Script &script, vo
     if (hadValue)
         Flags(frame) |= kValueSet;
 
-    const uint32_t *slot = script.Slot(frame);
-    void *L = slot != nullptr && slot[0] != 0 ? Game::Lua::State() : nullptr;
-    if (L != nullptr) {
-        const int top = Game::Lua::GetTop(L);
+    Frame::ScriptArgs::RunSlot(script.Slot(frame), frame, [shownMin, shownMax](void *L) {
         Game::Lua::PushNumber(L, shownMin);
         Game::Lua::PushNumber(L, shownMax);
-        Frame::ScriptArgs::RunSlotWithValues(L, slot, frame, top + 1, 2);
-        Game::Lua::SetTop(L, top);
-    }
+        return 2;
+    });
     return hadValue;
 }
 

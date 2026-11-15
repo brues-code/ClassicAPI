@@ -120,6 +120,7 @@
 #include "frame/RunnerHook.h"
 #include "frame/ScriptArgs.h"
 #include "frame/ExtraScripts.h"
+#include "frame/ScriptSlots.h"
 
 #include <cstdint>
 #include <unordered_set>
@@ -300,27 +301,6 @@ using Click_t = void(__fastcall *)(void *self, void *edx, uint32_t mask,
                                    int fromScript);
 Click_t g_clickOriginal = nullptr;
 
-// The engine's variadic script forwarder — the entry FUN_BUTTON_CLICK itself
-// uses for OnClick. __cdecl, so the trailing name is pushed as one 4-byte arg.
-using FireVariadic_t = void(__cdecl *)(void *frame, uint32_t *slotPtr,
-                                       const char *fmt, ...);
-
-// Fire the handler (if any) in `slot` with arg1 = `name`, through the engine's
-// forwarder so the fire takes the identical path to the engine's OnClick fire
-// (exec context stamped from slot[1], hooked runner, ScriptArgs positional
-// args). The runner balances the Lua stack itself; snapshot/restore the top as
-// cheap insurance against any imbalance leaking into the still-running click.
-void FireSlot(void *button, uint32_t *slot, const char *name) {
-    if (slot[0] == 0)
-        return;
-    void *L = Game::Lua::State();
-    const int savedTop = (L != nullptr) ? Game::Lua::GetTop(L) : 0;
-    reinterpret_cast<FireVariadic_t>(Offsets::FUN_FRAME_RUN_SCRIPT_VARIADIC)(
-        button, slot, reinterpret_cast<const char *>(Offsets::VAR_SCRIPT_FMT_S),
-        name);
-    if (L != nullptr)
-        Game::Lua::SetTop(L, savedTop);
-}
 
 // The innermost click in progress, for its OnClick/PreClick/PostClick `down`.
 struct ClickScope {
@@ -360,12 +340,10 @@ void ClickBracket(void *self, void *edx, uint32_t mask, int fromScript) {
     g_clickedButton = name;
     g_bracketing.insert(self);
 
-    if (pre != nullptr)
-        FireSlot(self, pre, name);
+    Frame::ScriptSlots::Fire(self, pre, Offsets::VAR_SCRIPT_FMT_S, name);
     g_clickOriginal(self, edx, mask, fromScript); // the engine's click: OnClick iff set
     // The handlers may have set PostClick for the first time; look it up after.
-    if (uint32_t *post = g_postClick.Slot(self))
-        FireSlot(self, post, name);
+    Frame::ScriptSlots::Fire(self, g_postClick.Slot(self), Offsets::VAR_SCRIPT_FMT_S, name);
     g_bracketing.erase(self);
 
     g_clickedButton = saved;

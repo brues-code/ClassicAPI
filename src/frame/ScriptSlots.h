@@ -13,6 +13,9 @@
 
 #pragma once
 
+#include "Game.h"
+#include "Offsets.h"
+
 #include <cstdint>
 
 // Every script slot a frame holds — 4.3.4's per-class GetScriptTime walks
@@ -41,5 +44,25 @@ struct AutoRegister {
 };
 
 void ForEach(void *frame, Visit visit, void *ctx);
+
+// Fires the handler in `slot` (a {handler ref, exec context} pair, or null)
+// the way the engine fires its input scripts: through its variadic front
+// FUN_FRAME_RUN_SCRIPT_VARIADIC (`__cdecl(frame, slot, fmt, ...)`), so the
+// exec context comes from slot[1], the hooked runner sees it, and modern
+// script args apply. `fmt` is one of the engine's own literals
+// (VAR_SCRIPT_FMT_*) and `args` match it: a `%s` takes a `const char *`, a
+// `%f` a double. Nothing runs for an empty slot. The Lua top is restored
+// after, so a fire from inside running C code leaves its stack as it was.
+template <class... Args> void Fire(void *frame, uint32_t *slot, uintptr_t fmt, Args... args) {
+    using Forward_t = void(__cdecl *)(void *frame, uint32_t *slot, const char *fmt, ...);
+    if (slot == nullptr || slot[0] == 0)
+        return;
+    void *L = Game::Lua::State();
+    const int top = L != nullptr ? Game::Lua::GetTop(L) : 0;
+    reinterpret_cast<Forward_t>(Offsets::FUN_FRAME_RUN_SCRIPT_VARIADIC)(
+        frame, slot, reinterpret_cast<const char *>(fmt), args...);
+    if (L != nullptr)
+        Game::Lua::SetTop(L, top);
+}
 
 } // namespace Frame::ScriptSlots

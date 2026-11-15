@@ -225,21 +225,15 @@ static const Game::HookAutoRegister _buildGOHook{
 void FireFrameStack(void *tooltip, void *highlight) {
     if (g_suppress > 0 || g_firing > 0)
         return;
-    uint32_t *slot = HandlerSlot(tooltip, SK_FRAMESTACK);
-    if (slot == nullptr)
-        return;
-    void *L = Game::Lua::State();
-    if (L == nullptr)
-        return;
-    const int savedTop = Game::Lua::GetTop(L);
-    if (highlight != nullptr)
-        Game::Lua::PushObject(L, highlight);
-    else
-        Game::Lua::PushNil(L);
     ++g_firing;
-    Frame::ScriptArgs::RunSlotWithValues(L, slot, tooltip, savedTop + 1, 1);
+    Frame::ScriptArgs::RunSlot(HandlerSlot(tooltip, SK_FRAMESTACK), tooltip, [highlight](void *L) {
+        if (highlight != nullptr)
+            Game::Lua::PushObject(L, highlight);
+        else
+            Game::Lua::PushNil(L);
+        return 1;
+    });
     --g_firing;
-    Game::Lua::SetTop(L, savedTop);
 }
 
 Suppressor::Suppressor() { ++g_suppress; }

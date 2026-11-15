@@ -46,6 +46,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "frame/Layout.h"
+#include "frame/ScriptSlots.h"
 #include "text/InlineTexture.h"
 
 #include <cstdint>
@@ -61,7 +62,6 @@ using FontHeight_t = float(__fastcall *)(void *fs, void *edx, int mode);
 using MeasureRun_t = float(__fastcall *)(void *fs, void *edx, const uint8_t *text, int len);
 using PixelAlignY_t = float(__stdcall *)(float length);
 using Extent_t = float(__fastcall *)(void *anchor, void *edx);
-using FireVariadic_t = void(__cdecl *)(void *frame, uint32_t *slotPtr, const char *fmt, ...);
 
 PlaceCaret_t g_origPlaceCaret = nullptr;
 PlaceSelectionPiece_t g_origPlaceSelectionPiece = nullptr;
@@ -274,13 +274,7 @@ void __fastcall PlaceCaret_h(void *editBox) {
     const float height = reinterpret_cast<Extent_t>(vtable[8])(anchor, nullptr); // +0x20 GetHeight
     const double args[4] = {Game::InternalToPixel(x), Game::InternalToPixel(y), Game::InternalToPixel(width),
                             Game::InternalToPixel(height)};
-    void *L = Game::Lua::State();
-    const int savedTop = (L != nullptr) ? Game::Lua::GetTop(L) : 0;
-    reinterpret_cast<FireVariadic_t>(Offsets::FUN_FRAME_RUN_SCRIPT_VARIADIC)(
-        editBox, slot, reinterpret_cast<const char *>(Offsets::VAR_SCRIPT_FMT_FFFF), args[0], args[1], args[2],
-        args[3]);
-    if (L != nullptr)
-        Game::Lua::SetTop(L, savedTop);
+    Frame::ScriptSlots::Fire(editBox, slot, Offsets::VAR_SCRIPT_FMT_FFFF, args[0], args[1], args[2], args[3]);
 }
 
 const Game::HookAutoRegister _caretHook{Offsets::FUN_EDITBOX_PLACE_CARET, reinterpret_cast<void *>(&PlaceCaret_h),

@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include "Game.h"
+
 #include <cstdint>
 
 namespace Frame::ScriptArgs {
@@ -33,6 +35,27 @@ void RunWithValues(void *L, int handlerRef, void *frame, int firstArgIdx, int na
 // fire wrapper 0x00702690 does for OnTextChanged, OnTextSet and the other
 // scripts it runs. Does nothing for an empty slot.
 void RunSlotWithValues(void *L, const uint32_t *slot, void *frame, int firstArgIdx, int nargs);
+
+// RunSlotWithValues for a fire from C code: nothing runs for a null or empty
+// slot or without a Lua state; otherwise `push(L)` pushes the handler's
+// arguments and returns how many, and the Lua top is restored after, so a
+// fire from inside running engine code leaves its stack as it was.
+template <class Push> void RunSlot(const uint32_t *slot, void *frame, Push &&push) {
+    if (slot == nullptr || slot[0] == 0)
+        return;
+    void *L = Game::Lua::State();
+    if (L == nullptr)
+        return;
+    const int top = Game::Lua::GetTop(L);
+    const int nargs = push(L);
+    RunSlotWithValues(L, slot, frame, top + 1, nargs);
+    Game::Lua::SetTop(L, top);
+}
+
+// RunSlot with no arguments.
+inline void RunSlot(const uint32_t *slot, void *frame) {
+    RunSlot(slot, frame, [](void *) { return 0; });
+}
 
 // Every frame-script handler run passes through this module — the engine's
 // two runners (FUN_FRAME_INVOKE_SCRIPT, FUN_FRAME_RUN_SCRIPT_ARGS, co-hooked
