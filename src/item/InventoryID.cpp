@@ -14,6 +14,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "item/CGItem.h"
+#include "item/ID.h"
 #include "unit/Flags.h"
 
 #include <cstdint>
@@ -37,14 +38,7 @@ int ItemIDForLocalPlayer(void *playerPtr, int slot1Based) {
     auto *player = static_cast<uint8_t *>(playerPtr);
     auto *invMgr = player + Offsets::OFF_PLAYER_INVENTORY_MANAGER;
     auto getBySlot = reinterpret_cast<GetItemBySlot_t>(Offsets::FUN_ITEMMGR_GET_ITEM_BY_SLOT);
-    auto *item = static_cast<uint8_t *>(getBySlot(invMgr, slot1Based - 1));
-    if (item == nullptr)
-        return 0;
-    auto *instance = Item::InstanceBlock(item);
-    if (instance == nullptr)
-        return 0;
-    return static_cast<int>(*reinterpret_cast<const uint32_t *>(
-        instance + Offsets::OFF_INSTANCE_BLOCK_ITEM_ID));
+    return Item::ID::FromCGItem(static_cast<uint8_t *>(getBySlot(invMgr, slot1Based - 1)));
 }
 
 // For non-local-player units, the engine maintains a "visible items"

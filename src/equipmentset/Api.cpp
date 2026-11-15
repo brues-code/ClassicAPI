@@ -38,6 +38,7 @@
 #include "Text.h"
 #include "container/Bag.h"
 #include "item/CGItem.h"
+#include "item/ID.h"
 #include "item/Location.h"
 #include "item/Swap.h"
 #include "unit/Identity.h"
@@ -72,16 +73,6 @@ const char *ArgString(void *L, int idx) {
     if (!Game::Lua::IsString(L, idx))
         return nullptr;
     return Game::Lua::ToString(L, idx);
-}
-
-int ResolveItemID(const uint8_t *cgItem) {
-    if (cgItem == nullptr)
-        return 0;
-    auto *instance = Item::InstanceBlock(cgItem);
-    if (instance == nullptr)
-        return 0;
-    return static_cast<int>(*reinterpret_cast<const uint32_t *>(
-        instance + Offsets::OFF_INSTANCE_BLOCK_ITEM_ID));
 }
 
 void PushTableEntry(void *L, int key, double value) {
@@ -187,7 +178,7 @@ int __fastcall Script_GetItemIDs(void *L) {
         const uint64_t g = s->items[i];
         int value = static_cast<int>(g); // GUID_EMPTY 0 / GUID_IGNORED 1
         if (g != GUID_EMPTY && g != GUID_IGNORED) {
-            value = ResolveItemID(Locations::ResolveItemByGUID(g));
+            value = Item::ID::FromCGItem(Locations::ResolveItemByGUID(g));
             if (value == 0)
                 value = static_cast<int>(s->itemIDs[i]);
             if (value == 0)

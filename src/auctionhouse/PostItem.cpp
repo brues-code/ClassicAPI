@@ -114,19 +114,6 @@ Job g_job{};
 
 // --- small CGItem / cache readers ---------------------------------------
 
-int CGItemCount(const uint8_t *item) {
-    auto *desc = Item::ObjectFields(item);
-    if (desc == nullptr)
-        return 0;
-    return Game::Read<int>(desc, Offsets::OFF_DESCRIPTOR_STACK_COUNT);
-}
-
-uint64_t CGItemGuid(const uint8_t *item) {
-    auto *inst = Item::InstanceBlock(item);
-    if (inst == nullptr)
-        return 0;
-    return Game::Read<uint64_t>(inst, Offsets::OFF_INSTANCE_BLOCK_GUID);
-}
 
 struct SlotInfo {
     const uint8_t *item; // null = empty slot
@@ -142,8 +129,8 @@ SlotInfo ReadSlot(void *L, int bag, int slot) {
         return r;
     r.item = item;
     r.itemID = Item::ID::FromCGItem(item);
-    r.count = CGItemCount(item);
-    r.guid = CGItemGuid(item);
+    r.count = static_cast<int>(Item::StackCount(item));
+    r.guid = Item::Guid(item);
     return r;
 }
 

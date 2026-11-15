@@ -30,28 +30,12 @@ using CursorPickupItem_t = void(__fastcall *)(uint32_t linearSlot, int count,
                                               uint32_t itemGuidLo, uint32_t itemGuidHi,
                                               uint32_t containerGuidLo,
                                               uint32_t containerGuidHi, int flag);
-using LockByGuid_t = void(__stdcall *)(uint32_t guidLo, uint32_t guidHi);
 
 // The container object stores its own GUID inline at +0x08/+0x0C (unlike a
 // CGItem, whose GUID sits behind the +0x08 instance-block pointer). This
 // is the "source container" the engine records for the eventual drop.
 constexpr int OFF_CONTAINER_GUID_LO = 0x08;
 constexpr int OFF_CONTAINER_GUID_HI = 0x0C;
-
-bool ItemLocked(const uint8_t *item) {
-    return (Game::Read<uint32_t>(item, Offsets::OFF_ITEM_CLIENT_LOCK) & 1) != 0;
-}
-
-// Reads a CGItem's 64-bit instance GUID into lo/hi. False if the instance
-// block pointer is absent.
-bool ReadItemGuid(const uint8_t *item, uint32_t *lo, uint32_t *hi) {
-    auto *instance = Item::InstanceBlock(item);
-    if (instance == nullptr)
-        return false;
-    *lo = Game::Read<uint32_t>(instance, Offsets::OFF_INSTANCE_BLOCK_GUID);
-    *hi = Game::Read<uint32_t>(instance, Offsets::OFF_INSTANCE_BLOCK_GUID + 4);
-    return true;
-}
 
 } // namespace
 
@@ -69,11 +53,11 @@ bool PickupBagItem(void *L, int bagID, int slotIndex) {
     // Guards the Script_ wrapper applies that the raw primitive omits: only
     // pick up onto an empty cursor, and never a locked (mid-transaction) item.
     // `::Cursor` — unqualified `Cursor` would bind to `Item::Cursor` here.
-    if (::Cursor::Info::HasItem() || ItemLocked(d.item))
+    if (::Cursor::Info::HasItem() || Item::IsLocked(d.item))
         return false;
 
-    uint32_t itemLo = 0, itemHi = 0;
-    if (!ReadItemGuid(d.item, &itemLo, &itemHi))
+    const uint64_t itemGuid = Item::Guid(d.item);
+    if (itemGuid == 0)
         return false;
     const uint32_t containerLo =
         *reinterpret_cast<const uint32_t *>(d.container + OFF_CONTAINER_GUID_LO);
@@ -81,10 +65,11 @@ bool PickupBagItem(void *L, int bagID, int slotIndex) {
         *reinterpret_cast<const uint32_t *>(d.container + OFF_CONTAINER_GUID_HI);
 
     reinterpret_cast<CursorPickupItem_t>(Offsets::FUN_CURSOR_PICKUP_ITEM)(
-        static_cast<uint32_t>(d.linearSlot), 1, itemLo, itemHi, containerLo, containerHi, 0);
+        static_cast<uint32_t>(d.linearSlot), 1, static_cast<uint32_t>(itemGuid),
+        static_cast<uint32_t>(itemGuid >> 32), containerLo, containerHi, 0);
     // Visually lock the source item while it's held — the Script pickup
     // does this immediately after the cursor primitive.
-    reinterpret_cast<LockByGuid_t>(Offsets::FUN_ITEM_LOCK_BY_GUID)(itemLo, itemHi);
+    Item::SetLocked(itemGuid, true);
     return true;
 }
 

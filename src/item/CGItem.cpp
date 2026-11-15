@@ -39,4 +39,35 @@ const uint8_t *ObjectFields(const uint8_t *cgItem) {
         cgItem + Offsets::OFF_ITEM_DESCRIPTOR);
 }
 
+uint32_t StackCount(const uint8_t *cgItem) {
+    const uint8_t *fields = ObjectFields(cgItem);
+    if (fields == nullptr)
+        return 0;
+    return *reinterpret_cast<const uint32_t *>(fields + Offsets::OFF_DESCRIPTOR_STACK_COUNT);
+}
+
+uint32_t Flags(const uint8_t *cgItem) {
+    const uint8_t *fields = ObjectFields(cgItem);
+    if (fields == nullptr)
+        return 0;
+    return *reinterpret_cast<const uint32_t *>(fields + Offsets::OFF_DESCRIPTOR_FLAGS);
+}
+
+bool IsLocked(const uint8_t *cgItem) {
+    if (cgItem == nullptr)
+        return false;
+    return (*reinterpret_cast<const uint32_t *>(cgItem + Offsets::OFF_ITEM_CLIENT_LOCK) &
+            Offsets::ITEM_CLIENT_LOCK_BIT) != 0;
+}
+
+void SetLocked(uint64_t guid, bool locked) {
+    // `__stdcall(guidLo, guidHi)`, both ending `RET 0x8`: declaring them
+    // `__cdecl` once left ESP 8 bytes off per call until a later Lua dispatch
+    // read a smashed pointer and crashed.
+    using LockByGuid_t = void(__stdcall *)(uint32_t guidLo, uint32_t guidHi);
+    const auto fn = reinterpret_cast<LockByGuid_t>(static_cast<uintptr_t>(
+        locked ? Offsets::FUN_ITEM_LOCK_BY_GUID : Offsets::FUN_ITEM_UNLOCK_BY_GUID));
+    fn(static_cast<uint32_t>(guid), static_cast<uint32_t>(guid >> 32));
+}
+
 } // namespace Item

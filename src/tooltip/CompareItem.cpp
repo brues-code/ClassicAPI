@@ -509,13 +509,6 @@ int ItemSuffix(const uint8_t *item) {
         Game::Read<uint32_t>(desc, Offsets::OFF_DESCRIPTOR_RANDOM_PROPERTY));
 }
 
-uint64_t EquippedGUID(const uint8_t *item) {
-    auto *instance = Item::InstanceBlock(item);
-    if (instance == nullptr)
-        return 0;
-    return Game::Read<uint64_t>(instance, Offsets::OFF_INSTANCE_BLOCK_GUID);
-}
-
 int __fastcall Script_SetHyperlinkCompareItem(void *L) {
     if (Game::Lua::Type(L, 1) != Game::Lua::TYPE_TABLE) {
         Game::Lua::Error(
@@ -562,7 +555,7 @@ int __fastcall Script_SetHyperlinkCompareItem(void *L) {
     const int equippedID = Item::ID::FromCGItem(eqItem);
     if (equippedID <= 0)
         return result(false);
-    uint64_t equippedGUID = EquippedGUID(eqItem);
+    uint64_t equippedGUID = Item::Guid(eqItem);
 
     // The tooltip's underlying CFrameScriptObject — the `this` for the
     // engine's builder / add-line thiscalls.

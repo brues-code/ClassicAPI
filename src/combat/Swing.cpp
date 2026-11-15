@@ -46,6 +46,7 @@
 #include "dbc/Lookup.h"
 #include "event/Custom.h"
 #include "item/CGItem.h"
+#include "item/ID.h"
 #include "item/Location.h"
 #include "item/Record.h"
 #include "net/PacketDispatch.h"
@@ -235,11 +236,9 @@ constexpr int kInvSlotOffHand1Based = 17;
 uint32_t UnhastedWeaponDelayMs(int slot1Based, SwingType fallbackType) {
     const uint8_t *cgItem = Item::Location::ResolveEquipmentSlot(slot1Based);
     if (cgItem != nullptr) {
-        const uint8_t *instance = Item::InstanceBlock(cgItem);
-        if (instance != nullptr) {
-            const uint32_t itemID = *reinterpret_cast<const uint32_t *>(
-                instance + Offsets::OFF_INSTANCE_BLOCK_ITEM_ID);
-            const uint8_t *stats = Item::PeekRecord(itemID);
+        const int itemID = Item::ID::FromCGItem(cgItem);
+        if (itemID != 0) {
+            const uint8_t *stats = Item::PeekRecord(static_cast<uint32_t>(itemID));
             if (stats != nullptr) {
                 const uint32_t delay = *reinterpret_cast<const uint32_t *>(
                     stats + Offsets::OFF_ITEMSTATS_DELAY);

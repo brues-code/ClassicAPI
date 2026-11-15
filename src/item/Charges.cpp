@@ -27,8 +27,7 @@ int PushChargesForItem(void *L, const uint8_t *item) {
     auto *descriptor = Item::ObjectFields(item);
     if (descriptor == nullptr)
         return 0;
-    const int32_t stack = static_cast<int32_t>(*reinterpret_cast<const uint32_t *>(
-        descriptor + Offsets::OFF_DESCRIPTOR_STACK_COUNT));
+    const int32_t stack = static_cast<int32_t>(Item::StackCount(item));
     const int32_t rawCharges = *reinterpret_cast<const int32_t *>(
         descriptor + Offsets::OFF_DESCRIPTOR_SPELL_CHARGES_0);
     const int32_t usesPerItem = (rawCharges < 0) ? -rawCharges : 1;

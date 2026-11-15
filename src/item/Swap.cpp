@@ -64,14 +64,11 @@ void SendSwapPacket(void *player,
 // CGObject-derived pointer (CGItem, CGPlayer, CGContainer all use
 // the same +0x8 → instance block → +0x00 GUID layout).
 bool ReadGuid(const void *cgObject, uint32_t *lo, uint32_t *hi) {
-    if (cgObject == nullptr)
+    const uint64_t guid = Item::Guid(static_cast<const uint8_t *>(cgObject));
+    if (guid == 0)
         return false;
-    auto *base = static_cast<const uint8_t *>(cgObject);
-    auto *inst = Item::InstanceBlock(base);
-    if (inst == nullptr)
-        return false;
-    *lo = Game::Read<uint32_t>(inst, Offsets::OFF_INSTANCE_BLOCK_GUID);
-    *hi = Game::Read<uint32_t>(inst, Offsets::OFF_INSTANCE_BLOCK_GUID + 4);
+    *lo = static_cast<uint32_t>(guid);
+    *hi = static_cast<uint32_t>(guid >> 32);
     return true;
 }
 
@@ -339,11 +336,8 @@ bool MoveCountFrom(const void *srcItem, int srcBag, int srcSlot, int dstBag,
     // server treats as a merge for same-item destinations (up to
     // maxStack). Route there for count == srcStack so callers don't
     // have to special-case "move everything".
-    auto *srcDescriptor =
-        Item::ObjectFields(static_cast<const uint8_t *>(srcItem));
-    const int srcStack = srcDescriptor == nullptr ? 0 :
-        static_cast<int>(Game::Read<uint32_t>(
-            srcDescriptor, Offsets::OFF_DESCRIPTOR_STACK_COUNT));
+    const int srcStack =
+        static_cast<int>(Item::StackCount(static_cast<const uint8_t *>(srcItem)));
     if (count > srcStack)
         return false; // server would reject anyway; fail fast and locally
     if (count == srcStack)

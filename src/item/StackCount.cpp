@@ -25,25 +25,14 @@
 
 #include <cstdint>
 
-namespace Item::StackCount {
+namespace Item::Stack {
 
 static int __fastcall Script_GetStackCount(void *L) {
     if (!Item::Location::IsLocationArg(L, 1)) {
         Game::Lua::PushNumber(L, 0.0);
         return 1;
     }
-    auto *item = Item::Location::Resolve(L, 1);
-    if (item == nullptr) {
-        Game::Lua::PushNumber(L, 0.0);
-        return 1;
-    }
-    auto *descriptor = Item::ObjectFields(item);
-    if (descriptor == nullptr) {
-        Game::Lua::PushNumber(L, 0.0);
-        return 1;
-    }
-    const int count = *reinterpret_cast<const int *>(
-        descriptor + Offsets::OFF_DESCRIPTOR_STACK_COUNT);
+    const uint32_t count = Item::StackCount(Item::Location::Resolve(L, 1));
     Game::Lua::PushNumber(L, static_cast<double>(count));
     return 1;
 }
@@ -67,4 +56,4 @@ static void RegisterLuaFunctions() {
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 
-} // namespace Item::StackCount
+} // namespace Item::Stack

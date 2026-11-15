@@ -43,14 +43,6 @@ namespace Container::EquipmentSetInfo {
 
 namespace {
 
-uint64_t ItemGuid(const uint8_t *cgItem) {
-    auto *instance = Item::InstanceBlock(cgItem);
-    if (instance == nullptr)
-        return 0;
-    return *reinterpret_cast<const uint64_t *>(
-        instance + Offsets::OFF_INSTANCE_BLOCK_GUID);
-}
-
 int __fastcall Script_C_Container_GetContainerItemEquipmentSetInfo(void *L) {
     if (!Game::Lua::IsNumber(L, 1) || !Game::Lua::IsNumber(L, 2)) {
         Game::Lua::Error(L,
@@ -64,7 +56,7 @@ int __fastcall Script_C_Container_GetContainerItemEquipmentSetInfo(void *L) {
     // `PackBagSlot`, so both arguments are already in locals above and
     // nothing we need survives on the stack across it.
     const uint64_t guid =
-        ItemGuid(Item::Location::ResolveBag(L, bagID, slotIndex));
+        Item::Guid(Item::Location::ResolveBag(L, bagID, slotIndex));
 
     const std::string setList = EquipmentSet::Text::SetList(guid);
 

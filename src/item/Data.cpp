@@ -127,14 +127,7 @@ static const uint8_t *CacheFetch(uint32_t itemID, ItemLoadCallback_t callback) {
 // `Location::Resolve` -> CGItem -> instance block (+0x08) -> itemID (+0x0C).
 // Returns 0 if the slot is empty or the table is malformed.
 static int ResolveLocationToItemID(void *L, int idx) {
-    const uint8_t *item = Item::Location::Resolve(L, idx);
-    if (item == nullptr)
-        return 0;
-    auto *instance = Item::InstanceBlock(item);
-    if (instance == nullptr)
-        return 0;
-    return static_cast<int>(Game::Read<uint32_t>(
-        instance, Offsets::OFF_INSTANCE_BLOCK_ITEM_ID));
+    return Item::ID::FromCGItem(Item::Location::Resolve(L, idx));
 }
 
 static int __fastcall Script_IsItemDataCachedByID(void *L) {

@@ -106,20 +106,10 @@ int __fastcall Script_C_Container_GetContainerItemInfo(void *L) {
         ? Item::PeekRecord(static_cast<uint32_t>(itemID))
         : nullptr;
 
-    // Live per-instance descriptor fields.
-    const uint8_t *descriptor = Item::ObjectFields(item);
-    int stackCount = 0;
-    bool isBound = false;
-    if (descriptor != nullptr) {
-        stackCount = Game::Read<int>(
-            descriptor, Offsets::OFF_DESCRIPTOR_STACK_COUNT);
-        isBound = (Game::Read<uint32_t>(
-                       descriptor, Offsets::OFF_DESCRIPTOR_FLAGS) &
-                   Offsets::ITEM_FLAG_SOULBOUND) != 0;
-    }
-    const bool isLocked = (Game::Read<uint32_t>(
-                               item, Offsets::OFF_ITEM_CLIENT_LOCK) &
-                           Offsets::ITEM_CLIENT_LOCK_BIT) != 0;
+    // Live per-instance fields.
+    const int stackCount = static_cast<int>(Item::StackCount(item));
+    const bool isBound = (Item::Flags(item) & Offsets::ITEM_FLAG_SOULBOUND) != 0;
+    const bool isLocked = Item::IsLocked(item);
     const bool isReadable = ItemReadable(item, record);
 
     // Static template fields (cache-dependent).

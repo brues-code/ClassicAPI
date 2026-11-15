@@ -15,6 +15,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "item/CGItem.h"
 #include "item/Location.h"
 #include "unit/Identity.h"
 
@@ -103,12 +104,7 @@ bool IsEquipped(const Set &set) {
 namespace {
 
 bool IsLocked(uint64_t guid) {
-    const uint8_t *item = ResolveItemByGUID(guid);
-    if (item == nullptr)
-        return false;
-    const uint32_t flags = *reinterpret_cast<const uint32_t *>(
-        item + Offsets::OFF_ITEM_CLIENT_LOCK);
-    return (flags & Offsets::ITEM_CLIENT_LOCK_BIT) != 0;
+    return Item::IsLocked(ResolveItemByGUID(guid));
 }
 
 } // namespace

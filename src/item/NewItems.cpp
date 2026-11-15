@@ -82,6 +82,7 @@
 #include "bag/UpdateDelayed.h"
 #include "event/Custom.h"
 #include "item/CGItem.h"
+#include "item/ID.h"
 #include "item/Location.h"
 #include "net/PacketDispatch.h"
 #include "net/SendObserver.h"
@@ -203,16 +204,6 @@ bool RemoveFrom(uint64_t *arr, int *count, uint64_t guid) {
     return false;
 }
 
-uint64_t ItemGUID(const uint8_t *item) {
-    if (item == nullptr)
-        return 0;
-    auto *instance = Item::InstanceBlock(item);
-    if (instance == nullptr)
-        return 0;
-    return *reinterpret_cast<const uint64_t *>(
-        instance + Offsets::OFF_INSTANCE_BLOCK_GUID);
-}
-
 // --- pure-C++ bag enumeration (no Lua stack) -----------------------------
 
 using GetItemBySlot_t = void *(__thiscall *)(void *inventory, int slot0Based);
@@ -232,7 +223,7 @@ int ScanBags(const uint8_t *player, uint64_t *out) {
     for (int slot = 1; slot <= backpackSlots; ++slot) {
         auto *item = static_cast<const uint8_t *>(
             getItemBySlot(invMgr, Offsets::INVMGR_BACKPACK_FIRST_SLOT + slot - 1));
-        const uint64_t guid = ItemGUID(item);
+        const uint64_t guid = Item::Guid(item);
         if (guid != 0)
             AddUnique(out, &count, guid);
     }
@@ -247,7 +238,7 @@ int ScanBags(const uint8_t *player, uint64_t *out) {
             continue;
         for (int slot = 1; slot <= slots; ++slot) {
             auto *item = static_cast<const uint8_t *>(getItemBySlot(bagInv, slot - 1));
-            const uint64_t guid = ItemGUID(item);
+            const uint64_t guid = Item::Guid(item);
             if (guid != 0)
                 AddUnique(out, &count, guid);
         }
@@ -293,7 +284,7 @@ void AppendNonBagOwned(uint64_t *out, int *count) {
     // banker gate), so go through the normal per-slot resolver.
     for (int slot = Offsets::EQUIPMENT_SLOT_FIRST; slot <= Offsets::INVSLOT_BAG1 + 3;
          ++slot) {
-        const uint64_t guid = ItemGUID(Item::Location::ResolveEquipmentSlot(slot));
+        const uint64_t guid = Item::Guid(Item::Location::ResolveEquipmentSlot(slot));
         if (guid != 0)
             AddUnique(out, count, guid);
     }
@@ -351,20 +342,6 @@ struct PendingSplit {
 PendingSplit g_splits[kMaxPendingSplits];
 int g_splitCount = 0;
 
-uint32_t ItemID(const uint8_t *item) {
-    auto *instance = Item::InstanceBlock(item);
-    if (instance == nullptr)
-        return 0;
-    return *reinterpret_cast<const uint32_t *>(instance + Offsets::OFF_INSTANCE_BLOCK_ITEM_ID);
-}
-
-uint32_t StackCount(const uint8_t *item) {
-    auto *fields = Item::ObjectFields(item);
-    if (fields == nullptr)
-        return 0;
-    return *reinterpret_cast<const uint32_t *>(fields + Offsets::OFF_DESCRIPTOR_STACK_COUNT);
-}
-
 // The GUID in `slot` of an inventory manager's GUID array, bounded by its
 // own slot count.
 uint64_t GuidAt(const uint8_t *invMgr, int slot) {
@@ -399,7 +376,9 @@ void OnSend(uint32_t opcode, Net::CDataStore *packet) {
     const uint8_t *source = PacketSlotItem(srcBag, srcSlot);
     if (source == nullptr)
         return;
-    g_splits[g_splitCount++] = {ItemGUID(source), ItemID(source), StackCount(source)};
+    g_splits[g_splitCount++] = {Item::Guid(source),
+                                  static_cast<uint32_t>(Item::ID::FromCGItem(source)),
+                                  Item::StackCount(source)};
 }
 
 void OnPacket(uint32_t opcode, Net::CDataStore *packet) {
@@ -415,7 +394,8 @@ const Net::PacketDispatch::AutoSubscribe _packetSub{&OnPacket};
 bool ClaimSplitHalf(uint64_t guid) {
     if (g_splitCount == 0)
         return false;
-    const uint32_t itemID = ItemID(ResolveByGuid(Offsets::TYPEMASK_ITEM, guid));
+    const uint32_t itemID = static_cast<uint32_t>(
+        Item::ID::FromCGItem(ResolveByGuid(Offsets::TYPEMASK_ITEM, guid)));
     for (int i = 0; i < g_splitCount; ++i) {
         if (g_splits[i].itemID == itemID) {
             g_splits[i] = g_splits[--g_splitCount];
@@ -429,7 +409,7 @@ bool ClaimSplitHalf(uint64_t guid) {
 void RetireSplits() {
     for (int i = 0; i < g_splitCount;) {
         const uint8_t *source = ResolveByGuid(Offsets::TYPEMASK_ITEM, g_splits[i].source);
-        if (source == nullptr || StackCount(source) < g_splits[i].count)
+        if (source == nullptr || Item::StackCount(source) < g_splits[i].count)
             g_splits[i] = g_splits[--g_splitCount];
         else
             ++i;
@@ -546,7 +526,7 @@ uint64_t SlotGUID(void *L) {
         return 0;
     const int bagID = static_cast<int>(Game::Lua::ToNumber(L, 1));
     const int slotIndex = static_cast<int>(Game::Lua::ToNumber(L, 2));
-    return ItemGUID(Item::Location::ResolveBag(L, bagID, slotIndex));
+    return Item::Guid(Item::Location::ResolveBag(L, bagID, slotIndex));
 }
 
 int __fastcall Script_IsNewItem(void *L) {

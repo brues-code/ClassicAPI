@@ -271,25 +271,11 @@ const uint8_t *ItemAt(const BagView &v, int slotIndex0, uint64_t *guidOut) {
     return ItemByGuid(guid);
 }
 
-bool IsLocked(const uint8_t *item) {
-    return (Game::Read<uint32_t>(item, Offsets::OFF_ITEM_CLIENT_LOCK) &
-            Offsets::ITEM_CLIENT_LOCK_BIT) != 0;
-}
-
 // An item gone from the object manager is settled too: a whole-stack
 // merge destroys its source.
 bool StillLocked(uint64_t guid) {
     const uint8_t *item = ItemByGuid(guid);
-    return item != nullptr && IsLocked(item);
-}
-
-// The engine's own lock setter / clearer (`0x4953e0` / `0x495420`): each
-// flips bit 0 of `+0x314` and signals ITEM_LOCK_CHANGED.
-using LockByGuid_t = void(__stdcall *)(uint32_t guidLo, uint32_t guidHi);
-
-void CallLockFn(uintptr_t fn, uint64_t guid) {
-    reinterpret_cast<LockByGuid_t>(fn)(static_cast<uint32_t>(guid),
-                                       static_cast<uint32_t>(guid >> 32));
+    return Item::IsLocked(item);
 }
 
 // Items the running phase relocated and locked; the phase is over once
@@ -297,16 +283,13 @@ void CallLockFn(uintptr_t fn, uint64_t guid) {
 std::vector<uint64_t> g_waiting;
 
 void Lock(uint64_t guid) {
-    CallLockFn(Offsets::FUN_ITEM_LOCK_BY_GUID, guid);
+    Item::SetLocked(guid, true);
     g_waiting.push_back(guid);
 }
 
+// A stack the descriptor has not filled counts as one item.
 uint32_t StackCount(const uint8_t *item) {
-    auto *fields = Item::ObjectFields(item);
-    if (fields == nullptr)
-        return 1;
-    const uint32_t n =
-        Game::Read<uint32_t>(fields, Offsets::OFF_DESCRIPTOR_STACK_COUNT);
+    const uint32_t n = Item::StackCount(item);
     return n == 0 ? 1 : n;
 }
 
@@ -339,7 +322,7 @@ std::vector<Group> GatherGroups(const int *bags, int bagCount) {
         for (int i = 0; i < view.slotCount; ++i) {
             uint64_t guid = 0;
             const uint8_t *item = ItemAt(view, i, &guid);
-            if (item == nullptr || IsLocked(item))
+            if (item == nullptr || Item::IsLocked(item))
                 continue;
             const int itemID = Item::ID::FromCGItem(item);
             if (itemID <= 0)
@@ -518,7 +501,7 @@ bool Place(const int *bags, int bagCount, int mergesPending) {
             int itemID = 0;
             if (item != nullptr) {
                 itemID = Item::ID::FromCGItem(item);
-                if (itemID > 0 && !IsLocked(item))
+                if (itemID > 0 && !Item::IsLocked(item))
                     rec = Item::PeekRecord(static_cast<uint32_t>(itemID));
                 if (rec == nullptr) {
                     ++stats.pinned;
@@ -768,7 +751,7 @@ void OnTick() {
             return;
         for (const uint64_t guid : g_waiting)
             if (StillLocked(guid))
-                CallLockFn(Offsets::FUN_ITEM_UNLOCK_BY_GUID, guid);
+                Item::SetLocked(guid, false);
     }
     g_waiting.clear();
 

@@ -41,27 +41,8 @@ namespace Item::Lock {
 
 namespace {
 
-// Both setter and clearer share the `__stdcall(uint guidLo, int guidHi)` shape —
-// they end with `RET 0x8` (callee cleans the two stack args). Declaring these
-// as `__cdecl` was a calling-convention mismatch that corrupted ESP by 8 bytes
-// per call; stack damage accumulated until the next Lua dispatch read a
-// smashed function pointer and crashed. The sweep helper (`UnlockAll_t`) has
-// no args, so its `RET 0` is convention-neutral.
-using LockByGuid_t = void(__stdcall *)(uint32_t guidLo, uint32_t guidHi);
-
 // Engine's sweep — no args, convention-neutral.
 using UnlockAll_t = void(__cdecl *)();
-
-bool ReadItemGuid(const uint8_t *item, uint32_t *lo, uint32_t *hi) {
-    if (item == nullptr)
-        return false;
-    auto *inst = Item::InstanceBlock(item);
-    if (inst == nullptr)
-        return false;
-    *lo = Game::Read<uint32_t>(inst, Offsets::OFF_INSTANCE_BLOCK_GUID);
-    *hi = Game::Read<uint32_t>(inst, Offsets::OFF_INSTANCE_BLOCK_GUID + 4);
-    return true;
-}
 
 // `C_Item.IsLocked(itemLocation)` — true iff the item is in the
 // "transaction-in-progress" lock state. Reads `[item+0x314] & 1` —
@@ -79,14 +60,7 @@ int __fastcall Script_C_Item_IsLocked(void *L) {
         Game::Lua::PushBool(L, false);
         return 1;
     }
-    const uint8_t *item = Item::Location::Resolve(L, 1);
-    if (item == nullptr) {
-        Game::Lua::PushBool(L, false);
-        return 1;
-    }
-    const uint32_t flags = Game::Read<uint32_t>(
-        item, Offsets::OFF_ITEM_CLIENT_LOCK);
-    Game::Lua::PushBool(L, (flags & Offsets::ITEM_CLIENT_LOCK_BIT) != 0);
+    Game::Lua::PushBool(L, Item::IsLocked(Item::Location::Resolve(L, 1)));
     return 1;
 }
 
@@ -110,13 +84,9 @@ int __fastcall Script_C_Item_UnlockItem(void *L) {
         Game::Lua::Error(L, "Usage: C_Item.UnlockItem(itemLocation)");
         return 0;
     }
-    const uint8_t *item = Item::Location::Resolve(L, 1);
-    uint32_t lo = 0, hi = 0;
-    if (!ReadItemGuid(item, &lo, &hi))
-        return 0;
-    auto fn = reinterpret_cast<LockByGuid_t>(
-        static_cast<uintptr_t>(Offsets::FUN_ITEM_UNLOCK_BY_GUID));
-    fn(lo, hi);
+    const uint64_t guid = Item::Guid(Item::Location::Resolve(L, 1));
+    if (guid != 0)
+        Item::SetLocked(guid, false);
     return 0;
 }
 
@@ -139,13 +109,9 @@ int __fastcall Script_C_Item_LockItem(void *L) {
         Game::Lua::Error(L, "Usage: C_Item.LockItem(itemLocation)");
         return 0;
     }
-    const uint8_t *item = Item::Location::Resolve(L, 1);
-    uint32_t lo = 0, hi = 0;
-    if (!ReadItemGuid(item, &lo, &hi))
-        return 0;
-    auto fn = reinterpret_cast<LockByGuid_t>(
-        static_cast<uintptr_t>(Offsets::FUN_ITEM_LOCK_BY_GUID));
-    fn(lo, hi);
+    const uint64_t guid = Item::Guid(Item::Location::Resolve(L, 1));
+    if (guid != 0)
+        Item::SetLocked(guid, true);
     return 0;
 }
 
@@ -168,9 +134,7 @@ int __fastcall Script_C_Item_LockItemByGUID(void *L) {
     uint64_t guid = 0;
     if (!Guid::Parse(Game::Lua::ToString(L, 1), &guid) || guid == 0)
         return 0;
-    auto fn = reinterpret_cast<LockByGuid_t>(
-        static_cast<uintptr_t>(Offsets::FUN_ITEM_LOCK_BY_GUID));
-    fn(static_cast<uint32_t>(guid), static_cast<uint32_t>(guid >> 32));
+    Item::SetLocked(guid, true);
     return 0;
 }
 

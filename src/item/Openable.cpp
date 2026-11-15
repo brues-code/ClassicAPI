@@ -40,19 +40,6 @@ namespace Item::Openable {
 
 namespace {
 
-// Reads `ITEM_FIELD_FLAGS` from the instance descriptor at +0x114.
-// Defaults to 0 if `cgItem` is null or the descriptor pointer hasn't
-// been populated yet.
-uint32_t InstanceFlags(const uint8_t *cgItem) {
-    if (cgItem == nullptr)
-        return 0;
-    auto *descriptor = Item::ObjectFields(cgItem);
-    if (descriptor == nullptr)
-        return 0;
-    return *reinterpret_cast<const uint32_t *>(
-        descriptor + Offsets::OFF_DESCRIPTOR_FLAGS);
-}
-
 } // namespace
 
 int PushIsItemOpenable(void *L, const uint8_t *cgItem) {
@@ -68,7 +55,7 @@ int PushIsItemOpenable(void *L, const uint8_t *cgItem) {
         record + Offsets::OFF_ITEMSTATS_FLAGS);
     const uint32_t lockID = *reinterpret_cast<const uint32_t *>(
         record + Offsets::OFF_ITEMSTATS_LOCK_ID);
-    const uint32_t instFlags = InstanceFlags(cgItem);
+    const uint32_t instFlags = Item::Flags(cgItem);
     const bool openable = (typeFlags & Offsets::ITEMSTATS_FLAG_OPENABLE) != 0;
     // WRAPPER is also set on unused wrapping paper, so the gift arm
     // needs the instance's WRAPPED bit to count at all.

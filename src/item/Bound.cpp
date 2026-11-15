@@ -21,12 +21,7 @@
 namespace Item::Bound {
 
 static bool ItemIsSoulbound(const uint8_t *item) {
-    auto *descriptor = Item::ObjectFields(item);
-    if (descriptor == nullptr)
-        return false;
-    const uint32_t flags = *reinterpret_cast<const uint32_t *>(
-        descriptor + Offsets::OFF_DESCRIPTOR_FLAGS);
-    return (flags & Offsets::ITEM_FLAG_SOULBOUND) != 0;
+    return (Item::Flags(item) & Offsets::ITEM_FLAG_SOULBOUND) != 0;
 }
 
 static int __fastcall Script_IsBound(void *L) {
