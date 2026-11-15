@@ -19,14 +19,14 @@
 //
 // 1.12 already has the machinery for tooltip scripts, just not these ones:
 //
-//   - The CGGameTooltip vtable resolver FUN_GAMETOOLTIP_SCRIPT_RESOLVER maps a
-//     script name to its handler slot on the tooltip (OnTooltipCleared etc.,
-//     each an 8-byte {handler, context} pair). SetScript/GetScript/HookScript
-//     all go through it. We co-hook it: for our OnTooltipSet* names (which the
-//     engine doesn't know) we hand back a pointer to a C-side per-tooltip cell
-//     — the tooltip object (alloc size 0x460) has no free 8-byte slot, and the
-//     resolver's only contract is "return the address the script lives at", so
-//     external storage works exactly like an in-object slot.
+//   - The CGGameTooltip resolver FUN_GAMETOOLTIP_SCRIPT_RESOLVER maps a script
+//     name to its handler slot on the tooltip (OnTooltipCleared etc., each an
+//     8-byte {handler, context} pair), after first asking the base frame
+//     resolver (FUN_FRAME_SCRIPT_RESOLVER, CSimpleFrame::GetScriptByName). SetScript /
+//     GetScript / HookScript all go through it. The OnTooltipSet* names are
+//     Frame::ExtraScripts scripts of the GameTooltip class, so the base
+//     resolver hands out a per-tooltip cell for them (the tooltip object,
+//     alloc size 0x460, has no free 8-byte slot).
 //
 //   - OnTooltipSetFrameStack has no engine builder: Tooltip::FrameStack builds
 //     the frame stack itself and fires it through FireFrameStack, right before
@@ -49,7 +49,7 @@
 #include "Offsets.h"
 #include "equipmentset/Tooltip.h"
 #include "frame/ScriptArgs.h"
-#include "frame/ScriptSlots.h"
+#include "frame/ExtraScripts.h"
 #include "guid/Guid.h"
 #include "unit/Tooltip.h"
 
@@ -59,69 +59,21 @@ namespace Tooltip::SetEvents {
 
 namespace {
 
-// One entry per script kind. Order is arbitrary but the cell slot array and
-// the builder hooks index by it.
+// One entry per script kind; kScripts indexes by it.
 enum ScriptKind { SK_ITEM = 0, SK_SPELL, SK_UNIT, SK_GAMEOBJECT, SK_FRAMESTACK, SK_COUNT };
 
-// Script names, matched case-insensitively against the resolver's input.
-constexpr const char *kNamesLower[SK_COUNT] = {
-    "ontooltipsetitem",
-    "ontooltipsetspell",
-    "ontooltipsetunit",
-    "ontooltipsetgameobject",
-    "ontooltipsetframestack",
+const Frame::ExtraScripts::Script kScripts[SK_COUNT] = {
+    {"ontooltipsetitem", Offsets::VAR_GAMETOOLTIP_LUA_TYPE_ID},
+    {"ontooltipsetspell", Offsets::VAR_GAMETOOLTIP_LUA_TYPE_ID},
+    {"ontooltipsetunit", Offsets::VAR_GAMETOOLTIP_LUA_TYPE_ID},
+    {"ontooltipsetgameobject", Offsets::VAR_GAMETOOLTIP_LUA_TYPE_ID},
+    {"ontooltipsetframestack", Offsets::VAR_GAMETOOLTIP_LUA_TYPE_ID},
 };
 
-// Per-tooltip storage: one 8-byte {handler, context} slot per script kind.
-// Tooltips are few (GameTooltip, ItemRefTooltip, ShoppingTooltip1/2,
-// AtlasLootTooltip, WorldMapTooltip, plus the odd addon tooltip), so a small
-// fixed table with a linear scan is plenty and gives each cell a stable
-// address to hand out.
-//
-// Few — but NOT permanent: every /reload (and logout) destroys and recreates
-// the tooltip objects, usually at new addresses. `PrepareForReload` clears the
-// table at each UI teardown; without it the table gained ~2 dead cells per
-// reload until full (≈18 reloads — SetScript then failed with "doesn't have a
-// 'OnTooltipSetItem' script") and a stale cell whose address the allocator
-// recycled into a new tooltip fired its dead handler ref → crash (issue #33).
-// The clear is also semantically right: handler refs never survive the Lua
-// reset, so post-reload every cell held garbage regardless.
-struct Cell {
-    void *tooltip;
-    uint32_t slot[SK_COUNT][2]; // [kind] = {handler, exec context}
-};
-constexpr int kMaxTooltips = 32;
-Cell g_cells[kMaxTooltips];
-int g_cellCount = 0;
-
-uint32_t *SlotFor(void *tooltip, int kind, bool create) {
-    for (int i = 0; i < g_cellCount; ++i)
-        if (g_cells[i].tooltip == tooltip)
-            return g_cells[i].slot[kind];
-    if (!create || g_cellCount >= kMaxTooltips)
-        return nullptr;
-    Cell &c = g_cells[g_cellCount++];
-    c.tooltip = tooltip;
-    for (auto &s : c.slot) {
-        s[0] = 0;
-        s[1] = 0;
-    }
-    return c.slot[kind];
-}
-
-bool EqualsIgnoreCase(const char *s, const char *literal) {
-    if (s == nullptr)
-        return false;
-    for (;; ++s, ++literal) {
-        unsigned char a = static_cast<unsigned char>(*s);
-        const unsigned char b = static_cast<unsigned char>(*literal);
-        if (a >= 'A' && a <= 'Z')
-            a = static_cast<unsigned char>(a + 32);
-        if (a != b)
-            return false;
-        if (b == 0)
-            return true;
-    }
+// The tooltip's handler for `kind`, or nullptr when none is set.
+uint32_t *HandlerSlot(const void *tooltip, int kind) {
+    uint32_t *slot = kScripts[kind].Slot(tooltip);
+    return slot != nullptr && slot[0] != 0 ? slot : nullptr;
 }
 
 // --- Suppression / recursion state -------------------------------------
@@ -147,8 +99,8 @@ using InvokeScript_t = void(__fastcall *)(uint32_t handler, void *frame);
 void FireScript(void *self, int kind) {
     if (g_suppress > 0 || g_firing > 0)
         return;
-    uint32_t *slot = SlotFor(self, kind, /*create*/ false);
-    if (slot == nullptr || slot[0] == 0)
+    uint32_t *slot = HandlerSlot(self, kind);
+    if (slot == nullptr)
         return;
     void *L = Game::Lua::State();
     const int savedTop = (L != nullptr) ? Game::Lua::GetTop(L) : 0;
@@ -169,8 +121,8 @@ void FireScript(void *self, int kind) {
 void FireItem(void *self, uint64_t itemGuid) {
     if (g_suppress > 0 || g_firing > 0)
         return;
-    uint32_t *slot = SlotFor(self, SK_ITEM, /*create*/ false);
-    if (slot == nullptr || slot[0] == 0)
+    uint32_t *slot = HandlerSlot(self, SK_ITEM);
+    if (slot == nullptr)
         return;
     void *L = Game::Lua::State();
     if (L == nullptr)
@@ -186,20 +138,6 @@ void FireItem(void *self, uint64_t itemGuid) {
     Frame::ScriptArgs::RunWithValues(L, static_cast<int>(slot[0]), self, savedTop + 1, 1);
     --g_firing;
     Game::Lua::SetTop(L, savedTop);
-}
-
-// --- Resolver co-hook (CGGameTooltip vtable script-name → slot) ---------
-using Resolver_t = int(__fastcall *)(void *self, void *edx, const char *name);
-Resolver_t g_resolverOriginal = nullptr;
-
-int __fastcall Resolver_h(void *self, void *edx, const char *name) {
-    const int engineSlot = g_resolverOriginal(self, edx, name);
-    if (engineSlot != 0) // a base-frame or existing tooltip script — leave it
-        return engineSlot;
-    for (int k = 0; k < SK_COUNT; ++k)
-        if (EqualsIgnoreCase(name, kNamesLower[k]))
-            return reinterpret_cast<int>(SlotFor(self, k, /*create*/ true));
-    return 0;
 }
 
 // --- Builder co-hooks --------------------------------------------------
@@ -257,11 +195,6 @@ void __fastcall BuildGO_h(void *self, void *edx, const void *guid) {
     FireScript(self, SK_GAMEOBJECT);
 }
 
-static const Game::HookAutoRegister _resolverHook{
-    Offsets::FUN_GAMETOOLTIP_SCRIPT_RESOLVER,
-    reinterpret_cast<void *>(&Resolver_h),
-    reinterpret_cast<void **>(&g_resolverOriginal)};
-
 static const Game::HookAutoRegister _buildItemHook{
     Offsets::FUN_GAMETOOLTIP_BUILD_ITEM,
     reinterpret_cast<void *>(&BuildItem_h),
@@ -282,14 +215,6 @@ static const Game::HookAutoRegister _buildGOHook{
     reinterpret_cast<void *>(&BuildGO_h),
     reinterpret_cast<void **>(&g_buildGOOriginal)};
 
-void ForEachSlot(const void *frame, Frame::ScriptSlots::Visit visit, void *ctx) {
-    for (int k = 0; k < SK_COUNT; ++k)
-        if (const uint32_t *slot = SlotFor(const_cast<void *>(frame), k, /*create*/ false))
-            visit(slot, ctx);
-}
-
-const Frame::ScriptSlots::AutoRegister _slots{&ForEachSlot};
-
 } // namespace
 
 // The frame stack's fire carries the highlight as a Lua value, which the
@@ -300,8 +225,8 @@ const Frame::ScriptSlots::AutoRegister _slots{&ForEachSlot};
 void FireFrameStack(void *tooltip, void *highlight) {
     if (g_suppress > 0 || g_firing > 0)
         return;
-    uint32_t *slot = SlotFor(tooltip, SK_FRAMESTACK, /*create*/ false);
-    if (slot == nullptr || slot[0] == 0)
+    uint32_t *slot = HandlerSlot(tooltip, SK_FRAMESTACK);
+    if (slot == nullptr)
         return;
     void *L = Game::Lua::State();
     if (L == nullptr)
@@ -322,13 +247,5 @@ Suppressor::~Suppressor() {
     if (g_suppress > 0)
         --g_suppress;
 }
-
-void PrepareForReload() {
-    // Forget every cell — count gates the scan, so resetting it is a full
-    // clear; the create path re-initializes a cell's slots on reuse.
-    g_cellCount = 0;
-}
-
-static const Game::ReloadAutoRegister _reloadReg{&PrepareForReload};
 
 } // namespace Tooltip::SetEvents

@@ -34,14 +34,4 @@ struct Suppressor {
 // Tooltip::FrameStack calls it after it adds the frame-stack lines.
 void FireFrameStack(void *tooltip, void *highlight);
 
-// Drop every per-tooltip handler cell. Must run at each UI teardown
-// (FrameScript_Initialize_h — /reload and /logout): the engine destroys and
-// recreates the tooltip objects, so the cells' tooltip pointers go stale and
-// their handler refs die with the reset Lua state. Without this the fixed
-// cell table leaks one entry per recreated tooltip per reload until it fills
-// (SetScript then errors "doesn't have a 'OnTooltipSetX' script") and a
-// recycled tooltip address can match a stale cell and fire a dead handler
-// ref — issue #33.
-void PrepareForReload();
-
 } // namespace Tooltip::SetEvents
