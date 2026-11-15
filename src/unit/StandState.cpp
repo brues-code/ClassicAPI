@@ -13,6 +13,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "object/Resolve.h"
 
 #include <cstdint>
 
@@ -58,8 +59,7 @@ int __fastcall Script_UnitStandState(void *L) {
         Game::Lua::PushNumber(L, 0);
         return 1;
     }
-    auto *fields = *reinterpret_cast<const uint8_t *const *>(
-        unit + Offsets::OFF_UNIT_DESCRIPTOR);
+    auto *fields = Object::Fields(unit);
     if (fields == nullptr) {
         Game::Lua::PushNumber(L, 0);
         return 1;

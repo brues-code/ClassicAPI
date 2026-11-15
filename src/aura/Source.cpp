@@ -203,8 +203,7 @@ bool DescriptorListsAura(uint64_t guid, uint32_t spellId) {
         Object::ByGuid(kUnitOrPlayerMask, guid, nullptr, 0));
     if (unit == nullptr)
         return false;
-    const auto *desc = *reinterpret_cast<const uint8_t *const *>(
-        unit + Offsets::OFF_CGUNIT_OBJECT_FIELDS);
+    const auto *desc = Object::Fields(unit);
     if (desc == nullptr)
         return false;
     for (int slot = 0; slot < Offsets::UNIT_AURA_TOTAL; ++slot) {

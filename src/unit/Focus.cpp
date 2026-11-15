@@ -137,7 +137,7 @@ void OnWorldTick() {
             g_watch = Watch::Gone;
         } else {
             const auto *fields =
-                Game::Read<const uint8_t *>(unit, Offsets::OFF_CGUNIT_OBJECT_FIELDS);
+                Object::Fields(unit);
             if (fields != nullptr) {
                 // Script_UnitIsDead's test.
                 const bool dead =

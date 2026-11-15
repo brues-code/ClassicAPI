@@ -28,7 +28,7 @@ bool IsPlayerControlled(const uint8_t *unit) {
     if (unit == nullptr)
         return false;
     auto *fields =
-        Game::Read<const uint8_t *>(unit, Offsets::OFF_UNIT_DESCRIPTOR);
+        Object::Fields(unit);
     if (fields == nullptr)
         return false;
     const uint32_t unitFlags =
@@ -130,7 +130,7 @@ int __fastcall Script_UnitIsFeignDeath(void *L) {
         return 1;
     }
     auto *fields =
-        Game::Read<const uint8_t *>(unit, Offsets::OFF_UNIT_DESCRIPTOR);
+        Object::Fields(unit);
     if (fields == nullptr) {
         Game::Lua::PushBoolean(L, 0);
         return 1;
@@ -317,7 +317,7 @@ int __fastcall Script_UnitIsPossessed(void *L) {
         return 1;
     }
     auto *fields =
-        Game::Read<const uint8_t *>(unit, Offsets::OFF_UNIT_DESCRIPTOR);
+        Object::Fields(unit);
     if (fields == nullptr) {
         Game::Lua::PushBoolean(L, 0);
         return 1;

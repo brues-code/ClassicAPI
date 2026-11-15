@@ -54,6 +54,17 @@ bool RegistryReady();
 void *ByGuid(int typeMask, uint64_t guid, const char *debugName = nullptr,
              int priority = 0x172);
 
+// The object's descriptor block (`m_objectFields`, the broadcast UpdateField
+// values) for a unit, player, game object or corpse: the pointer at
+// `OFF_OBJECT_FIELDS`. Null for a null object. An item's sits elsewhere
+// (`Item::ObjectFields`).
+inline const uint8_t *Fields(const void *obj) {
+    if (obj == nullptr)
+        return nullptr;
+    return *reinterpret_cast<const uint8_t *const *>(static_cast<const uint8_t *>(obj) +
+                                                     Offsets::OFF_OBJECT_FIELDS);
+}
+
 namespace Detail {
 
 // The walker's callback ABI: `ctx` arrives in ECX, `void *unusedEdx` absorbs

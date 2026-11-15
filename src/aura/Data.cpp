@@ -37,13 +37,6 @@ namespace Aura::Data {
 
 namespace {
 
-const uint8_t *Descriptor(const uint8_t *unit) {
-    if (unit == nullptr)
-        return nullptr;
-    return *reinterpret_cast<const uint8_t *const *>(
-        unit + Offsets::OFF_CGUNIT_OBJECT_FIELDS);
-}
-
 // Keys into the `Aura::Source` caster/expiration cache. Thin alias for the
 // shared `Unit::Identity::GuidForObject` so the lookup here and the
 // OnAuraAdded hook in `Aura::Source` read the GUID the same way.
@@ -215,7 +208,7 @@ Attribution Attribute(uint64_t guid, uint32_t spellID, int slot) {
 uint32_t ReadSpellID(const uint8_t *unit, int slot) {
     if (slot < 0 || slot >= Offsets::UNIT_AURA_TOTAL)
         return 0;
-    auto *desc = Descriptor(unit);
+    auto *desc = Object::Fields(unit);
     if (desc == nullptr)
         return 0;
     return *reinterpret_cast<const uint32_t *>(
@@ -225,7 +218,7 @@ uint32_t ReadSpellID(const uint8_t *unit, int slot) {
 bool IsSlotPopulated(const uint8_t *unit, int slot) {
     if (slot < 0 || slot >= Offsets::UNIT_AURA_TOTAL)
         return false;
-    auto *desc = Descriptor(unit);
+    auto *desc = Object::Fields(unit);
     if (desc == nullptr)
         return false;
     const uint32_t spellID = *reinterpret_cast<const uint32_t *>(
@@ -273,7 +266,7 @@ bool IsSlotHarmful(const uint8_t *unit, int slot) {
     if (g_nibbleContradicted)
         return slot >= Offsets::UNIT_AURA_BUFF_COUNT;
 
-    auto *desc = Descriptor(unit);
+    auto *desc = Object::Fields(unit);
     if (desc == nullptr)
         return false;
     const uint8_t byte = *(desc + Offsets::OFF_UNIT_FIELD_AURAFLAGS + slot / 2);
@@ -298,7 +291,7 @@ bool IsSlotHarmful(const uint8_t *unit, int slot) {
 bool IsSlotTooltipVisible(const uint8_t *unit, int slot) {
     if (slot < 0 || slot >= Offsets::UNIT_AURA_TOTAL)
         return false;
-    auto *desc = Descriptor(unit);
+    auto *desc = Object::Fields(unit);
     if (desc == nullptr)
         return false;
     const int spellID = *reinterpret_cast<const int *>(
@@ -364,7 +357,7 @@ bool IsPlayerCast(const uint8_t *unit, int slot) {
 // The slot's descriptor flag nibble. Bit 0x01 is the cancelable bit on every
 // server (the other bits differ — see `IsSlotHarmful`).
 uint8_t SlotNibble(const uint8_t *unit, int slot) {
-    auto *desc = Descriptor(unit);
+    auto *desc = Object::Fields(unit);
     if (desc == nullptr || slot < 0 || slot >= Offsets::UNIT_AURA_TOTAL)
         return 0;
     const uint8_t byte = *(desc + Offsets::OFF_UNIT_FIELD_AURAFLAGS + slot / 2);
@@ -653,7 +646,7 @@ int FindSlotBySpellName(const uint8_t *unit, const char *spellName,
 int ReadStacks(const uint8_t *unit, int slot) {
     if (slot < 0 || slot >= Offsets::UNIT_AURA_TOTAL)
         return 0;
-    auto *desc = Descriptor(unit);
+    auto *desc = Object::Fields(unit);
     if (desc == nullptr)
         return 0;
     const uint8_t stored = *reinterpret_cast<const uint8_t *>(

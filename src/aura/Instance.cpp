@@ -50,10 +50,6 @@ std::unordered_map<uint64_t, Tracked> g_units;
 uint32_t g_nextID = 1;
 bool g_recording = false;
 
-const uint8_t *Descriptor(const uint8_t *unit) {
-    return Game::Read<const uint8_t *>(unit, Offsets::OFF_CGUNIT_OBJECT_FIELDS);
-}
-
 uint8_t Nibble(const uint8_t *flags, int slot) {
     return (flags[slot / 2] >> ((slot & 1) * 4)) & 0xF;
 }
@@ -102,7 +98,7 @@ void NoteRemoved(Tracked &t, uint32_t id) {
 // visible aura. `full` marks the change set as a full update: the consumer has
 // never been told about these IDs.
 void Seed(Tracked &t, const uint8_t *unit, bool full) {
-    const uint8_t *desc = Descriptor(unit);
+    const uint8_t *desc = Object::Fields(unit);
     t.object = unit;
     ClearPending(t);
     t.full = full && g_recording;
@@ -155,7 +151,7 @@ void SyncSlot(Tracked &t, const uint8_t *unit, const uint8_t *desc, int slot) {
 }
 
 void SyncAll(Tracked &t, const uint8_t *unit) {
-    const uint8_t *desc = Descriptor(unit);
+    const uint8_t *desc = Object::Fields(unit);
     if (desc == nullptr)
         return;
     // The common case is no change at all: three compares, no per-slot work.
@@ -178,7 +174,7 @@ void SyncAll(Tracked &t, const uint8_t *unit) {
 Tracked *Track(const uint8_t *unit, bool full, bool *seeded) {
     *seeded = false;
     const uint64_t guid = Unit::Identity::GuidForObject(unit);
-    if (guid == 0 || Descriptor(unit) == nullptr)
+    if (guid == 0 || Object::Fields(unit) == nullptr)
         return nullptr;
     auto [it, inserted] = g_units.try_emplace(guid);
     Tracked &t = it->second;
@@ -199,7 +195,7 @@ void OnAuraChange(const Aura::Source::Change &c) {
     bool seeded;
     Tracked *t = Track(unit, /*full*/ true, &seeded);
     if (t != nullptr && !seeded)
-        SyncSlot(*t, unit, Descriptor(unit), c.slot);
+        SyncSlot(*t, unit, Object::Fields(unit), c.slot);
 }
 
 const Aura::Source::AutoObserve _obs{&OnAuraChange};
@@ -243,7 +239,7 @@ uint32_t IDForSlot(const uint8_t *unit, int slot) {
     if (t == nullptr)
         return 0;
     if (!seeded)
-        SyncSlot(*t, unit, Descriptor(unit), slot);
+        SyncSlot(*t, unit, Object::Fields(unit), slot);
     return t->id[slot];
 }
 
@@ -257,7 +253,7 @@ int SlotForID(const uint8_t *unit, uint32_t id) {
     for (int slot = 0; slot < kSlots; ++slot) {
         if (t->id[slot] != id)
             continue;
-        SyncSlot(*t, unit, Descriptor(unit), slot);
+        SyncSlot(*t, unit, Object::Fields(unit), slot);
         return t->id[slot] == id ? slot : -1;
     }
     return -1;

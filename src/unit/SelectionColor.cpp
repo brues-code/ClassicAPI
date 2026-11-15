@@ -138,7 +138,7 @@ Type ForGuid(uint64_t guid, bool extended) {
     if (unit == nullptr || viewer == nullptr)
         return RemoteType(guid, extended);
 
-    const uint8_t *fields = Game::Read<const uint8_t *>(unit, Offsets::OFF_UNIT_DESCRIPTOR);
+    const uint8_t *fields = Object::Fields(unit);
     if (fields == nullptr)
         return RemoteType(guid, extended);
     const uint32_t flags = Game::Read<uint32_t>(fields, Offsets::OFF_UNIT_FIELD_FLAGS);

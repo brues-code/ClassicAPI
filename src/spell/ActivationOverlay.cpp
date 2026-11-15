@@ -68,6 +68,7 @@
 #include "event/SignalHook.h"
 #include "spell/Lookup.h"
 #include "unit/Identity.h"
+#include "object/Resolve.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -170,7 +171,7 @@ uint32_t ActiveRows() {
     const uint8_t *player = Unit::Identity::PlayerObject();
     if (player == nullptr)
         return 0;
-    const auto *desc = Game::Read<const uint8_t *>(player, Offsets::OFF_UNIT_DESCRIPTOR);
+    const auto *desc = Object::Fields(player);
     if (desc == nullptr)
         return 0;
     uint32_t rows = 0;

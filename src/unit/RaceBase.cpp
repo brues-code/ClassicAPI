@@ -12,6 +12,7 @@
 #include "Offsets.h"
 #include "dbc/Names.h"
 #include "unit/Identity.h"
+#include "object/Resolve.h"
 
 #include <cstdint>
 
@@ -49,7 +50,7 @@ int __fastcall Script_UnitRaceBase(void *L) {
         raceByte = Game::Read<uint8_t>(Offsets::VAR_PLAYER_RACE_BYTE);
     } else if (auto *unit =
                    static_cast<const uint8_t *>(Game::ResolveUnitToken(token))) {
-        auto *desc = Game::Read<const uint8_t *>(unit, Offsets::OFF_UNIT_DESCRIPTOR);
+        auto *desc = Object::Fields(unit);
         if (desc != nullptr)
             raceByte = *(desc + Offsets::OFF_UNIT_DESCRIPTOR_RACE_BYTE);
     } else {

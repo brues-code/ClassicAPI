@@ -159,13 +159,8 @@ bool IsPlayerGuid(uint64_t guid) {
            ((high & 0xF07FFFFF) != 0 || static_cast<uint32_t>(guid) != 0);
 }
 
-const uint8_t *Fields(const void *object) {
-    return object == nullptr ? nullptr
-                             : Game::Read<const uint8_t *>(object, Offsets::OFF_UNIT_DESCRIPTOR);
-}
-
 uint64_t ReadGuidField(const void *object, int offset) {
-    const uint8_t *fields = Fields(object);
+    const uint8_t *fields = Object::Fields(object);
     return fields == nullptr ? 0 : Game::Read<uint64_t>(fields, offset);
 }
 

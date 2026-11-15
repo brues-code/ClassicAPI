@@ -120,10 +120,6 @@ bool Relation(uintptr_t fn, void *caster, void *other) {
     return reinterpret_cast<Relation_t>(fn)(caster, other);
 }
 
-const uint8_t *Fields(const void *obj) {
-    return Game::Read<const uint8_t *>(obj, Offsets::OFF_UNIT_DESCRIPTOR);
-}
-
 const uint8_t *Head(const void *obj) {
     return Game::Read<const uint8_t *>(obj, Offsets::OFF_UNIT_GUID_PTR);
 }
@@ -182,7 +178,7 @@ uint32_t TargetWord(const uint8_t *rec, bool &aimsAtPet) {
 
 // A unit target (0x006E4511..0x006E469A).
 bool AdmitsUnit(void *caster, const uint8_t *rec, uint32_t word, void *unit) {
-    const uint8_t *fields = Fields(unit);
+    const uint8_t *fields = Object::Fields(unit);
     const uint32_t flags = Game::Read<uint32_t>(fields, Offsets::OFF_UNIT_FIELD_FLAGS);
     if (flags & Offsets::UNIT_FLAG_NON_ATTACKABLE_2)
         return false;
@@ -231,7 +227,7 @@ bool AdmitsUnit(void *caster, const uint8_t *rec, uint32_t word, void *unit) {
 
 // A corpse target (0x006E46B2..0x006E46FF).
 bool AdmitsCorpse(void *caster, uint32_t word, void *corpse) {
-    if (Game::Read<uint32_t>(Fields(corpse), Offsets::OFF_CORPSE_FIELD_FLAGS) &
+    if (Game::Read<uint32_t>(Object::Fields(corpse), Offsets::OFF_CORPSE_FIELD_FLAGS) &
         Offsets::CORPSE_FLAG_BONES)
         return false;
     const bool assist = Relation(Offsets::FUN_UNIT_CAN_ASSIST_CORPSE, caster, corpse);

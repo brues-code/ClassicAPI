@@ -36,6 +36,7 @@
 #include "Offsets.h"
 #include "group/MemberStats.h"
 #include "unit/Power.h"
+#include "object/Resolve.h"
 
 #include <cstdint>
 
@@ -65,13 +66,6 @@ unsigned int DisplayDivisor(int type) {
 }
 
 namespace {
-
-const uint8_t *Descriptor(const uint8_t *unit) {
-    if (unit == nullptr)
-        return nullptr;
-    return *reinterpret_cast<const uint8_t *const *>(
-        unit + Offsets::OFF_CGUNIT_OBJECT_FIELDS);
-}
 
 const uint8_t *ResolveUnit(const char *token) {
     if (token == nullptr)
@@ -111,7 +105,7 @@ bool ResolveArgs(void *L, const uint8_t **outDesc, int *outType) {
         return false;
     const char *token = Game::Lua::ToString(L, 1);
     const uint8_t *unit = ResolveUnit(token);
-    const uint8_t *desc = Descriptor(unit);
+    const uint8_t *desc = Object::Fields(unit);
     if (desc == nullptr)
         return false;
 

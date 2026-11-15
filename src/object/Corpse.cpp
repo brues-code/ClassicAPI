@@ -21,12 +21,8 @@ namespace Object::Corpse {
 
 namespace {
 
-const uint8_t *Fields(const void *corpse) {
-    return Game::Read<const uint8_t *>(corpse, Offsets::OFF_UNIT_DESCRIPTOR);
-}
-
 uint64_t Owner(const void *corpse) {
-    const uint8_t *fields = Fields(corpse);
+    const uint8_t *fields = Object::Fields(corpse);
     return fields != nullptr ? Game::Read<uint64_t>(fields, Offsets::OFF_CORPSE_FIELD_OWNER) : 0;
 }
 
@@ -42,7 +38,7 @@ void *ByOwner(uint64_t owner) {
     Object::ForEachVisible([&](uint64_t guid) {
         void *obj = Object::ByGuid(Offsets::TYPEMASK_CORPSE, guid, nullptr, 0);
         if (obj == nullptr || Owner(obj) != owner ||
-            (Game::Read<uint32_t>(Fields(obj), Offsets::OFF_CORPSE_FIELD_FLAGS) &
+            (Game::Read<uint32_t>(Object::Fields(obj), Offsets::OFF_CORPSE_FIELD_FLAGS) &
              Offsets::CORPSE_FLAG_BONES) != 0)
             return true;
         corpse = obj;

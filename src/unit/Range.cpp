@@ -65,8 +65,7 @@ constexpr float kRangeYards = 40.0f;
 float BoundingRadius(void *obj) {
     if (obj == nullptr)
         return 0.0f;
-    auto *fields = *reinterpret_cast<const uint8_t *const *>(
-        static_cast<const uint8_t *>(obj) + Offsets::OFF_UNIT_DESCRIPTOR);
+    auto *fields = Object::Fields(obj);
     if (fields == nullptr)
         return 0.0f;
     return *reinterpret_cast<const float *>(

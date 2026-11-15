@@ -64,7 +64,7 @@ bool IsTotemSummon(const uint8_t *rec) {
 
 // The owner of the unit object `unit` when it is a totem, else 0.
 uint64_t OwnerOfObject(const void *unit) {
-    const auto *desc = Game::Read<const uint8_t *>(unit, Offsets::OFF_UNIT_DESCRIPTOR);
+    const auto *desc = Object::Fields(unit);
     if (desc == nullptr)
         return 0;
     const auto summon = Game::Read<uint32_t>(desc, Offsets::OFF_UNIT_FIELD_CREATED_BY_SPELL);

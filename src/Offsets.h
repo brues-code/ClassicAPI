@@ -2780,10 +2780,13 @@ enum Offsets {
     OFF_VISIBLE_ITEM_ENCHANTS = 0x0C,
     VISIBLE_ITEM_ENCHANT_COUNT = 7,
 
-    // CGUnit m_objectFields pointer offset. Different from CGItem's
-    // descriptor at +0x114 — these are sibling classes under CGObject
-    // with class-specific descriptor offsets.
-    OFF_UNIT_DESCRIPTOR = 0x110,
+    // m_objectFields — the descriptor pointer of a unit, player, game object
+    // or corpse (Object::Fields). Different from CGItem's at +0x114: sibling
+    // classes under CGObject with class-specific descriptor offsets. Verified
+    // at 0x005183FE-0x00518404 in Script_UnitClass's general-unit-token path:
+    //   mov edx, [eax + 0x110]      ; descriptor
+    //   movzx eax, byte [edx + 0x79] ; class
+    OFF_OBJECT_FIELDS = 0x110,
     // A creature's LIVE creature_template entry — in the INSTANCE BLOCK at
     // `[unit + OFF_UNIT_GUID_PTR]` (GUID @+0x00, entry @+0x0C), the same
     // shape as CGItem's block (GUID @+0x00, itemID @+0x0C). NOT the
@@ -3484,7 +3487,6 @@ enum Offsets {
     // 4.3.4's IsUsableMounted — `bool __thiscall(const void *const *fields)`,
     // ECX = &object->descriptor: GAMEOBJECT_TYPE_ID is 19, the mailbox.
     FUN_GAMEOBJECT_USABLE_MOUNTED = 0x0047CFF0,
-    OFF_GAMEOBJECT_DESCRIPTOR = 0x110,
     // A type handler's object pointer (benilla-re objectlayer/gameobjects).
     OFF_GAMEOBJECT_HANDLER_OBJECT = 0x4,
     // The default use (slot 7, 0x005F33E0, 4.3.4's TypeBase::Use): its
@@ -7509,14 +7511,6 @@ enum Offsets {
     TYPEMASK_DYNAMICOBJECT = 0x40,
     TYPEMASK_CORPSE        = 0x80,
 
-    // CGUnit_C.m_objectFields slot. Different from CGItem's +0x114 —
-    // sibling classes use class-specific descriptor offsets. Inside the
-    // descriptor at +0x79 lives the class byte (UNIT_FIELD_BYTES_0
-    // field's second byte). Verified at 0x005183FE-0x00518404 in
-    // Script_UnitClass's general-unit-token path:
-    //   mov edx, [eax + 0x110]      ; descriptor
-    //   movzx eax, byte [edx + 0x79] ; class
-    OFF_CGUNIT_OBJECT_FIELDS = 0x110,
     // UNIT_FIELD_BYTES_0 packs race/class/sex/powerType into one dword
     // at descriptor +0x78. Individual bytes:
     OFF_UNIT_DESCRIPTOR_RACE_BYTE = 0x78,

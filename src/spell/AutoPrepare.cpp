@@ -105,6 +105,7 @@
 #include "dbc/Lookup.h"
 #include "spell/Cancel.h"
 #include "unit/Identity.h"
+#include "object/Resolve.h"
 
 #include <cstdint>
 #include <initializer_list>
@@ -169,22 +170,17 @@ struct Pending {
 };
 Pending g_pending{};
 
-const uint8_t *Fields(const void *unit) {
-    return *reinterpret_cast<const uint8_t *const *>(
-        static_cast<const uint8_t *>(unit) + Offsets::OFF_UNIT_DESCRIPTOR);
-}
-
 bool IsActivePlayer(const void *unit) {
     return unit != nullptr && unit == Unit::Identity::PlayerObject();
 }
 
 bool OnTaxi(const void *unit) {
-    return (Game::Read<uint32_t>(Fields(unit), Offsets::OFF_UNIT_FIELD_FLAGS) &
+    return (Game::Read<uint32_t>(Object::Fields(unit), Offsets::OFF_UNIT_FIELD_FLAGS) &
             Offsets::UNIT_FLAG_TAXI_FLIGHT) != 0;
 }
 
 int Form(const void *unit) {
-    return (Game::Read<uint32_t>(Fields(unit), Offsets::OFF_UNIT_FIELD_BYTES_1) >> 16) & 0xFF;
+    return (Game::Read<uint32_t>(Object::Fields(unit), Offsets::OFF_UNIT_FIELD_BYTES_1) >> 16) & 0xFF;
 }
 
 // The unit's SpellShapeshiftForm row's flags; a form with no row reads as 0.
@@ -253,7 +249,7 @@ int StandState(const void *unit) {
 }
 
 int MountDisplay(const void *unit) {
-    return Game::Read<int>(Fields(unit), Offsets::OFF_UNIT_FIELD_MOUNTDISPLAYID);
+    return Game::Read<int>(Object::Fields(unit), Offsets::OFF_UNIT_FIELD_MOUNTDISPLAYID);
 }
 
 // 4.3.4's pairing at every site: the state holds and its CanAuto* allows
@@ -533,7 +529,7 @@ void __fastcall PrepareObjectUse(const void *handler) {
         Game::Read<const uint8_t *>(handler, Offsets::OFF_GAMEOBJECT_HANDLER_OBJECT);
     if (AutoDismounts(player) &&
         !reinterpret_cast<UsableMounted_t>(Offsets::FUN_GAMEOBJECT_USABLE_MOUNTED)(
-            object + Offsets::OFF_GAMEOBJECT_DESCRIPTOR))
+            object + Offsets::OFF_OBJECT_FIELDS))
         Dismount();
     if (UnshiftsForInteraction(player))
         CancelForm(player);

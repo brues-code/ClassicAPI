@@ -819,7 +819,7 @@ void PollRemoteChannels() {
             Object::ByGuid(Offsets::TYPEMASK_UNIT, e.casterGuid));
         if (unit == nullptr)
             continue;
-        const auto *desc = Game::Read<const uint8_t *>(unit, Offsets::OFF_UNIT_DESCRIPTOR);
+        const auto *desc = Object::Fields(unit);
         if (desc == nullptr)
             continue;
         const int chan = Game::Read<int>(desc, Offsets::OFF_UNIT_FIELD_CHANNEL_SPELL);
@@ -868,7 +868,7 @@ bool CurrentCastOf(uint64_t guid, const uint8_t *unit, int *spellID, int *startM
     }
     // A channel seen only through the broadcast field: no start time, so the
     // spell alone identifies it.
-    auto *desc = Game::Read<const uint8_t *>(unit, Offsets::OFF_UNIT_DESCRIPTOR);
+    auto *desc = Object::Fields(unit);
     const int chan =
         desc != nullptr ? Game::Read<int>(desc, Offsets::OFF_UNIT_FIELD_CHANNEL_SPELL) : 0;
     if (chan == 0)
@@ -1102,7 +1102,7 @@ static UnitChannel FindUnitChannel(void *u) {
         return {g_channel.spellID, g_channel.startMs, g_channel.endMs, true, Unit::Identity::PlayerObject()};
 
     auto *unit = static_cast<const uint8_t *>(u);
-    auto *desc = Game::Read<const uint8_t *>(unit, Offsets::OFF_UNIT_DESCRIPTOR);
+    auto *desc = Object::Fields(unit);
     if (desc == nullptr)
         return {0, 0, 0, false, unit};
     // A cached channel stands while +0x228 shows it, or reads 0 because it

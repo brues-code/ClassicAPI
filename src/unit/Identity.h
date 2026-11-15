@@ -38,8 +38,8 @@ uint64_t PlayerGuid();
 // CGPlayer-local fields are readable (see Offsets.h).
 const uint8_t *PlayerObject();
 
-// The local player's `m_objectFields` descriptor (`PlayerObject() +
-// OFF_UNIT_DESCRIPTOR`), or null. This is the broadcast UpdateField block
+// The local player's `m_objectFields` descriptor
+// (`Object::Fields(PlayerObject())`), or null. This is the broadcast UpdateField block
 // (health / power / flags / UNIT_FIELD_CHANNEL_SPELL / …). Prefer this over
 // re-deriving the player object + descriptor offset in each module.
 const uint8_t *PlayerDescriptor();

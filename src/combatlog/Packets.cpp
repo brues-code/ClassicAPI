@@ -119,7 +119,7 @@ bool Overrun(const CDataStore *p) { return p->m_read > p->m_size; }
 void *Unit(uint64_t guid) { return Object::ByGuid(Offsets::TYPEMASK_UNIT, guid); }
 
 bool PlayerControlled(const void *unit) {
-    const auto *fields = Game::Read<const uint8_t *>(unit, Offsets::OFF_UNIT_DESCRIPTOR);
+    const auto *fields = Object::Fields(unit);
     return fields != nullptr && (Game::Read<uint32_t>(fields, Offsets::OFF_UNIT_FIELD_FLAGS) &
                                  Offsets::UNIT_FLAG_PLAYER_CONTROLLED) != 0;
 }
@@ -173,7 +173,7 @@ Predicted &PredictedFor(uint64_t guid, int health, uint32_t now) {
 bool PredictedHealth(uint64_t guid, int *health, int *max, Predicted **entry) {
     const void *unit = Unit(guid);
     const auto *fields =
-        unit != nullptr ? Game::Read<const uint8_t *>(unit, Offsets::OFF_UNIT_DESCRIPTOR) : nullptr;
+        unit != nullptr ? Object::Fields(unit) : nullptr;
     if (fields == nullptr)
         return false;
     *max = Game::Read<int>(fields, Offsets::OFF_UNIT_FIELD_MAXHEALTH);

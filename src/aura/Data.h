@@ -17,7 +17,7 @@
 // Shared aura-table primitives consumed by `C_UnitAuras.*` (and any
 // future module that needs to inspect a unit's aura array). All
 // reads go through the unit's `m_objectFields` descriptor at
-// `unit + OFF_CGUNIT_OBJECT_FIELDS`; the layout is documented in
+// `Object::Fields(unit)`; the layout is documented in
 // `Offsets.h` under `OFF_UNIT_FIELD_AURA*`.
 //
 // Slots are absolute 0..47, and how polarity is read out of them DEPENDS ON THE

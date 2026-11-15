@@ -129,7 +129,7 @@ const uint8_t *PlayerDescriptor() {
     const uint8_t *player = PlayerObject();
     if (player == nullptr)
         return nullptr;
-    return Game::Read<const uint8_t *>(player, Offsets::OFF_UNIT_DESCRIPTOR);
+    return Object::Fields(player);
 }
 
 uint64_t GuidForObject(const void *unitObject) {
@@ -146,7 +146,7 @@ uint64_t GuidForObject(const void *unitObject) {
 uint64_t OwnerGuid(const void *unitObject) {
     if (unitObject == nullptr)
         return 0;
-    auto *desc = Game::Read<const uint8_t *>(unitObject, Offsets::OFF_UNIT_DESCRIPTOR);
+    auto *desc = Object::Fields(unitObject);
     if (desc == nullptr)
         return 0;
     const uint64_t charmer = Game::Read<uint64_t>(desc, Offsets::OFF_UNIT_FIELD_CHARMEDBY);

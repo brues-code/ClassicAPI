@@ -37,6 +37,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "cursor/Extended.h"
+#include "object/Resolve.h"
 
 #include <cstdint>
 
@@ -109,7 +110,7 @@ uint32_t ServiceMode(void *unit) {
     if (const uint32_t quest = QuestMode(Game::Read<uint32_t>(unit, Offsets::OFF_CGUNIT_QUEST_STATUS)))
         return quest;
     const uint32_t flags =
-        Game::Read<uint32_t>(Game::Read<const void *>(unit, Offsets::OFF_UNIT_DESCRIPTOR),
+        Game::Read<uint32_t>(Object::Fields(unit),
                              Offsets::OFF_UNIT_DESCRIPTOR_NPC_FLAGS);
     if (flags & kRepair)
         return Cursor::Extended::kRepairNpc;
@@ -153,7 +154,7 @@ bool __stdcall Pick(void *unit, uint32_t unable) {
     return true;
 }
 
-static_assert(Offsets::OFF_UNIT_DESCRIPTOR == 0x110, "NpcFlagsThunk replays [esi + 0x110]");
+static_assert(Offsets::OFF_OBJECT_FIELDS == 0x110, "NpcFlagsThunk replays [esi + 0x110]");
 
 // Stands in for `mov ecx, [esi + 0x110]`, the head of the chain: the unit in
 // ESI, the Unable flag in EBX. When Pick set the mode, it leaves the

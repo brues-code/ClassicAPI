@@ -49,6 +49,7 @@
 #include "guid/Guid.h"
 #include "unit/Flags.h"
 #include "unit/Identity.h"
+#include "object/Resolve.h"
 
 #include <cstdint>
 
@@ -75,7 +76,7 @@ const uint8_t *ResolveUnit(void *L) {
 // pet/guardian, etc. 0 for a unit not summoned by a spell (players, world
 // creatures) or an object with no descriptor.
 uint32_t CreatedBySpell(const uint8_t *unit) {
-    auto *desc = Game::Read<const uint8_t *>(unit, Offsets::OFF_UNIT_DESCRIPTOR);
+    auto *desc = Object::Fields(unit);
     if (desc == nullptr)
         return 0;
     return Game::Read<uint32_t>(desc, Offsets::OFF_UNIT_FIELD_CREATED_BY_SPELL);

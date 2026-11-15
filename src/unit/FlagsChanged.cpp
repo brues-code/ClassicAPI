@@ -23,6 +23,7 @@
 #include "Common.h"
 #include "Game.h"
 #include "Offsets.h"
+#include "object/Resolve.h"
 
 namespace Unit::FlagsChanged {
 
@@ -34,7 +35,7 @@ using FlagsChanged_t = void(__thiscall *)(void *unit, uint32_t oldFlags);
 
 void __fastcall FlagsChangedSite(void *unit, void *, uint32_t oldFlags) {
     reinterpret_cast<FlagsChanged_t>(Offsets::FUN_UNIT_FLAGS_CHANGED)(unit, oldFlags);
-    const auto *desc = Game::Read<const uint8_t *>(unit, Offsets::OFF_CGUNIT_OBJECT_FIELDS);
+    const auto *desc = Object::Fields(unit);
     const uint32_t flags = Game::Read<uint32_t>(desc, Offsets::OFF_UNIT_FIELD_FLAGS);
     for (auto *node = g_head; node != nullptr; node = node->next)
         node->cb(unit, oldFlags, flags);

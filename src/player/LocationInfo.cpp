@@ -116,8 +116,7 @@ int UnitByte(uint64_t guid, uintptr_t playerMirror, uint32_t descByteOffset) {
     const uint8_t *unit = ResolveUnit(guid);
     if (unit == nullptr)
         return -1;
-    auto *desc = *reinterpret_cast<const uint8_t *const *>(
-        unit + Offsets::OFF_CGUNIT_OBJECT_FIELDS);
+    auto *desc = Object::Fields(unit);
     if (desc == nullptr)
         return -1;
     return *reinterpret_cast<const uint8_t *>(desc + descByteOffset);

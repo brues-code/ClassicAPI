@@ -306,7 +306,7 @@ void OnWorldTick() {
             g_directional = 0;
         return;
     }
-    const auto *fields = Game::Read<const uint8_t *>(unit, Offsets::OFF_CGUNIT_OBJECT_FIELDS);
+    const auto *fields = Object::Fields(unit);
     if (fields != nullptr && (Game::Read<uint32_t>(fields, Offsets::OFF_UNIT_FIELD_FLAGS) &
                               Offsets::UNIT_FLAG_NOT_SELECTABLE) != 0)
         g_directional = 0;

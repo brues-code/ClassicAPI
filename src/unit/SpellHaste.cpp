@@ -47,6 +47,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "event/Custom.h"
+#include "object/Resolve.h"
 
 #include <cstdint>
 
@@ -65,8 +66,7 @@ const Event::Custom::EngineName _event{Offsets::OFF_UNIT_MOD_CAST_SPEED / 4, "UN
 const uint8_t *Descriptor(const uint8_t *unit) {
     if (unit == nullptr)
         return nullptr;
-    return *reinterpret_cast<const uint8_t *const *>(
-        unit + Offsets::OFF_CGUNIT_OBJECT_FIELDS);
+    return Object::Fields(unit);
 }
 
 const uint8_t *ResolveUnit(const char *token) {

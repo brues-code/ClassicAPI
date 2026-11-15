@@ -76,7 +76,7 @@ const uint8_t *PlayerSkillLineFor(int spellID) {
         Object::ByGuid(Offsets::TYPEMASK_PLAYER, Unit::Identity::PlayerGuid()));
     if (player == nullptr)
         return nullptr;
-    auto *desc = Game::Read<const uint8_t *>(player, Offsets::OFF_UNIT_DESCRIPTOR);
+    auto *desc = Object::Fields(player);
     if (desc == nullptr)
         return nullptr;
 

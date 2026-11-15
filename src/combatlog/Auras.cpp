@@ -72,7 +72,7 @@ constexpr int SPELL_EFFECT_DISPEL_MECHANIC = 108;
 bool Overrun(const CDataStore *p) { return p->m_read > p->m_size; }
 
 int Health(const void *unit) {
-    const auto *fields = Game::Read<const uint8_t *>(unit, Offsets::OFF_UNIT_DESCRIPTOR);
+    const auto *fields = Object::Fields(unit);
     return fields != nullptr ? Game::Read<int>(fields, Offsets::OFF_UNIT_FIELD_HEALTH) : 0;
 }
 

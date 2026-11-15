@@ -16,6 +16,7 @@
 #include "../Game.h"
 #include "../Offsets.h"
 #include "../unit/Position.h"
+#include "object/Resolve.h"
 
 namespace Loot::Request {
 
@@ -35,19 +36,19 @@ using CloseLootInner_t = void(__fastcall *)(int sendRelease,
 // The per-unit reach `CanLootNow` adds for each side (`[m_objectFields +
 // 0x1F0]`).
 float Reach(const void *unit) {
-    auto *fields = Game::Read<const uint8_t *>(unit, Offsets::OFF_UNIT_DESCRIPTOR);
+    auto *fields = Object::Fields(unit);
     return Game::Read<float>(fields, Offsets::OFF_UNIT_FIELD_BOUNDING_RADIUS);
 }
 
 } // namespace
 
 bool IsMounted(const void *player) {
-    auto *fields = Game::Read<const uint8_t *>(player, Offsets::OFF_UNIT_DESCRIPTOR);
+    auto *fields = Object::Fields(player);
     return Game::Read<uint32_t>(fields, Offsets::OFF_UNIT_FIELD_MOUNTDISPLAYID) != 0;
 }
 
 bool IsLootable(const void *unit) {
-    auto *fields = Game::Read<const uint8_t *>(unit, Offsets::OFF_UNIT_DESCRIPTOR);
+    auto *fields = Object::Fields(unit);
     return (Game::Read<uint32_t>(fields, Offsets::OFF_UNIT_FIELD_DYNAMIC_FLAGS) &
             Offsets::UNIT_DYNFLAG_LOOTABLE) != 0;
 }

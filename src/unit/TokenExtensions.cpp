@@ -153,8 +153,7 @@ uint64_t WalkSuffix(uint64_t guid, const char *suffix) {
         // `mov eax, [obj+0x110]; mov edi, [eax+0x28]` — two
         // dereferences. Earlier version of this code missed the
         // first one and read instruction bytes interpreted as GUIDs.
-        auto *fields = *reinterpret_cast<const uint8_t *const *>(
-            obj + Offsets::OFF_CGUNIT_OBJECT_FIELDS);
+        auto *fields = Object::Fields(obj);
         if (fields == nullptr)
             return 0;
         guid = *reinterpret_cast<const uint64_t *>(

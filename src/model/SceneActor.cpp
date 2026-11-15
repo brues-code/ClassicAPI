@@ -489,7 +489,7 @@ bool Actor::SetUnitModel(uint64_t guid) {
     if (copy == nullptr)
         return false;
     unitGuid = guid;
-    const auto *descriptor = Game::Read<const uint8_t *>(unit, Offsets::OFF_UNIT_DESCRIPTOR);
+    const auto *descriptor = ::Object::Fields(unit);
     // PostInit (0x005FB880): the race's splash.
     if (const uint8_t *race = DBC::Record(Offsets::VAR_CHRRACES_RECORDS, Offsets::VAR_CHRRACES_COUNT,
                                           Game::Read<uint8_t>(descriptor, Offsets::OFF_UNIT_DESCRIPTOR_RACE_BYTE)))
@@ -1393,7 +1393,7 @@ int __fastcall Script_SetModelByUnitCreatureDisplayID(void *L) {
         Game::Lua::PushBool(L, false);
         return 1;
     }
-    const auto displayID = Game::Read<uint32_t>(Game::Read<const uint8_t *>(unit, Offsets::OFF_UNIT_DESCRIPTOR),
+    const auto displayID = Game::Read<uint32_t>(::Object::Fields(unit),
                                                 Offsets::OFF_UNIT_FIELD_DISPLAYID);
     Game::Lua::PushBool(L, ShowCreatureDisplay(*actor, displayID));
     return 1;

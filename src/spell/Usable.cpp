@@ -97,7 +97,7 @@ Usability ComputePet(int spellID) {
         Object::ByGuid(Offsets::TYPEMASK_UNIT, petGuid));
     if (pet == nullptr)
         return r;
-    auto *desc = Game::Read<const uint8_t *>(pet, Offsets::OFF_UNIT_DESCRIPTOR);
+    auto *desc = Object::Fields(pet);
     if (desc == nullptr)
         return r;
 
