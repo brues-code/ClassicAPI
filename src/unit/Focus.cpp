@@ -73,11 +73,8 @@ Watch g_watch = Watch::Unseen;
 bool g_wasDead = false;
 bool g_wasUnselectable = false;
 
-using Fire_t = void(__cdecl *)(int eventId, const char *fmt, ...);
-
 void FireUnitEvent(int eventId, const char *token) {
-    reinterpret_cast<Fire_t>(static_cast<uintptr_t>(Offsets::FUN_FIRE_EVENT))(eventId, "%s",
-                                                                                token);
+    Event::Custom::Fire(eventId, "%s", token);
 }
 
 // GUID currently watched as `focustarget` (the focus unit's target), or 0.

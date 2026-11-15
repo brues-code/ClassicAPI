@@ -57,6 +57,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "debug/Log.h"
+#include "event/Custom.h"
 #include "nameplate/Walk.h"
 #include "object/Resolve.h"
 #include "target/SoftUnit.h"
@@ -74,7 +75,6 @@ namespace Unit::TokenEvents {
 
 namespace {
 
-using Fire_t = void(__cdecl *)(int eventId, const char *fmt, ...);
 using UnitFn_t = void(__fastcall *)(void *unit);
 using ScriptBits_t = void(__thiscall *)(void *unit, uint32_t bits);
 using Broadcast_t = void(__fastcall *)(const uint64_t *guid, uint32_t eventId);
@@ -181,10 +181,10 @@ void __fastcall CombatFeedbackSite(const uint64_t *guid, const char *action, int
     if (n == 0)
         return;
     const char *modifier = CombatModifier(amount, hitInfo);
-    const auto fire = reinterpret_cast<Fire_t>(static_cast<uintptr_t>(Offsets::FUN_FIRE_EVENT));
     const auto *fmt = reinterpret_cast<const char *>(Offsets::VAR_STR_UNIT_COMBAT_FORMAT);
     for (int i = 0; i < n; ++i)
-        fire(Offsets::UNIT_EVENT_UNIT_COMBAT, fmt, tokens[i], action, modifier, amount, school);
+        Event::Custom::Fire(Offsets::UNIT_EVENT_UNIT_COMBAT, fmt, tokens[i], action, modifier,
+                            amount, school);
 }
 
 // Direct `E8` / `E9` rel32 instructions in `.text` that reach `target`.
@@ -251,9 +251,8 @@ void __fastcall Broadcast(const uint64_t *guid, uint32_t eventId) {
         guid, eventId);
     TokenList tokens;
     const int n = TokensOf(g, tokens, kMaxTokens);
-    const auto fire = reinterpret_cast<Fire_t>(static_cast<uintptr_t>(Offsets::FUN_FIRE_EVENT));
     for (int i = 0; i < n; ++i)
-        fire(static_cast<int>(eventId), "%s", tokens[i]);
+        Event::Custom::Fire(static_cast<int>(eventId), "%s", tokens[i]);
 }
 
 void Refresh(uint64_t guid) {

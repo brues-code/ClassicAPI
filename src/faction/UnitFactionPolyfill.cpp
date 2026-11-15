@@ -76,11 +76,7 @@ int s_unitFactionSlot = -1;
 void FireUnitFactionPlayer() {
     if (s_unitFactionSlot < 0)
         s_unitFactionSlot = Event::Custom::LookupByName("UNIT_FACTION");
-    if (s_unitFactionSlot < 0)
-        return;
-    using FireEventFn_t = void(__cdecl *)(int eventID, const char *format, ...);
-    auto fire = reinterpret_cast<FireEventFn_t>(Offsets::FUN_FIRE_EVENT);
-    fire(s_unitFactionSlot, "%s", "player");
+    Event::Custom::Fire(s_unitFactionSlot, "%s", "player");
 }
 
 uint8_t ReadRepSlotFlags(int repListID) {

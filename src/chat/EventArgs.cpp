@@ -60,6 +60,7 @@
 #include "Offsets.h"
 #include "debug/Log.h"
 #include "guid/Guid.h"
+#include "event/Custom.h"
 
 #include <cstdint>
 #include <cstring>
@@ -72,7 +73,6 @@ uint64_t g_sender = 0; // 0 unless a player sender, already filtered
 bool g_takesLineID = true;
 uint32_t g_lineID = 0;
 
-using Fire_t = void(__cdecl *)(int eventId, const char *fmt, ...);
 using TextEmote_t = void(__fastcall *)(const uint64_t *senderGuid, int emote, const char *target,
                                        int emoteNum);
 
@@ -116,7 +116,6 @@ void __cdecl FireSite(int eventId, const char *fmt, const char *text, const char
                       const char *language, const char *channelString, const char *target,
                       const char *flags, int zoneChannelID, int channelNumber,
                       const char *channelName, int channelUnk) {
-    const auto fire = reinterpret_cast<Fire_t>(static_cast<uintptr_t>(Offsets::FUN_FIRE_EVENT));
     // `{rt1}` → marker icon in the event text only; the engine's buffer keeps
     // the tag for the bubble. 0x800 matches the engine's message-buffer cap.
     char markerBuf[0x800];
@@ -127,8 +126,8 @@ void __cdecl FireSite(int eventId, const char *fmt, const char *text, const char
                     zoneChannelID, channelNumber, channelName, channelUnk, 0, "", 10};
     if (fmt != reinterpret_cast<const char *>(Offsets::VAR_STR_CHAT_EVENT_FORMAT)) {
         PayloadScope scope(payload);
-        fire(eventId, fmt, text, sender, language, channelString, target, flags, zoneChannelID,
-             channelNumber, channelName, channelUnk);
+        Event::Custom::Fire(eventId, fmt, text, sender, language, channelString, target, flags,
+                            zoneChannelID, channelNumber, channelName, channelUnk);
         return;
     }
     const uint32_t lineID = g_takesLineID ? ++g_lineID : 0;
@@ -139,8 +138,9 @@ void __cdecl FireSite(int eventId, const char *fmt, const char *text, const char
     payload.guid = guid;
     payload.argc = 12;
     PayloadScope scope(payload);
-    fire(eventId, "%s%s%s%s%s%s%d%d%s%d%d%s", text, sender, language, channelString, target, flags,
-         zoneChannelID, channelNumber, channelName, channelUnk, static_cast<int>(lineID), guid);
+    Event::Custom::Fire(eventId, "%s%s%s%s%s%s%d%d%s%d%d%s", text, sender, language, channelString,
+                        target, flags, zoneChannelID, channelNumber, channelName, channelUnk,
+                        static_cast<int>(lineID), guid);
 }
 
 void __fastcall TextEmote_h(const uint64_t *senderGuid, int emote, const char *target,
