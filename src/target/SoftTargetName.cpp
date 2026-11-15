@@ -32,6 +32,7 @@
 #include "Offsets.h"
 #include "target/SoftUnit.h"
 #include "tick/FrameTick.h"
+#include "unit/Identity.h"
 
 #include <cstdint>
 
@@ -49,8 +50,7 @@ uint64_t g_soft[2] = {};
 
 // 0x6070A8-0x6070F1, the path a target takes, for a soft unit.
 int __fastcall ShouldShowName_h(void *unit, void *edx, uint32_t mask) {
-    const uint64_t guid =
-        Game::Read<uint64_t>(Game::Read<void *>(unit, Offsets::OFF_UNIT_GUID_PTR), 0);
+    const uint64_t guid = Unit::Identity::GuidForObject(unit);
     if (guid == 0 || (guid != g_soft[0] && guid != g_soft[1]))
         return g_origShouldShowName(unit, edx, mask);
     const auto canSelect = Game::Read<CanSelect_t>(Game::Read<void *>(unit, 0),

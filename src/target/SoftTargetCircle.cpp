@@ -29,6 +29,7 @@
 #include "cvar/Factory.h"
 #include "target/SoftUnit.h"
 #include "tick/FrameTick.h"
+#include "unit/Identity.h"
 
 #include <cstdint>
 #include <cstring>
@@ -97,8 +98,7 @@ void DrawCircle(void *unit, float scale, uint32_t alpha) {
 // The engine's own gate first (0x614AA5-0x614AD4: not the target, the
 // cvar on), then a soft unit's circle where the target's would be drawn.
 void __fastcall FrameUpdate_h(void *obj, void *edx, int arg) {
-    const uint64_t guid =
-        Game::Read<uint64_t>(Game::Read<void *>(obj, Offsets::OFF_UNIT_GUID_PTR), 0);
+    const uint64_t guid = Unit::Identity::GuidForObject(obj);
     if (guid != 0 && (guid == g_soft[0] || guid == g_soft[1]) &&
         guid != Game::Read<uint64_t>(Offsets::VAR_CURRENT_SELECTION_GUID_LO)) {
         void *cvar = Game::Read<void *>(Offsets::VAR_CVAR_OBJECT_SELECTION_CIRCLE);
