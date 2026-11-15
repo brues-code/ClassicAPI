@@ -15,9 +15,10 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "cache/Query.h"
 #include "cache/Record.h"
-#include "event/Custom.h"
 #include "tick/WorldTick.h"
+#include "time/Clock.h"
 
 #include <cstdint>
 
@@ -25,141 +26,248 @@ namespace Cache::QueryLoad {
 
 namespace {
 
-// A cache class's response parser, which we hook (e.g.
-// FUN_CREATURE_QUERY_RESPONSE / FUN_GAMEOBJECT_QUERY_RESPONSE).
-using CacheResponse_t = void(__thiscall *)(void *cache, void *packetReader, int flag);
-
-// Engine callback shape (__stdcall, ret 8) — see Item::Data. We only pass
-// it to make `_GetRecord` send the query (the trigger is callback != 0);
-// completion is observed via the response hook + tick sweep.
-void __stdcall NoOpCallback(void * /*userData*/, int /*success*/) {}
-
-// A class's `_GetRecord` (Cache::Record). With dedup, repeat fetches for the
-// same id before the response lands don't queue the callback twice.
-const uint8_t *CacheFetch(uintptr_t getRecord, void *cache, uint32_t id, void *callback) {
-    const uint64_t zeroGuid = 0;
-    void *userData =
-        callback ? reinterpret_cast<void *>(static_cast<uintptr_t>(id)) : nullptr;
-    return Cache::Record::Get(getRecord, reinterpret_cast<uintptr_t>(cache), id, &zeroGuid,
-                              callback, userData, true);
-}
-
 struct Pending {
     uint32_t id;
-    int ticksWaiting;
+    uint32_t sentMs; // when the last query went out (valid while issued)
+    int timeouts;    // sends that went unanswered for kResendMs in the world
+    bool issued;     // a query is in flight
+    bool sentOnce;   // our callback is on the entry; resend with Cache::Query
+    bool requested;  // see Track
+    bool failed;     // the server refused it (Escalated)
 };
 
-constexpr int kMaxCaches = 8;
-constexpr int kMaxPending = 256;
-constexpr int kMaxWaitTicks = 1200; // give up and fire failure after this many WorldTicks
+constexpr int kMaxPending = 512;
 
-struct Registered {
-    void *cache;
-    const Event::Custom::AutoReserve *reserve; // completion event's reservation
-    uintptr_t getRecord;                       // this cache class's _GetRecord
+// A query unanswered this long in the world is sent again, up to
+// kMaxTimeouts times, then the id fails. The server answers a query or
+// refuses it; only a dropped one goes silent, so the timeout only has to
+// outlast a slow round trip.
+constexpr uint32_t kResendMs = 5000;
+constexpr int kMaxTimeouts = 3;
+// Wall-clock delay past each world entry before queries go out. VAR_IN_WORLD
+// (set by the enter-world initializer FUN_004908C0, cleared at the start of
+// every transition) rises when the client has loaded, which can be before
+// the server has put the player back in the world (a transfer completes on
+// the server's receipt of the client's world-port ack). Queries sent in that
+// gap are dropped; waiting keeps them out of it, and the resend recovers any
+// that still land there. Also latched the instant an answer arrives in the
+// world (an answer proves the server answers), in `OnResponse`.
+constexpr uint32_t kSettleMs = 1000;
+// Minimum spacing between background queries: 20 per second at most,
+// wall-clock so the rate does not follow the frame rate.
+constexpr uint32_t kMinRequestSpacingMs = 50;
+// Priority ids per tick, with no spacing floor. The priority set is small
+// (the player's carried items), so this resolves it fast without a burst:
+// at most kPriorityPerTick + 1 packets a frame.
+constexpr int kPriorityPerTick = 6;
+
+struct Slot {
+    uintptr_t cache;
+    uintptr_t getRecord;
+    DoneFn done;
+    PriorityFn priority;
     Pending pending[kMaxPending];
-    int pendingCount;
+    int count;
 };
 
-Registered g_caches[kMaxCaches];
-int g_cacheCount = 0;
+Slot g_slots[KIND_COUNT] = {
+    {Offsets::VAR_ITEMDB_CACHE, Offsets::FUN_DBCACHE_ITEMSTATS_GET_RECORD},
+    {Offsets::VAR_CREATURE_CACHE, Offsets::FUN_CREATURE_GET_RECORD},
+    {Offsets::VAR_GAMEOBJECT_CACHE, Offsets::FUN_GAMEOBJECT_GET_RECORD},
+};
 
-Registered *Find(void *cache) {
-    for (int i = 0; i < g_cacheCount; ++i) {
-        if (g_caches[i].cache == cache)
-            return &g_caches[i];
-    }
-    return nullptr;
+// Queries may go out: in the world, and settled since the last entry.
+bool g_settled = false;
+// When the world went live (VAR_IN_WORLD set); 0 = not in the world.
+uint32_t g_inWorldSinceMs = 0;
+uint32_t g_lastRequestMs = 0;
+
+bool InWorld() {
+    return *reinterpret_cast<const volatile uint8_t *>(
+               static_cast<uintptr_t>(Offsets::VAR_IN_WORLD)) != 0;
 }
 
-void Fire(const Registered *r, uint32_t id, bool success) {
-    Event::Custom::FireIdSuccess(r->reserve->Slot(), static_cast<int>(id), success);
+bool Loaded(const Slot &s, uint32_t id) {
+    return Cache::Record::Peek(s.getRecord, s.cache, id) != nullptr;
 }
 
-int FindPending(const Registered *r, uint32_t id) {
-    for (int i = 0; i < r->pendingCount; ++i) {
-        if (r->pending[i].id == id)
+int Find(const Slot &s, uint32_t id) {
+    for (int i = 0; i < s.count; ++i)
+        if (s.pending[i].id == id)
             return i;
-    }
     return -1;
 }
 
-void RemovePendingAt(Registered *r, int idx) {
-    --r->pendingCount;
-    if (idx != r->pendingCount)
-        r->pending[idx] = r->pending[r->pendingCount];
+void RemoveAt(Slot &s, int i) {
+    --s.count;
+    if (i != s.count)
+        s.pending[i] = s.pending[s.count];
 }
 
-bool IsLoaded(const Registered *r, uint32_t id) {
-    return CacheFetch(r->getRecord, r->cache, id, nullptr) != nullptr;
+void Report(const Slot &s, const Pending &p, bool success) {
+    if (s.done != nullptr)
+        s.done(p.id, success, p.requested);
 }
 
-// Fire + remove any pending id whose entry is now loaded.
-void Sweep(Registered *r) {
-    for (int i = 0; i < r->pendingCount;) {
-        if (IsLoaded(r, r->pending[i].id)) {
-            const uint32_t id = r->pending[i].id;
-            RemovePendingAt(r, i);
-            Fire(r, id, true);
+// Removes and reports the id at `i` if it resolved: loaded, or refused by the
+// server. True if it did, so callers must not advance their index.
+bool TryComplete(Slot &s, int i) {
+    const Pending p = s.pending[i];
+    bool success;
+    if (Loaded(s, p.id))
+        success = true;
+    else if (p.failed)
+        success = false;
+    else
+        return false;
+    RemoveAt(s, i);
+    Report(s, p, success);
+    return true;
+}
+
+// The callback our first query carries, one per kind so a refusal finds its
+// own cache. The engine calls it with the id we put in userData. A filled
+// entry already reads as loaded, so success needs nothing. On a refusal (the
+// id with its high bit set in the response) the engine leaves the entry
+// unloaded (verified for the item cache in FUN_0055BDB0), so the id is marked
+// here and fails on the next sweep.
+template <int K> void __stdcall Escalated(void *userData, int success) {
+    if (success)
+        return;
+    Slot &s = g_slots[K];
+    const int i = Find(s, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(userData)));
+    if (i >= 0)
+        s.pending[i].failed = true;
+}
+
+using EscalatedFn = void(__stdcall *)(void *, int);
+const EscalatedFn kEscalated[KIND_COUNT] = {&Escalated<KIND_ITEM>, &Escalated<KIND_CREATURE>,
+                                            &Escalated<KIND_GAMEOBJECT>};
+
+void Send(int kind, Pending &p, uint32_t now) {
+    const Slot &s = g_slots[kind];
+    if (p.sentOnce) {
+        Cache::Query::Send(reinterpret_cast<void *>(s.cache), p.id);
+    } else {
+        // A new entry sends the query; an entry someone else created gets our
+        // callback and no packet. With dedup, a repeat does not queue it twice.
+        const uint64_t none = 0;
+        Cache::Record::Get(s.getRecord, s.cache, p.id, &none,
+                           reinterpret_cast<void *>(kEscalated[kind]),
+                           reinterpret_cast<void *>(static_cast<uintptr_t>(p.id)), true);
+    }
+    p.issued = true;
+    p.sentOnce = true;
+    p.sentMs = now;
+}
+
+// A response parser for `cache` just ran: the engine filled the entries and
+// ran their callbacks, Escalated included.
+void OnResponse(void *cache) {
+    // An answer in the world proves the server is answering, so queries may
+    // go out now. One behind a loading screen was answered before the
+    // transfer, which proves nothing about now.
+    if (InWorld())
+        g_settled = true;
+    for (Slot &s : g_slots) {
+        if (s.cache != reinterpret_cast<uintptr_t>(cache))
             continue;
-        }
-        ++i;
+        for (int i = 0; i < s.count;)
+            if (!TryComplete(s, i))
+                ++i;
     }
 }
 
-// Shared post-response dispatch: a parser for `cache` just ran, so sweep
-// that cache's pending set (no-op for caches we don't track).
-void DispatchSweep(void *cache) {
-    Registered *r = Find(cache);
-    if (r != nullptr)
-        Sweep(r);
+// One hook per cache class's response parser: the original fills the entry
+// and walks the engine's callback list, then the queue sweeps. `__thiscall`
+// mimicked as `__fastcall(ecx, edx_unused, ...)`.
+using Parser_t = void(__fastcall *)(void *cache, void *edx, void *packetReader, int flag);
+
+Parser_t g_origItemParser = nullptr;
+void __fastcall ItemParser_h(void *cache, void *, void *packetReader, int flag) {
+    g_origItemParser(cache, nullptr, packetReader, flag);
+    OnResponse(cache);
 }
 
-// One response-handler hook per cache class. Each calls its own original
-// trampoline (the parser fills the entry + walks the engine's own
-// callback list), then sweeps via the shared dispatch. `__thiscall`
-// mimicked as `__fastcall(ecx, edx_unused, …)`.
-using Trampoline_t = void(__fastcall *)(void *cache, void *edx, void *packetReader, int flag);
-
-CacheResponse_t g_origCreatureParser = nullptr;
-void __fastcall CreatureParser_h(void *cache, void * /*edx*/, void *packetReader, int flag) {
-    reinterpret_cast<Trampoline_t>(g_origCreatureParser)(cache, nullptr, packetReader, flag);
-    DispatchSweep(cache);
+Parser_t g_origCreatureParser = nullptr;
+void __fastcall CreatureParser_h(void *cache, void *, void *packetReader, int flag) {
+    g_origCreatureParser(cache, nullptr, packetReader, flag);
+    OnResponse(cache);
 }
 
-CacheResponse_t g_origGameObjectParser = nullptr;
-void __fastcall GameObjectParser_h(void *cache, void * /*edx*/, void *packetReader, int flag) {
-    reinterpret_cast<Trampoline_t>(g_origGameObjectParser)(cache, nullptr, packetReader, flag);
-    DispatchSweep(cache);
+Parser_t g_origGameObjectParser = nullptr;
+void __fastcall GameObjectParser_h(void *cache, void *, void *packetReader, int flag) {
+    g_origGameObjectParser(cache, nullptr, packetReader, flag);
+    OnResponse(cache);
 }
 
-const Game::HookAutoRegister _hookCreature{
-    Offsets::FUN_CREATURE_QUERY_RESPONSE, reinterpret_cast<void *>(&CreatureParser_h),
-    reinterpret_cast<void **>(&g_origCreatureParser)};
-const Game::HookAutoRegister _hookGameObject{
-    Offsets::FUN_GAMEOBJECT_QUERY_RESPONSE, reinterpret_cast<void *>(&GameObjectParser_h),
-    reinterpret_cast<void **>(&g_origGameObjectParser)};
+const Game::HookAutoRegister _hookItem{Offsets::FUN_ITEMSTATS_CACHE_RESPONSE,
+                                       reinterpret_cast<void *>(&ItemParser_h),
+                                       reinterpret_cast<void **>(&g_origItemParser)};
+const Game::HookAutoRegister _hookCreature{Offsets::FUN_CREATURE_QUERY_RESPONSE,
+                                           reinterpret_cast<void *>(&CreatureParser_h),
+                                           reinterpret_cast<void **>(&g_origCreatureParser)};
+const Game::HookAutoRegister _hookGameObject{Offsets::FUN_GAMEOBJECT_QUERY_RESPONSE,
+                                             reinterpret_cast<void *>(&GameObjectParser_h),
+                                             reinterpret_cast<void **>(&g_origGameObjectParser)};
 
-// Timeout + safety net. The hooks cover the happy path; this fires
-// failure for ids that never resolve after `kMaxWaitTicks`, and
-// re-checks loaded as a backstop for fills observed off the hook path.
+// The one place any query goes out, so the rate floor governs every path.
+//   1. Out of the world nothing is sent, and every query in flight is queued
+//      to go again, since the server may have dropped it. Back in the world,
+//      queries wait kSettleMs (or the first answer).
+//   2. Priority ids go out first, kPriorityPerTick a tick; everything else is
+//      background, one per kMinRequestSpacingMs across all caches.
+//   3. An id the server refused fails now; a query unanswered for kResendMs
+//      goes again, and the id fails after kMaxTimeouts.
 void OnWorldTick() {
-    for (int c = 0; c < g_cacheCount; ++c) {
-        Registered *r = &g_caches[c];
-        for (int i = 0; i < r->pendingCount;) {
-            if (IsLoaded(r, r->pending[i].id)) {
-                const uint32_t id = r->pending[i].id;
-                RemovePendingAt(r, i);
-                Fire(r, id, true);
-                continue;
+    const uint32_t now = Time::Clock::NowMs();
+    if (!InWorld()) {
+        g_settled = false;
+        g_inWorldSinceMs = 0;
+        for (Slot &s : g_slots)
+            for (int i = 0; i < s.count; ++i)
+                s.pending[i].issued = false;
+        return;
+    }
+    if (!g_settled) {
+        if (g_inWorldSinceMs == 0)
+            g_inWorldSinceMs = now;
+        if (Time::Clock::Elapsed(g_inWorldSinceMs, now) >= kSettleMs)
+            g_settled = true;
+    }
+
+    int priorityBudget = g_settled ? kPriorityPerTick : 0;
+    bool backgroundFree =
+        g_settled && Time::Clock::Elapsed(g_lastRequestMs, now) >= kMinRequestSpacingMs;
+    for (int kind = 0; kind < KIND_COUNT; ++kind) {
+        Slot &s = g_slots[kind];
+        for (int i = 0; i < s.count;) {
+            Pending &p = s.pending[i];
+            if (g_settled && !p.issued) {
+                if (s.priority != nullptr && s.priority(p.id)) {
+                    if (priorityBudget > 0) {
+                        --priorityBudget;
+                        Send(kind, p, now);
+                    }
+                } else if (backgroundFree) {
+                    backgroundFree = false;
+                    g_lastRequestMs = now;
+                    Send(kind, p, now);
+                }
             }
-            if (r->pending[i].ticksWaiting >= kMaxWaitTicks) {
-                const uint32_t id = r->pending[i].id;
-                RemovePendingAt(r, i);
-                Fire(r, id, false);
+            if (TryComplete(s, i))
                 continue;
+            // Only an id whose query is in flight times out; one still
+            // waiting its turn behind the rate floor does not.
+            if (p.issued && Time::Clock::Elapsed(p.sentMs, now) >= kResendMs) {
+                if (++p.timeouts >= kMaxTimeouts) {
+                    const Pending gone = p;
+                    RemoveAt(s, i);
+                    Report(s, gone, false);
+                    continue;
+                }
+                p.issued = false; // send again
             }
-            ++r->pending[i].ticksWaiting;
             ++i;
         }
     }
@@ -169,50 +277,41 @@ const Tick::WorldTick::AutoSubscribe _tickSub{&OnWorldTick};
 
 } // namespace
 
-void Register(void *cacheInstance, const Event::Custom::AutoReserve *reserve,
-              uintptr_t getRecordAddr) {
-    if (cacheInstance == nullptr || reserve == nullptr || getRecordAddr == 0)
-        return;
-    if (Find(cacheInstance) != nullptr) // idempotent (safe across /reload)
-        return;
-    if (g_cacheCount >= kMaxCaches)
-        return;
-    g_caches[g_cacheCount].cache = cacheInstance;
-    g_caches[g_cacheCount].reserve = reserve;
-    g_caches[g_cacheCount].getRecord = getRecordAddr;
-    g_caches[g_cacheCount].pendingCount = 0;
-    ++g_cacheCount;
+Client::Client(Kind kind, DoneFn done, PriorityFn priority) {
+    g_slots[kind].done = done;
+    g_slots[kind].priority = priority;
 }
 
-bool IsCached(void *cacheInstance, uint32_t id) {
-    const Registered *r = Find(cacheInstance);
-    return r != nullptr && IsLoaded(r, id);
-}
-
-bool RequestLoad(void *cacheInstance, uint32_t id) {
-    Registered *r = Find(cacheInstance);
-    if (r == nullptr || id == 0)
+bool Track(Kind kind, uint32_t id, bool requested) {
+    Slot &s = g_slots[kind];
+    if (id == 0)
         return false;
-
-    // Already cached — fire success synchronously (modern RequestLoad
-    // contract: the completion event fires even on a cache hit).
-    if (IsLoaded(r, id)) {
-        Fire(r, id, true);
+    if (Loaded(s, id)) {
+        if (requested && s.done != nullptr)
+            s.done(id, true, true);
         return true;
     }
-    // Already in flight — one completion event per id.
-    if (FindPending(r, id) >= 0)
+    const int i = Find(s, id);
+    if (i >= 0) {
+        s.pending[i].requested |= requested;
         return true;
-    if (r->pendingCount >= kMaxPending)
+    }
+    if (s.count >= kMaxPending)
         return false;
-
-    // Send the query (non-null callback is the trigger), then track until
-    // the response hook / tick fires the event.
-    CacheFetch(r->getRecord, cacheInstance, id, reinterpret_cast<void *>(&NoOpCallback));
-    r->pending[r->pendingCount].id = id;
-    r->pending[r->pendingCount].ticksWaiting = 0;
-    ++r->pendingCount;
+    s.pending[s.count++] = Pending{id, 0, 0, false, false, requested, false};
     return true;
+}
+
+bool IsCached(Kind kind, uint32_t id) {
+    return id != 0 && Loaded(g_slots[kind], id);
+}
+
+bool Settled() {
+    return g_settled;
+}
+
+int PendingCount(Kind kind) {
+    return g_slots[kind].count;
 }
 
 } // namespace Cache::QueryLoad

@@ -15,55 +15,60 @@
 
 #include <cstdint>
 
-namespace Event::Custom {
-struct AutoReserve;
-}
-
-// Shared async-load machinery for the client query caches that aren't
-// item/quest — creature, gameobject, and (potentially) the other
-// SMSG_*_QUERY caches. Modeled on `Item::Data`'s pending/timeout/event
-// logic, generalized so several caches share one set of code.
+// Loading records into the client query caches: the item, creature and game
+// object caches. Every query goes out through one queue, so the same rules
+// hold for all three.
 //
-// These caches are sibling classes: they share the record/entry hash-map
-// shape but differ in `_GetRecord` and response-parser per class (the
-// creature class reads its loaded flag at entry+0x50, the gameobject
-// class at +0x98, etc.). So a module registers BOTH its cache's
-// `_GetRecord` address and the dispatcher routes completion by cache
-// instance. The dispatcher hooks each class's response parser (MinHook
-// allows only one hook per target, but the parsers are distinct
-// functions, so hooking creature's and gameobject's separately is fine);
-// item/quest have their own parsers and aren't touched.
-//
-//   static const Event::Custom::AutoReserve _r{"CREATURE_DATA_LOAD_RESULT"};
-//   ...
-//   Cache::QueryLoad::Register(cacheInstance, &_r,
-//                              Offsets::FUN_CREATURE_GET_RECORD);  // at init
-//   Cache::QueryLoad::RequestLoad(cacheInstance, id);             // fire a load
-//
-// The completion event fires as `(id: number, success: bool)` — success
-// when the cache fills, failure on timeout.
-
+// - World gate. The server drops a *_QUERY opcode (STATUS_LOGGEDIN) while
+//   the player is not in the world: before login completes and behind every
+//   loading screen. A cache sends its query only when it creates the pending
+//   entry, so a dropped query leaves the entry pending for the session
+//   (Cache::Query). Nothing goes out until the world has been live for a
+//   settle delay, or an answer has arrived in it.
+// - Resend. A query in flight across a loading screen, or unanswered for a
+//   few seconds in the world, is sent again; after a few silent sends the id
+//   fails.
+// - Rate. One background query per 50 ms (issue #25: an unthrottled /reload
+//   burst of 1,325 queries in 14 ms dropped a router's NAT table). A cache's
+//   priority ids go out ahead of that floor, a few per tick.
+// - Answer. Each cache's response parser is hooked. After the engine fills
+//   the entry and runs its callbacks, the queue reports every tracked id the
+//   cache now holds. A server refusal reaches the queue's own callback, the
+//   one whose presence makes `_GetRecord` send (Cache::Record), and fails
+//   the id at once.
 namespace Cache::QueryLoad {
 
-// Register a query cache for async-load tracking. `cacheInstance` is the
-// cache global (e.g. `Offsets::VAR_CREATURE_CACHE` cast to void*);
-// `reserve` is the caller's `Event::Custom::AutoReserve` for the
-// completion event, fired `(id, success)`; `getRecordAddr` is the cache
-// class's `_GetRecord` (e.g. `Offsets::FUN_CREATURE_GET_RECORD`).
-// `cacheInstance`/`reserve` must outlive the process (pass statics).
-// Idempotent — calling again for the same cache is a no-op (safe across
-// /reload).
-void Register(void *cacheInstance, const Event::Custom::AutoReserve *reserve,
-              uintptr_t getRecordAddr);
+enum Kind { KIND_ITEM, KIND_CREATURE, KIND_GAMEOBJECT, KIND_COUNT };
 
-// True if `id` is already in the cache (pure peek, no network query).
-bool IsCached(void *cacheInstance, uint32_t id);
+// A tracked id resolved: `success` when the cache holds its record, else
+// the server refused it or every send went unanswered. `requested` is true
+// when any Track call for it was a request (see Track).
+using DoneFn = void (*)(uint32_t id, bool success, bool requested);
+// True for an id that goes out ahead of the background rate floor.
+using PriorityFn = bool (*)(uint32_t id);
 
-// Issue an async load for `id`. If already cached, fires the completion
-// event with success synchronously. Otherwise sends the query and tracks
-// the id until the response lands (or it times out). Returns false only
-// if the cache isn't registered or its pending set is full; true
-// otherwise (already-cached, already-pending, or newly-tracked).
-bool RequestLoad(void *cacheInstance, uint32_t id);
+// The module that owns a cache's events. One file-scope `static const`
+// instance per kind; `priority` may be null.
+struct Client {
+    Client(Kind kind, DoneFn done, PriorityFn priority = nullptr);
+};
+
+// Tracks `id` until it resolves. A `requested` load is one a caller asked for
+// by name (the C_*.RequestLoad* functions): when the record is already
+// cached, `done(id, true, true)` runs before this returns. A warm-up (not
+// requested) of a cached record does nothing, the way the engine's own
+// lookups report a hit to nobody. A request for an id a warm-up already
+// tracks makes it requested. False only when the pending set is full.
+bool Track(Kind kind, uint32_t id, bool requested);
+
+// True when the cache holds `id`'s record. Never sends a query.
+bool IsCached(Kind kind, uint32_t id);
+
+// True once queries may go out: in the world, and settled since the last
+// world entry.
+bool Settled();
+
+// The number of ids still tracked for `kind`.
+int PendingCount(Kind kind);
 
 } // namespace Cache::QueryLoad

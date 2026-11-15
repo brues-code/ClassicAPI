@@ -67,7 +67,7 @@ namespace {
 
 // Completion event for RequestLoadCreatureByID. Reserved at static-init
 // so the engine allocates it in its event table; fired (creatureID,
-// success) by the Cache::QueryLoad dispatcher.
+// success) by OnLoadDone when Cache::QueryLoad reports the load.
 constexpr const char *kCreatureDataLoadResult = "CREATURE_DATA_LOAD_RESULT";
 const Game::Doc::Field kLoadResultPayload[] = {
     Game::Doc::Req("creatureID", "number"),
@@ -80,6 +80,11 @@ const Game::Doc::Event kLoadResultDoc{
     "fails to load.",
     kLoadResultPayload};
 const Event::Custom::AutoReserve _reserveLoadResult{kCreatureDataLoadResult, &kLoadResultDoc};
+
+void OnLoadDone(uint32_t creatureID, bool success, bool /*requested*/) {
+    Event::Custom::FireIdSuccess(_reserveLoadResult.Slot(), static_cast<int>(creatureID), success);
+}
+const Cache::QueryLoad::Client _queryClient{Cache::QueryLoad::KIND_CREATURE, &OnLoadDone};
 
 // The loaded record (the entry's data block at +0x18), else nullptr.
 const uint8_t *PeekCreature(uint32_t creatureID) {
@@ -443,8 +448,6 @@ void RegisterLuaFunctions() {
                                      &Script_GetCreatureTypeInfo, &kGetCreatureTypeInfo);
     Game::Lua::RegisterTableFunction("C_CreatureInfo", "GetCreatureTypeIDs",
                                      &Script_GetCreatureTypeIDs, &kGetCreatureTypeIDs);
-    Cache::QueryLoad::Register(reinterpret_cast<void *>(Offsets::VAR_CREATURE_CACHE),
-                               &_reserveLoadResult, Offsets::FUN_CREATURE_GET_RECORD);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
@@ -504,8 +507,7 @@ const uint8_t *CacheRecord(uint32_t creatureID) {
 }
 
 bool RequestLoad(uint32_t creatureID) {
-    return Cache::QueryLoad::RequestLoad(reinterpret_cast<void *>(Offsets::VAR_CREATURE_CACHE),
-                                         creatureID);
+    return Cache::QueryLoad::Track(Cache::QueryLoad::KIND_CREATURE, creatureID, true);
 }
 
 } // namespace Creature::Info
