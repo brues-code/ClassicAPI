@@ -67,11 +67,7 @@ using Time::Clock::NowMs;
 // only have the local player's mod tables. `pet = 0` selects the player
 // as the caster per FUN_GET_SPELL_DURATION's signature.
 uint32_t SpellDurationMs(const uint8_t *spellRecord, bool casterIsPlayer) {
-    using GetDuration_t = int(__fastcall *)(const uint8_t *spellRecord,
-                                            int pet, char skipMod);
-    const int ms = reinterpret_cast<GetDuration_t>(
-        static_cast<uintptr_t>(Offsets::FUN_GET_SPELL_DURATION))(
-        spellRecord, 0, casterIsPlayer ? 0 : 1);
+    const int ms = Spell::Lookup::DurationMs(spellRecord, casterIsPlayer);
     return ms > 0 ? static_cast<uint32_t>(ms) : 0;
 }
 

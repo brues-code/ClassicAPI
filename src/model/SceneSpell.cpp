@@ -97,6 +97,7 @@
 #include "model/M2.h"
 #include "model/VisualKit.h"
 #include "sound/Play.h"
+#include "spell/Lookup.h"
 
 #include <cmath>
 #include <cstdint>
@@ -956,9 +957,8 @@ uint32_t Begin(Actor &caster, uint32_t spellID, Actor *target, const float *poin
     // A channeled spell channels after its cast, for the time given, else its
     // duration (forever for an endless one).
     if ((Game::Read<uint32_t>(spell, Offsets::OFF_SPELL_RECORD_ATTRIBUTES_EX) & Offsets::SPELL_ATTR_EX_CHANNELED) != 0) {
-        using GetDuration_t = int(__fastcall *)(const void *spell, int pet, int unmodified);
-        cast.channelMs = channelMs >= 0 ? channelMs
-                                        : reinterpret_cast<GetDuration_t>(Offsets::FUN_GET_SPELL_DURATION)(spell, 0, 1);
+        cast.channelMs =
+            channelMs >= 0 ? channelMs : Spell::Lookup::DurationMs(spell, /*applyMods*/ false);
         if (cast.channelMs == 0)
             cast.channelMs = 1; // a channel with no time still shows for a frame
     }

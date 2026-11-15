@@ -27,6 +27,12 @@ const uint8_t *RecordForID(int spellID);
 const char *Name(const uint8_t *spellRecord);
 const char *Rank(const uint8_t *spellRecord);
 
+// The spell's duration in ms for the local player as caster, through the
+// engine's own helper (FUN_GET_SPELL_DURATION: base + per-level, capped at
+// the row's max, then the player's duration SpellMods when `applyMods`).
+// Negative for an infinite duration, as the engine returns it.
+int DurationMs(const uint8_t *spellRecord, bool applyMods);
+
 // True if `spellRecord`'s SpellFamilyName equals `family` and its
 // SpellFamilyFlags overlap `flagMask` — the client-side form of the server's
 // `SpellEntry::IsFitToFamily<FAMILY, FLAG>()`. `flagMask` must be non-zero

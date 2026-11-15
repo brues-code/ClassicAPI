@@ -37,6 +37,13 @@ const char *Rank(const uint8_t *spellRecord) {
     return DBC::LocalizedString(spellRecord, Offsets::OFF_SPELL_RECORD_RANK);
 }
 
+int DurationMs(const uint8_t *spellRecord, bool applyMods) {
+    // `pet = 0` selects the player as the caster; the third argument is skipMod.
+    using GetDuration_t = int(__fastcall *)(const uint8_t *spellRecord, int pet, int skipMod);
+    return reinterpret_cast<GetDuration_t>(static_cast<uintptr_t>(
+        Offsets::FUN_GET_SPELL_DURATION))(spellRecord, 0, applyMods ? 0 : 1);
+}
+
 const char *IconPath(const uint8_t *spellRecord, bool active) {
     if (spellRecord == nullptr)
         return nullptr;

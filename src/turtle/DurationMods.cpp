@@ -90,11 +90,7 @@ int32_t BestialWrathDurationMs() {
         Spell::Lookup::RecordForID(static_cast<int>(kBestialWrath));
     if (rec == nullptr)
         return kBestialWrathFallbackMs;
-    using GetDuration_t = int(__fastcall *)(const uint8_t *spellRecord,
-                                            int pet, char skipMod);
-    const int ms = reinterpret_cast<GetDuration_t>(
-        static_cast<uintptr_t>(Offsets::FUN_GET_SPELL_DURATION))(
-        rec, 0, /*skipMod*/ 1);
+    const int ms = Spell::Lookup::DurationMs(rec, /*applyMods*/ false);
     return ms > 0 ? ms : kBestialWrathFallbackMs;
 }
 

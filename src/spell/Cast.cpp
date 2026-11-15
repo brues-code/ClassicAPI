@@ -97,7 +97,6 @@ namespace Spell::Cast {
 namespace {
 
 using GetCastTime_t = uint32_t(__fastcall *)(int spellID, int pet, int allowNegative);
-using GetDuration_t = int(__fastcall *)(const uint8_t *spellRecord, int pet, int skipMod);
 
 // SPELL_ATTR_RANGED — every ranged ability carries it; the server adds a
 // flat +500ms "aim time" to these (SpellEntry::GetCastTime). Auto-repeat
@@ -290,7 +289,7 @@ int ChannelDurationMs(int spellID) {
     const uint8_t *rec = Spell::Lookup::RecordForID(spellID);
     if (rec == nullptr)
         return 0;
-    const int ms = reinterpret_cast<GetDuration_t>(Offsets::FUN_GET_SPELL_DURATION)(rec, 0, 0);
+    const int ms = Spell::Lookup::DurationMs(rec, /*applyMods*/ true);
     return ms > 0 ? ms : 0; // negative = "infinite"; channels are finite
 }
 
@@ -444,8 +443,7 @@ bool IsChannelSpell(const uint8_t *rec) {
 // Channel duration for a non-player caster — base (skipMod=1), since we
 // only have the local player's spell-mod tables.
 int RemoteChannelDurationMs(const uint8_t *rec) {
-    const int ms = reinterpret_cast<GetDuration_t>(
-        Offsets::FUN_GET_SPELL_DURATION)(rec, 0, /*skipMod*/ 1);
+    const int ms = Spell::Lookup::DurationMs(rec, /*applyMods*/ false);
     return ms > 0 ? ms : 0;
 }
 
