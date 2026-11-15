@@ -114,14 +114,12 @@ int __fastcall MatchesClassType(const uint8_t *item, void *ctx) {
 }
 
 int InvTypeForName(const char *type) {
-    using GetText_t = const char *(__fastcall *)(const char *name, int edx, int gender);
     for (int invType = 1; invType <= Offsets::INVTYPE_TABLE_MAX_INDEX; ++invType) {
         const char *key = Item::TypeInfo::InvTypeKey(invType);
         if (key[0] == '\0')
             continue;
         if (Game::StrCmpI(type, key) == 0 ||
-            Game::StrCmpI(type, reinterpret_cast<GetText_t>(
-                                    Offsets::FUN_FRAMESCRIPT_GET_TEXT)(key, -1, 0)) == 0)
+            Game::StrCmpI(type, Item::TypeInfo::InvTypeName(invType)) == 0)
             return invType;
     }
     return 0;

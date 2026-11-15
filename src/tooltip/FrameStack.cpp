@@ -286,9 +286,7 @@ int __fastcall Script_GameTooltipSetFrameStack(void *L) {
 
     const uint32_t textColor = Game::Read<uint32_t>(Offsets::VAR_TOOLTIP_TEXT_COLOR);
     const uint32_t titleColor = Game::Read<uint32_t>(Offsets::VAR_TOOLTIP_TITLE_COLOR);
-    using GetText_t = const char *(__fastcall *)(const char *name, int count, int gender);
-    const char *header =
-        reinterpret_cast<GetText_t>(Offsets::FUN_FRAMESCRIPT_GET_TEXT)("DEBUG_FRAMESTACK", -1, 0);
+    const char *header = Game::Lua::GlobalText("DEBUG_FRAMESTACK");
 
     // The cursor in UI pixels — the values GetCursorPosition returns.
     char text[1024];

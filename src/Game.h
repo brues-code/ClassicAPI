@@ -632,6 +632,12 @@ void SetGlobalNumber(void *L, const char *name, double value);
 //   // … then string.format / sprintf-style consume
 void PushLocalizedString(void *L, const char *globalName, const char *fallback);
 
+// The global string `name` through the engine's own lookup (FrameScript_GetText,
+// `FUN_FRAMESCRIPT_GET_TEXT`, with no count or gender: a plain `_G[name]` read
+// that also takes a number), or "" when unset. Never null. The pointer is the
+// Lua string's, valid while the global holds it.
+const char *GlobalText(const char *name);
+
 // Pushes `string.format(_G[globalName] or fallback, n)` — the result
 // of formatting a single integer into a localized string. Leaves the
 // formatted string on top of the stack. Common shape: most

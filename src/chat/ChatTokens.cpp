@@ -49,12 +49,6 @@ namespace {
 using Parse_t = bool(__fastcall *)(const char *text, char *out, int size);
 Parse_t g_parseOriginal = nullptr;
 
-const char *GlobalText(const char *name) {
-    using GetText_t = const char *(__fastcall *)(const char *name, int edx, int gender);
-    return reinterpret_cast<GetText_t>(
-        static_cast<uintptr_t>(Offsets::FUN_FRAMESCRIPT_GET_TEXT))(name, -1, 0);
-}
-
 // A unit's name the way the `%t` case finds the target's: the unit object's
 // name, else the name cache. Null when neither has one.
 const char *UnitName(uint64_t guid) {
@@ -126,7 +120,7 @@ bool __fastcall Parse_h(const char *text, char *out, int size) {
                 AppendMarker(s, focus);
                 s += name;
             } else {
-                s += GlobalText("FOCUS_TOKEN_NOT_FOUND");
+                s += Game::Lua::GlobalText("FOCUS_TOKEN_NOT_FOUND");
             }
             p += 2;
         } else if (IsTargetCode(c)) {

@@ -98,9 +98,7 @@ const char *InvTypeName(int invType) {
     const char *key = InvTypeKey(invType);
     if (key[0] == '\0')
         return "";
-    using GetText_t = const char *(__fastcall *)(const char *name, int edx, int gender);
-    const char *s = reinterpret_cast<GetText_t>(Offsets::FUN_FRAMESCRIPT_GET_TEXT)(key, -1, 0);
-    return s != nullptr ? s : "";
+    return Game::Lua::GlobalText(key);
 }
 
 namespace {

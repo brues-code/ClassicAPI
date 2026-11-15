@@ -526,6 +526,12 @@ void PushLocalizedString(void *L, const char *globalName, const char *fallback) 
     }
 }
 
+const char *GlobalText(const char *name) {
+    using GetText_t = const char *(__fastcall *)(const char *name, int count, int gender);
+    return reinterpret_cast<GetText_t>(static_cast<uintptr_t>(Offsets::FUN_FRAMESCRIPT_GET_TEXT))(
+        name, -1, 0);
+}
+
 void PushLocalizedFormatInt(void *L, const char *globalName,
                             const char *fallback, int n) {
     // Resolve `string.format` from _G.

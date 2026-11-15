@@ -289,7 +289,6 @@ uint32_t RaidFlags(uint64_t guid) {
     return 0;
 }
 
-using GetText_t = const char *(__fastcall *)(const char *name, int edx, int gender);
 using CacheRecord_t = const uint8_t *(__thiscall *)(void *cache, uint32_t id, const uint64_t *guid,
                                                     void *callback, void *userData, char dedup);
 using NameCache_t = const uint8_t *(__thiscall *)(void *cache, uint32_t lo, uint32_t hi,
@@ -346,7 +345,7 @@ const char *ObjectName(uint64_t guid) {
 void SetName(uint64_t guid, bool &named, std::string &name) {
     const char *n = ObjectName(guid);
     if (n == nullptr || *n == '\0') {
-        n = reinterpret_cast<GetText_t>(Offsets::FUN_FRAMESCRIPT_GET_TEXT)("UNKNOWNOBJECT", -1, 0);
+        n = Game::Lua::GlobalText("UNKNOWNOBJECT");
         if (n == nullptr || *n == '\0')
             n = "UKNOWNOBJECT"; // the namer's own last resort, spelling and all
     }
