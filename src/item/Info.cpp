@@ -13,7 +13,6 @@
 
 #include "Game.h"
 #include "Offsets.h"
-#include "dbc/Lookup.h"
 #include "item/Arg.h"
 #include "item/BagFamily.h"
 #include "item/Data.h"
@@ -22,6 +21,7 @@
 #include "item/Link.h"
 #include "item/Location.h"
 #include "item/Record.h"
+#include "item/TypeInfo.h"
 
 #include <cstdint>
 #include <cstring>
@@ -29,48 +29,6 @@
 namespace Item::Info {
 
 static const char *PushedOrEmpty(const char *s) { return (s != nullptr && s[0] != 0) ? s : ""; }
-
-static int CurrentLocaleIndex() { return Game::Read<int>(Offsets::VAR_LOCALE_INDEX); }
-
-static const char *LookupItemClassName(uint32_t classID) {
-    return PushedOrEmpty(DBC::LocalizedField(
-        Offsets::VAR_ITEMCLASS_RECORDS, Offsets::VAR_ITEMCLASS_COUNT,
-        classID, Offsets::OFF_ITEMCLASS_NAMES));
-}
-
-static const char *LookupItemSubClassName(uint32_t classID, uint32_t subClassID) {
-    const int count = Game::Read<int>(Offsets::VAR_ITEMSUBCLASS_COUNT);
-    if (count <= 0)
-        return "";
-    auto *records = Game::Read<const uint8_t *>(Offsets::VAR_ITEMSUBCLASS_RECORDS);
-    if (records == nullptr)
-        return "";
-    const int locale = CurrentLocaleIndex();
-    for (int i = 0; i < count; i++) {
-        const uint8_t *record = records + i * Offsets::OFF_ITEMSUBCLASS_RECORD_STRIDE;
-        if (*reinterpret_cast<const uint32_t *>(record + 0x00) != classID)
-            continue;
-        if (*reinterpret_cast<const uint32_t *>(record + 0x04) != subClassID)
-            continue;
-        // Mirror Script_GetItemInfo's fallback chain at 0x48E311..0x48E32C:
-        // try the verbose name first, fall back to the short name.
-        const char *verbose = Game::Read<const char *>(
-            record, Offsets::OFF_ITEMSUBCLASS_DISPLAY_NAME + locale * 4);
-        if (verbose != nullptr && verbose[0] != 0)
-            return verbose;
-        const char *shortName = Game::Read<const char *>(
-            record, Offsets::OFF_ITEMSUBCLASS_NAME + locale * 4);
-        return PushedOrEmpty(shortName);
-    }
-    return "";
-}
-
-static const char *LookupInvType(uint32_t invType) {
-    if (invType > Offsets::INVTYPE_TABLE_MAX_INDEX)
-        return "";
-    auto **table = reinterpret_cast<const char **>(Offsets::VAR_INVTYPE_STRING_TABLE);
-    return PushedOrEmpty(table[invType]);
-}
 
 // `GetItemInfoInstant` is the modern "synchronous, never blocks" item
 // info call. In modern WoW the trailing 6 fields come from client-side
@@ -111,9 +69,9 @@ static int __fastcall Script_GetItemInfoInstant(void *L) {
     if (!Item::Icon::PathForDisplayInfoID(displayInfoID, iconPath, sizeof(iconPath)))
         iconPath[0] = 0;
 
-    Game::Lua::PushString(L, LookupItemClassName(classID));
-    Game::Lua::PushString(L, LookupItemSubClassName(classID, subClassID));
-    Game::Lua::PushString(L, LookupInvType(invType));
+    Game::Lua::PushString(L, Item::TypeInfo::ClassName(classID));
+    Game::Lua::PushString(L, Item::TypeInfo::SubClassName(Item::TypeInfo::FindSubClass(classID, subClassID)));
+    Game::Lua::PushString(L, Item::TypeInfo::InvTypeKey(static_cast<int>(invType)));
     Game::Lua::PushString(L, iconPath);
     Game::Lua::PushNumber(L, static_cast<double>(classID));
     Game::Lua::PushNumber(L, static_cast<double>(subClassID));
@@ -316,10 +274,10 @@ static int __fastcall Script_C_Item_GetItemInfo(void *L) {
     Game::Lua::PushNumber(L, static_cast<double>(quality));           // 3  itemQuality
     Game::Lua::PushNumber(L, static_cast<double>(itemLevel));         // 4  itemLevel
     Game::Lua::PushNumber(L, static_cast<double>(reqLevel));          // 5  itemMinLevel
-    Game::Lua::PushString(L, LookupItemClassName(classID));           // 6  itemType
-    Game::Lua::PushString(L, LookupItemSubClassName(classID, subClassID)); // 7 itemSubType
+    Game::Lua::PushString(L, Item::TypeInfo::ClassName(classID));           // 6  itemType
+    Game::Lua::PushString(L, Item::TypeInfo::SubClassName(Item::TypeInfo::FindSubClass(classID, subClassID))); // 7 itemSubType
     Game::Lua::PushNumber(L, static_cast<double>(stackCount));        // 8  itemStackCount
-    Game::Lua::PushString(L, LookupInvType(invType));                 // 9  itemEquipLoc
+    Game::Lua::PushString(L, Item::TypeInfo::InvTypeKey(static_cast<int>(invType)));                 // 9  itemEquipLoc
     Game::Lua::PushString(L, iconPath);                               // 10 itemTexture
     Game::Lua::PushNumber(L, static_cast<double>(sellPrice));         // 11 sellPrice
     Game::Lua::PushNumber(L, static_cast<double>(classID));           // 12 classID

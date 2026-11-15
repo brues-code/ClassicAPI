@@ -486,7 +486,6 @@ bool FactionGroupForRace(int raceID, const char **english, const char **localize
         Offsets::VAR_FACTIONGROUP_RECORDS);
     const int fgCount =
         Game::Read<int>(Offsets::VAR_FACTIONGROUP_COUNT);
-    const int locale = Game::Read<int>(Offsets::VAR_LOCALE_INDEX);
     if (fgBase == nullptr)
         return false;
 
@@ -496,9 +495,8 @@ bool FactionGroupForRace(int raceID, const char **english, const char **localize
             row, Offsets::OFF_FACTIONGROUP_BIT);
         if ((mask & (1u << (bit & 0x1F))) == 0)
             continue;
-        const char *loc = Game::Read<const char *>(
-            row, Offsets::OFF_FACTIONGROUP_NAMES + locale * 4);
-        if (loc == nullptr || *loc == '\0')
+        const char *loc = DBC::LocalizedString(row, Offsets::OFF_FACTIONGROUP_NAMES);
+        if (loc == nullptr)
             continue; // "Player" / "Monster" have empty localized names
         *english = Game::Read<const char *>(
             row, Offsets::OFF_FACTIONGROUP_ENGLISH);

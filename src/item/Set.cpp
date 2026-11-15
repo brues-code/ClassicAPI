@@ -51,19 +51,6 @@ int PushSetIDForItemID(void *L, int itemID) {
     return 1;
 }
 
-// Reads the locale-clamped name from an ItemSet.dbc record. ItemSet
-// has only 8 locale slots (vs Spell.dbc's 9), so clamp the global
-// locale index before indexing.
-const char *ReadSetName(const uint8_t *record) {
-    int locale = *reinterpret_cast<const int *>(
-        static_cast<uintptr_t>(Offsets::VAR_LOCALE_INDEX));
-    if (locale < 0 || locale >= Offsets::ITEMSET_LOCALE_COUNT)
-        locale = 0;
-    auto *names = reinterpret_cast<const char *const *>(
-        record + Offsets::OFF_ITEMSET_NAMES);
-    return names[locale];
-}
-
 } // namespace
 
 // `C_Item.GetItemSetID(itemLocation)` — returns the `ItemSet.dbc` ID
@@ -111,7 +98,7 @@ static int __fastcall Script_C_Item_GetItemSetInfo(void *L) {
     Game::Lua::NewTable(L);
     Game::Lua::SetFieldNumber(L, "setID", static_cast<double>(setID));
 
-    const char *name = ReadSetName(record);
+    const char *name = DBC::LocalizedString(record, Offsets::OFF_ITEMSET_NAMES);
     Game::Lua::SetFieldString(L, "name", (name != nullptr) ? name : "");
 
     Game::Lua::SetFieldNumber(L, "requiredSkill", static_cast<double>(

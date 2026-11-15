@@ -62,7 +62,6 @@ namespace Item::EnchantInfo {
 namespace {
 
 constexpr int kNumEffects = 3;
-constexpr int kNumNameLocales = 8; // Name[8]; field after is the locale mask
 
 // Spell-type enchants whose EffectArg is a spellID (proc / equip / use).
 bool IsSpellType(int type) { return type == 1 || type == 3 || type == 7; }
@@ -80,16 +79,11 @@ int __fastcall Script_C_Item_GetEnchantInfo(void *L) {
     if (rec == nullptr)
         return 0; // OOR id or unpopulated slot -> nil
 
-    // Localized display name (8-slot locale array at +0x34). Clamp the
-    // locale index to the array bounds — index 8 would read the locale
-    // mask column that follows. enUS (0) fallback for empty slots.
-    auto names = Game::Ptr<const char *const>(rec, Offsets::OFF_SPELLITEMENCHANT_NAME);
-    int locale = Game::Read<int>(Offsets::VAR_LOCALE_INDEX);
-    if (locale < 0 || locale >= kNumNameLocales)
-        locale = 0;
-    const char *name = names[locale];
-    if (name == nullptr || name[0] == '\0')
-        name = names[0]; // enUS fallback
+    // Localized display name (locale array at +0x34), with an enUS (slot 0)
+    // fallback for an empty slot.
+    const char *name = DBC::LocalizedString(rec, Offsets::OFF_SPELLITEMENCHANT_NAME);
+    if (name == nullptr)
+        name = Game::Read<const char *>(rec, Offsets::OFF_SPELLITEMENCHANT_NAME); // enUS
     if (name == nullptr || name[0] == '\0')
         return 0; // unnamed record -> nil
 

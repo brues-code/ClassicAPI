@@ -22,15 +22,6 @@
 
 namespace Item::TypeInfo {
 
-namespace {
-
-int LocaleIndex() {
-    return *reinterpret_cast<const int *>(
-        static_cast<uintptr_t>(Offsets::VAR_LOCALE_INDEX));
-}
-
-} // namespace
-
 // Localized ItemClass.dbc name for a class ID (records indexed by ID, the
 // standard DBC shape — same lookup `Script_GetItemInfo` uses). Returns ""
 // for an unknown class. Obsolete slots keep the client's literal string
@@ -66,34 +57,27 @@ const uint8_t *FindSubClass(uint32_t classID, uint32_t subClassID) {
     return nullptr;
 }
 
-// Verbose name first, short name on miss (same fallback the engine and
-// GetItemInfoInstant use); locale-applied.
+// Verbose name first, short name on miss: Script_GetItemInfo's fallback chain
+// (0x48E311..0x48E32C); locale-applied.
 const char *SubClassName(const uint8_t *rec) {
-    const int locale = LocaleIndex();
-    const char *verbose = *reinterpret_cast<const char *const *>(
-        rec + Offsets::OFF_ITEMSUBCLASS_DISPLAY_NAME + locale * 4);
-    if (verbose != nullptr && verbose[0] != '\0')
+    if (const char *verbose = DBC::LocalizedString(rec, Offsets::OFF_ITEMSUBCLASS_DISPLAY_NAME))
         return verbose;
-    const char *shortName = *reinterpret_cast<const char *const *>(
-        rec + Offsets::OFF_ITEMSUBCLASS_NAME + locale * 4);
-    return (shortName != nullptr && shortName[0] != '\0') ? shortName : "";
+    return SubClassShortName(rec);
 }
 
 const char *SubClassShortName(const uint8_t *rec) {
-    const char *s = *reinterpret_cast<const char *const *>(
-        rec + Offsets::OFF_ITEMSUBCLASS_NAME + LocaleIndex() * 4);
-    return (s != nullptr && s[0] != '\0') ? s : "";
+    const char *s = DBC::LocalizedString(rec, Offsets::OFF_ITEMSUBCLASS_NAME);
+    return s != nullptr ? s : "";
 }
 
 // Either localized name of the subclass row equals `name`, ignoring case —
 // 4.3.4's `FindItemClassTypeCallback` (0x008DAAC0) tests both the verbose
 // and the display name, so "One-Handed Swords" and "Sword" both match.
 bool SubClassNamed(const uint8_t *rec, const char *name) {
-    const int locale = LocaleIndex();
-    for (const uint32_t off :
+    for (const int off :
          {Offsets::OFF_ITEMSUBCLASS_DISPLAY_NAME, Offsets::OFF_ITEMSUBCLASS_NAME}) {
-        const char *s = *reinterpret_cast<const char *const *>(rec + off + locale * 4);
-        if (s != nullptr && s[0] != '\0' && Game::StrCmpI(s, name) == 0)
+        const char *s = DBC::LocalizedString(rec, off);
+        if (s != nullptr && Game::StrCmpI(s, name) == 0)
             return true;
     }
     return false;

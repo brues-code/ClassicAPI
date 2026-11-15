@@ -23,10 +23,12 @@ const char *ClassName(uint32_t classID);
 // The ItemSubClass.dbc row for (classID, subClassID), or nullptr.
 const uint8_t *FindSubClass(uint32_t classID, uint32_t subClassID);
 
-// The row's localized verbose name, else its short name, else "".
+// The row's localized verbose name, else its short name, else "" (also for
+// a null row, so `SubClassName(FindSubClass(c, s))` needs no check).
 const char *SubClassName(const uint8_t *rec);
 
-// The row's localized short name ("Sword", "Cloth"), "" when none.
+// The row's localized short name ("Sword", "Cloth"), "" when none or for a
+// null row.
 const char *SubClassShortName(const uint8_t *rec);
 
 // Whether either localized name of the row equals `name`, ignoring case.

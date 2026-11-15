@@ -23,6 +23,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "dbc/Lookup.h"
 #include "quest/Cache.h"
 
 #include <cstdint>
@@ -36,22 +37,8 @@ namespace {
 const char *LookupQuestType(uint32_t row) {
     if (row == 0)
         return nullptr;
-    const int count = Game::Read<int>(Offsets::VAR_QUESTINFO_DBC_COUNT);
-    if (count <= 0 || row > static_cast<uint32_t>(count))
-        return nullptr;
-    const uint8_t *const *records =
-        Game::Read<const uint8_t *const *>(Offsets::VAR_QUESTINFO_DBC_RECORDS);
-    if (!records)
-        return nullptr;
-    const uint8_t *record = records[row];
-    if (!record)
-        return nullptr;
-    const int localeIdx =
-        Game::Read<int>(Offsets::VAR_LOCALE_INDEX);
-    if (localeIdx < 0 || localeIdx > 8)
-        return nullptr;
-    auto *names = reinterpret_cast<const char *const *>(record + 4);
-    return names[localeIdx];
+    return DBC::LocalizedField(Offsets::VAR_QUESTINFO_DBC_RECORDS,
+                               Offsets::VAR_QUESTINFO_DBC_COUNT, row, Offsets::OFF_QUESTINFO_NAME);
 }
 
 // Pushes an array of `{id=itemID, count=N}` tables for each non-zero

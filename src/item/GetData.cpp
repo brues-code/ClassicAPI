@@ -23,13 +23,13 @@
 
 #include "Game.h"
 #include "Offsets.h"
-#include "dbc/Lookup.h"
 #include "item/Arg.h"
 #include "item/BagFamily.h"
 #include "item/ID.h"
 #include "item/Icon.h"
 #include "item/Location.h"
 #include "item/Record.h"
+#include "item/TypeInfo.h"
 #include "item/Spell.h"
 
 #include <cstdint>
@@ -37,54 +37,6 @@
 namespace Item::GetData {
 
 namespace {
-
-int CurrentLocaleIndex() {
-    return Game::Read<int>(Offsets::VAR_LOCALE_INDEX);
-}
-
-// Mirrors the lookup in `Item::Info`. ItemClass.dbc record `+0x0C` is
-// the 9-locale name array; null/empty slots fall back to "".
-const char *LookupClassName(uint32_t classID) {
-    const char *s = DBC::LocalizedField(
-        Offsets::VAR_ITEMCLASS_RECORDS, Offsets::VAR_ITEMCLASS_COUNT,
-        classID, Offsets::OFF_ITEMCLASS_NAMES);
-    return (s != nullptr && s[0] != '\0') ? s : "";
-}
-
-// ItemSubClass.dbc walker — same fallback chain as Script_GetItemInfo
-// (verbose name first, short name on miss).
-const char *LookupSubClassName(uint32_t classID, uint32_t subClassID) {
-    const int count = Game::Read<int>(Offsets::VAR_ITEMSUBCLASS_COUNT);
-    if (count <= 0)
-        return "";
-    auto *records = Game::Read<const uint8_t *>(Offsets::VAR_ITEMSUBCLASS_RECORDS);
-    if (records == nullptr)
-        return "";
-    const int locale = CurrentLocaleIndex();
-    for (int i = 0; i < count; ++i) {
-        const uint8_t *record = records + i * Offsets::OFF_ITEMSUBCLASS_RECORD_STRIDE;
-        if (*reinterpret_cast<const uint32_t *>(record + 0x00) != classID)
-            continue;
-        if (*reinterpret_cast<const uint32_t *>(record + 0x04) != subClassID)
-            continue;
-        const char *verbose = Game::Read<const char *>(
-            record, Offsets::OFF_ITEMSUBCLASS_DISPLAY_NAME + locale * 4);
-        if (verbose != nullptr && verbose[0] != '\0')
-            return verbose;
-        const char *shortName = Game::Read<const char *>(
-            record, Offsets::OFF_ITEMSUBCLASS_NAME + locale * 4);
-        return (shortName != nullptr && shortName[0] != '\0') ? shortName : "";
-    }
-    return "";
-}
-
-const char *LookupInvType(uint32_t invType) {
-    if (invType > Offsets::INVTYPE_TABLE_MAX_INDEX)
-        return "";
-    auto **table = reinterpret_cast<const char **>(Offsets::VAR_INVTYPE_STRING_TABLE);
-    const char *s = table[invType];
-    return (s != nullptr && s[0] != '\0') ? s : "";
-}
 
 // Shorthand: read a u32 field from the record at `offset`, push it on
 // the stack as a Lua number, and set `t[key] = value` on the table at
@@ -242,13 +194,13 @@ void PushItemDataTable(void *L, uint32_t itemID, const uint8_t *record) {
         record, Offsets::OFF_ITEMSTATS_SUBCLASS);
     Game::Lua::SetFieldNumber(L, "classID", static_cast<double>(classID));
     Game::Lua::SetFieldNumber(L, "subclassID", static_cast<double>(subClassID));
-    Game::Lua::SetFieldString(L, "className", LookupClassName(classID));
-    Game::Lua::SetFieldString(L, "subclassName", LookupSubClassName(classID, subClassID));
+    Game::Lua::SetFieldString(L, "className", Item::TypeInfo::ClassName(classID));
+    Game::Lua::SetFieldString(L, "subclassName", Item::TypeInfo::SubClassName(Item::TypeInfo::FindSubClass(classID, subClassID)));
 
     const uint32_t invType = Game::Read<uint32_t>(
         record, Offsets::OFF_ITEMSTATS_INVENTORY_TYPE);
     Game::Lua::SetFieldNumber(L, "inventoryType", static_cast<double>(invType));
-    Game::Lua::SetFieldString(L, "equipLoc", LookupInvType(invType));
+    Game::Lua::SetFieldString(L, "equipLoc", Item::TypeInfo::InvTypeKey(static_cast<int>(invType)));
 
     // Bind
     SetU32(L, record, "bindType", Offsets::OFF_ITEMSTATS_BONDING);

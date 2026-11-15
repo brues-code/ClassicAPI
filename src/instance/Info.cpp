@@ -88,10 +88,7 @@ static int __fastcall Script_GetInstanceInfo(void *L) {
 
     const uint32_t type = *reinterpret_cast<const uint32_t *>(
         rec + Offsets::OFF_MAP_INSTANCE_TYPE);
-    const uint32_t locale = *reinterpret_cast<const uint32_t *>(
-        static_cast<uintptr_t>(Offsets::VAR_LOCALE_INDEX));
-    const char *name = *reinterpret_cast<const char *const *>(
-        rec + Offsets::OFF_MAP_NAME + locale * 4);
+    const char *name = DBC::LocalizedString(rec, Offsets::OFF_MAP_NAME);
 
     const char *typeName =
         (type < sizeof(kTypeNames) / sizeof(kTypeNames[0])) ? kTypeNames[type]

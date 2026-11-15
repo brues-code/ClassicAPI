@@ -71,15 +71,7 @@ const uint8_t *MapRecord(int mapID) {
 
 // Localized `Map.dbc` display name ("Eastern Kingdoms", "Deadmines"), or null.
 const char *MapName(int mapID) {
-    const uint8_t *rec = MapRecord(mapID);
-    if (rec == nullptr)
-        return nullptr;
-    const uint32_t locale = Game::Read<uint32_t>(Offsets::VAR_LOCALE_INDEX);
-    const char *name = *reinterpret_cast<const char *const *>(
-        rec + Offsets::OFF_MAP_NAME + locale * 4);
-    if (name == nullptr || name[0] == '\0')
-        return nullptr;
-    return name;
+    return DBC::LocalizedString(MapRecord(mapID), Offsets::OFF_MAP_NAME);
 }
 
 // `Map.dbc` instance type (0 = world map, 1 = dungeon, 2 = raid, 3 = BG).

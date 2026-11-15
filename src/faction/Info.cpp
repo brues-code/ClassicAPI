@@ -42,14 +42,6 @@ const uint8_t *FactionRecord(int factionID) {
                        static_cast<uint32_t>(factionID));
 }
 
-// Reads `record[offset + locale*4]` as a localized C string pointer.
-const char *LocalizedString(const uint8_t *record, int offset) {
-    const int locale = *reinterpret_cast<const int *>(
-        static_cast<uintptr_t>(Offsets::VAR_LOCALE_INDEX));
-    auto *strings = reinterpret_cast<const char *const *>(record + offset);
-    return strings[locale];
-}
-
 // Pushes 1.0 for true and nil for false — the convention
 // Script_GetFactionInfo uses for atWar/canToggleAtWar/etc. (engine
 // pushes lua_pushnumber(1.0) or lua_pushnil at 0x004D65F2 /
@@ -138,8 +130,11 @@ bool ReadFactionData(int factionID, FactionData *out) {
     out->factionID = factionID;
     out->repListIndex = *reinterpret_cast<const int32_t *>(
         record + Offsets::OFF_FACTION_REP_LIST_INDEX);
-    out->name = LocalizedString(record, Offsets::OFF_FACTION_NAMES);
-    out->description = LocalizedString(record, Offsets::OFF_FACTION_DESCRIPTIONS);
+    // "" for an empty name or description, which the returns push as strings.
+    out->name = DBC::LocalizedString(record, Offsets::OFF_FACTION_NAMES);
+    if (out->name == nullptr)
+        out->name = "";
+    out->description = DBC::LocalizedString(record, Offsets::OFF_FACTION_DESCRIPTIONS);
     if (out->description == nullptr)
         out->description = "";
 

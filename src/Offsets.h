@@ -6921,9 +6921,8 @@ enum Offsets {
     // record reader at `FUN_0057BBA0`:
     //
     //   +0x00 (4)    ID
-    //   +0x04 (32)   Name[8]   — localized strings, 8 LOCALES (not 9
-    //                            like Spell.dbc / ChrRaces.dbc — clamp
-    //                            VAR_LOCALE_INDEX to 0..7 before reading)
+    //   +0x04 (32)   Name[8]   — localized strings, one per locale;
+    //                            VAR_LOCALE_INDEX is 0..7, always in range
     //   +0x24 (4)    unused / flags
     //   +0x28 (68)   ItemID[17]      — items in the set (zero = empty slot)
     //   +0x6C (32)   SetSpellID[8]   — bonus spells granted by the set
@@ -6941,7 +6940,6 @@ enum Offsets {
     OFF_ITEMSET_REQUIRED_SKILL_RANK = 0xB0,
     ITEMSET_MAX_ITEMS = 17,
     ITEMSET_MAX_BONUSES = 8,
-    ITEMSET_LOCALE_COUNT = 8,
 
     // INVTYPE_* string table — array of char* indexed by m_inventoryType.
     // Index 0 is empty (0=INVTYPE_NON_EQUIP), indices 1..28 are valid
@@ -7265,6 +7263,8 @@ enum Offsets {
     // Records pointer + count globals from docs/DBCs.md (instance 0x00C0D9C4).
     VAR_QUESTINFO_DBC_RECORDS = 0x00C0D9CC,
     VAR_QUESTINFO_DBC_COUNT = 0x00C0D9D0,
+    // QuestInfo.dbc record `{id@+0, char *name[locale]@+4}` (quest/Cache.h).
+    OFF_QUESTINFO_NAME = 0x04,
     OFF_CHRRACES_FACTION_TEMPLATE = 0x08,
     VAR_FACTIONTEMPLATE_RECORDS = 0x00C0DD3C,
     VAR_FACTIONTEMPLATE_COUNT = 0x00C0DD40,
