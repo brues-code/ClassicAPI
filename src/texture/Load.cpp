@@ -66,6 +66,13 @@ uint32_t DefaultFlags() {
     return Flags(Game::Read<uint32_t>(Offsets::VAR_TEXTURE_BLEND_DEFAULT), false, false);
 }
 
+uint32_t SetFile(void *texture, const char *path) {
+    using SetTexture_t = uint32_t(__thiscall *)(void *texture, const char *path, uint32_t wrap,
+                                                uint32_t filter, uint32_t shader);
+    return reinterpret_cast<SetTexture_t>(Offsets::FUN_SIMPLETEXTURE_SET_TEXTURE)(
+        texture, path, 0, Game::Read<uint32_t>(Offsets::VAR_TEXTURE_BLEND_DEFAULT), 0);
+}
+
 void ReleaseHandle(void *handle) {
     if (handle != nullptr)
         reinterpret_cast<HandleRelease_t>(Offsets::FUN_HANDLE_RELEASE)(handle);

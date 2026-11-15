@@ -55,6 +55,7 @@
 #include "object/Resolve.h"
 #include "target/SoftInteract.h"
 #include "target/SoftUnit.h"
+#include "texture/Load.h"
 #include "tick/FrameTick.h"
 #include "unit/Position.h"
 
@@ -65,8 +66,6 @@ namespace Target::SoftTargetIcon {
 
 namespace {
 
-using SetTexture_t = uint32_t(__thiscall *)(void *tex, const char *path, int a, uint32_t blend,
-                                            int b);
 using SetSize_t = void(__thiscall *)(void *anchor, float internal);
 using ShowHide_t = void(__fastcall *)(void *tex);
 using PlateScreenPos_t = bool(__fastcall *)(void *unit, void *worldFrame, float *screen);
@@ -140,8 +139,7 @@ void Show(Icon &icon, uint64_t guid, void *worldFrame) {
     if (icon.tex == nullptr && (icon.tex = CreateTexture(worldFrame)) == nullptr)
         return;
     if (std::strcmp(path, icon.path) != 0) {
-        reinterpret_cast<SetTexture_t>(Offsets::FUN_SIMPLETEXTURE_SET_TEXTURE)(
-            icon.tex, path, 0, Game::Read<uint32_t>(Offsets::VAR_TEXTURE_BLEND_DEFAULT), 0);
+        Texture::SetFile(icon.tex, path);
         std::memcpy(icon.path, path, sizeof icon.path);
     }
     const float size = Game::PixelToInternal(static_cast<float>(CVar::Factory::GetInt(g_size)));

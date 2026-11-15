@@ -26,6 +26,13 @@ uint32_t Flags(uint32_t filter, bool wrapU, bool wrapV);
 // SetTexture's texture flags: the default filter, clamped, one mip level.
 uint32_t DefaultFlags();
 
+// CSimpleTexture::SetTexture (FUN_SIMPLETEXTURE_SET_TEXTURE, `__thiscall(tex,
+// path, wrap, filter, shader)`) with what Lua's texture:SetTexture(file)
+// passes: clamped, the default filter (VAR_TEXTURE_BLEND_DEFAULT), no pixel
+// shader. A null path clears the texture. Goes through the engine's entry, so
+// Texture::Wrap's co-hook sees it. Returns the engine's result.
+uint32_t SetFile(void *texture, const char *path);
+
 // The loaded handle, or nullptr when the file does not load, made with
 // `flags` (SetTexture's own by default). The caller owns one reference and
 // drops it with ReleaseHandle.

@@ -34,6 +34,7 @@
 #include "cursor/Hover.h"
 #include "cvar/Factory.h"
 #include "object/Resolve.h"
+#include "texture/Load.h"
 #include "unit/Identity.h"
 
 #include <cstdint>
@@ -42,8 +43,6 @@ namespace Unit::CursorTexture {
 
 namespace {
 
-using SetTexture_t = uint32_t(__thiscall *)(void *tex, const char *path, int a, uint32_t blend,
-                                            int b);
 
 constexpr int kTypeMask =
     Offsets::TYPEMASK_UNIT | Offsets::TYPEMASK_GAMEOBJECT | Offsets::TYPEMASK_CORPSE;
@@ -74,9 +73,7 @@ int __fastcall Script_SetUnitCursorTexture(void *L) {
     const bool has = object != nullptr &&
                      Cursor::Hover::ImagePath(object, Cursor::Hover::Mode(object), lowPriority,
                                               path, sizeof path);
-    reinterpret_cast<SetTexture_t>(Offsets::FUN_SIMPLETEXTURE_SET_TEXTURE)(
-        texture, has ? path : nullptr, 0,
-        Game::Read<uint32_t>(Offsets::VAR_TEXTURE_BLEND_DEFAULT), 0);
+    Texture::SetFile(texture, has ? path : nullptr);
     Game::Lua::PushBool(L, has);
     return 1;
 }

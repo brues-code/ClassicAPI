@@ -25,6 +25,7 @@
 #include "frame/Region.h"
 #include "frame/RegionDestruction.h"
 #include "text/PtrProbe.h"
+#include "texture/Load.h"
 #include "tick/FrameTick.h"
 #include "object/Resolve.h"
 
@@ -38,8 +39,6 @@ namespace Text::InlineTexturePool {
 
 namespace {
 
-using SetTexture_t = uint32_t(__thiscall *)(void *tex, const char *path, int a, uint32_t blend,
-                                            int b);
 using SetColor_t = void(__thiscall *)(void *tex, const void *colorBGRA);
 using Realize_t = void(__thiscall *)(void *anchor, int flag);
 using SetTexCoord_t = void(__thiscall *)(void *tex, const float *coords4);
@@ -175,9 +174,7 @@ void ApplyPlacement(IconRegion &r, void *fs, const Placement &p, uint32_t fsColo
     // then froze them — the scroll-landing "randomly hidden icon" bug.
 
     if (r.path != p.path) {
-        const uint32_t blend = Game::Read<uint32_t>(Offsets::VAR_TEXTURE_BLEND_DEFAULT);
-        reinterpret_cast<SetTexture_t>(Offsets::FUN_SIMPLETEXTURE_SET_TEXTURE)(r.tex, p.path.c_str(),
-                                                                               0, blend, 0);
+        Texture::SetFile(r.tex, p.path.c_str());
         r.path = p.path;
     }
     // The engine's 4-float texcoord rect is Y-FIRST INTERLEAVED — {v0, u0, v1,
