@@ -3,6 +3,8 @@
 -- Implementation differences from the retail source:
 --   - Lua 5.0 has no `...` as an expression; the proxy mixin forwards its
 --     varargs through unpack(arg).
+--   - 1.12's Button:IsEnabled returns 1 or 0, and 0 is true in Lua, so the
+--     open and mouse wheel gates compare it with 1.
 
 local function AssertIntrinsicMessage(frame)
 	return string.format("%s element is not a DropdownButton.", frame:GetDebugName());
@@ -112,7 +114,7 @@ function DropdownButtonMixin:OnMouseDown_Intrinsic()
 end
 
 function DropdownButtonMixin:OpenMenu()
-	if not self:IsEnabled() then
+	if self:IsEnabled() ~= 1 then
 		return;
 	end
 
@@ -159,7 +161,7 @@ function DropdownButtonMixin:OnMouseWheel_Intrinsic(delta)
 		return;
 	end
 
-	if not self:IsEnabled() then
+	if self:IsEnabled() ~= 1 then
 		return;
 	end
 
@@ -368,6 +370,20 @@ function DropdownButtonMixin:HasAnyRadioDescriptions()
 	return MenuUtil.TraverseMenu(self:GetMenuDescription(), function(description)
 		return description:IsRadio();
 	end);
+end
+
+function DropdownButtonMixin:HasOnlyRadioDescriptions()
+	local foundRadio = false;
+	local foundCheckbox = MenuUtil.TraverseMenu(self:GetMenuDescription(), function(description)
+		if description:IsCheckbox() then
+			return true;
+		elseif description:IsRadio() then
+			foundRadio = true;
+		end
+		return false;
+	end);
+
+	return foundRadio and (not foundCheckbox);
 end
 
 function DropdownButtonMixin:Increment()

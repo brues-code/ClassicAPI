@@ -1,0 +1,90 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\FrameXML\UI.xsd">
+	<!--
+	Retail's Blizzard_SharedXML/Shared/Slider/MinimalSlider.xml.
+	Differences:
+	- The Minimal_SliderBar atlases are art this client does not have. The bar
+	  is 1.12's OptionsSliderTemplate: its backdrop (set in
+	  MinimalSliderMixin:OnLoad) and its thumb. The steppers are the
+	  spellbook's page arrows.
+	- No obeyStepOnDrag key: this client's slider always rounds its value to
+	  the step, so it obeys the step on a drag already.
+	- No NarrationSliderMixin: this client has no narration.
+	-->
+	<Slider name="MinimalSliderTemplate" orientation="HORIZONTAL" mixin="MinimalSliderMixin" enableMouse="true" virtual="true">
+		<Size x="200" y="17"/>
+		<HitRectInsets>
+			<AbsInset left="0" right="0" top="-10" bottom="-10"/>
+		</HitRectInsets>
+		<ThumbTexture file="Interface\Buttons\UI-SliderBar-Button-Horizontal">
+			<Size x="32" y="32"/>
+		</ThumbTexture>
+		<Scripts>
+			<OnLoad method="OnLoad"/>
+		</Scripts>
+	</Slider>
+
+	<Button name="MinimalSliderStepperTemplate" virtual="true">
+		<Size x="20" y="20"/>
+		<HighlightTexture file="Interface\Buttons\UI-Common-MouseHilight" alphaMode="ADD"/>
+	</Button>
+
+	<Frame name="MinimalSliderWithSteppersTemplate" mixin="MinimalSliderWithSteppersMixin" enableMouse="true" virtual="true">
+		<Size x="250" y="40"/>
+		<Frames>
+			<Slider parentKey="Slider" inherits="MinimalSliderTemplate">
+				<Anchors>
+					<Anchor point="LEFT" x="22"/>
+					<Anchor point="RIGHT" x="-22"/>
+				</Anchors>
+			</Slider>
+			<Button parentKey="Back" inherits="MinimalSliderStepperTemplate">
+				<Anchors>
+					<Anchor point="RIGHT" relativeKey="$parent.Slider" relativePoint="LEFT" x="-2"/>
+				</Anchors>
+				<NormalTexture file="Interface\Buttons\UI-SpellbookIcon-PrevPage-Up"/>
+				<PushedTexture file="Interface\Buttons\UI-SpellbookIcon-PrevPage-Down"/>
+				<DisabledTexture file="Interface\Buttons\UI-SpellbookIcon-PrevPage-Disabled"/>
+			</Button>
+			<Button parentKey="Forward" inherits="MinimalSliderStepperTemplate">
+				<Anchors>
+					<Anchor point="LEFT" relativeKey="$parent.Slider" relativePoint="RIGHT" x="2"/>
+				</Anchors>
+				<NormalTexture file="Interface\Buttons\UI-SpellbookIcon-NextPage-Up"/>
+				<PushedTexture file="Interface\Buttons\UI-SpellbookIcon-NextPage-Down"/>
+				<DisabledTexture file="Interface\Buttons\UI-SpellbookIcon-NextPage-Disabled"/>
+			</Button>
+		</Frames>
+		<Layers>
+			<Layer level="OVERLAY">
+				<FontString parentKey="LeftText" inherits="GameFontNormal" parentArray="Labels" hidden="true">
+					<Anchors>
+						<Anchor point="RIGHT" relativeKey="$parent.Slider" relativePoint="LEFT" x="-25"/>
+					</Anchors>
+				</FontString>
+				<FontString parentKey="RightText" inherits="GameFontNormal" parentArray="Labels" hidden="true">
+					<Anchors>
+						<Anchor point="LEFT" relativeKey="$parent.Slider" relativePoint="RIGHT" x="25"/>
+					</Anchors>
+				</FontString>
+				<FontString parentKey="TopText" inherits="GameFontNormal" parentArray="Labels" hidden="true">
+					<Anchors>
+						<Anchor point="BOTTOM" relativeKey="$parent.Slider" relativePoint="TOP" y="-9"/>
+					</Anchors>
+				</FontString>
+				<FontString parentKey="MinText" inherits="GameFontNormal" parentArray="Labels" hidden="true">
+					<Anchors>
+						<Anchor point="TOP" relativeKey="$parent.Slider" relativePoint="BOTTOMLEFT" y="6"/>
+					</Anchors>
+				</FontString>
+				<FontString parentKey="MaxText" inherits="GameFontNormal" parentArray="Labels" hidden="true">
+					<Anchors>
+						<Anchor point="TOP" relativeKey="$parent.Slider" relativePoint="BOTTOMRIGHT" y="6"/>
+					</Anchors>
+				</FontString>
+			</Layer>
+		</Layers>
+		<Scripts>
+			<OnLoad method="OnLoad"/>
+		</Scripts>
+	</Frame>
+</Ui>

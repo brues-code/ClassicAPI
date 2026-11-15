@@ -12,3 +12,11 @@ function CreateAndInitFromMixin(mixin, ...)
     object:Init(unpack(arg))
     return object
 end
+
+-- Retail copies the mixin with PrivateMixin so the copy carries no taint;
+-- 1.12 has no taint, so the copy is a plain Mixin.
+function CreateSecureMixinCopy(mixin)
+    local mixinCopy = Mixin({}, mixin)
+    setmetatable(mixinCopy, { __metatable = false })
+    return mixinCopy
+end

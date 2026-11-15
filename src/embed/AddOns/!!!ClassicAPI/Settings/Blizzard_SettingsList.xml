@@ -1,0 +1,81 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\FrameXML\UI.xsd">
+	<!--
+	Retail's Blizzard_Settings_Shared/Blizzard_SettingsList.xml.
+	Differences:
+	- The divider under the title is a plain line: retail draws it with the
+	  Options_HorizontalDivider atlas (630x1), which this client does not have.
+	- No tutorial button: this client has no help plates.
+	-->
+	<Frame name="SettingsListTemplate" mixin="SettingsListMixin" virtual="true">
+		<Frames>
+			<Frame parentKey="Header">
+				<Size y="50"/>
+				<Anchors>
+					<Anchor point="TOPLEFT"/>
+					<Anchor point="TOPRIGHT"/>
+				</Anchors>
+				<Layers>
+					<Layer level="ARTWORK">
+						<FontString parentKey="Title" inherits="GameFontHighlightHuge" justifyH="LEFT">
+							<Anchors>
+								<Anchor point="TOPLEFT" x="7" y="-22"/>
+							</Anchors>
+						</FontString>
+						<Texture parentKey="Divider">
+							<Size x="630" y="1"/>
+							<Anchors>
+								<Anchor point="TOP" y="-50"/>
+							</Anchors>
+							<Color r="0.5" g="0.5" b="0.5" a="0.6"/>
+						</Texture>
+					</Layer>
+				</Layers>
+				<Frames>
+					<Button parentKey="DefaultsButton" inherits="UIPanelButtonTemplate">
+						<Size x="96" y="22"/>
+						<Anchors>
+							<Anchor point="TOPRIGHT" x="-36" y="-16"/>
+						</Anchors>
+					</Button>
+				</Frames>
+			</Frame>
+			<Frame parentKey="ScrollBox" inherits="WowScrollBoxList">
+				<Frames>
+					<Button parentKey="InputBlocker" clipChildren="true" setAllPoints="true" hidden="true"/>
+				</Frames>
+			</Frame>
+			<EventFrame parentKey="ScrollBar" inherits="MinimalScrollBar">
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeKey="$parent.ScrollBox" relativePoint="TOPRIGHT" x="0" y="-4"/>
+					<Anchor point="BOTTOMLEFT" relativeKey="$parent.ScrollBox" relativePoint="BOTTOMRIGHT" x="-1" y="7"/>
+				</Anchors>
+			</EventFrame>
+		</Frames>
+		<Scripts>
+			<OnLoad method="OnLoad"/>
+		</Scripts>
+	</Frame>
+
+	<Button name="SettingsListSearchCategoryTemplate" mixin="SettingsListSearchCategoryMixin" virtual="true">
+		<Size y="45"/>
+		<Layers>
+			<Layer level="BACKGROUND">
+				<Texture parentKey="MouseoverOverlay" hidden="true" alphaMode="ADD">
+					<Color r=".1" g=".1" b=".1" a="1"/>
+				</Texture>
+			</Layer>
+			<Layer level="ARTWORK">
+				<FontString parentKey="Title" inherits="GameFontNormalLarge" justifyH="LEFT" justifyV="TOP">
+					<Anchors>
+						<Anchor point="TOPLEFT" x="16" y="-16"/>
+					</Anchors>
+				</FontString>
+			</Layer>
+		</Layers>
+		<Scripts>
+			<OnClick method="OnClick"/>
+			<OnEnter method="OnEnter"/>
+			<OnLeave method="OnLeave"/>
+		</Scripts>
+	</Button>
+</Ui>

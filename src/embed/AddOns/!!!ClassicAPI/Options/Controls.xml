@@ -1,0 +1,50 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\FrameXML\UI.xsd">
+	<!--
+	ClassicAPI's number box control; see Controls.lua.
+	The box is 1.12's InputBoxTemplate art with its slices found by key.
+	InputBoxTemplate itself anchors its middle slice to $parentLeft and
+	$parentRight, and a pooled row has no name of its own, so every box
+	would take the same names and anchor to the last box made.
+	-->
+	<Frame name="ClassicAPISettingsNumberBoxControlTemplate" inherits="SettingsListElementTemplate" mixin="ClassicAPISettingsNumberBoxControlMixin" virtual="true">
+		<Size x="280" y="26"/>
+		<Frames>
+			<EditBox parentKey="EditBox" autoFocus="false" enableMouse="true">
+				<Size x="70" y="20"/>
+				<Anchors>
+					<Anchor point="LEFT" relativePoint="CENTER" x="-74" y="0"/>
+				</Anchors>
+				<Layers>
+					<Layer level="BACKGROUND">
+						<Texture parentKey="Left" file="Interface\Common\Common-Input-Border">
+							<Size x="8" y="20"/>
+							<Anchors>
+								<Anchor point="LEFT" x="-5" y="0"/>
+							</Anchors>
+							<TexCoords left="0" right="0.0625" top="0" bottom="0.625"/>
+						</Texture>
+						<Texture parentKey="Right" file="Interface\Common\Common-Input-Border">
+							<Size x="8" y="20"/>
+							<Anchors>
+								<Anchor point="RIGHT" x="0" y="0"/>
+							</Anchors>
+							<TexCoords left="0.9375" right="1.0" top="0" bottom="0.625"/>
+						</Texture>
+						<Texture parentKey="Middle" file="Interface\Common\Common-Input-Border">
+							<Size x="10" y="20"/>
+							<Anchors>
+								<Anchor point="LEFT" relativeKey="$parent.Left" relativePoint="RIGHT"/>
+								<Anchor point="RIGHT" relativeKey="$parent.Right" relativePoint="LEFT"/>
+							</Anchors>
+							<TexCoords left="0.0625" right="0.9375" top="0" bottom="0.625"/>
+						</Texture>
+					</Layer>
+				</Layers>
+				<FontString inherits="ChatFontNormal"/>
+			</EditBox>
+		</Frames>
+		<Scripts>
+			<OnLoad method="OnLoad"/>
+		</Scripts>
+	</Frame>
+</Ui>

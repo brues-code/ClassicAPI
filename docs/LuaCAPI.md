@@ -31,8 +31,16 @@ build uses the MSVC fastcall convention. Each `TValue` is **16 bytes** here
 |--------|-----------------|---------------------------------------------|
 | `+0x08`| `top`           | `TValue *` — top of stack (next free slot)  |
 | `+0x0C`| `base`          | `TValue *` — base of the current frame      |
-| `+0x10`| `ci`            | `CallInfo *` — current call info            |
-| `+0x18`| `stack`         | bottom of stack array                       |
+| `+0x10`| `l_G`           | `global_State *`                            |
+| `+0x14`| `ci`            | `CallInfo *` — current call info (`lua_getstack` `0x006FBAA0` reads it) |
+| `+0x1C`| `stack`         | bottom of stack array                       |
+| `+0x20`| `stacksize`     |                                             |
+| `+0x28`| `base_ci`       | `CallInfo *` — first call info; `ci == base_ci` when no function runs |
+
+The GC counters are `global_State` fields, at `l_G` (`L+0x10`):
+
+| Offset | Field           | Notes                                       |
+|--------|-----------------|---------------------------------------------|
 | `+0x24`| `gcthreshold`   | bytes; `lua_setgcthreshold` writes here     |
 | `+0x28`| `nblocks`       | live byte count (read by `lua_getgccount`)  |
 

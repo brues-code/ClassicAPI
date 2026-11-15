@@ -1,0 +1,221 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\FrameXML\UI.xsd">
+	<!--
+	Retail's Blizzard_Settings_Shared/Blizzard_SettingControls.xml.
+	Differences:
+	- No NewFeature labels, because nothing in this client is new.
+	- The checkbox is 1.12's (UI-CheckBox): the checkbox-minimal atlases are
+	  art this client does not have.
+	- The dropdown is WowStyle1DropdownTemplate, 1.12's dropdown art, where
+	  retail's is WowStyle2DropdownTemplate's atlases. Its label font is
+	  GameFontHighlightMedium: this client has no GameFontHighlightMed2.
+	- The expandable section's bar is a dark fill with the quest log's
+	  highlight on hover: the Options_ListExpand atlases are art this
+	  client does not have.
+	-->
+	<Texture name="HoverBackgroundTemplate" virtual="true" hidden="true">
+		<Anchors>
+			<Anchor relativeKey="$parent.$parent" point="TOPLEFT" x="-10"/>
+			<Anchor relativeKey="$parent.$parent" point="BOTTOMRIGHT" x="-5"/>
+		</Anchors>
+		<Color a="0.1" r="1" g="1" b="1"/>
+	</Texture>
+
+	<Frame name="SettingsListSectionHeaderTemplate" mixin="SettingsListSectionHeaderMixin" virtual="true">
+		<Size y="45"/>
+		<Layers>
+			<Layer level="OVERLAY">
+				<FontString parentKey="Title" inherits="GameFontHighlightLarge" justifyH="LEFT" justifyV="TOP">
+					<Anchors>
+						<Anchor point="TOPLEFT" x="7" y="-16"/>
+					</Anchors>
+				</FontString>
+			</Layer>
+		</Layers>
+		<Scripts>
+			<OnLoad method="OnLoad"/>
+			<OnEvent method="OnEvent"/>
+		</Scripts>
+	</Frame>
+
+	<Frame name="SettingsAddOnDisabledLabelTemplate" virtual="true">
+		<Size y="30"/>
+		<Layers>
+			<Layer level="OVERLAY">
+				<FontString parentKey="Text" inherits="GameFontRed" text="ADDON_DISABLED" justifyH="LEFT" justifyV="TOP">
+					<Anchors>
+						<Anchor point="TOPLEFT" x="37" y="0"/>
+					</Anchors>
+				</FontString>
+			</Layer>
+		</Layers>
+	</Frame>
+
+	<Frame name="SettingsListElementTemplate" mixin="SettingsListElementMixin" virtual="true">
+		<Layers>
+			<Layer level="OVERLAY">
+				<FontString parentKey="Text" inherits="GameFontNormal" justifyH="LEFT" wordwrap="false"/>
+			</Layer>
+		</Layers>
+		<Frames>
+			<Frame parentKey="Tooltip" mixin="DefaultTooltipMixin">
+				<Anchors>
+					<Anchor point="TOPLEFT"/>
+					<Anchor point="BOTTOMRIGHT" relativePoint="BOTTOM" x="-80"/>
+				</Anchors>
+				<Layers>
+					<Layer level="BACKGROUND">
+						<Texture parentKey="HoverBackground" inherits="HoverBackgroundTemplate"/>
+					</Layer>
+				</Layers>
+				<Scripts>
+					<OnLoad method="OnLoad"/>
+				</Scripts>
+			</Frame>
+		</Frames>
+	</Frame>
+
+	<CheckButton name="SettingsCheckboxTemplate" mixin="SettingsCheckboxMixin" motionScriptsWhileDisabled="true" virtual="true">
+		<Size x="30" y="29"/>
+		<Layers>
+			<Layer level="BACKGROUND">
+				<Texture parentKey="HoverBackground" inherits="HoverBackgroundTemplate"/>
+			</Layer>
+		</Layers>
+		<Scripts>
+			<OnLoad method="OnLoad"/>
+			<OnEnter method="OnEnter"/>
+			<OnLeave method="OnLeave"/>
+		</Scripts>
+		<NormalTexture file="Interface\Buttons\UI-CheckBox-Up"/>
+		<PushedTexture file="Interface\Buttons\UI-CheckBox-Down"/>
+		<HighlightTexture file="Interface\Buttons\UI-CheckBox-Highlight" alphaMode="ADD"/>
+		<CheckedTexture file="Interface\Buttons\UI-CheckBox-Check"/>
+		<DisabledCheckedTexture file="Interface\Buttons\UI-CheckBox-Check-Disabled"/>
+	</CheckButton>
+
+	<!-- NOTE: Original template is a Frame, but this one is a Button -->
+	<Button name="SettingsColorSwatchTemplate" inherits="ColorSwatchTemplate" mixin="SettingsColorSwatchMixin" motionScriptsWhileDisabled="true" virtual="true">
+		<Scripts>
+			<OnLoad method="OnLoad"/>
+			<OnEnter method="OnEnter"/>
+			<OnLeave method="OnLeave"/>
+		</Scripts>
+	</Button>
+
+	<Frame name="SettingsCheckboxControlTemplate" inherits="SettingsListElementTemplate" mixin="SettingsCheckboxControlMixin" virtual="true">
+		<Size x="280" y="26"/>
+		<Scripts>
+			<OnLoad method="OnLoad"/>
+		</Scripts>
+	</Frame>
+
+	<Frame name="SettingsSliderControlTemplate" inherits="SettingsListElementTemplate" mixin="SettingsSliderControlMixin" virtual="true">
+		<Size x="280" y="26"/>
+		<Scripts>
+			<OnLoad method="OnLoad"/>
+		</Scripts>
+	</Frame>
+
+	<Frame name="SettingsDropdownControlTemplate" inherits="SettingsListElementTemplate" mixin="SettingsDropdownControlMixin" virtual="true">
+		<Size x="280" y="26"/>
+		<Scripts>
+			<OnLoad method="OnLoad"/>
+			<OnEvent method="OnEvent"/>
+		</Scripts>
+	</Frame>
+
+	<Frame name="SettingButtonControlTemplate" inherits="SettingsListElementTemplate" mixin="SettingsButtonControlMixin" virtual="true">
+		<Size x="280" y="26"/>
+		<Scripts>
+			<OnLoad method="OnLoad"/>
+		</Scripts>
+	</Frame>
+
+	<Frame name="SettingsColorSwatchControlTemplate" inherits="SettingsListElementTemplate" mixin="SettingsColorSwatchControlMixin" virtual="true">
+		<Size x="280" y="26"/>
+		<Scripts>
+			<OnLoad method="OnLoad"/>
+		</Scripts>
+	</Frame>
+
+	<Frame name="SettingsCheckboxWithButtonControlTemplate" inherits="SettingsListElementTemplate" mixin="SettingsCheckboxWithButtonControlMixin" virtual="true">
+		<Size x="280" y="26"/>
+		<Scripts>
+			<OnLoad method="OnLoad"/>
+		</Scripts>
+	</Frame>
+
+	<Frame name="SettingsCheckboxSliderControlTemplate" inherits="SettingsListElementTemplate" mixin="SettingsCheckboxSliderControlMixin" virtual="true">
+		<Size x="280" y="26"/>
+		<Scripts>
+			<OnLoad method="OnLoad"/>
+		</Scripts>
+	</Frame>
+
+	<Frame name="SettingsCheckboxDropdownControlTemplate" inherits="SettingsListElementTemplate" mixin="SettingsCheckboxDropdownControlMixin" virtual="true">
+		<Size x="280" y="26"/>
+		<Scripts>
+			<OnLoad method="OnLoad"/>
+		</Scripts>
+	</Frame>
+
+	<Frame name="SettingsCheckboxWithColorSwatchControlTemplate" inherits="SettingsListElementTemplate" mixin="SettingsCheckboxWithColorSwatchControlMixin" virtual="true">
+		<Size x="280" y="26"/>
+		<Scripts>
+			<OnLoad method="OnLoad"/>
+		</Scripts>
+	</Frame>
+
+	<Frame name="Metal2DropdownWithSteppersAndLabelTemplate" inherits="DropdownWithSteppersTemplate" mixin="DropdownWithSteppersAndLabelMixin" virtual="true">
+		<Frames>
+			<DropdownButton parentKey="Dropdown" inherits="WowStyle1DropdownTemplate">
+				<Anchors>
+					<Anchor point="CENTER"/>
+				</Anchors>
+			</DropdownButton>
+		</Frames>
+		<Layers>
+			<Layer level="ARTWORK">
+				<FontString parentKey="Label" inherits="GameFontHighlightMedium">
+					<Anchors>
+						<Anchor point="RIGHT" relativeKey="$parent.DecrementButton" relativePoint="LEFT" x="-34"/>
+					</Anchors>
+				</FontString>
+			</Layer>
+		</Layers>
+	</Frame>
+
+	<!-- Retained for ease of replacing all dropdown + stepper combos that are used across Settings-->
+	<Frame name="SettingsDropdownWithButtonsTemplate" inherits="Metal2DropdownWithSteppersAndLabelTemplate" virtual="true"/>
+
+	<EventFrame name="SettingsExpandableSectionTemplate" mixin="SettingsExpandableSectionMixin" virtual="true">
+		<Size y="25"/>
+		<Frames>
+			<Button parentKey="Button">
+				<Size y="30"/>
+				<Anchors>
+					<Anchor point="TOPLEFT" x="0" y="0"/>
+					<Anchor point="TOPRIGHT" x="-20" y="0"/>
+				</Anchors>
+				<Layers>
+					<Layer level="BACKGROUND">
+						<Texture parentKey="Background" setAllPoints="true">
+							<Color r="0" g="0" b="0" a="0.5"/>
+						</Texture>
+					</Layer>
+					<Layer level="OVERLAY">
+						<FontString parentKey="Text" inherits="GameFontNormal" justifyH="CENTER">
+							<Anchors>
+								<Anchor point="LEFT" x="21" y="2"/>
+							</Anchors>
+						</FontString>
+					</Layer>
+				</Layers>
+				<HighlightTexture file="Interface\QuestFrame\UI-QuestTitleHighlight" alphaMode="ADD"/>
+			</Button>
+		</Frames>
+		<Scripts>
+			<OnLoad method="OnLoad"/>
+		</Scripts>
+	</EventFrame>
+</Ui>

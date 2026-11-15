@@ -13,6 +13,13 @@
 	- The resize grip is the chat frame's expand arrow, turned to point at
 	  the corner.
 	- No FrameGlow, gamepad jump hints, TopTileStreaks or button bar.
+	- DarkMenuElementTemplate's hover is 1.12's dropdown highlight
+	  (UI-QuestTitleHighlight), stretched over the row: the
+	  common-dropdown-customize-mouseover atlas is art this client does not
+	  have.
+	- The dropdown steppers are the spellbook's page arrows. Retail's
+	  SteppersIncrementButtonTemplate and SteppersDecrementButtonTemplate
+	  are atlases.
 	-->
 	<Script file="PortraitFrame.lua"/>
 	<Script file="SharedUIPanelTemplates.lua"/>
@@ -184,4 +191,63 @@
 		<NormalTexture file="Interface\ChatFrame\ChatFrameExpandArrow" rotation="-45"/>
 		<HighlightTexture file="Interface\ChatFrame\ChatFrameExpandArrow" rotation="-45" alphaMode="ADD"/>
 	</Button>
+
+	<Button name="DarkMenuElementTemplate" inherits="ResizeLayoutFrame" virtual="true">
+		<Size x="1" y="20"/>
+		<KeyValues>
+			<KeyValue key="widthPadding" value="14" type="number"/>
+		</KeyValues>
+		<Frames>
+			<Frame parentKey="HighlightBGTex" alpha="0" setAllPoints="true">
+				<KeyValues>
+					<KeyValue key="ignoreInLayout" value="true" type="boolean"/>
+				</KeyValues>
+				<Layers>
+					<Layer level="BACKGROUND">
+						<Texture file="Interface\QuestFrame\UI-QuestTitleHighlight" alphaMode="ADD" setAllPoints="true"/>
+					</Layer>
+				</Layers>
+			</Frame>
+		</Frames>
+	</Button>
+
+	<Button name="SteppersIncrementButtonTemplate" motionScriptsWhileDisabled="true" virtual="true">
+		<Size x="24" y="24"/>
+		<NormalTexture file="Interface\Buttons\UI-SpellbookIcon-NextPage-Up"/>
+		<PushedTexture file="Interface\Buttons\UI-SpellbookIcon-NextPage-Down"/>
+		<DisabledTexture file="Interface\Buttons\UI-SpellbookIcon-NextPage-Disabled"/>
+		<HighlightTexture file="Interface\Buttons\UI-Common-MouseHilight" alphaMode="ADD"/>
+	</Button>
+
+	<Button name="SteppersDecrementButtonTemplate" motionScriptsWhileDisabled="true" virtual="true">
+		<Size x="24" y="24"/>
+		<NormalTexture file="Interface\Buttons\UI-SpellbookIcon-PrevPage-Up"/>
+		<PushedTexture file="Interface\Buttons\UI-SpellbookIcon-PrevPage-Down"/>
+		<DisabledTexture file="Interface\Buttons\UI-SpellbookIcon-PrevPage-Disabled"/>
+		<HighlightTexture file="Interface\Buttons\UI-Common-MouseHilight" alphaMode="ADD"/>
+	</Button>
+
+	<Frame name="DropdownWithSteppersTemplate" mixin="DropdownWithSteppersMixin" virtual="true">
+		<Size x="223" y="38"/>
+		<Frames>
+			<Button parentKey="IncrementButton" inherits="SteppersIncrementButtonTemplate"/>
+			<Button parentKey="DecrementButton" inherits="SteppersDecrementButtonTemplate"/>
+		</Frames>
+		<Scripts>
+			<OnLoad method="OnLoad"/>
+		</Scripts>
+	</Frame>
+
+	<!-- See DropdownWithSteppersTemplate for dropdown requirements. -->
+	<Frame name="DropdownWithSteppersAndLabelTemplate" inherits="DropdownWithSteppersTemplate" mixin="DropdownWithSteppersAndLabelMixin" virtual="true">
+		<Layers>
+			<Layer level="ARTWORK">
+				<FontString parentKey="Label" inherits="GameFontHighlightMedium">
+					<Anchors>
+						<Anchor point="RIGHT" relativeKey="$parent.DecrementButton" relativePoint="LEFT" x="-34"/>
+					</Anchors>
+				</FontString>
+			</Layer>
+		</Layers>
+	</Frame>
 </Ui>

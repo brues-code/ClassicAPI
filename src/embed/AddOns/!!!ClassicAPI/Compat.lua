@@ -8,6 +8,33 @@ end
 C_Container.GetContainerNumSlots = GetContainerNumSlots
 C_Container.PickupContainerItem = PickupContainerItem
 
+C_CVar.GetCVar = GetCVar
+C_CVar.GetCVarDefault = GetCVarDefault
+C_CVar.RegisterCVar = RegisterCVar
+
+C_KeyBindings = C_KeyBindings or {}
+
+-- This client's binding list holds each action once.
+function C_KeyBindings.GetBindingIndex(action)
+    for index = 1, GetNumBindings() do
+        if GetBinding(index) == action then
+            return index
+        end
+    end
+    return nil
+end
+
+-- This client has one binding context, so no action has a context of its
+-- own.
+function C_KeyBindings.GetBindingContextForAction(action)
+    return nil
+end
+
+-- This client has no custom binding types (retail's push-to-talk key).
+function C_KeyBindings.GetCustomBindingType(bindingIndex)
+    return nil
+end
+
 C_ActionBar = C_ActionBar or {}
 
 -- Retail answers per game type. This client always has a keyring.
@@ -42,4 +69,13 @@ end
 -- This client has no alternate player forms.
 function C_PlayerInfo.GetAlternateFormInfo()
     return false, false
+end
+
+-- Retail marks the settings added in the current version as new. Nothing in
+-- this client is new.
+function IsNewSettingInCurrentVersion(variable)
+    return false
+end
+
+function MarkNewSettingAsSeen(variable)
 end

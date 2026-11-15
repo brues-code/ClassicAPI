@@ -96,3 +96,11 @@ function PetActionButtonUp(id)
         end
     end
 end
+
+-- Retail's binding-highlight registry (Blizzard_ActionBar/Shared/ActionButton.lua).
+-- A Settings key binding row registers for its action on it. Retail's action
+-- buttons trigger it while the cursor is over them; 1.12's action buttons do
+-- not, so nothing triggers it here.
+ActionButtonBindingHighlightCallbackRegistry = CreateFromMixins(CallbackRegistryMixin);
+ActionButtonBindingHighlightCallbackRegistry:SetUndefinedEventsAllowed(true);
+ActionButtonBindingHighlightCallbackRegistry:OnLoad();

@@ -1,0 +1,249 @@
+-- Backport of retail's Blizzard_SharedXML/Shared/Slider/MinimalSlider.lua.
+--
+-- Differences from the retail source:
+--   - The bar is 1.12's OptionsSliderTemplate backdrop (see MinimalSlider.xml),
+--     set here because the template has no atlas pieces.
+--   - No SetObeyStepOnDrag: this client's slider always rounds its value to
+--     the step.
+--   - Thumb is the slider's thumb texture, read here: retail's template names
+--     it with a parentKey.
+--   - No narration: this client has none.
+--   - SetValue does not report the value it sets. 1.12's slider rounds every
+--     value to the step in single-precision floats, and the rounding does
+--     not settle: a value that comes back through a setting rounds a hair
+--     away again and fires OnValueChanged again, so the Settings slider and
+--     its setting called each other until the stack ran out. When the value
+--     the slider lands on is within rounding of the one asked for,
+--     OnValueChanged updates the labels and steppers but does not trigger
+--     the OnValueChanged event; the caller already has the value.
+
+local STEPPER_DISABLED_ALPHA = 0.5;
+
+local SLIDER_BACKDROP = {
+	bgFile = "Interface\\Buttons\\UI-SliderBar-Background",
+	edgeFile = "Interface\\Buttons\\UI-SliderBar-Border",
+	tile = true,
+	tileSize = 8,
+	edgeSize = 8,
+	insets = { left = 3, right = 3, top = 6, bottom = 6 },
+};
+
+MinimalSliderMixin = {};
+
+function MinimalSliderMixin:OnLoad()
+	self:SetBackdrop(SLIDER_BACKDROP);
+	self.Thumb = self:GetThumbTexture();
+end
+
+function MinimalSliderMixin:Release()
+	self:SetScript("OnValueChanged", nil);
+end
+
+local function NoModification(value)
+	return value;
+end
+
+function CreateMinimalSliderFormatter(labelType, value)
+	local formatter = nil;
+	if value == nil then
+		formatter = NoModification;
+	elseif type(value) == "function" then
+		formatter = value;
+	else
+		-- Ignores the control value and returns the function argument instead.
+		formatter = function(v)
+			return value;
+		end;
+	end
+	return formatter;
+end
+
+MinimalSliderWithSteppersMixin = CreateFromMixins(CallbackRegistryMixin);
+
+MinimalSliderWithSteppersMixin:GenerateCallbackEvents(
+	{
+		"OnValueChanged",
+		"OnInteractStart",
+		"OnInteractEnd",
+	}
+);
+
+MinimalSliderWithSteppersMixin.Label = EnumUtil.MakeEnum("Left", "Right", "Top", "Min", "Max");
+
+local interactionFlags = {
+	Hover = 1,
+	Click = 2,
+};
+
+function MinimalSliderWithSteppersMixin:OnLoad()
+	CallbackRegistryMixin.OnLoad(self);
+
+	self.InteractionFlags = CreateFromMixins(FlagsMixin);
+	self.InteractionFlags:OnLoad();
+
+	local forward = false;
+	self.Back:SetScript("OnClick", GenerateClosure(self.OnStepperClicked, self, forward));
+
+	local backward = true;
+	self.Forward:SetScript("OnClick", GenerateClosure(self.OnStepperClicked, self, backward));
+
+	local function OnMouseDown(slider)
+		if slider:IsEnabled() then
+			self:SetInteractionFlag(interactionFlags.Click);
+			PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON);
+		end
+	end
+	self.Slider:SetScript("OnMouseDown", OnMouseDown);
+
+	local function OnMouseUp(slider)
+		if slider:IsEnabled() then
+			self:ClearInteractionFlag(interactionFlags.Click);
+		end
+	end
+	self.Slider:SetScript("OnMouseUp", OnMouseUp);
+
+	local function OnEnter(slider)
+		if slider:IsEnabled() then
+			self:SetInteractionFlag(interactionFlags.Hover);
+		end
+	end
+	self.Slider:SetScript("OnEnter", OnEnter);
+
+	local function OnLeave(slider)
+		if slider:IsEnabled() then
+			self:ClearInteractionFlag(interactionFlags.Hover);
+		end
+	end
+	self.Slider:SetScript("OnLeave", OnLeave);
+end
+
+function MinimalSliderWithSteppersMixin:OnStepperClicked(forward)
+	local value = self.Slider:GetValue();
+	local step = self.Slider:GetValueStep();
+	if forward then
+		self.Slider:SetValue(value + step);
+	else
+		self.Slider:SetValue(value - step);
+	end
+
+	PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON);
+end
+
+local function SetStepperButtonEnabled(button, enabled)
+	button:SetEnabled(enabled);
+	button:SetAlpha(enabled and 1.0 or STEPPER_DISABLED_ALPHA);
+	button:DesaturateHierarchy(enabled and 0 or 1);
+end
+
+function MinimalSliderWithSteppersMixin:UpdateStepperStates()
+	if not self:IsSliderEnabled() then
+		return;
+	end
+
+	local value = self.Slider:GetValue();
+	local minValue, maxValue = self.Slider:GetMinMaxValues();
+	local step = self.Slider:GetValueStep();
+	local atMin = value <= minValue + (step * 0.5);
+	local atMax = value >= maxValue - (step * 0.5);
+	SetStepperButtonEnabled(self.Back, not atMin);
+	SetStepperButtonEnabled(self.Forward, not atMax);
+end
+
+function MinimalSliderWithSteppersMixin:Init(value, minValue, maxValue, steps, formatters)
+	self.Slider:SetMinMaxValues(minValue, maxValue);
+	self.Slider:SetValueStep((maxValue - minValue) / steps);
+	self.Slider:SetValue(value);
+
+	self.formatters = formatters;
+	self:FormatValue(value);
+	self:UpdateStepperStates();
+
+	local function OnValueChanged(slider, value)
+		self:FormatValue(value);
+		self:UpdateStepperStates();
+
+		local requested = self.requestedValue;
+		if requested and math.abs(value - requested) <= slider:GetValueStep() * 0.001 then
+			return;
+		end
+
+		self:TriggerEvent(MinimalSliderWithSteppersMixin.Event.OnValueChanged, value);
+	end
+	self.Slider:SetScript("OnValueChanged", OnValueChanged);
+end
+
+function MinimalSliderWithSteppersMixin:SetInteractionFlag(flag)
+	local wasAnySet = self.InteractionFlags:IsAnySet();
+	self.InteractionFlags:Set(flag);
+	if not wasAnySet then
+		self:TriggerEvent(MinimalSliderWithSteppersMixin.Event.OnInteractStart);
+	end
+end
+
+function MinimalSliderWithSteppersMixin:ClearInteractionFlag(flag)
+	local wasAnySet = self.InteractionFlags:IsAnySet();
+	self.InteractionFlags:Clear(flag);
+	if wasAnySet and not self.InteractionFlags:IsAnySet() then
+		self:TriggerEvent(MinimalSliderWithSteppersMixin.Event.OnInteractEnd);
+	end
+end
+
+function MinimalSliderWithSteppersMixin:FormatValue(value)
+	if not self.formatters then
+		return;
+	end
+
+	for labelID, formatter in pairs(self.formatters) do
+		local label = self.Labels[labelID];
+		if label then
+			label:SetText(formatter(value));
+			label:Show();
+		end
+	end
+end
+
+local function ConfigureSlider(self, color, alpha)
+	self.Slider.Thumb:SetAlpha(alpha);
+
+	local r, g, b = color:GetRGB();
+	self.LeftText:SetVertexColor(r, g, b);
+	self.RightText:SetVertexColor(r, g, b);
+	self.TopText:SetVertexColor(r, g, b);
+	self.MinText:SetVertexColor(r, g, b);
+	self.MaxText:SetVertexColor(r, g, b);
+end
+
+function MinimalSliderWithSteppersMixin:SetEnabled(enabled)
+	self.sliderEnabled = enabled;
+	if enabled then
+		ConfigureSlider(self, NORMAL_FONT_COLOR, 1.0);
+	else
+		ConfigureSlider(self, GRAY_FONT_COLOR, .7);
+	end
+	self.Slider:SetEnabled(enabled);
+
+	if enabled then
+		self:UpdateStepperStates();
+	else
+		SetStepperButtonEnabled(self.Back, false);
+		SetStepperButtonEnabled(self.Forward, false);
+	end
+end
+
+function MinimalSliderWithSteppersMixin:SetValue(value)
+	self.requestedValue = value;
+	self.Slider:SetValue(value);
+	self.requestedValue = nil;
+end
+
+function MinimalSliderWithSteppersMixin:IsSliderEnabled()
+	return self.sliderEnabled ~= false;
+end
+
+function MinimalSliderWithSteppersMixin:Release()
+	self.Slider:Release();
+
+	for index, label in ipairs(self.Labels) do
+		label:Hide();
+	end
+end

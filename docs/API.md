@@ -83,6 +83,9 @@ build instructions.
   - [Function keys F13 to F24](#function-keys-f13-to-f24)
   - [Modified clicks](#modified-clicks)
   - [`ActionButtonUseKeyDown`](#actionbuttonusekeydown)
+  - [`Enum.BindingSet`](#enumbindingset)
+  - [`C_KeyBindings.GetBindingIndex(action)`](#c_keybindingsgetbindingindexaction)
+  - [`C_KeyBindings.GetBindingContextForAction(action)` / `C_KeyBindings.GetCustomBindingType(bindingIndex)`](#c_keybindingsgetbindingcontextforactionaction--c_keybindingsgetcustombindingtypebindingindex)
 
 - [CharacterList](#characterlist)
   - [`GetSavedCharacterOrder(realm)` / `SetSavedCharacterOrder(realm, order)` — GlueXML only](#getsavedcharacterorderrealm--setsavedcharacterorderrealm-order--gluexml-only)
@@ -200,6 +203,7 @@ build instructions.
 - [CVar](#cvar)
   - [`GetCVar(name)`](#getcvarname)
   - [`GetCVarDefault(name)`](#getcvardefaultname)
+  - [`C_CVar.GetCVar(name)` / `C_CVar.GetCVarDefault(name)` / `C_CVar.RegisterCVar(name [, value])`](#c_cvargetcvarname--c_cvargetcvardefaultname--c_cvarregistercvarname--value)
   - [`C_CVar.SetCVar(name [, value])`](#c_cvarsetcvarname--value)
   - [`C_CVar.GetCVarInfo(name)`](#c_cvargetcvarinfoname)
   - [`C_CVar.DoesCVarExist(name)`](#c_cvardoescvarexistname)
@@ -255,6 +259,7 @@ build instructions.
   - [`ACTION_USABLE_CHANGED` event](#action_usable_changed-event)
   - [`COMBAT_LOG_EVENT_UNFILTERED` / `COMBAT_LOG_EVENT` events](#combat_log_event_unfiltered--combat_log_event-events)
   - [`CURSOR_CHANGED` event](#cursor_changed-event)
+  - [`CVAR_UPDATE` event (fires for every change)](#cvar_update-event-fires-for-every-change)
   - [`EQUIPMENT_SETS_CHANGED` event](#equipment_sets_changed-event)
   - [`EQUIPMENT_SWAP_PENDING` event](#equipment_swap_pending-event)
   - [`EQUIPMENT_SWAP_FINISHED` event](#equipment_swap_finished-event)
@@ -281,6 +286,8 @@ build instructions.
   - [`QUEST_REMOVED` event](#quest_removed-event)
   - [`QUEST_TURNED_IN` event](#quest_turned_in-event)
   - [`SELF_RES_SPELL_CHANGED` event](#self_res_spell_changed-event)
+  - [`SETTINGS_LOADED` event](#settings_loaded-event)
+  - [`SETTINGS_PANEL_OPEN` event](#settings_panel_open-event)
   - [`SOUNDKIT_FINISHED` event](#soundkit_finished-event)
   - [`SPELL_ACTIVATION_OVERLAY_SHOW` / `SPELL_ACTIVATION_OVERLAY_HIDE` events](#spell_activation_overlay_show--spell_activation_overlay_hide-events)
   - [`SPELL_ACTIVATION_OVERLAY_GLOW_SHOW` / `SPELL_ACTIVATION_OVERLAY_GLOW_HIDE` events](#spell_activation_overlay_glow_show--spell_activation_overlay_glow_hide-events)
@@ -355,6 +362,8 @@ build instructions.
   - [`CreateFrame("Cooldown" [, name, parent, template])`](#createframecooldown--name-parent-template)
   - [`frame:SetShown(shown)`](#framesetshownshown)
   - [A frame moved to a new parent takes its children along](#a-frame-moved-to-a-new-parent-takes-its-children-along)
+  - [A shown frame moved under a visible parent becomes visible](#a-shown-frame-moved-under-a-visible-parent-becomes-visible)
+  - [`OnShow` and `OnHide` can move frames](#onshow-and-onhide-can-move-frames)
   - [A ScrollFrame keeps clipping its content when it moves](#a-scrollframe-keeps-clipping-its-content-when-it-moves)
   - [`fontstring:GetStringHeight()`](#fontstringgetstringheight)
   - [`fontstring:GetUnboundedStringWidth()`](#fontstringgetunboundedstringwidth)
@@ -402,7 +411,7 @@ build instructions.
   - [`editBox:SetCountInvisibleLetters(count)` / `editBox:IsCountInvisibleLetters()`](#editboxsetcountinvisibleletterscount--editboxiscountinvisibleletters)
   - [`editBox:ClearHistory()`](#editboxclearhistory)
   - [`editBox:Enable()` / `editBox:Disable()` / `editBox:IsEnabled()`](#editboxenable--editboxdisable--editboxisenabled)
-  - [`slider:Enable()` / `slider:Disable()` / `slider:IsEnabled()`](#sliderenable--sliderdisable--sliderisenabled)
+  - [`slider:Enable()` / `slider:Disable()` / `slider:SetEnabled(enabled)` / `slider:IsEnabled()`](#sliderenable--sliderdisable--slidersetenabledenabled--sliderisenabled)
   - [`OnEnable` and `OnDisable` (scripts)](#onenable-and-ondisable-scripts)
   - [`OnMinMaxChanged(self, min, max)` (script)](#onminmaxchangedself-min-max-script)
   - [`statusBar:SetReverseFill(isReverseFill)` / `statusBar:GetReverseFill()`](#statusbarsetreversefillisreversefill--statusbargetreversefill)
@@ -1015,6 +1024,10 @@ build instructions.
   - [`C_QuestLog.IsQuestFlaggedCompleted(questID)`](#c_questlogisquestflaggedcompletedquestid)
   - [`C_QuestLog.GetAllCompletedQuestIDs()`](#c_questloggetallcompletedquestids)
   - [A turn-in always prints "*quest* completed."](#a-turn-in-always-prints-quest-completed)
+
+- [SettingsUtil](#settingsutil)
+  - [`C_SettingsUtil.OpenSettingsPanel([openToCategoryID [, scrollToElementName]])`](#c_settingsutilopensettingspanelopentocategoryid--scrolltoelementname)
+  - [`C_SettingsUtil.NotifySettingsLoaded()`](#c_settingsutilnotifysettingsloaded)
 
 - [Sound](#sound)
   - [`PlaySound(soundKitID)` / `PlaySound(soundName)`](#playsoundsoundkitid--playsoundsoundname)
@@ -2846,6 +2859,36 @@ common in PvP / heal-tank-while-killing-add scenarios.
 The two bindings show in the TARGETING block of the keybind list, not at
 the bottom.
 
+
+### `Enum.BindingSet`
+
+The sets of key bindings, for `LoadBindings`, `SaveBindings` and
+`GetCurrentBindingSet`.
+
+| Field | Value |
+|---|---|
+| `Default` | 0 |
+| `Account` | 1 |
+| `Character` | 2 |
+| `Current` | 3 |
+
+`GetCurrentBindingSet()` returns `Account` or `Character`.
+
+### `C_KeyBindings.GetBindingIndex(action)`
+
+Returns the index of the binding for `action`, the index that
+`GetBinding(index)` takes. Returns `nil` when no binding has that action.
+
+```lua
+local index = C_KeyBindings.GetBindingIndex("INTERACTTARGET")
+local action, key1, key2 = GetBinding(index)
+```
+
+### `C_KeyBindings.GetBindingContextForAction(action)` / `C_KeyBindings.GetCustomBindingType(bindingIndex)`
+
+Both functions return `nil`. The client has one set of key bindings for all
+actions, so no action has a binding context of its own. The client has no
+custom binding types.
 ## CharacterList
 
 ### `GetSavedCharacterOrder(realm)` / `SetSavedCharacterOrder(realm, order)` — GlueXML only
@@ -4996,6 +5039,12 @@ it returns no values. If `name` is not a string or a number,
 `GetCVarDefault` raises an error. `GetCVarDefault` works the same way on the
 glue screens.
 
+### `C_CVar.GetCVar(name)` / `C_CVar.GetCVarDefault(name)` / `C_CVar.RegisterCVar(name [, value])`
+
+The same functions as [`GetCVar`](#getcvarname),
+[`GetCVarDefault`](#getcvardefaultname) and `RegisterCVar`, under their
+`C_CVar` names.
+
 ### `C_CVar.SetCVar(name [, value])`
 
 Sets a cvar and saves it to Config.wtf, as `SetCVar` does. Returns `true`
@@ -6265,6 +6314,26 @@ Two holdings that look alike still count as a change: picking up one of
 two identical stacks, dropping it, and picking up the other reports each
 pickup separately.
 
+### `CVAR_UPDATE` event (fires for every change)
+
+```
+CVAR_UPDATE: cvarName, value
+```
+
+Fires when the value of a cvar changes. `cvarName` is the name of the cvar,
+and `value` is its new value as a string. The Settings window and
+`CVarCallbackRegistry` use this event to keep their controls up to date.
+
+- The event fires only when the value changes, and only for a cvar that
+  `GetCVar` can read.
+- The event fires at the start of the next frame, not during the call that
+  changes the cvar. A script that sets a cvar sees the event after the
+  script ends.
+- A cvar that changes more than one time in a frame fires one event.
+  `value` is the value that the cvar has when the event fires.
+- `SetCVar(name, value, eventName)` fires a second `CVAR_UPDATE`, with
+  `eventName` in place of the cvar name.
+
 ### `EQUIPMENT_SETS_CHANGED` event
 
 Fires (with no payload) after any mutation: `Create`, `Save`,
@@ -6824,6 +6893,22 @@ changes. For example, it fires when the player dies with a Soulstone, and
 again when the player comes back to life. When it fires, read
 [`C_DeathInfo.GetSelfResurrectOptions`](#c_deathinfogetselfresurrectoptions)
 again. A change to an item option does not fire this event.
+
+### `SETTINGS_LOADED` event
+
+Fires one time, when the Settings window has registered all of its
+settings. It has no payload.
+
+### `SETTINGS_PANEL_OPEN` event
+
+Fires when an addon asks the Settings window to open.
+
+```
+SETTINGS_PANEL_OPEN: openToCategoryID, scrollToElementName
+```
+
+- **`openToCategoryID`** (number or string, or nil) — the category to show.
+- **`scrollToElementName`** (string or nil) — the setting to scroll to.
 
 ### `SOUNDKIT_FINISHED` event
 
@@ -8556,6 +8641,30 @@ child:GetFrameLevel()   -- 22
 `frame:SetFrameLevel(level)` moves only `frame`. The frames under it keep
 the levels they have.
 
+### A shown frame moved under a visible parent becomes visible
+
+`frame:SetParent(parent)` makes `frame` visible when `frame` is shown and
+`parent` is visible, or when `parent` is `nil`. A frame is shown when its
+own `Show()` is in effect, even while a hidden parent keeps it from being
+visible.
+
+```lua
+local holder = CreateFrame("Frame", nil, UIParent)
+holder:Hide()
+local button = CreateFrame("Button", nil, holder)   -- shown, not visible
+button:SetParent(UIParent)
+button:IsVisible()   -- true
+```
+
+`OnShow` runs when the frame becomes visible.
+
+### `OnShow` and `OnHide` can move frames
+
+When a frame is shown or hidden, its children are shown or hidden one at a
+time, and each child runs its `OnShow` or `OnHide` before the next child.
+These scripts can call `SetParent` on any frame, also on the child itself.
+A child that is no longer under the frame when its turn comes is skipped.
+
 ### A ScrollFrame keeps clipping its content when it moves
 
 A ScrollFrame's scroll child, and all the frames in it, stay clipped to the
@@ -9315,11 +9424,13 @@ Does nothing when the box has no history.
   call `editBox:SetFocus()`.
 - Each call runs the script, also when the box is already in that state.
 
-### `slider:Enable()` / `slider:Disable()` / `slider:IsEnabled()`
+### `slider:Enable()` / `slider:Disable()` / `slider:SetEnabled(enabled)` / `slider:IsEnabled()`
 
 `slider:Disable()` stops the mouse from moving the slider and runs its
 `OnDisable` script. `slider:Enable()` lets the mouse move it again and runs
-its `OnEnable` script. `slider:IsEnabled()` returns `true` or `false`.
+its `OnEnable` script. `slider:SetEnabled(enabled)` calls `Enable()` when
+`enabled` is true, and `Disable()` when it is false or nil.
+`slider:IsEnabled()` returns `true` or `false`.
 
 - A disabled slider still runs its `OnMouseDown` and `OnMouseUp` scripts,
   and `slider:SetValue()` still changes its value.
@@ -12754,20 +12865,19 @@ end
 
 ### `InterfaceOptionsFrame` and addon option panels
 
-Later clients list addon option panels in the Interface Options window,
-`InterfaceOptionsFrame`. An addon adds its panel with
-`InterfaceOptions_AddCategory(panel)` (Ace3's `AddToBlizOptions` does this
-for every Ace3 addon) and opens it with
-`InterfaceOptionsFrame_OpenToCategory(panel)`. Without these two
-functions, Ace3 addons stop while they initialize.
+Addons add option panels to the Settings window in two ways. Older addons
+call `InterfaceOptions_AddCategory(panel)`. Ace3's `AddToBlizOptions` does
+this for every Ace3 addon. Newer addons call
+`Settings.RegisterCanvasLayoutCategory` and `Settings.RegisterAddOnCategory`.
+Both kinds of panel show in the same window, in its AddOns list.
 
 ```lua
 local panel = CreateFrame("Frame")
 panel.name = "MyAddon"                   -- required: the list entry
-panel.okay = function(self) end          -- optional: Okay pressed
-panel.cancel = function(self) end        -- optional: Cancel pressed
-panel.default = function(self) end       -- optional: Defaults pressed
-panel.refresh = function(self) end       -- optional: panel shown
+panel.okay = function(self) end          -- optional: the window commits
+panel.cancel = function(self) end        -- optional: the window closes without a commit
+panel.default = function(self) end       -- optional: defaults are set
+panel.refresh = function(self) end       -- optional: the window opens, or the panel shows
 InterfaceOptions_AddCategory(panel)
 
 local sub = CreateFrame("Frame")
@@ -12777,21 +12887,51 @@ InterfaceOptions_AddCategory(sub)
 InterfaceOptionsFrame_OpenToCategory(panel)   -- or the category's name
 ```
 
-The window lists addon panels under AddOns; a category with children starts
-collapsed. To open the window, click AddOn Options in the game menu (above
-Key Bindings). When you close a window that you opened from the game menu, the
-game menu opens again. Okay and Cancel call `okay` / `cancel` on every panel.
-Escape does the same as Cancel. Defaults calls `default` on the panel shown.
-`InterfaceOptionsFrame_Show()` toggles the window. The names match later
-clients (`InterfaceOptionsFrameAddOns` with its `buttons`, `buttonHeight` and
-`update` fields, the `InterfaceOptionsFrameAddOnsList` scroll frame,
-`InterfaceOptionsFramePanelContainer.displayedPanel`,
-`InterfaceOptionsListButtonTemplate`, `INTERFACEOPTIONS_ADDONCATEGORIES`),
-because addons and libraries use them directly.
+The name of a panel is also the ID of its category. Thus
+`Settings.GetCategory("MyAddon")` and `Settings.OpenToCategory("MyAddon")`
+find the panel. The `parent` field can name a category that an addon added
+through either API. If the parent is not in the list yet, the panel shows at
+the top level. The list sorts addon categories by name, so the `position`
+argument has no effect.
 
-This is the addon side only. The client's own settings stay in their own
-windows, and the Categories list, which later clients fill with the game's
-settings, exists but stays empty.
+The window calls the panel functions at these times:
+
+- **Close**, **Apply** and Escape commit. Then `okay` runs on every panel.
+- `cancel` runs only when the window closes without a commit. That occurs
+  when you click Exit in the dialog about settings that are not applied, or
+  when an addon clicks `InterfaceOptionsFrameCancel`.
+- **Defaults** opens a dialog. **All Settings** runs `default` on every
+  panel. **These Settings** runs `default` on the panel that shows. On a
+  client whose dialogs have only two buttons, the dialog has no These
+  Settings choice.
+- `refresh` runs when the window opens and each time the panel shows.
+
+The Defaults button shows above a list of settings, not above a panel. After
+the window closes, the game menu opens. A panel can have its own `OnCommit`,
+`OnDefault` or `OnRefresh` method. Then that method runs in place of `okay`,
+`default` or `refresh`.
+
+To open the window, click AddOn Options in the game menu (above Key
+Bindings). `InterfaceOptionsFrame_Show()` opens or closes the window.
+`InterfaceAddOnsList_Update()` builds the list again. The window shows its
+Game and AddOns tabs only when both lists have categories.
+
+The names of the earlier Interface Options window are parts of the Settings
+window, because addons use these names directly:
+
+| Name | Part of the Settings window |
+|------|-----------------------------|
+| `InterfaceOptionsFrame` | `SettingsPanel`, the window |
+| `InterfaceOptionsFrameAddOns`, `InterfaceOptionsFrameCategories` | The category list. Its `buttons` table is empty. Its `update` field builds the list again. |
+| `InterfaceOptionsFrameAddOnsList` | The scroll box of the category list |
+| `InterfaceOptionsFrameAddOnsListScrollBar` | The scroll bar of the category list |
+| `InterfaceOptionsFramePanelContainer` | The frame that holds the panel. Its `displayedPanel` field is the panel that shows. |
+| `InterfaceOptionsFrameOkay` | The Close button |
+| `InterfaceOptionsFrameCancel` | A hidden button. A click closes the window without a commit. |
+| `InterfaceOptionsFrameDefaults` | A hidden button. A click sets the defaults of the category that shows. |
+
+`INTERFACEOPTIONS_ADDONCATEGORIES` lists the panels that
+`InterfaceOptions_AddCategory` added.
 
 ## Item
 
@@ -22330,6 +22470,26 @@ f:SetScript("OnEvent", function()
     end
 end)
 ```
+
+## SettingsUtil
+
+### `C_SettingsUtil.OpenSettingsPanel([openToCategoryID [, scrollToElementName]])`
+
+Opens the Settings window. With a category ID, the window shows that
+category. With `scrollToElementName` too, the list of settings scrolls to
+the setting of that name. `Settings.OpenToCategory` calls this function.
+
+The function fires `SETTINGS_PANEL_OPEN` with its two arguments, and the
+window opens on that event. A category ID is the number that the category
+gets, or the value that an addon puts in the `ID` field of the category.
+Many addons set `ID` to the name of the category. Then the name opens the
+category.
+
+### `C_SettingsUtil.NotifySettingsLoaded()`
+
+Fires `SETTINGS_LOADED`. The Settings window calls this function one time,
+after `VARIABLES_LOADED` and `PLAYER_ENTERING_WORLD`. At that time, every
+function that addons gave to `SettingsRegistrar:AddRegistrant` has run.
 
 ## Sound
 

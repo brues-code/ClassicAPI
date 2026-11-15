@@ -514,7 +514,16 @@ const Game::Doc::Function kGetBindingAction{"Returns the command bound to a key.
                                             kGetBindingActionArgs, kGetBindingActionRets,
                                             "BindingsGlobals"};
 
+// The engine's binding sets (Offsets::BINDING_SET_*), as retail names them.
+const Game::Lua::EnumIntegerEntry kBindingSet[] = {
+    {"Default", Offsets::BINDING_SET_DEFAULT},
+    {"Account", Offsets::BINDING_SET_ACCOUNT},
+    {"Character", Offsets::BINDING_SET_CHARACTER},
+    {"Current", Offsets::BINDING_SET_CURRENT},
+};
+
 void RegisterLuaFunctions() {
+    Game::Lua::RegisterIntegerEnum("Enum", "BindingSet", kBindingSet, "KeyBindings");
     Game::Lua::RegisterGlobalFunction("GetBindingByKey", &Script_GetBindingByKey,
                                       &kGetBindingByKey);
     Game::Lua::RegisterGlobalFunction("SetBindingSpell", &Script_SetBindingSpell,

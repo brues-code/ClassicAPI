@@ -11,7 +11,9 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// `slider:Enable()`, `slider:Disable()` and `slider:IsEnabled()`.
+// `slider:Enable()`, `slider:Disable()`, `slider:SetEnabled(enabled)` and
+// `slider:IsEnabled()`. SetEnabled is Enable or Disable by the truth of its
+// argument, as retail's is.
 //
 // 4.3.4's Script Enable / Disable set or clear frame flag 0x400 and run
 // OnEnable / OnDisable on every call, changed or not, unless the frame is
@@ -70,6 +72,12 @@ int __fastcall Script_Disable(void *L) {
     return 0;
 }
 
+int __fastcall Script_SetEnabled(void *L) {
+    if (void *slider = ResolveSlider(L))
+        Frame::EnableScripts::RunOnEnableScript(slider, Game::Lua::ToBoolean(L, 2) == 0);
+    return 0;
+}
+
 int __fastcall Script_IsEnabled(void *L) {
     void *slider = ResolveSlider(L);
     if (slider == nullptr)
@@ -81,6 +89,7 @@ int __fastcall Script_IsEnabled(void *L) {
 const Game::Lua::FrameMethodEntry g_methods[] = {
     {"Enable", &Script_Enable},
     {"Disable", &Script_Disable},
+    {"SetEnabled", &Script_SetEnabled},
     {"IsEnabled", &Script_IsEnabled},
 };
 
@@ -90,11 +99,17 @@ const Game::Doc::Field kIsEnabledRets[] = {
 const Game::Doc::Function kEnable{"Enables the slider and runs its OnEnable script.", {}, {}};
 const Game::Doc::Function kDisable{
     "Disables the slider: the mouse no longer moves it. Runs its OnDisable script.", {}, {}};
+const Game::Doc::Field kSetEnabledArgs[] = {
+    Game::Doc::Opt("enabled", "bool", "false", "True enables the slider, false disables it."),
+};
+const Game::Doc::Function kSetEnabled{
+    "Enables or disables the slider, as Enable() or Disable().", kSetEnabledArgs, {}};
 const Game::Doc::Function kIsEnabled{"Returns whether the slider is enabled.", {}, kIsEnabledRets};
 
 const Game::Doc::Method g_methodDocs[] = {
     {"Enable", &kEnable},
     {"Disable", &kDisable},
+    {"SetEnabled", &kSetEnabled},
     {"IsEnabled", &kIsEnabled},
 };
 

@@ -1,0 +1,29 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\FrameXML\UI.xsd">
+	<!--
+	Retail's Blizzard_SharedXML/Shared/Tabs/MinimalTab.xml. Retail draws the
+	tab with the Options_Tab atlases, which this client does not have. The tab
+	is drawn as the frames of the Settings window are: the tooltip backdrop,
+	set in MinimalTab.lua. The Left, Middle and Right textures keep retail's
+	keys and stay empty.
+	-->
+	<Button name="MinimalTabTemplate" inherits="SelectableButtonTemplate" mixin="MinimalTabMixin" virtual="true">
+		<Size x="100" y="37"/>
+		<Layers>
+			<Layer>
+				<Texture parentKey="Left"/>
+				<Texture parentKey="Right"/>
+				<Texture parentKey="Middle"/>
+			</Layer>
+			<Layer>
+				<FontString parentKey="Text" inherits="GameFontNormal"/>
+			</Layer>
+		</Layers>
+		<Scripts>
+			<OnLoad method="OnLoad"/>
+			<OnEnter method="OnEnter"/>
+			<OnLeave method="OnLeave"/>
+			<OnEnable method="OnEnable"/>
+			<OnDisable method="OnDisable"/>
+		</Scripts>
+	</Button>
+</Ui>

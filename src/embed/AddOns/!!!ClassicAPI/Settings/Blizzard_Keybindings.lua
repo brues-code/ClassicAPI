@@ -1,0 +1,463 @@
+-- Backport of retail's Blizzard_Settings_Shared/Blizzard_Keybindings.lua.
+--
+-- Differences from the retail source:
+--   - 1.12 sends a key to a frame only when the frame takes keyboard input,
+--     so the listener turns keyboard input on while it listens. It has no
+--     gamepad script: this client has no gamepad.
+--   - 1.12 offers a key to the frames from the top stratum down, and an edit
+--     box with the focus takes every key it is offered. A click does not take
+--     the focus from a box. So the listener is in the FULLSCREEN_DIALOG
+--     stratum, above the Settings window, and clears the focus when it starts
+--     to listen: a number box on the same page would take the key otherwise.
+--   - 1.12's GetBinding returns the action and its two keys, with no category
+--     between them.
+--   - 1.12 has no GetBindingFromClick, so the listener asks GetBindingAction
+--     for the key chord the press makes.
+--   - Binding text goes through 1.12's GetBindingText with the "KEY_" prefix
+--     (see Util\BindingUtil.lua).
+--   - No custom binding buttons: this client has no push-to-talk key, and
+--     C_KeyBindings.GetCustomBindingType is always nil. So there is no
+--     CustomBindingManager, SaveAllCustomBindings or Mac input dialog.
+--   - A binding row lights the action button that the binding uses, found by
+--     the 1.12 button names (ActionButton, MultiBar...Button,
+--     PetActionButton, ShapeshiftButton). Retail finds retail's bars.
+--   - The label takes no mouse, so a cut-off name shows no tooltip: 1.12 font
+--     strings have no scripts.
+--   - No "new" tag and no gamepad navigation.
+
+KeybindListener = CreateFrame("Button");
+KeybindListener:SetFrameStrata("FULLSCREEN_DIALOG");
+
+function KeybindListener:OnKeyDown(key)
+	self:ProcessInput(key);
+end
+
+function KeybindListener:OnClick(key)
+end
+
+function KeybindListener:OnMouseWheel(delta)
+	self:OnKeyDown(delta > 0 and "MOUSEWHEELUP" or "MOUSEWHEELDOWN");
+end
+
+function KeybindListener:OnForwardMouseWheel(delta)
+	if self:IsListening() then
+		self:OnMouseWheel(delta);
+		return true;
+	end
+	return false;
+end
+
+function KeybindListener:SetListening(listen)
+	self:EnableKeyboard(listen);
+	if listen then
+		local focus = GetCurrentKeyBoardFocus();
+		if focus then
+			focus:ClearFocus();
+		end
+		self:SetScript("OnKeyDown", self.OnKeyDown);
+		self:SetScript("OnClick", self.OnClick);
+		self:SetScript("OnMouseWheel", self.OnMouseWheel);
+	else
+		self:SetScript("OnKeyDown", nil);
+		self:SetScript("OnClick", nil);
+		self:SetScript("OnMouseWheel", nil);
+	end
+end
+
+function KeybindListener:StartListening(action, slotIndex)
+	self.pending = { action = action, slotIndex = slotIndex };
+	self:SetListening(true);
+
+	EventRegistry:TriggerEvent("KeybindListener.StartedListening", action, slotIndex);
+end
+
+function KeybindListener:StopListening()
+	if not self:IsListening() then
+		return;
+	end
+
+	local oldAction, oldSlotIndex = nil;
+	if self.pending then
+		oldAction = self.pending.action;
+		oldSlotIndex = self.pending.slotIndex;
+	end
+	self.pending = nil;
+	self:SetListening(false);
+
+	EventRegistry:TriggerEvent("KeybindListener.StoppedListening", oldAction, oldSlotIndex);
+end
+
+function KeybindListener:IsListening()
+	return self.pending ~= nil;
+end
+
+local function ClearBindingsForKeys(bindingContext, ...)
+	for i = 1, select("#", ...) do
+		local key = select(i, ...);
+		if key then
+			SetBinding(key, nil, bindingContext);
+		end
+	end
+end
+
+local function GetBindingFromClick(input)
+	return GetBindingAction(CreateKeyChordStringUsingMetaKeyState(GetConvertedKeyOrButton(input)));
+end
+
+function KeybindListener:ProcessInput(input)
+	local pending = self.pending;
+	if not pending then
+		return false;
+	end
+
+	local currentAction = GetBindingFromClick(input);
+	if currentAction == "SCREENSHOT" then
+		RunBinding("SCREENSHOT");
+		return false;
+	end
+
+	local action = pending.action;
+	if input == "ESCAPE" and currentAction == "TOGGLEGAMEMENU" then
+		self:StopListening();
+		return false;
+	end
+
+	local key = GetConvertedKeyOrButton(input);
+	if IsKeyPressIgnoredForBinding(key) then
+		return false;
+	end
+
+	self:StopListening();
+
+	local bindingContext = C_KeyBindings.GetBindingContextForAction(action);
+
+	-- Unbind the current action
+	local slotIndex = pending.slotIndex;
+	local key1, key2 = GetBindingKey(action, nil, bindingContext);
+	ClearBindingsForKeys(bindingContext, key1, key2);
+
+	local newKey = CreateKeyChordStringUsingMetaKeyState(key);
+	local unbindUnconflicted, unbindSlotIndex, unbindAction = self:UnbindKey(newKey, action);
+	local rebindSuccess = self:RebindKeysInOrder(newKey, slotIndex, action, key1, key2);
+
+	if not unbindUnconflicted then
+		EventRegistry:TriggerEvent("KeybindListener.UnbindFailed", action, unbindAction, unbindSlotIndex);
+	elseif not rebindSuccess then
+		EventRegistry:TriggerEvent("KeybindListener.RebindFailed", action);
+	else
+		EventRegistry:TriggerEvent("KeybindListener.RebindSuccess", action);
+	end
+
+	return true;
+end
+
+function KeybindListener:UnbindKey(newKey, action)
+	local bindingContext = C_KeyBindings.GetBindingContextForAction(action);
+
+	local conflicted, conflictedSlotIndex;
+	local oldAction = GetBindingAction(newKey, nil, bindingContext);
+	if oldAction ~= "" and oldAction ~= action then
+		local key1, key2 = GetBindingKey(oldAction, nil, bindingContext);
+		if key1 == newKey and key2 then
+			conflicted = true;
+			conflictedSlotIndex = 1;
+		elseif (not key1 or key1 == newKey) and (not key2 or key2 == newKey) then
+			conflicted = true;
+			conflictedSlotIndex = 2;
+		end
+	end
+	SetBinding(newKey, nil, bindingContext);
+
+	return not conflicted, conflictedSlotIndex, oldAction;
+end
+
+function KeybindListener:Commit()
+	SaveBindings(GetCurrentBindingSet());
+end
+
+function KeybindListener:ClearActionPrimaryBinding()
+	if not self:IsListening() then
+		return;
+	end
+
+	local action = self.pending.action;
+	local bindingContext = C_KeyBindings.GetBindingContextForAction(action);
+	local key1, key2 = GetBindingKey(action, nil, bindingContext);
+	if key1 then
+		SetBinding(key1, nil, bindingContext);
+	end
+
+	if key2 then
+		SetBinding(key2, action, bindingContext);
+	end
+end
+
+function KeybindListener:SetBinding(newKey, action, oldKey)
+	local bindingContext = C_KeyBindings.GetBindingContextForAction(action);
+	local failed = nil;
+	if not SetBinding(newKey, action, bindingContext) then
+		if oldKey then
+			SetBinding(oldKey, action, bindingContext);
+		end
+		failed = true;
+	end
+	return not failed;
+end
+
+function KeybindListener:RebindKeysInOrder(key, slotIndex, action, ...)
+	local failed = nil;
+	for i = 1, select("#", ...) do
+		local currentKey = select(i, ...);
+		local keyToBind = (i == slotIndex) and key or currentKey;
+		if keyToBind then
+			if not self:SetBinding(keyToBind, action, currentKey) then
+				failed = true;
+			end
+		end
+	end
+	return not failed;
+end
+
+function KeybindListener:ResetBindingsToDefault()
+	PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON);
+	self:StopListening();
+
+	LoadBindings(Enum.BindingSet.Default);
+	SaveBindings(GetCurrentBindingSet());
+end
+
+KeyBindingFrameBindingTemplateMixin = {};
+
+local KeyBindingFrameBindingTemplateEvents = {
+	"UPDATE_BINDINGS",
+};
+
+function KeyBindingFrameBindingTemplateMixin:OnLoad()
+	self.cbrHandles = Settings.CreateCallbackHandleContainer();
+end
+
+function KeyBindingFrameBindingTemplateMixin:OnShow()
+	FrameUtil.RegisterFrameForEvents(self, KeyBindingFrameBindingTemplateEvents);
+end
+
+function KeyBindingFrameBindingTemplateMixin:OnHide()
+	FrameUtil.UnregisterFrameForEvents(self, KeyBindingFrameBindingTemplateEvents);
+end
+
+function KeyBindingFrameBindingTemplateMixin:OnEvent(event)
+	if event == "UPDATE_BINDINGS" then
+		self:RenewBindings();
+	end
+end
+
+function KeyBindingFrameBindingTemplateMixin:OnHighlightBinding(showHighlight)
+	self.Highlight:SetShown(showHighlight);
+end
+
+function KeyBindingFrameBindingTemplateMixin:DetermineHighlightFrame()
+	local bindingIndex = self.initializer.data.bindingIndex;
+	local action = GetBinding(bindingIndex);
+
+	local actionButton = string.match(action, "^ACTIONBUTTON(%d+)");
+	if actionButton then
+		return _G["ActionButton" .. actionButton];
+	end
+
+	local multiActionBar, multiActionButton = string.match(action, "^MULTIACTIONBAR(%d+)BUTTON(%d+)");
+	if multiActionBar and multiActionButton then
+		local bars = {
+			"MultiBarBottomLeft",
+			"MultiBarBottomRight",
+			"MultiBarRight",
+			"MultiBarLeft",
+		};
+		local bar = bars[tonumber(multiActionBar)];
+		if bar then
+			return _G[bar .. "Button" .. multiActionButton];
+		end
+	end
+
+	local petActionButton = string.match(action, "^BONUSACTIONBUTTON(%d+)");
+	if petActionButton then
+		return _G["PetActionButton" .. petActionButton];
+	end
+
+	local stanceActionButton = string.match(action, "^SHAPESHIFTBUTTON(%d+)");
+	if stanceActionButton then
+		return _G["ShapeshiftButton" .. stanceActionButton];
+	end
+
+	return nil;
+end
+
+function KeyBindingFrameBindingTemplateMixin:OnEnter()
+	local highlightFrame = self:DetermineHighlightFrame();
+	if highlightFrame then
+		self.highlightFrame = highlightFrame;
+		highlightFrame:EnableDrawLayer("HIGHLIGHT");
+	end
+end
+
+function KeyBindingFrameBindingTemplateMixin:OnLeave()
+	if self.highlightFrame then
+		self.highlightFrame:DisableDrawLayer("HIGHLIGHT");
+		self.highlightFrame = nil;
+	end
+end
+
+function KeyBindingFrameBindingTemplateMixin:UpdateBindingState(initializer)
+	local bindingIndex = initializer.data.bindingIndex;
+	local action, binding1, binding2 = GetBinding(bindingIndex);
+
+	for index, button in ipairs(self.Buttons) do
+		button:SetSelected(initializer.selectedIndex == index);
+	end
+
+	BindingButtonTemplate_SetupBindingButton(binding1, self.Button1);
+	BindingButtonTemplate_SetupBindingButton(binding2, self.Button2);
+end
+
+function KeyBindingFrameBindingTemplateMixin:Init(initializer)
+	self.initializer = initializer;
+
+	local bindingIndex = initializer.data.bindingIndex;
+	local action = GetBinding(bindingIndex);
+	local bindingName = GetBindingName(action);
+
+	local labelIndent = (initializer.data.search and 37) or 37;
+	self.Label:SetPoint("LEFT", labelIndent, 0);
+	self.Label:SetText(bindingName);
+
+	self.Button1:SetParent(self);
+	self.Button2:SetParent(self);
+	self.Button1:Show();
+	self.Button2:Enable();
+
+	local function InitializeKeyBindingButtonTooltip(index)
+		local key = select(index, GetBindingKey(action));
+		if key then
+			Settings.InitTooltip(KEY_BINDING_NAME_AND_KEY:format(bindingName, GetBindingText(key, "KEY_")), KEY_BINDING_TOOLTIP);
+		end
+	end
+
+	for index, button in ipairs(self.Buttons) do
+		button:SetScript("OnClick", function(button, buttonName, down)
+			if buttonName == "LeftButton" then
+				local oldSelected = initializer.selectedIndex == index;
+				KeybindListener:StopListening();
+
+				if not oldSelected then
+					initializer.selectedIndex = index;
+					button:SetSelected(true);
+					KeybindListener:StartListening(action, index);
+				end
+			elseif buttonName == "RightButton" then
+				local unbindKey = select(index, GetBindingKey(action));
+				if unbindKey then
+					SetBinding(unbindKey, nil, C_KeyBindings.GetBindingContextForAction(action));
+					SettingsTooltip:Hide();
+					SettingsPanel:ClearOutputText();
+				end
+			else
+				KeybindListener:ProcessInput(buttonName);
+				return;
+			end
+		end);
+
+		button:SetTooltipFunc(GenerateClosure(InitializeKeyBindingButtonTooltip, index));
+		button:SetCustomTooltipAnchoring(button, "ANCHOR_RIGHT", 0, 0);
+	end
+
+	self.cbrHandles:RegisterCallback(EventRegistry, "Settings.ReparentBindingsToInputBlocker", self.ReparentBindingsToInputBlocker, self);
+	self.cbrHandles:RegisterCallback(EventRegistry, "Settings.UnparentBindingsToInputBlocker", self.UnparentBindingsToInputBlocker, self);
+	self.cbrHandles:RegisterCallback(EventRegistry, "Settings.UpdateKeybinds", self.RenewBindings, self);
+
+	self:UpdateBindingState(initializer);
+
+	if self.highlightHandle then
+		self.highlightHandle:Unregister();
+	end
+	self.highlightHandle = ActionButtonBindingHighlightCallbackRegistry:RegisterCallbackWithHandle(action, self.OnHighlightBinding, self);
+end
+
+function KeyBindingFrameBindingTemplateMixin:ReparentBindingsToInputBlocker(inputBlocker)
+	if self:IsShown() then
+		if self.Button1:IsShown() then
+			self.Button1:SetParent(inputBlocker);
+		end
+		if self.Button2:IsShown() then
+			self.Button2:SetParent(inputBlocker);
+		end
+	end
+end
+
+function KeyBindingFrameBindingTemplateMixin:UnparentBindingsToInputBlocker(inputBlocker)
+	self.Button1:SetParent(self);
+	self.Button2:SetParent(self);
+end
+
+function KeyBindingFrameBindingTemplateMixin:Release()
+	self.Button1:SetParent(self);
+	self.Button2:SetParent(self);
+
+	self.cbrHandles:Unregister();
+end
+
+function KeyBindingFrameBindingTemplateMixin:RenewBindings()
+	self:ClearSelections();
+	self:UpdateBindingState(self.initializer);
+end
+
+function KeyBindingFrameBindingTemplateMixin:ClearSelections()
+	self.initializer.selectedIndex = nil;
+
+	for index, button in ipairs(self.Buttons) do
+		button:SetSelected(false);
+	end
+end
+
+function CreateKeybindingEntryInitializer(bindingIndex, search)
+	local data = {bindingIndex = bindingIndex, search = search};
+	local initializer = Settings.CreateElementInitializer("KeyBindingFrameBindingTemplate", data);
+	local oldMatchesSearchTags = initializer.MatchesSearchTags;
+
+	initializer.GetBindingText = function(self, bindingIndex, actionIndex)
+		local action, binding1, binding2 = GetBinding(bindingIndex);
+		if actionIndex == 1 then
+			return GetBindingText(binding1, "KEY_");
+		else
+			return GetBindingText(binding2, "KEY_");
+		end
+	end;
+
+	initializer.MatchesSearchTags = function(self, words)
+		local result = oldMatchesSearchTags(self, words);
+		if result then
+			return result;
+		end
+
+		local bindingIndex = self.data.bindingIndex;
+		for actionIndex = 1, 2 do
+			local bindingText = self:GetBindingText(bindingIndex, actionIndex):upper();
+			for _, word in ipairs(words) do
+				local first, last = string.find(bindingText, word, nil, true);
+				if first and last then
+					return last - first;
+				end
+			end
+		end
+		return nil;
+	end;
+	return initializer;
+end
+
+KeyBindingButtonMixin = CreateFromMixins(DefaultTooltipMixin);
+
+function KeyBindingButtonMixin:SetSelected(selected)
+	self.SelectedHighlight:SetShown(selected);
+	self:GetHighlightTexture():SetAlpha(selected and 0 or 1);
+end
+
+function KeyBindingButtonMixin:OnLoad()
+	self:RegisterForClicks("AnyUp");
+end

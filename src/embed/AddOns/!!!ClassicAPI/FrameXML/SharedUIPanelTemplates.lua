@@ -11,6 +11,10 @@
 --   - 1.12 FrameXML owns UIPanelCloseButton (its own OnClick), so
 --     UIPanelCloseButtonDefaultAnchors inherits UIPanelCloseButtonNoScripts
 --     and runs UIPanelCloseButton_OnClick itself.
+--   - DropdownWithSteppersMixin has no gamepad cursor anchors: this client
+--     has no gamepad navigation.
+--   - 1.12's Button:IsEnabled returns 1 or 0, and 0 is true in Lua, so
+--     DropdownWithSteppersMixin compares the dropdown's with 1.
 
 function TruncatedTooltipScript_OnEnter(self)
 	local text = self.truncatedTooltipScriptText or self.Text;
@@ -304,4 +308,89 @@ end
 
 function PanelResizeButtonMixin:SetOnResizeCallback(resizeCallback)
 	self.resizeCallback = resizeCallback;
+end
+
+DropdownWithSteppersMixin = {};
+
+function DropdownWithSteppersMixin:OnLoad()
+	self.IncrementButton:SetPoint("LEFT", self.Dropdown, "RIGHT", (self.incrementOffsetX or 4), 0);
+	self.IncrementButton:SetScript("OnClick", GenerateClosure(self.OnIncrementClicked, self));
+
+	self.DecrementButton:SetPoint("RIGHT", self.Dropdown, "LEFT", (self.decrementOffsetX or -5), 0);
+	self.DecrementButton:SetScript("OnClick", GenerateClosure(self.OnDecrementClicked, self));
+
+	local function OnUpdate(o, previousRadio, nextRadio, selections)
+		local canDecrement = previousRadio ~= nil;
+		local canIncrement = nextRadio ~= nil;
+		self:SetSteppersEnabled(canDecrement, canIncrement);
+	end
+
+	self.Dropdown:RegisterCallback(DropdownButtonMixin.Event.OnUpdate, OnUpdate);
+end
+
+function DropdownWithSteppersMixin:SetEnabled(enabled)
+	self.Dropdown:SetEnabled(enabled);
+	self:UpdateSteppers();
+end
+
+function DropdownWithSteppersMixin:OnIncrementClicked(button, buttonName, down)
+	self:Increment();
+
+	PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON);
+end
+
+function DropdownWithSteppersMixin:OnDecrementClicked(button, buttonName, down)
+	self:Decrement();
+
+	PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON);
+end
+
+function DropdownWithSteppersMixin:Increment()
+	self.Dropdown:Increment();
+end
+
+function DropdownWithSteppersMixin:Decrement()
+	self.Dropdown:Decrement();
+end
+
+function DropdownWithSteppersMixin:HideSteppers()
+	self.DecrementButton:Hide();
+	self.IncrementButton:Hide();
+end
+
+function DropdownWithSteppersMixin:ShowSteppers()
+	self.DecrementButton:Show();
+	self.IncrementButton:Show();
+end
+
+function DropdownWithSteppersMixin:SetSteppersShown(shown)
+	self.DecrementButton:SetShown(shown);
+	self.IncrementButton:SetShown(shown);
+end
+
+function DropdownWithSteppersMixin:SetSteppersEnabled(canDecrement, canIncrement)
+	if self.Dropdown:IsEnabled() == 1 then
+		self.DecrementButton:SetEnabled(canDecrement);
+		self.IncrementButton:SetEnabled(canIncrement);
+	else
+		self.DecrementButton:SetEnabled(false);
+		self.IncrementButton:SetEnabled(false);
+	end
+end
+
+function DropdownWithSteppersMixin:UpdateSteppers()
+	if self.Dropdown:IsEnabled() == 1 then
+		local previousRadio, nextRadio, selections = self.Dropdown:CollectSelectionData();
+		local canDecrement = previousRadio ~= nil;
+		local canIncrement = nextRadio ~= nil;
+		self:SetSteppersEnabled(canDecrement, canIncrement);
+	else
+		self:SetSteppersEnabled(false, false);
+	end
+end
+
+DropdownWithSteppersAndLabelMixin = CreateFromMixins(DropdownWithSteppersMixin);
+
+function DropdownWithSteppersAndLabelMixin:SetText(text)
+	self.Label:SetText(text);
 end

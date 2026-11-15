@@ -1,8 +1,9 @@
 <Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/
 ..\FrameXML\UI.xsd">
-	<!-- From retail's Blizzard_Menu/MenuTemplates.xml. WowStyle2DropdownTemplate,
-	WowStyle2IconButtonTemplate and WowMenuDropdownHighlightRadioTemplate are not
-	here yet: they draw Mainline atlases that need their own 1.12 art. -->
+	<!-- From retail's Blizzard_Menu/MenuTemplates.xml. WowStyle2DropdownTemplate
+	and WowStyle2IconButtonTemplate are not here: they draw Mainline atlases
+	that need their own 1.12 art. The highlight button's art is
+	DarkMenuElementTemplate's (FrameXML/SharedUIPanelTemplates.xml). -->
 	<Button name="WowMenuAutoHideButtonTemplate" propagateMouseInput="Motion" virtual="true">
 		<Layers>
 			<Layer>
@@ -10,4 +11,5 @@
 			</Layer>
 		</Layers>
 	</Button>
+	<Button name="WowMenuDropdownHighlightButtonTemplate" inherits="DarkMenuElementTemplate" motionScriptsWhileDisabled="true" virtual="true"/>
 </Ui>

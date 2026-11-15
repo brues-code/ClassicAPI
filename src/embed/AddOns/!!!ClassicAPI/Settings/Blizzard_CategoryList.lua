@@ -1,0 +1,483 @@
+-- Backport of retail's Blizzard_Settings_Shared/Blizzard_CategoryList.lua.
+--
+-- Differences from the retail source:
+--   - Retail draws the group headers, the selected and hovered rows and the
+--     expand toggle with atlases this client does not have. The rows use the
+--     quest log's title highlights, the toggle uses the client's plus and
+--     minus buttons, and a group header is a dark band (see below).
+--   - No gamepad navigation and no narration: those systems do not exist
+--     here.
+--   - No "new" tags: nothing in this client is new, so the rows have no
+--     NewFeature label to refresh.
+--   - A game category registered without a group goes in a group with no
+--     header. Retail puts it in the AddOns group, whose header would then
+--     show on the game tab; retail's own game categories always name a group.
+--   - GetOrCreateGroup sorts the groups by order every time, and takes a new
+--     order for a group that exists. Retail sorts only when it makes a group,
+--     and creates its game groups before any addon category exists; here the
+--     addons' categories can come first. Groups of the same order keep the
+--     order they were made in: table.sort is not stable, and a sort on every
+--     call would move them each time a category is added.
+
+local securecallfunction = securecallfunction;
+
+local g_selectionBehavior;
+
+-- The art that stands in for retail's Options_List_Active and
+-- Options_List_Hover atlases.
+local ROW_SELECTED_TEXTURE = "Interface\\QuestFrame\\UI-QuestLogTitleHighlight";
+local ROW_HOVER_TEXTURE = "Interface\\QuestFrame\\UI-QuestTitleHighlight";
+
+local function CreateHeaderInitializer(label, headerIndex)
+	local initializer = CreateFromMixins(ScrollBoxFactoryInitializerMixin);
+	initializer:Init("SettingsCategoryListHeaderTemplate");
+	initializer.data = { label = label, headerIndex = headerIndex };
+	return initializer;
+end
+
+local function CreateSpacerInitializer()
+	local initializer = CreateFromMixins(ScrollBoxFactoryInitializerMixin);
+	initializer:Init("SettingsCategoryListSpacerTemplate");
+	return initializer;
+end
+
+local CategoryButtonInitializerMixin = CreateFromMixins(ScrollBoxFactoryInitializerMixin);
+
+local function CreateCategoryButtonInitializer(category, indent, categoryData)
+	local initializer = CreateFromMixins(CategoryButtonInitializerMixin);
+	initializer:Init("SettingsCategoryListButtonTemplate");
+	initializer.data = { category = category, indent = indent or 0, groupText = categoryData and categoryData.groupText };
+	return initializer;
+end
+
+SettingsCategoryListHeaderMixin = {};
+
+-- Retail picks one of three Options_CategoryHeader atlases by headerIndex.
+-- The band is the same for every header here.
+function SettingsCategoryListHeaderMixin:Init(initializer)
+	self.Label:SetText(initializer.data.label);
+	self.Background:SetColorTexture(0, 0, 0, 0.5);
+end
+
+SettingsCategoryListButtonMixin = CreateFromMixins(ButtonStateBehaviorMixin);
+
+function SettingsCategoryListButtonMixin:OnLoad()
+	self.Toggle:SetScript("OnClick", function(button, buttonName, down)
+		local initializer = self:GetElementData();
+		local category = initializer.data.category;
+		self:SetExpanded(not category:IsExpanded());
+	end);
+end
+
+function SettingsCategoryListButtonMixin:UpdateStateInternal(selected)
+	if selected then
+		self.Label:SetFontObject("GameFontHighlight");
+		self.Texture:SetTexture(ROW_SELECTED_TEXTURE);
+		self.Texture:Show();
+	else
+		local initializer = self:GetElementData();
+		local category = initializer.data.category;
+		local fontObject;
+		if category:HasParentCategory() then
+			fontObject = "GameFontHighlight";
+		else
+			fontObject = "GameFontNormal";
+		end
+
+		self.Label:SetFontObject(fontObject);
+		if self.over then
+			self.Texture:SetTexture(ROW_HOVER_TEXTURE);
+			self.Texture:Show();
+		else
+			self.Texture:Hide();
+		end
+	end
+end
+
+function SettingsCategoryListButtonMixin:OnButtonStateChanged()
+	self:UpdateStateInternal(g_selectionBehavior:IsSelected(self));
+end
+
+function SettingsCategoryListButtonMixin:Init(initializer)
+	local category = initializer.data.category;
+
+	self.Label:SetText(category:GetName());
+	self.Toggle:SetShown(category:HasSubcategories());
+
+	self:SetExpanded(category:IsExpanded());
+	self:SetSelected(g_selectionBehavior:IsSelected(self));
+end
+
+function SettingsCategoryListButtonMixin:SetSelected(selected)
+	self:UpdateStateInternal(selected);
+end
+
+-- Retail's toggle atlases are an open and a closed arrow; here the toggle
+-- is a minus when the category is expanded and a plus when it is not.
+function SettingsCategoryListButtonMixin:SetExpanded(expanded)
+	local initializer = self:GetElementData();
+	initializer.data.category:SetExpanded(expanded);
+
+	if expanded then
+		self.Toggle:SetNormalTexture("Interface\\Buttons\\UI-MinusButton-UP");
+		self.Toggle:SetPushedTexture("Interface\\Buttons\\UI-MinusButton-DOWN");
+	else
+		self.Toggle:SetNormalTexture("Interface\\Buttons\\UI-PlusButton-UP");
+		self.Toggle:SetPushedTexture("Interface\\Buttons\\UI-PlusButton-DOWN");
+	end
+end
+
+SettingsCategoryListMixin = CreateFromMixins(CallbackRegistryMixin);
+
+SettingsCategoryListMixin:GenerateCallbackEvents(
+	{
+		"OnCategoryActivated",
+		"OnCategorySelected",
+		"OnCategoriesUpdated",
+	}
+);
+
+function SettingsCategoryListMixin:OnLoad()
+	CallbackRegistryMixin.OnLoad(self);
+
+	self.allCategories = {};
+	self.groups = {};
+	self.categorySet = Settings.CategorySet.Game;
+
+	local function Factory(factory, elementData)
+		local function Initializer(button, elementData)
+			elementData:InitFrame(button);
+
+			if elementData:IsTemplate("SettingsCategoryListButtonTemplate") then
+				local function SelectCategory()
+					if not g_selectionBehavior:IsSelected(button) then
+						g_selectionBehavior:Select(button);
+						self:TriggerEvent(SettingsCategoryListMixin.Event.OnCategorySelected, elementData.data.category);
+						PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON);
+					end
+				end
+
+				button:SetScript("OnClick", SelectCategory);
+
+				local function OnToggle(button, buttonName, down)
+					self:CreateCategories();
+				end;
+
+				button.Toggle:RegisterCallback("OnClick", OnToggle, self);
+			end
+		end
+
+		elementData:Factory(factory, Initializer);
+	end
+
+	local function IndentCalculator(elementData)
+		return elementData.data and elementData.data.indent or 0;
+	end
+
+	-- The scroll box is anchored -50 so that the "new" label can appear without
+	-- being clipped. This offset moves the contents back into the desired position.
+	local leftPad = 50;
+
+	local pad = 0;
+	local spacing = 2;
+	local view = CreateScrollBoxListLinearView(pad, pad, leftPad, pad, spacing);
+	view:SetElementFactory(Factory);
+	view:SetElementIndentCalculator(IndentCalculator);
+	ScrollUtil.InitScrollBoxListWithScrollBar(self.ScrollBox, self.ScrollBar, view);
+
+	local scrollBoxAnchorsWithBar =
+	{
+		CreateAnchor("TOPLEFT", -leftPad, 0),
+		CreateAnchor("BOTTOMRIGHT", -16, 0);
+	};
+	local scrollBoxAnchorsWithoutBar =
+	{
+		scrollBoxAnchorsWithBar[1],
+		CreateAnchor("BOTTOMRIGHT", 0, 0);
+	};
+	ScrollUtil.AddManagedScrollBarVisibilityBehavior(self.ScrollBox, self.ScrollBar, scrollBoxAnchorsWithBar, scrollBoxAnchorsWithoutBar);
+
+	local function OnSelectionChanged(o, elementData, selected)
+		local button = self.ScrollBox:FindFrame(elementData);
+		if button then
+			button:SetSelected(selected);
+		end
+
+		if selected then
+			self.ScrollBox:ScrollToElementData(elementData, ScrollBoxConstants.AlignNearest);
+		end
+	end;
+
+	g_selectionBehavior = ScrollUtil.AddSelectionBehavior(self.ScrollBox);
+	g_selectionBehavior:RegisterCallback(SelectionBehaviorMixin.Event.OnSelectionChanged, OnSelectionChanged, self);
+end
+
+function SettingsCategoryListMixin:GetAllCategories()
+	return self.allCategories;
+end
+
+function SettingsCategoryListMixin:GetOrCreateGroup(groupText, order)
+	local index, tbl = FindInTableIf(self.groups, function(tbl)
+		return tbl.groupText == groupText;
+	end);
+
+	if not index then
+		tbl = {groupText=groupText, order=order or 10, categories={}, creationIndex=#self.groups + 1};
+		table.insert(self.groups, tbl);
+	elseif order then
+		tbl.order = order;
+	end
+
+	local function Sorter(lhs, rhs)
+		if lhs.order ~= rhs.order then
+			return lhs.order < rhs.order;
+		end
+		return lhs.creationIndex < rhs.creationIndex;
+	end
+	table.sort(self.groups, Sorter);
+	return tbl;
+end
+
+local function FindCategoryMatchingCategoryID(categoryID, category)
+	if category:GetID() == categoryID then
+		return category;
+	end
+
+	if category.subcategories then
+		for index, subcategory in ipairs(category.subcategories) do
+			local foundCategory = FindCategoryMatchingCategoryID(categoryID, subcategory);
+			if foundCategory then
+				return foundCategory;
+			end
+		end
+	end
+
+	return nil;
+end
+
+function SettingsCategoryListMixin:GetCategory(categoryID)
+	for _, tbl in ipairs(self.groups) do
+		for _, category in ipairs(tbl.categories) do
+			local foundCategory = securecallfunction(FindCategoryMatchingCategoryID, categoryID, category);
+			if foundCategory then
+				return foundCategory;
+			end
+		end
+	end
+	return nil;
+end
+
+local SETTING_GROUP_ADDONS = "AddOns";
+
+function SettingsCategoryListMixin:AddCategoryInternal(category, group, addOn)
+	local hasParentCategory = securecallfunction(SettingsCategoryMixin.HasParentCategory, category);
+	if hasParentCategory then
+		-- FIXME Will replace when we're not building the whole category list on insert/removal.
+		self:CreateCategories();
+		return;
+	end
+
+	if group == nil and addOn then
+		group = SETTING_GROUP_ADDONS;
+	end
+	local tbl = self:GetOrCreateGroup(group);
+	tbl.categorySet = addOn and Settings.CategorySet.AddOns or Settings.CategorySet.Game;
+	category:SetCategorySet(tbl.categorySet);
+
+	local categories = tbl.categories;
+	table.insert(categories, category);
+	table.sort(categories, function(lhs, rhs)
+		return lhs:GetOrder() < rhs:GetOrder();
+	end);
+
+	self.allCategories = {};
+	for index, groupTbl in ipairs(self.groups) do
+		tAppendAll(self.allCategories, groupTbl.categories);
+	end
+
+	self:CreateCategories();
+end
+
+function SettingsCategoryListMixin:AddCategory(category, groupText, addon)
+	self:AddCategoryInternal(category, groupText, addon);
+end
+
+function SettingsCategoryListMixin:GetCurrentCategory()
+	return self.currentCategory;
+end
+
+function SettingsCategoryListMixin:FindCategoryElementData(category)
+	return self.ScrollBox:FindElementDataByPredicate(function(elementData)
+		-- Spacer has no data.
+		return elementData.data and (elementData.data.category == category);
+	end);
+end
+
+function SettingsCategoryListMixin:SetCurrentCategory(category)
+	self.currentCategory = category;
+
+	-- Ensure that our current category list set contains the category, otherwise select the required set.
+	self:SetCategorySet(category:GetCategorySet());
+
+	-- All parent categories in the hierarchy must be expanded. If a parent category was expanded or the current category
+	-- was already expanded, require the categories to be recreated. The latter is expected if the category was expanded
+	-- explicitly via OpenToCategory().
+	local recreateCategories = false;
+
+	local parentCategory = category:GetParentCategory();
+	while parentCategory ~= nil do
+		if not parentCategory:IsExpanded() then
+			parentCategory:SetExpanded(true);
+
+			recreateCategories = true;
+		end
+		parentCategory = parentCategory:GetParentCategory();
+	end
+
+	if recreateCategories or category:IsExpanded() then
+		self:CreateCategories();
+	end
+
+	-- Under normal circumstances we always expect the category to be found, however this can fail to be found
+	-- when initializing the settings categories for the first time.
+	local found = self:FindCategoryElementData(category);
+	if found then
+		g_selectionBehavior:SelectElementData(found);
+	end
+
+	return self:GetCategorySet();
+end
+
+function SettingsCategoryListMixin:SetCategorySet(categorySet)
+	assert(EnumUtil.IsValid(Settings.CategorySet, categorySet));
+	if self.categorySet ~= categorySet then
+		self.categorySet = categorySet;
+		self:CreateCategories();
+	end
+end
+
+function SettingsCategoryListMixin:GetCategorySet()
+	return self.categorySet;
+end
+
+local function SortCategoriesByName(lhs, rhs)
+	return strcmputf8i(lhs:GetName(), rhs:GetName()) < 0;
+end
+
+local function CreateSection(currentCategory, elementList, categories, canSort, indent, categoryData)
+	if canSort then
+		table.sort(categories, SortCategoriesByName);
+	end
+
+	for index, category in ipairs(categories) do
+		if not category.redirectCategory then
+			local initializer = CreateCategoryButtonInitializer(category, indent, categoryData);
+			table.insert(elementList, initializer);
+			if category == currentCategory then
+				g_selectionBehavior:SelectElementData(initializer);
+			end
+			if category:IsExpanded() then
+				canSort = category:ShouldSortAlphabetically();
+				CreateSection(currentCategory, elementList, category:GetSubcategories(), canSort, indent + 10, categoryData);
+			end
+		end
+	end
+end
+
+local function CreateGroup(currentCategory, elementList, categories, categorySet, headerCounter, groupText)
+	if categorySet == Settings.CategorySet.Game then
+		if groupText then
+			local headerIndex = ((headerCounter() - 1) % 3) + 1;
+			table.insert(elementList, CreateHeaderInitializer(groupText, headerIndex));
+		end
+	end
+
+	local categoryData = { groupText = groupText };
+	local canSort = categorySet == Settings.CategorySet.AddOns;
+	local indent = 0;
+	CreateSection(currentCategory, elementList, categories, canSort, indent, categoryData);
+end
+
+function SettingsCategoryListMixin:GenerateElementList()
+	local currentCategory = self:GetCurrentCategory();
+	local headerCounter = CreateCounter();
+	local categorySet = self:GetCategorySet();
+
+	local elementList = {};
+
+	local createSpacer = false;
+
+	for index, tbl in ipairs(self.groups) do
+		local groupText = tbl.groupText;
+		if tbl.categorySet == categorySet then
+			local categories = tbl.categories;
+			if createSpacer then
+				table.insert(elementList, CreateSpacerInitializer());
+			end
+
+			CreateGroup(currentCategory, elementList, categories, categorySet, headerCounter, groupText);
+			createSpacer = true;
+		end
+	end
+
+	return elementList;
+end
+
+function SettingsCategoryListMixin:CreateCategories()
+	self.elementList = self:GenerateElementList();
+
+	local categoryTotal = 0;
+	for _, elementData in ipairs(self.elementList) do
+		if elementData.data and elementData.data.category then
+			categoryTotal = categoryTotal + 1;
+		end
+	end
+
+	local categoryIndex = 0;
+	for _, elementData in ipairs(self.elementList) do
+		local categoryData = elementData.data;
+		if categoryData and categoryData.category then
+			categoryIndex = categoryIndex + 1;
+			categoryData.categoryIndex = categoryIndex;
+			categoryData.categoryTotal = categoryTotal;
+		end
+	end
+
+	local dataProvider = CreateDataProvider(self.elementList);
+	self.ScrollBox:SetDataProvider(dataProvider, ScrollBoxConstants.RetainScrollPosition);
+	self:TriggerEvent(self.Event.OnCategoriesUpdated);
+end
+
+function SettingsCategoryListMixin:GetFirstCategoryButton()
+	return self.ScrollBox:FindFrameByPredicate(function(button, elementData)
+		return elementData.frameTemplate == "SettingsCategoryListButtonTemplate";
+	end);
+end
+
+function SettingsCategoryListMixin:GetSelectedCategoryButton()
+	for _, elementData in ipairs(g_selectionBehavior:GetSelectedElementData()) do
+		if elementData.frameTemplate == "SettingsCategoryListButtonTemplate" then
+			return self.ScrollBox:FindFrame(elementData);
+		end
+	end
+end
+
+function SettingsCategoryListMixin:EnumerateCategoryButtons()
+	local frames = self.ScrollBox:GetFrames();
+	local index = 0;
+
+	local function Iterator()
+		while index < #frames do
+			index = index + 1;
+
+			local frame = frames[index];
+			local elementData = frame:GetElementData();
+
+			if elementData.frameTemplate == "SettingsCategoryListButtonTemplate" then
+				return frame;
+			end
+		end
+	end
+
+	return Iterator;
+end

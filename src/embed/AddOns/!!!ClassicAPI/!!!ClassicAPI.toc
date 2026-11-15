@@ -8,9 +8,6 @@
 
 locales\locales.xml
 
-FrameXML\InterfaceOptions.xml
-FrameXML\InterfaceOptions.lua
-
 SecureTemplates.xml
 Compat.lua
 Util\EnvironmentUtil.lua
@@ -38,6 +35,8 @@ Util\ExportUtil.lua
 Util\ButtonStateBehavior.lua
 Util\CallbackRegistry.lua
 Util\GlobalCallbackRegistry.lua
+Util\CvarUtil.lua
+Util\BindingUtil.lua
 Util\TemplateInfoCache.lua
 Util\FrameFactory.lua
 Util\DataProvider.lua
@@ -144,6 +143,15 @@ FrameXML\InputBoxTemplates.xml
 FrameXML\SearchBoxTemplate.xml [ExcludeLoadGameType turtle]
 FrameXML\ColorSwatch.lua
 FrameXML\ColorSwatch.xml
+FrameXML\ColorPickerFrame.lua
+FrameXML\MinimalSlider.lua
+FrameXML\MinimalSlider.xml
+FrameXML\FontStyles.xml
+FrameXML\SelectableButton.lua
+FrameXML\SelectableButton.xml
+FrameXML\ButtonGroup.lua
+FrameXML\MinimalTab.lua
+FrameXML\MinimalTab.xml
 FrameXML\ScriptErrorsFrame.lua
 FrameXML\ScriptErrorsFrame.xml
 FrameXML\ModelScene\CameraRegistry.lua
@@ -174,6 +182,30 @@ Menu\Classic\MenuTemplates.lua
 Menu\Classic\MenuTemplates.xml
 Menu\MenuUtil.lua
 
+Settings\Blizzard_SettingsRegistrar.lua
+Settings\Blizzard_Settings.lua
+Settings\Blizzard_Category.lua
+Settings\Blizzard_CategoryList.lua
+Settings\Blizzard_CategoryList.xml
+Settings\Blizzard_SettingsList.lua
+Settings\Blizzard_SettingsList.xml
+Settings\Blizzard_Setting.lua
+Settings\Blizzard_SettingControls.lua
+Settings\Blizzard_SettingControls.xml
+Settings\Blizzard_Keybindings.lua
+Settings\Blizzard_Keybindings.xml
+Settings\Blizzard_SettingsPanelTemplates.xml
+Settings\Blizzard_SettingsPanel.lua
+Settings\Blizzard_SettingsPanel.xml
+Settings\Blizzard_Dialogs.lua
+Settings\Blizzard_SettingsLayouts.lua
+Settings\Blizzard_Registration.lua
+Settings\Blizzard_SettingsInbound.lua
+
+FrameXML\InterfaceOptions.lua
+
+Options\Controls.lua
+Options\Controls.xml
 Options\Panel.lua
 
 APIDocumentation\BaseAPIMixin.lua

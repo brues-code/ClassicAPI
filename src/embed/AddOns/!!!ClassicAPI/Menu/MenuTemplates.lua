@@ -7,6 +7,8 @@
 --     so the auto-hide button turns it on itself.
 --   - Lua 5.0 has no `...` as an expression and no `#` operator; varargs
 --     go through the implicit `arg` table and lengths come from table.getn.
+--   - No narration: this client has none, so the highlight buttons get no
+--     narration functions.
 
 local SetPropagateMouseMotion = function(frame, propagate)
 	frame:SetPropagateMouseMotion(propagate);
@@ -288,6 +290,7 @@ function MenuTemplates.CreateCheckbox(text, isSelected, onSelect, data)
 	local elementDescription = CreateButtonDescription(data);
 	elementDescription:SetSoundKit(GetCheckboxSoundKit);
 	elementDescription:AddInitializer(Initializer);
+	elementDescription:SetCheckbox(true);
 	elementDescription:SetIsSelected(isSelected);
 	elementDescription:SetResponder(onSelect);
 	elementDescription:SetResponse(MenuResponse.Refresh);
@@ -308,8 +311,90 @@ function MenuTemplates.CreateRadio(text, isSelected, onSelect, data)
 	return elementDescription;
 end
 
+-- Attach text here instead of the template for content sizing calculations fixes if other pieces get attached elsewhere.
+local function CreateHighlightButtonText(button)
+	local fontString = button:AttachFontString();
+	fontString:SetPoint("TOPLEFT", 14, 0);
+	fontString:SetSize(200, 20);
+	fontString:SetFontObject("GameFontNormal");
+	fontString:SetJustifyH("LEFT");
+	fontString:SetMaxLines(1);
+	button.Text = fontString;
+end
+
+local function SetHighlightButtonFinalInitializer(button, _description, menu)
+	button.owningMenu = menu;
+end
+
+function MenuTemplates.CreateHighlightButton(text, onSelect, data, onEnter)
+	local optionDescription = CreateMenuElementDescription("WowMenuDropdownHighlightButtonTemplate");
+
+	local truncated = false;
+
+	local function OnEnter(button)
+		button.HighlightBGTex:SetAlpha(0.15);
+
+		if truncated then
+			local description = button:GetElementDescription();
+			MenuUtil.ShowTooltipEx(button, description:GetTooltipFrame(), function(tooltip)
+				GameTooltip_SetTitle(tooltip, text);
+			end);
+		end
+
+		if onEnter then
+			onEnter(data);
+		end
+	end
+
+	local function OnLeave(button)
+		button.HighlightBGTex:SetAlpha(0);
+
+		local description = button:GetElementDescription();
+		MenuUtil.HideTooltipEx(button, description:GetTooltipFrame());
+	end
+
+	optionDescription:AddInitializer(function(button, description, _menu)
+		button:SetScript("OnClick", function(_button, buttonName)
+			description:Pick(MenuInputContext.MouseButton, buttonName);
+		end);
+
+		if optionDescription:CanOpenSubmenu() then
+			MenuVariants.CreateSubmenuArrow(button);
+		end
+
+		CreateHighlightButtonText(button);
+
+		-- This button template is modified in Languages.lua to hide the text and display
+		-- a texture for each locale, so we need to redisplay the text. We don't have to worry
+		-- about that texture here because it is managed by the compositor.
+		button.Text:Show();
+		button.Text:SetTextToFit(text);
+		button.Text:SetWidth(button.Text:GetWidth() + 15);
+
+		button.HighlightBGTex:SetAlpha(0);
+
+		if description:IsEnabled() then
+			button.Text:SetTextColor(VERY_LIGHT_GRAY_COLOR:GetRGB());
+		else
+			button.Text:SetTextColor(DISABLED_FONT_COLOR:GetRGB());
+		end
+
+		truncated = button.Text:IsTruncated();
+
+		button:Layout();
+	end);
+
+	optionDescription:SetFinalInitializer(SetHighlightButtonFinalInitializer);
+	optionDescription:SetResponder(onSelect);
+	optionDescription:SetOnEnter(OnEnter);
+	optionDescription:SetOnLeave(OnLeave);
+	optionDescription:SetData(data);
+
+	return optionDescription;
+end
+
 function MenuTemplates.CreateHighlightRadio(text, isSelected, onSelect, data, onEnter)
-	local optionDescription = CreateMenuElementDescription("WowMenuDropdownHighlightRadioTemplate");
+	local optionDescription = CreateMenuElementDescription("WowMenuDropdownHighlightButtonTemplate");
 
 	local truncated = false;
 
@@ -348,16 +433,18 @@ function MenuTemplates.CreateHighlightRadio(text, isSelected, onSelect, data, on
 			description:Pick(MenuInputContext.MouseButton, buttonName);
 		end);
 
+		CreateHighlightButtonText(button);
+
 		-- This button template is modified in Languages.lua to hide the text and display
 		-- a texture for each locale, so we need to redisplay the text. We don't have to worry
 		-- about that texture here because it is managed by the compositor.
 		button.Text:Show();
 		button.Text:SetTextToFit(text);
-		button.Text:SetWidth(button.Text:GetUnscaledWidth() + 10);
+		-- Give enough room should any icon be added to the far right the spacing is fine between them.
+		button.Text:SetWidth(button.Text:GetWidth() + 45);
 
 		button.HighlightBGTex:SetAlpha(0);
 
-		local fontColor = nil;
 		if description:IsSelected() then
 			button.Text:SetTextColor(NORMAL_FONT_COLOR:GetRGBA());
 		elseif description:IsEnabled() then
@@ -371,6 +458,7 @@ function MenuTemplates.CreateHighlightRadio(text, isSelected, onSelect, data, on
 		button:Layout();
 	end);
 
+	optionDescription:SetFinalInitializer(SetHighlightButtonFinalInitializer);
 	optionDescription:SetIsSelected(isSelected);
 	optionDescription:SetResponder(onSelect);
 	optionDescription:SetOnEnter(OnEnter);

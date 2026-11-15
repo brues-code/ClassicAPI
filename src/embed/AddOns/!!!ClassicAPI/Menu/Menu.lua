@@ -702,6 +702,14 @@ do
 		return self.isRadio;
 	end
 
+	function MenuElementDescriptionProxyMixin:SetCheckbox(isCheckbox)
+		self.isCheckbox = isCheckbox;
+	end
+
+	function MenuElementDescriptionProxyMixin:IsCheckbox()
+		return self.isCheckbox;
+	end
+
 	function MenuElementDescriptionProxyMixin:SetIsSelected(isSelected)
 		self.isSelected = isSelected;
 	end
@@ -873,6 +881,10 @@ do
 		self.responder = callback;
 	end
 
+	function MenuElementDescriptionProxyMixin:HasResponder()
+		return self.responder ~= nil;
+	end
+
 	function MenuElementDescriptionProxyMixin:HookResponder(callback)
 		if self.responder then
 			hooksecurefunc(self, "responder", callback);
@@ -927,7 +939,7 @@ do
 		never cause the menu to close.
 		]]--
 		local response = nil;
-		local willRespond = self.responder ~= nil;
+		local willRespond = self:HasResponder();
 		if willRespond then
 			-- Use the default response if it exists. This is supplied by checkbox and radio descriptions.
 			local descriptionResponse = securecallfunction(SecureGetDefaultResponse, self, menuInputContext, menuInputButtonName);

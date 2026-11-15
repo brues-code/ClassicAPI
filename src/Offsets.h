@@ -1775,6 +1775,9 @@ enum Offsets {
     CVAR_FLAG_ARCHIVE = 0x1,
     CVAR_FLAG_STAGED = 0x2,
     CVAR_FLAG_READ_ONLY = 0x4,
+    CVAR_FLAG_SCRIPT_VISIBLE = 0x80000000,
+    // The cvar's name string (docs/notes/cvar.md; `cvarlist` prints it).
+    OFF_CVAR_NAME = 0x14,
     OFF_CVAR_CALLBACK = 0xBC,
     OFF_CVAR_USERDATA = 0xC0,
     // Console categories — the registrar's category argument, an index into
@@ -4385,6 +4388,16 @@ enum Offsets {
     FUN_PLAYERMODEL_SHOW = 0x00505D00,
     FUN_SIMPLEFRAME_HIDE = 0x0076AD50,
     FUN_SIMPLEFRAME_SHOW = 0x0076AE10,
+    // The child loops of FUN_SIMPLEFRAME_HIDE and FUN_SIMPLEFRAME_SHOW. Each
+    // starts with `mov ebx, [esi+0x300]` (8B 9E 00 03 00 00, the head of
+    // OFF_FRAME_CHILD_LIST), calls each child's VTBL_FRAME_HIDE /
+    // VTBL_FRAME_SHOW, reads the next node only after the call
+    // (`mov ebx, [ebx+4]`), and leaves at the RESUME address, where nothing
+    // reads EBX before the function's `pop ebx`.
+    SITE_SIMPLEFRAME_HIDE_CHILD_WALK = 0x0076ADC9,
+    SITE_SIMPLEFRAME_HIDE_CHILD_WALK_RESUME = 0x0076ADF9,
+    SITE_SIMPLEFRAME_SHOW_CHILD_WALK = 0x0076AEB6,
+    SITE_SIMPLEFRAME_SHOW_CHILD_WALK_RESUME = 0x0076AEE0,
     // The turn latch (SetRotation sets it, the next paint clears it) and the
     // turn deadline in OS ms (now + 100 on a turn, 0 once Stand is armed).
     OFF_PLAYERMODEL_TURNING = 0x3E8,
@@ -5005,6 +5018,12 @@ enum Offsets {
     // caller), after storing the alpha byte (0x007690D2), both list heads and
     // the base vtable (0x007692E5).
     FUN_FRAME_SET_PARENT = 0x0076AB10,
+    // Script SetParent — `int __fastcall(lua_State *)`, the method table
+    // 0x0087C9B8's entry 4 (docs/raw_methods.txt). Reads the parent argument
+    // (nil, a name, or a frame table) and calls the object's vtable+0x14, which
+    // for a frame is FUN_FRAME_SET_PARENT (benilla-re ui/visibility
+    // "Reparenting by script").
+    FUN_SCRIPT_REGION_SET_PARENT = 0x007A1550,
     // CSimpleFrame destructor body — `void __thiscall(frame)`, plain `ret`.
     // Called or tail-called by the base vtable's slot-0 deleting destructor
     // (0x00769380) and every derived frame class's destructor (16 call sites,
