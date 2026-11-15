@@ -961,6 +961,7 @@ build instructions.
   - [`C_NamePlate.GetNamePlateForGUID(guidString)`](#c_nameplategetnameplateforguidguidstring)
   - [Unit tokens (`nameplateN`)](#unit-tokens-nameplaten)
   - [Unit tokens (`markN`)](#unit-tokens-markn)
+  - [Unit tokens (`totemN`)](#unit-tokens-totemn)
   - [Unit tokens (GUID literals)](#unit-tokens-guid-literals)
   - [`IsUnitToken(value)`](#isunittokenvalue)
 
@@ -10272,7 +10273,7 @@ end)
 ```
 
 Unit tokens compare without regard to case. Every token that names a unit
-works, including `focus`, `nameplateN`, and `markN`. A unit that is several
+works, including `focus`, `nameplateN`, `markN`, and `totemN`. A unit that is several
 tokens at once (your target who is also `party1`) fires the event once for
 each token that matches.
 
@@ -21469,6 +21470,32 @@ A unit that you mark while it is out of range fires its events when it
 comes into range. A marker on something that is not a unit fires no
 events.
 
+### Unit tokens (`totemN`)
+
+`"totem1"` … `"totem4"` are unit tokens for every `UnitX` function. Each
+token is your totem creature in one totem slot. The slots are the same as
+for [`GetTotemInfo`](#gettoteminfoslot): `1` Fire, `2` Earth, `3` Water,
+`4` Air. This is a ClassicAPI extension.
+
+```lua
+local guid = UnitGUID("totem1")                     -- your Fire totem
+if UnitExists("totem2") then
+    print(UnitName("totem2"), UnitHealth("totem2"))  -- your Earth totem
+end
+```
+
+`UnitExists("totemN")` returns `false` when the slot has no totem. It also
+returns `false` until the client sees the totem creature. At that time,
+`GetTotemInfo` also gets the name. Token chains also work, for example
+`"totem1target"`, the same as for the other token families.
+`TargetUnit("totem1")` does the same thing as `TargetTotem(1)`.
+
+**Unit events fire for `"totemN"`.** Every unit event fires with
+`arg1 == "totemN"` for your totem, as it does for `"target"`. This
+includes `UNIT_HEALTH`, `UNIT_AURA`, `UNIT_COMBAT`, and `UNIT_NAME_UPDATE`.
+The events start when the client sees the totem creature. They stop when
+the slot becomes empty.
+
 ### Unit tokens (GUID literals)
 
 A raw 64-bit GUID literal — `"0x"` followed by up to 16 hex digits
@@ -21514,7 +21541,7 @@ That is the common case for conditional slash commands, because
 `Bob`.
 
 The answer covers every token family the client accepts, including
-`nameplateN`, `markN`, `focus`, GUID literals, and suffix chains such as
+`nameplateN`, `markN`, `totemN`, `focus`, GUID literals, and suffix chains such as
 `focustarget`.
 
 The question is whether the text names a token, not whether a unit is there.
@@ -26384,6 +26411,9 @@ The slot becomes empty when the totem creature goes away (it dies,
 expires, is recalled, or moves out of view). The slot also becomes empty
 when you leave the world, but not on a UI reload. Slot changes fire
 [`PLAYER_TOTEM_UPDATE`](#player_totem_update-event).
+
+To get the GUID, the health, or other unit data of the totem, use its unit
+token. See [Unit tokens (`totemN`)](#unit-tokens-totemn).
 
 ### `GetTotemTimeLeft(slot)`
 

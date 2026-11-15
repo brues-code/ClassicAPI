@@ -13,7 +13,8 @@
 
 // The four-element totem bar (`GetTotemInfo`, `GetTotemTimeLeft`,
 // `TargetTotem`, `GameTooltip:SetTotem`, `PLAYER_TOTEM_UPDATE`), backported
-// to 3.3.5 parity. 3.3.5 keeps `CGGameUI::m_totems[4]` — {guid, name,
+// to 3.3.5 parity, plus the `totem1`..`totem4` unit tokens (a ClassicAPI
+// extension — no client names its totems as units) over the same GUIDs. 3.3.5 keeps `CGGameUI::m_totems[4]` — {guid, name,
 // duration, startTime, icon} per slot — filled by SMSG_TOTEM_CREATED and
 // emptied by `CGGameUI::DestroyTotem` when the totem's unit object is
 // disabled. Vanilla has neither the packet nor the array (no 1.12 server
@@ -47,6 +48,8 @@
 // empties every slot without an event (3.3.5 `CGGameUI::EnterWorld`, skipped
 // on a UI reload — the local player survives a reload, so we key on it).
 
+#include "Tracker.h"
+
 #include "Game.h"
 #include "Offsets.h"
 #include "duration/Object.h"
@@ -61,6 +64,7 @@
 #include "time/Clock.h"
 #include "ui/ColorData.h"
 #include "unit/Identity.h"
+#include "unit/TokenEvents.h"
 
 #include <cstdint>
 
@@ -72,7 +76,7 @@ namespace {
 // 87/Fire, Stoneskin 88/Earth, Healing Stream 89/Water, Windfury 90/Air).
 constexpr int kEffectSummonTotemSlot1 = 87;
 constexpr int kEffectSummonTotemSlot4 = 90;
-constexpr int kSlots = 4;
+constexpr int kSlots = kSlotCount;
 
 
 // Re-scan the object manager for totem existence at most this often.
@@ -252,10 +256,13 @@ void FireDirty() {
     g_dirtyMask = 0;
 }
 
-// 3.3.5 `CGGameUI::DestroyTotem` minus the CMSG_TOTEM_DESTROYED send.
+// 3.3.5 `CGGameUI::DestroyTotem` minus the CMSG_TOTEM_DESTROYED send. The
+// creature (if still around) loses its `totemN` token.
 void Destroy(int slotIdx) {
+    const uint64_t guid = g_slots[slotIdx].guid;
     g_slots[slotIdx] = Slot{};
     MarkDirty(slotIdx);
+    Unit::TokenEvents::Refresh(guid);
 }
 
 void OnTick() {
@@ -319,6 +326,7 @@ void OnTick() {
                 void *obj = Object::ByGuid(Offsets::TYPEMASK_UNIT, t.guid, nullptr, 0);
                 t.name = obj != nullptr ? Unit::Identity::NameForUnit(obj) : nullptr;
                 MarkDirty(s);
+                Unit::TokenEvents::Refresh(t.guid); // gains its `totemN` token
             }
         }
     }
@@ -593,6 +601,13 @@ const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 
 } // namespace
 
+uint64_t GetGUIDBySlot(int slot) {
+    if (slot < 1 || slot > kSlots)
+        return 0;
+    const Slot &t = g_slots[slot - 1];
+    return t.active ? t.guid : 0;
+}
+
 void OnPlayerSpellGo(uint32_t spellID) {
     if (spellID == 0)
         return;
@@ -620,6 +635,7 @@ void OnPlayerSpellGo(uint32_t spellID) {
         t.startMs = NowMs();
         t.durationMs = SpellDurationMs(rec);
         MarkDirty(idx); // totem dropped → PLAYER_TOTEM_UPDATE (fired next tick)
+        Unit::TokenEvents::Refresh(previous); // the replaced totem loses `totemN`
         // The cast spell IS a totem of this element, so it names the slot's
         // tool item directly — capture it (covers the slot even before the
         // spellbook scan runs).

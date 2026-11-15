@@ -30,6 +30,9 @@
 // - `mark1`..`mark8` — raid-target markers (star … skull), resolved
 //   from the engine's marker table via `Unit::RaidTarget`.
 //
+// - `totem1`..`totem4` — the player's totem creature in each totem slot
+//   (Fire, Earth, Water, Air), backed by `Totem::Tracker`.
+//
 // - `softinteract` / `anyinteract` / `anyleftinteract` — the interact
 //   key's object, backed by `Target::SoftInteract`. Any can be a game object
 //   or a corpse, so only GUID readers (UnitGUID) see those; unit readers
@@ -52,7 +55,8 @@
 // (SStrCmpI "target" + ObjectByGUID + read UNIT_FIELD_TARGET).
 //
 // Resolution order in the hook: raw GUID, focus, the soft targets,
-// nameplateN (requires a digit), markN (one digit 1..8). Each branch
+// nameplateN (requires a digit), markN (one digit 1..8), totemN (one
+// digit 1..4). Each branch
 // short-circuits; on no match the original engine resolver runs
 // unchanged.
 
@@ -62,6 +66,7 @@
 #include "object/Resolve.h"
 #include "target/SoftInteract.h"
 #include "target/SoftUnit.h"
+#include "totem/Tracker.h"
 #include "unit/Focus.h"
 #include "unit/RaidTarget.h"
 
@@ -119,6 +124,8 @@ constexpr const char kAnyFriendPrefix[] = "anyfriend";
 constexpr int kAnyFriendPrefixLen = static_cast<int>(sizeof(kAnyFriendPrefix) - 1);
 constexpr const char kMarkPrefix[] = "mark";
 constexpr int kMarkPrefixLen = static_cast<int>(sizeof(kMarkPrefix) - 1);
+constexpr const char kTotemPrefix[] = "totem";
+constexpr int kTotemPrefixLen = static_cast<int>(sizeof(kTotemPrefix) - 1);
 constexpr const char kSuffixTarget[] = "target";
 constexpr int kSuffixTargetLen = static_cast<int>(sizeof(kSuffixTarget) - 1);
 
@@ -245,6 +252,21 @@ uint64_t __fastcall Hook_h(const char *token) {
             const int mark = *p - '0';
             ++p;
             const uint64_t guid = Unit::RaidTarget::GetGUIDByMark(mark);
+            if (guid == 0)
+                return 0;
+            return WalkSuffix(guid, p);
+        }
+    }
+
+    // `totemN` / `totem1target*`. One digit `1`..`4` after the prefix
+    // (Fire, Earth, Water, Air — GetTotemInfo's slots). Anything else
+    // (`totem`, `totem0`, `totem5`) falls through to the engine.
+    if (Game::StrCmpI(token, kTotemPrefix, kTotemPrefixLen) == 0) {
+        const char *p = token + kTotemPrefixLen;
+        if (*p >= '1' && *p < '1' + Totem::Tracker::kSlotCount) {
+            const int slot = *p - '0';
+            ++p;
+            const uint64_t guid = Totem::Tracker::GetGUIDBySlot(slot);
             if (guid == 0)
                 return 0;
             return WalkSuffix(guid, p);

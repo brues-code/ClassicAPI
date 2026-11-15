@@ -18,14 +18,14 @@
 namespace Unit::TokenEvents {
 
 // Re-evaluates whether the engine watches `guid`'s unit for ClassicAPI's
-// tokens (focus, nameplateN, markN, softenemy, softfriend). The owner of a
+// tokens (focus, nameplateN, markN, softenemy, softfriend, totemN). The owner of a
 // token calls it after the token is given to or taken from a unit; 0 and units
 // out of range are no-ops (a unit coming into range is evaluated by the engine
 // itself).
 void Refresh(uint64_t guid);
 
 // The ClassicAPI tokens `guid` has right now — nameplateN, focus, markN,
-// softenemy, softfriend, in that order — written into `out` (rows of 32
+// softenemy, softfriend, totemN, in that order — written into `out` (rows of 32
 // bytes), at most `maxTokens` of them. Returns the count: 0 for guid 0, and
 // before the world is up. These are the tokens the engine's unit events reach.
 int TokensOf(uint64_t guid, char (*out)[32], int maxTokens);

@@ -35,7 +35,7 @@ using FieldCallback = int(__fastcall *)(uint32_t fieldOffset, uint32_t size,
 // `UNIT_AURA`, `UNIT_LEVEL`, …).
 //
 // For a token no engine token map can name — today only `focustarget`. The
-// tokens a unit can hold (focus, nameplateN, markN, softenemy, softfriend)
+// tokens a unit can hold (focus, nameplateN, markN, softenemy, softfriend, totemN)
 // are NOT observed here: `Unit::TokenEvents` routes the engine's own events
 // to them, and with SuperWoW watching every unit, an observer of ours would
 // fire their field events a second time. The registrar appends a fresh node
