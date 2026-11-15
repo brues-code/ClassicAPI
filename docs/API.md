@@ -2535,13 +2535,16 @@ A player is a known name when one or more of these is true:
 - The player is in your party or raid. The entry has the `InGroup` bit.
 - The player is in your guild roster. The entry has the `InGuild` bit.
 - The player is on your friends list. The entry has the `Friend` bit.
+- The player is one of your other characters on this realm. The entry has
+  the `AccountCharacter` bit.
 - You whispered the player, or the player whispered you, after you logged
   in. The entry has the `InteractedWith` bit.
 
 A player on two or more of these lists is one entry, with the bit of each
 list. You are never an entry. The `Online` bit comes from your group, your
 guild roster and your friends list. A player that you know only from a
-whisper also has the `Online` bit.
+whisper also has the `Online` bit. Your other characters never have the
+`Online` bit.
 
 Guild members are known names only after the client has the guild roster.
 `GuildRoster()` requests it.
@@ -2584,8 +2587,8 @@ The order of the entries:
 2. All other names, in alphabetical order.
 
 The `priority` of an entry is the first tie on this list that the player
-has: `Friend`, `Guild`, `InGroup`, `Interacted`. A player with none of them
-is `Other`.
+has: `AccountCharacterSameRealm`, `Friend`, `Guild`, `InGroup`,
+`Interacted`. A player with none of them is `Other`.
 
 ```lua
 local function ShowNames(editBox)
@@ -2630,7 +2633,7 @@ The bits of a known name, for `includeFlags` and `excludeFlags`.
 | `Bnet` | 8 | `RecentPlayer` | 256 |
 | `InteractedWith` | 16 | | |
 
-No entry has the `Bnet`, `InAOI`, `AccountCharacter` or `RecentPlayer` bit.
+No entry has the `Bnet`, `InAOI` or `RecentPlayer` bit.
 
 ### `Enum.AutoCompletePriority`
 
@@ -2643,7 +2646,8 @@ The values of an entry's `priority`.
 | `InGroup` | 2 | `AccountCharacterSameRealm` | 6 |
 | `Guild` | 3 | | |
 
-No entry has the priority `AccountCharacter` or `AccountCharacterSameRealm`.
+No entry has the priority `AccountCharacter`. All of your other characters
+are on this realm, so their priority is `AccountCharacterSameRealm`.
 
 ### Name completion settings
 

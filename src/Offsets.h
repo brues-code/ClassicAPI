@@ -13222,6 +13222,20 @@ enum Offsets {
     // SMSG_LOGOUT_COMPLETE / CANCEL_ACK / a failed SMSG_LOGOUT_RESPONSE.
     // 4.3.4's CharacterLoggingOut. Disassembled; benilla-re net/connection.
     FUN_CLIENT_CONNECTION_IS_LOGOUT_PENDING = 0x005AB0D0,
+    // The account's characters on the connected realm, as the last
+    // SMSG_CHAR_ENUM listed them: count at ClientConnection+0x1AE4, records
+    // at +0x1AE8, 0x110 bytes each, guid +0x00, name +0x08 (C string, cap
+    // 0x30). RealmConnection::HandleCharEnum (0x005B42A0) is the only code
+    // that rebuilds it (empties it on a bad packet), and only
+    // ~RealmConnection frees it, so it outlives the glue roster
+    // (0x00B42144, which CGlueMgr::Suspend frees on entering the world).
+    // The glue's roster records copy these 0x110 bytes as their head.
+    // Disassembled; benilla-re net/connection#character-list-packet.
+    OFF_CLIENT_CONNECTION_CHAR_COUNT = 0x1AE4,
+    OFF_CLIENT_CONNECTION_CHARS = 0x1AE8,
+    CLIENT_CONNECTION_CHAR_STRIDE = 0x110,
+    OFF_CLIENT_CONNECTION_CHAR_GUID = 0x00,
+    OFF_CLIENT_CONNECTION_CHAR_NAME = 0x08,
 
     // Engine millisecond tick (returns `ulonglong` but truncating to
     // `uint32_t` is fine for the time deltas we need — the high

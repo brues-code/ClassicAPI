@@ -24,7 +24,11 @@
 //     only while the player is in a guild, the test Script_IsInGuild
 //     (0x00516DE0) makes, because the engine keeps the old roster after a
 //     /gquit - InGuild;
-//   - friends list: the social singleton's slots (FriendList.h) - Friend.
+//   - friends list: the social singleton's slots (FriendList.h) - Friend;
+//   - the account's other characters: the realm's character list, which the
+//     session keeps from the last SMSG_CHAR_ENUM after the glue roster is
+//     gone - AccountCharacter. Every one is on this realm. None is ever
+//     Online, since the account plays this character.
 // The one list the engine does not keep is ours: the players this character
 // whispered or was whispered by (Chat::Dispatch reports each line), in the
 // order they were last heard from - InteractedWith. Logging out clears it,
@@ -46,7 +50,7 @@
 // autoCompleteResortNamesOnRecency on, the most recent whisper first, then by
 // name. Retail's client cannot be read, so each result's priority is the
 // highest Enum.AutoCompletePriority its bits reach, in the enum's own order:
-// Friend, Guild, InGroup, Interacted, else Other.
+// AccountCharacterSameRealm, Friend, Guild, InGroup, Interacted, else Other.
 
 #include "autocomplete/Names.h"
 
@@ -68,8 +72,8 @@ namespace AutoComplete::Names {
 
 namespace {
 
-// Enum.AutoCompleteEntryFlag. 1.12 has nothing to fill Bnet, InAOI,
-// AccountCharacter or RecentPlayer from.
+// Enum.AutoCompleteEntryFlag. 1.12 has nothing to fill Bnet, InAOI or
+// RecentPlayer from.
 enum EntryFlag : uint32_t {
     FLAG_IN_GROUP = 0x1,
     FLAG_IN_GUILD = 0x2,
@@ -191,6 +195,20 @@ std::vector<Entry> Collect(Match match) {
             Game::Read<uint8_t>(entry, FriendList::OFF_FRIEND_CONNECTED) != 0, 0);
     }
 
+    using GetCurrentFn = const uint8_t *(__cdecl *)();
+    const uint8_t *conn = reinterpret_cast<GetCurrentFn>(
+        static_cast<uintptr_t>(Offsets::FUN_CLIENT_SERVICES_GET_CURRENT))();
+    if (conn != nullptr) {
+        const uint32_t count = Game::Read<uint32_t>(conn, Offsets::OFF_CLIENT_CONNECTION_CHAR_COUNT);
+        const auto *chars = Game::Read<const uint8_t *>(conn, Offsets::OFF_CLIENT_CONNECTION_CHARS);
+        for (uint32_t i = 0; chars != nullptr && i < count; ++i) {
+            const uint8_t *record = chars + i * Offsets::CLIENT_CONNECTION_CHAR_STRIDE;
+            add(Game::Read<uint64_t>(record, Offsets::OFF_CLIENT_CONNECTION_CHAR_GUID),
+                reinterpret_cast<const char *>(record + Offsets::OFF_CLIENT_CONNECTION_CHAR_NAME),
+                FLAG_ACCOUNT_CHARACTER, true, false, 0);
+        }
+    }
+
     for (const Interaction &i : g_interactions)
         add(i.guid, i.name.c_str(), FLAG_INTERACTED_WITH, false, false, i.order);
 
@@ -227,6 +245,8 @@ std::vector<Entry> Merge(std::vector<Entry> found, uint32_t include, uint32_t ex
 }
 
 int PriorityOf(uint32_t flags) {
+    if (flags & FLAG_ACCOUNT_CHARACTER)
+        return PRIORITY_ACCOUNT_CHARACTER_SAME_REALM;
     if (flags & FLAG_FRIEND)
         return PRIORITY_FRIEND;
     if (flags & FLAG_IN_GUILD)
@@ -361,7 +381,8 @@ const Game::GlueModuleAutoRegister _clearOnLogout{&ClearOnLogout};
 const Game::Doc::Field kResultFields[] = {
     Game::Doc::Req("name", "string"),
     Game::Doc::Req("priority", "AutoCompletePriority",
-                   "The closest tie to the player: friend, guild, group, whisper, or none."),
+                   "The closest tie to the player: your own character, friend, guild, group, "
+                   "whisper, or none."),
     Game::Doc::Req("bnetID", "number", "Always 0."),
 };
 const Game::Doc::Structure kResult{"AutoCompleteResult", "AutoComplete", kResultFields};
