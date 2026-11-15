@@ -65,10 +65,7 @@ bool InReach(void *player, void *target) {
         Game::Read<float>(static_cast<uintptr_t>(Offsets::VAR_MELEE_REACH_MIN));
     if (reach < minReach)
         reach = minReach;
-    const float dx = p[0] - t[0];
-    const float dy = p[1] - t[1];
-    const float dz = p[2] - t[2];
-    return dx * dx + dy * dy + dz * dz <= reach * reach;
+    return Game::DistanceSq(p, t) <= reach * reach;
 }
 
 uint64_t HeldTarget(const void *player) {

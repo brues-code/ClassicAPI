@@ -181,10 +181,7 @@ void DirectionProc(DirectionData *data, uint64_t guid) {
     float position[3];
     if (!Unit::Position::Read(unit, position))
         return;
-    const float dx = position[0] - data->playerPosition[0];
-    const float dy = position[1] - data->playerPosition[1];
-    const float dz = position[2] - data->playerPosition[2];
-    if (dx * dx + dy * dy + dz * dz > data->maxDistanceSq)
+    if (Game::DistanceSq(position, data->playerPosition) > data->maxDistanceSq)
         return;
     if (NotTabTarget(unit) ||
         !reinterpret_cast<Visible_t>(Offsets::FUN_WORLD_OBJECT_VISIBLE)(

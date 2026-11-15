@@ -126,10 +126,9 @@ const Event::Custom::AutoReserve kNotInterruptible{"UNIT_SPELLCAST_NOT_INTERRUPT
 // SpellCastTargets mask bit for a unit target (a packed GUID follows).
 constexpr uint16_t kTargetFlagUnit = 0x0002;
 
-const char *LocalizedField(const uint8_t *rec, int fieldOffset) {
-    const int locale = Game::Read<int>(Offsets::VAR_LOCALE_INDEX);
-    return Game::Read<const char *>(rec, fieldOffset + locale * 4);
-}
+// The event formats take `%s`, and a NULL `%s` corrupts every argument after
+// it, so an empty name or rank goes out as "".
+const char *OrEmpty(const char *s) { return s != nullptr ? s : ""; }
 
 // Cast UID for a REAL (Type-3) cast — player and remote alike. Per the retail
 // spell-cast-GUID spec (warcraft.wiki.gg/wiki/GUID#Cast) for non-local-only
@@ -179,8 +178,8 @@ void Fire(const Event::Custom::AutoReserve &event, int spellID, int guidNum,
     char castGuid[48];
     BuildCastGuid(castGuid, sizeof(castGuid), type, spellID, guidNum);
     Event::Custom::Fire(slot, "%s%s%d%s%s", "player", castGuid, spellID,
-                        LocalizedField(rec, Offsets::OFF_SPELL_NAMES),
-                        LocalizedField(rec, Offsets::OFF_SPELL_RECORD_RANK));
+                        OrEmpty(Spell::Lookup::Name(rec)),
+                        OrEmpty(Spell::Lookup::Rank(rec)));
 }
 
 // SENT is the one event whose shape differs from the rest, matching modern:
@@ -197,8 +196,8 @@ void FireSent(int spellID, int guidNum, const char *target) {
     char castGuid[48];
     BuildCastGuid(castGuid, sizeof(castGuid), /*type=*/3, spellID, guidNum);
     Event::Custom::Fire(slot, "%s%s%s%d%s%s", "player", target ? target : "",
-                        castGuid, spellID, LocalizedField(rec, Offsets::OFF_SPELL_NAMES),
-                        LocalizedField(rec, Offsets::OFF_SPELL_RECORD_RANK));
+                        castGuid, spellID, OrEmpty(Spell::Lookup::Name(rec)),
+                        OrEmpty(Spell::Lookup::Rank(rec)));
 }
 
 // Fire a RETICLE event `(unitTarget, castGUID, spellID, spellName, rank)`.
@@ -217,8 +216,8 @@ void FireReticle(const Event::Custom::AutoReserve &event, int spellID) {
     if (rec == nullptr)
         return;
     Event::Custom::Fire(slot, "%s%s%d%s%s", "player", "", spellID,
-                        LocalizedField(rec, Offsets::OFF_SPELL_NAMES),
-                        LocalizedField(rec, Offsets::OFF_SPELL_RECORD_RANK));
+                        OrEmpty(Spell::Lookup::Name(rec)),
+                        OrEmpty(Spell::Lookup::Rank(rec)));
 }
 
 // spellID whose reticle we last reported active (0 = no reticle up).
@@ -469,8 +468,8 @@ void FireRemote(const Event::Custom::AutoReserve &event, uint64_t casterGuid,
         return;
     char castGuid[48];
     BuildCastGuid(castGuid, sizeof(castGuid), /*type=*/3, spellID, guidNum);
-    const char *name = LocalizedField(rec, Offsets::OFF_SPELL_NAMES);
-    const char *rank = LocalizedField(rec, Offsets::OFF_SPELL_RECORD_RANK);
+    const char *name = OrEmpty(Spell::Lookup::Name(rec));
+    const char *rank = OrEmpty(Spell::Lookup::Rank(rec));
     for (int i = 0; i < n; ++i)
         Event::Custom::Fire(slot, "%s%s%d%s%s", tokens[i], castGuid, spellID,
                             name, rank);

@@ -42,10 +42,7 @@ Result Find(uint32_t typeMask, Guid::Type guidType, uint32_t entry) {
         float pos[3];
         if (!Unit::Position::Read(Object::ByGuid(typeMask, guid, nullptr, 0), pos))
             return true;
-        const float dx = pos[0] - ppos[0];
-        const float dy = pos[1] - ppos[1];
-        const float dz = pos[2] - ppos[2];
-        const float distSq = dx * dx + dy * dy + dz * dz;
+        const float distSq = Game::DistanceSq(pos, ppos);
         if (!r.found || distSq < r.distSq)
             r = {true, pos[0], pos[1], distSq};
         return true;

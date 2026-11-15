@@ -65,12 +65,7 @@ static int ParseLeadingInt(const char *name, const char **end) {
 }
 
 static const char *LocaleNameForID(int spellID) {
-    const uint8_t *record = Spell::Lookup::RecordForID(spellID);
-    if (record == nullptr)
-        return nullptr;
-    const int locale = Game::Read<int>(
-        static_cast<uintptr_t>(Offsets::VAR_LOCALE_INDEX));
-    return Game::Read<const char *>(record, Offsets::OFF_SPELL_NAMES + locale * 4);
+    return Spell::Lookup::Name(Spell::Lookup::RecordForID(spellID));
 }
 
 // Hook on the single name → spellbook-slot resolver

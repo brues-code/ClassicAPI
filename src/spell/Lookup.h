@@ -22,6 +22,11 @@ namespace Spell::Lookup {
 // always invalid.
 const uint8_t *RecordForID(int spellID);
 
+// The spell's name / rank text ("Rank 3") in the client's locale, or nullptr
+// for a null record and for an empty string (`DBC::LocalizedString`).
+const char *Name(const uint8_t *spellRecord);
+const char *Rank(const uint8_t *spellRecord);
+
 // True if `spellRecord`'s SpellFamilyName equals `family` and its
 // SpellFamilyFlags overlap `flagMask` — the client-side form of the server's
 // `SpellEntry::IsFitToFamily<FAMILY, FLAG>()`. `flagMask` must be non-zero

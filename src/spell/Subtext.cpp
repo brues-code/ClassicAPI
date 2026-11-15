@@ -21,7 +21,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
-#include "dbc/Lookup.h"
+#include "spell/Lookup.h"
 
 #include <cstdint>
 
@@ -49,10 +49,7 @@ static int __fastcall Script_GetSpellSubtext(void *L) {
         Game::Lua::PushNil(L);
         return 1;
     }
-    const char *subtext = DBC::LocalizedField(Offsets::VAR_SPELL_RECORDS,
-                                              Offsets::VAR_SPELL_RECORD_COUNT,
-                                              static_cast<uint32_t>(spellID),
-                                              Offsets::OFF_SPELL_RECORD_RANK);
+    const char *subtext = Spell::Lookup::Rank(Spell::Lookup::RecordForID(spellID));
     if (subtext == nullptr) {
         Game::Lua::PushNil(L);
         return 1;

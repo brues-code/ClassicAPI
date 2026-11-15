@@ -174,9 +174,7 @@ bool Build(int spellID, char *buf, size_t size) {
     if (bit != 0)
         *out++ = kBase64[bits];
 
-    const char *name = DBC::LocalizedField(Offsets::VAR_SPELL_RECORDS,
-                                           Offsets::VAR_SPELL_RECORD_COUNT,
-                                           static_cast<uint32_t>(spellID), Offsets::OFF_SPELL_NAMES);
+    const char *name = Spell::Lookup::Name(Spell::Lookup::RecordForID(spellID));
     std::snprintf(out, static_cast<size_t>(buf + size - out), "|h[%s]|h|r",
                   name != nullptr ? name : "");
     return true;

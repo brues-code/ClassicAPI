@@ -132,11 +132,12 @@ static bool ReadSpellInfo(int spellID, int pet, SpellInfoData &out) {
     if (record == nullptr)
         return false;
 
-    const int locale = ReadGlobal<int>(Offsets::VAR_LOCALE_INDEX);
-
+    // "" for an empty name or rank, which the returns push as strings.
+    const char *name = Spell::Lookup::Name(record);
+    const char *rank = Spell::Lookup::Rank(record);
     out.spellID = spellID;
-    out.name = Game::Read<const char *>(record, Offsets::OFF_SPELL_NAMES + locale * 4);
-    out.rank = Game::Read<const char *>(record, Offsets::OFF_SPELL_RECORD_RANK + locale * 4);
+    out.name = name != nullptr ? name : "";
+    out.rank = rank != nullptr ? rank : "";
 
     out.iconPath = nullptr;
     const int iconID = Game::Read<int>(record, Offsets::OFF_SPELL_RECORD_ICON_ID);
@@ -325,9 +326,8 @@ static int __fastcall Script_C_GetSpellName(void *L) {
     if (record == nullptr)
         return 0; // nil for unknown spellID
 
-    const int locale = ReadGlobal<int>(Offsets::VAR_LOCALE_INDEX);
-    const char *name = Game::Read<const char *>(record, Offsets::OFF_SPELL_NAMES + locale * 4);
-    if (name == nullptr || *name == '\0')
+    const char *name = Spell::Lookup::Name(record);
+    if (name == nullptr)
         return 0; // empty / no name in current locale → nil
     Game::Lua::PushString(L, name);
     return 1;
@@ -364,9 +364,8 @@ static bool BuildSpellLink(int spellID, char *out, size_t outLen) {
     const uint8_t *record = Spell::Lookup::RecordForID(spellID);
     if (record == nullptr)
         return false;
-    const int locale = ReadGlobal<int>(Offsets::VAR_LOCALE_INDEX);
-    const char *name = Game::Read<const char *>(record, Offsets::OFF_SPELL_NAMES + locale * 4);
-    if (name == nullptr || *name == '\0')
+    const char *name = Spell::Lookup::Name(record);
+    if (name == nullptr)
         return false;
     const int n = std::snprintf(out, outLen, "|cff71d5ff|Hspell:%d:0|h[%s]|h|r",
                                 spellID, name);

@@ -295,9 +295,10 @@ int ChannelDurationMs(int spellID) {
     return ms > 0 ? ms : 0; // negative = "infinite"; channels are finite
 }
 
+// "" for a spell with no name, which the cast-info returns push as a string.
 const char *SpellName(const uint8_t *rec) {
-    const int locale = Game::Read<int>(Offsets::VAR_LOCALE_INDEX);
-    return Game::Read<const char *>(rec, Offsets::OFF_SPELL_NAMES + locale * 4);
+    const char *name = Spell::Lookup::Name(rec);
+    return name != nullptr ? name : "";
 }
 
 bool IsTradeskill(const uint8_t *rec) {

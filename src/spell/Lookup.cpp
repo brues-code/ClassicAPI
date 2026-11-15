@@ -29,6 +29,14 @@ const uint8_t *RecordForID(int spellID) {
                        static_cast<uint32_t>(spellID));
 }
 
+const char *Name(const uint8_t *spellRecord) {
+    return DBC::LocalizedString(spellRecord, Offsets::OFF_SPELL_NAMES);
+}
+
+const char *Rank(const uint8_t *spellRecord) {
+    return DBC::LocalizedString(spellRecord, Offsets::OFF_SPELL_RECORD_RANK);
+}
+
 const char *IconPath(const uint8_t *spellRecord, bool active) {
     if (spellRecord == nullptr)
         return nullptr;
@@ -164,9 +172,6 @@ int FindSpellbookSlot(int spellID, int *outBookType) {
 int SpellNameToID(const char *name) {
     if (name == nullptr || *name == '\0')
         return 0;
-    const int locale = *reinterpret_cast<const int *>(
-        static_cast<uintptr_t>(Offsets::VAR_LOCALE_INDEX));
-
     // A trailing "(subtext)" pins a specific rank — the vanilla
     // "SpellName(Rank N)" addressing that CastSpellByName and friends use
     // (a space before the paren is tolerated: "Mind Blast (Rank 8)"). The
@@ -215,16 +220,14 @@ int SpellNameToID(const char *name) {
             const uint8_t *record = RecordForID(spellID);
             if (record == nullptr)
                 continue;
-            const char *sname = *reinterpret_cast<const char *const *>(
-                record + Offsets::OFF_SPELL_NAMES + locale * 4);
+            const char *sname = Name(record);
             if (sname == nullptr || std::strcmp(sname, base) != 0)
                 continue;
             if (!haveRank) {
                 best = spellID; // highest rank (last match)
                 continue;
             }
-            const char *srank = *reinterpret_cast<const char *const *>(
-                record + Offsets::OFF_SPELL_RECORD_RANK + locale * 4);
+            const char *srank = Rank(record);
             if (srank != nullptr && std::strcmp(srank, wantRank) == 0)
                 return spellID; // exact name + rank
         }

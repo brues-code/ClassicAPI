@@ -106,10 +106,7 @@ bool PlayerToUnitDistSq(const char *token, float *outSq) {
     if (!ReadPosAndReach(token, unitPos, &reach) ||
         !ReadPosAndReach("player", playerPos, &reach))
         return false;
-    const float dx = unitPos[0] - playerPos[0];
-    const float dy = unitPos[1] - playerPos[1];
-    const float dz = unitPos[2] - playerPos[2];
-    *outSq = dx * dx + dy * dy + dz * dz;
+    *outSq = Game::DistanceSq(unitPos, playerPos);
     return true;
 }
 
@@ -202,10 +199,7 @@ bool InRange(const char *token, bool *inRange) {
         !ReadMoverPosAndReach(moverPos, &moverReach))
         return false;
 
-    const float dx = unitPos[0] - moverPos[0];
-    const float dy = unitPos[1] - moverPos[1];
-    const float dz = unitPos[2] - moverPos[2];
-    const float distSq = dx * dx + dy * dy + dz * dz;
+    const float distSq = Game::DistanceSq(unitPos, moverPos);
 
     // Effective range = base + both units' reach, mirroring the engine's
     // spell-range formula (FUN_006e3480). Without the reach terms a target

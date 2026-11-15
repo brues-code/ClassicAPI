@@ -131,6 +131,15 @@ bool StringToFlag(const char *text);
 // and a `__cdecl` declaration drifts ESP by 12 per call.
 int StrCmpI(const char *a, const char *b, int n = 0x7FFFFFFF);
 
+// Squared distance between two 3D points, summed x, y, z in float like the
+// engine's own distance tests.
+inline float DistanceSq(const float a[3], const float b[3]) {
+    const float dx = a[0] - b[0];
+    const float dy = a[1] - b[1];
+    const float dz = a[2] - b[2];
+    return dx * dx + dy * dy + dz * dz;
+}
+
 // --- API documentation descriptors -----------------------------------------
 //
 // Every Lua registration (see the `Register*` functions in `Game::Lua`) can

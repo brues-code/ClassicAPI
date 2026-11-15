@@ -69,12 +69,9 @@ bool CurrentOption(Option &out, char *itemName, size_t itemNameSize) {
         info != nullptr ? Game::Read<int32_t>(info, Offsets::OFF_CGPLAYER_INFO_SELF_RES_SPELL) : 0;
     if (spellID != 0) {
         const uint8_t *rec = Spell::Lookup::RecordForID(spellID);
-        out = {rec != nullptr
-                   ? Game::Read<const char *>(rec, Offsets::OFF_SPELL_NAMES +
-                                                       Game::Read<int>(Offsets::VAR_LOCALE_INDEX) *
-                                                           4)
-                   : "UNKNOWN",
-               OPTION_TYPE_SPELL, spellID};
+        const char *name = Spell::Lookup::Name(rec);
+        out = {rec == nullptr ? "UNKNOWN" : name != nullptr ? name : "", OPTION_TYPE_SPELL,
+               spellID};
         return true;
     }
     using SelfResItem_t = const uint8_t *(__fastcall *)(const void *player);

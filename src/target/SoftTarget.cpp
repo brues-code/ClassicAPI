@@ -195,10 +195,7 @@ bool InArc(const Area &a, const float pos[3]) {
 bool Locate(const Area &a, void *object, float pos[3], float &distSq) {
     if (object == nullptr || object == a.player || !Unit::Position::Read(object, pos))
         return false;
-    const float dx = pos[0] - a.pos[0];
-    const float dy = pos[1] - a.pos[1];
-    const float dz = pos[2] - a.pos[2];
-    distSq = dx * dx + dy * dy + dz * dz;
+    distSq = Game::DistanceSq(pos, a.pos);
     return true;
 }
 

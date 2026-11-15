@@ -40,15 +40,18 @@ const uint8_t *Record(uintptr_t recordsVar, uintptr_t countVar, uint32_t id) {
     return records[id];
 }
 
-const char *LocalizedField(uintptr_t recordsVar, uintptr_t countVar,
-                           uint32_t id, int offset) {
-    const uint8_t *record = Record(recordsVar, countVar, id);
+const char *LocalizedString(const uint8_t *record, int offset) {
     if (record == nullptr)
         return nullptr;
     const int locale = *reinterpret_cast<const int *>(
         static_cast<uintptr_t>(Offsets::VAR_LOCALE_INDEX));
     const char *const *names = reinterpret_cast<const char *const *>(record + offset);
     return NormalizeEmpty(names[locale]);
+}
+
+const char *LocalizedField(uintptr_t recordsVar, uintptr_t countVar,
+                           uint32_t id, int offset) {
+    return LocalizedString(Record(recordsVar, countVar, id), offset);
 }
 
 const char *StringField(uintptr_t recordsVar, uintptr_t countVar,

@@ -29,7 +29,6 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "aura/Data.h"
-#include "dbc/Lookup.h"
 #include "unit/Identity.h"
 
 #include <cstdint>
@@ -76,9 +75,8 @@ int __fastcall Script_CancelSpellByName(void *L) {
         if (!Aura::Data::IsSlotPopulated(player, slot))
             continue;
         const uint32_t spellID = Aura::Data::ReadSpellID(player, slot);
-        const char *name = DBC::LocalizedField(
-            Offsets::VAR_SPELL_RECORDS, Offsets::VAR_SPELL_RECORD_COUNT,
-            spellID, Offsets::OFF_SPELL_NAMES);
+        const char *name =
+            Spell::Lookup::Name(Spell::Lookup::RecordForID(static_cast<int>(spellID)));
         if (name != nullptr && _stricmp(name, targetName) == 0) {
             SendCancel(static_cast<int>(spellID));
             return 0;

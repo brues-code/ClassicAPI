@@ -41,6 +41,7 @@
 #include "Offsets.h"
 #include "guid/Guid.h"
 #include "tick/FrameTick.h"
+#include "spell/Lookup.h"
 
 #include <cstdio>
 #include <ctime>
@@ -144,7 +145,7 @@ std::string Pack(const Entry &e) {
     if (e.spellPrefix) {
         const uint8_t *spell = SpellRecord(e.spellId);
         Number(line, e.spellId);
-        Quoted(line, SpellName(spell));
+        Quoted(line, Spell::Lookup::Name(spell));
         Hex(line, spell != nullptr ? SpellSchoolMask(spell) : e.spellSchool);
     }
     if (e.info & INFO_COUNT)
@@ -184,7 +185,7 @@ std::string Pack(const Entry &e) {
     if (e.info & INFO_EXTRA_SPELL) {
         const uint8_t *extra = SpellRecord(e.v[0]);
         Number(line, e.v[0]);
-        Quoted(line, SpellName(extra));
+        Quoted(line, Spell::Lookup::Name(extra));
         Number(line, static_cast<int>(SpellSchoolMask(extra)));
     }
     if (e.info & INFO_ITEM) {

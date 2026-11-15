@@ -58,13 +58,11 @@ void RewriteAppendHeader(void *tooltip, int headerLine, int spellID, bool showSu
         (Game::Read<uint32_t>(record, Offsets::OFF_SPELL_RECORD_ATTRIBUTES) &
          Offsets::SPELL_ATTR_TRADESPELL) != 0)
         return; // a recipe appends its created item's tooltip, which has no header
-    const int locale = Game::Read<int>(Offsets::VAR_LOCALE_INDEX);
-    const char *name = Game::Read<const char *>(record, Offsets::OFF_SPELL_NAMES + locale * 4);
-    if (name == nullptr || name[0] == '\0')
+    const char *name = Spell::Lookup::Name(record);
+    if (name == nullptr)
         return;
-    const char *subtext =
-        showSubtext ? Game::Read<const char *>(record, Offsets::OFF_SPELL_RECORD_RANK + locale * 4)
-                    : nullptr;
+    const char *rank = Spell::Lookup::Rank(record);
+    const char *subtext = showSubtext ? (rank != nullptr ? rank : "") : nullptr;
 
     const uint32_t textColor = Game::Read<uint32_t>(Offsets::VAR_TOOLTIP_TEXT_COLOR);
     const uint32_t grayColor = Game::Read<uint32_t>(Offsets::VAR_TOOLTIP_GRAY_COLOR);
@@ -155,15 +153,10 @@ static int __fastcall Script_GameTooltipGetSpell(void *L) {
     if (record == nullptr)
         return 0;
 
-    const int locale = Game::Read<int>(Offsets::VAR_LOCALE_INDEX);
-    const char *name = Game::Read<const char *>(
-        record, Offsets::OFF_SPELL_NAMES + locale * 4);
-    const char *rank = Game::Read<const char *>(
-        record, Offsets::OFF_SPELL_RECORD_RANK + locale * 4);
+    const char *name = Spell::Lookup::Name(record);
+    const char *rank = Spell::Lookup::Rank(record);
 
-    if (name == nullptr)
-        return 0;
-    Game::Lua::PushString(L, name);
+    Game::Lua::PushString(L, name != nullptr ? name : "");
     // Spell rank is optional in Spell.dbc — some spells (most racials,
     // some procs) have an empty rank slot. Surface that as an empty
     // string to match modern semantics; an absent rank is not nil.

@@ -41,15 +41,7 @@ namespace Item::Spell {
 namespace {
 
 const char *SpellNameForID(int spellID) {
-    const uint8_t *record = ::Spell::Lookup::RecordForID(spellID);
-    if (record == nullptr)
-        return nullptr;
-    const int locale = *reinterpret_cast<const int *>(
-        static_cast<uintptr_t>(Offsets::VAR_LOCALE_INDEX));
-    auto *const *names = reinterpret_cast<const char *const *>(
-        record + Offsets::OFF_SPELL_NAMES);
-    const char *name = names[locale];
-    return (name != nullptr && name[0] != '\0') ? name : nullptr;
+    return ::Spell::Lookup::Name(::Spell::Lookup::RecordForID(spellID));
 }
 
 // `GetItemSpell(itemID | "item:NNN" | itemLink)` — returns

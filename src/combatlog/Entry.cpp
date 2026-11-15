@@ -402,7 +402,7 @@ int Push(void *L, const Entry &e) {
     if (e.spellPrefix) {
         const uint8_t *spell = SpellRecord(e.spellId);
         PushNumber(L, e.spellId);
-        const char *name = SpellName(spell);
+        const char *name = Spell::Lookup::Name(spell);
         if (name != nullptr)
             PushString(L, name);
         else
@@ -481,7 +481,7 @@ int Push(void *L, const Entry &e) {
     if (e.info & INFO_EXTRA_SPELL) {
         const uint8_t *extra = SpellRecord(e.v[0]);
         PushNumber(L, e.v[0]);
-        const char *name = SpellName(extra);
+        const char *name = Spell::Lookup::Name(extra);
         if (name != nullptr)
             PushString(L, name);
         else
@@ -589,19 +589,11 @@ int PushEvent(void *L, const Entry &entry) { return Push(L, entry); }
 
 const uint8_t *SpellRecord(int spellId) { return Spell::Lookup::RecordForID(spellId); }
 
-const char *SpellName(const uint8_t *spell) {
-    if (spell == nullptr)
-        return nullptr;
-    const int locale = Game::Read<int>(Offsets::VAR_LOCALE_INDEX);
-    const char *n = Game::Read<const char *>(spell, Offsets::OFF_SPELL_NAMES + locale * 4);
-    return (n == nullptr || *n == '\0') ? nullptr : n;
-}
-
 bool Hidden(const uint8_t *spell) {
     return spell == nullptr ||
            (Game::Read<uint32_t>(spell, Offsets::OFF_SPELL_RECORD_ATTRIBUTES) & kHiddenAttributes) !=
                0 ||
-           SpellName(spell) == nullptr;
+           Spell::Lookup::Name(spell) == nullptr;
 }
 
 bool Ranged(const uint8_t *spell) {

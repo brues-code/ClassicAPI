@@ -1121,8 +1121,7 @@ bool InteriorFog(const Backdrop &b, const float (&eye)[3], const uint32_t (&grou
                 continue;
             const uint8_t *fog = fogs + index * Offsets::MAPOBJ_FOG_SIZE;
             const float *at = reinterpret_cast<const float *>(fog + Offsets::OFF_MAPOBJ_FOG_POSITION);
-            const float dx = at[0] - camera[0], dy = at[1] - camera[1], dz = at[2] - camera[2];
-            const float distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+            const float distance = std::sqrt(Game::DistanceSq(at, camera));
             if (distance < Game::Read<float>(fog, Offsets::OFF_MAPOBJ_FOG_OUTER_RADIUS) &&
                 (Game::Read<uint32_t>(fog, Offsets::OFF_MAPOBJ_FOG_FLAGS) & Offsets::MAPOBJ_FOG_NOT_CANDIDATE) == 0)
                 candidates[n++] = {distance, fog};
@@ -1307,8 +1306,7 @@ void Place(const Backdrop *wmo, const Terrain::Land *terrain, Ambience &a, void 
         TransformBox(base, box, world);
         for (int i = 0; i < 3; ++i)
             centre[i] = (world[i] + world[i + 3]) * 0.5f;
-        const float dx = world[3] - centre[0], dy = world[4] - centre[1], dz = world[5] - centre[2];
-        radius = std::sqrt(dx * dx + dy * dy + dz * dz);
+        radius = std::sqrt(Game::DistanceSq(&world[3], centre));
     }
     // The probe point: the collision box's centre through the matrix.
     float point[3] = {0.0f, 0.0f, 0.0f};
@@ -1436,9 +1434,8 @@ void Settle(const Backdrop *b, const Terrain::Land *terrain, Ambience &a, void *
     const bool placed = a.model == model && a.serial == serial && a.terrainSerial == terrainSerial;
     bool moved = true;
     if (placed && a.generation == generation) {
-        const float dx = position[0] - a.position[0], dy = position[1] - a.position[1],
-                    dz = position[2] - a.position[2];
-        moved = !(std::fabs(dx * dx + dy * dy + dz * dz) < EngineFloat(Offsets::VAR_ONE_THOUSANDTH));
+        moved = !(std::fabs(Game::DistanceSq(position, a.position)) <
+                  EngineFloat(Offsets::VAR_ONE_THOUSANDTH));
     }
     if (!placed) {
         // A new node (0x00670DB0): intensity 1.0, the day ambient.
@@ -2153,8 +2150,7 @@ bool BuildMapLight(uint32_t mapID, uint32_t cameraLiquid, const float (&eye)[3],
     std::vector<std::pair<float, const uint8_t *>> near;
     for (const uint8_t *row : area) {
         const float *p = Game::Ptr<float>(row, Offsets::OFF_LIGHT_POSITION);
-        const float dx = eye[0] - p[0], dy = eye[1] - p[1], dz = eye[2] - p[2];
-        const float d = std::sqrt(dx * dx + dy * dy + dz * dz);
+        const float d = std::sqrt(Game::DistanceSq(eye, p));
         if (d < Game::Read<float>(row, Offsets::OFF_LIGHT_OUTER_RADIUS))
             near.emplace_back(d, row);
     }

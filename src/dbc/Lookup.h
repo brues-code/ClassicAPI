@@ -52,9 +52,14 @@ namespace DBC {
 // table.
 const uint8_t *Record(uintptr_t recordsVar, uintptr_t countVar, uint32_t id);
 
-// Reads a localized string field from a DBC record. The field at
-// `offset` is treated as a 9-entry array of `const char *`, indexed
-// by the engine's current locale at `VAR_LOCALE_INDEX`.
+// Reads a localized string field off a record already in hand. The field
+// at `offset` is a 9-entry array of `const char *`, indexed by the engine's
+// current locale at `VAR_LOCALE_INDEX`. `nullptr` for a null record and for
+// a missing or empty string, like `LocalizedField`.
+const char *LocalizedString(const uint8_t *record, int offset);
+
+// Reads a localized string field from a DBC record by id: `Record`, then
+// `LocalizedString`.
 //
 // Used for the `Name`/`Description` etc. fields on `Spell.dbc`,
 // `ChrRaces.dbc`, `AreaTable.dbc`, and every other table whose

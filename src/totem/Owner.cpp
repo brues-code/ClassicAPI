@@ -42,23 +42,15 @@
 #include "guid/Guid.h"
 #include "object/Resolve.h"
 #include "spell/Lookup.h"
+#include "unit/Identity.h"
 #include "unit/Position.h"
 
 #include <cfloat>
 #include <cstdint>
-#include <cstring>
 
 namespace Totem::Owner {
 
 namespace {
-
-const char *SpellName(const uint8_t *rec) {
-    if (rec == nullptr)
-        return nullptr;
-    const int locale = Game::Read<int>(static_cast<uintptr_t>(Offsets::VAR_LOCALE_INDEX));
-    const char *name = Game::Read<const char *>(rec, Offsets::OFF_SPELL_NAMES + locale * 4);
-    return (name != nullptr && *name != '\0') ? name : nullptr;
-}
 
 bool IsTotemSummon(const uint8_t *rec) {
     if (rec == nullptr)
@@ -78,30 +70,7 @@ uint64_t OwnerOfObject(const void *unit) {
     const auto summon = Game::Read<uint32_t>(desc, Offsets::OFF_UNIT_FIELD_CREATED_BY_SPELL);
     if (summon == 0 || !IsTotemSummon(Spell::Lookup::RecordForID(static_cast<int>(summon))))
         return 0;
-    return Game::Read<uint64_t>(desc, Offsets::OFF_UNIT_FIELD_CREATEDBY);
-}
-
-// True when one of `unit`'s aura slots holds `spellId` or another rank of
-// the line named `name`.
-bool CarriesAura(const uint8_t *unit, uint32_t spellId, const char *name) {
-    for (int slot = 0; slot < Offsets::UNIT_AURA_TOTAL; ++slot) {
-        const uint32_t id = Aura::Data::ReadSpellID(unit, slot);
-        if (id == 0)
-            continue;
-        if (id == spellId)
-            return true;
-        const char *other = SpellName(Spell::Lookup::RecordForID(static_cast<int>(id)));
-        if (name != nullptr && other != nullptr && std::strcmp(name, other) == 0)
-            return true;
-    }
-    return false;
-}
-
-float DistanceSq(const float a[3], const float b[3]) {
-    const float dx = a[0] - b[0];
-    const float dy = a[1] - b[1];
-    const float dz = a[2] - b[2];
-    return dx * dx + dy * dy + dz * dz;
+    return Unit::Identity::OwnerGuid(unit);
 }
 
 } // namespace
@@ -123,7 +92,11 @@ uint64_t OfAreaAura(uint64_t targetGuid, uint32_t spellId) {
                               targetPos))
         return 0;
 
-    const char *name = SpellName(rec);
+    // Every rank of a line shares its name, so the name finds the totem's own
+    // rank too.
+    const char *name = Spell::Lookup::Name(rec);
+    if (name == nullptr)
+        return 0;
     uint64_t best = 0;
     float bestDistSq = FLT_MAX;
     Object::ForEachVisible([&](uint64_t guid) {
@@ -133,7 +106,8 @@ uint64_t OfAreaAura(uint64_t targetGuid, uint32_t spellId) {
         if (unit == nullptr)
             return true;
         const uint64_t owner = OwnerOfObject(unit);
-        if (owner == 0 || !CarriesAura(static_cast<const uint8_t *>(unit), spellId, name))
+        if (owner == 0 ||
+            Aura::Data::FindSlotBySpellName(static_cast<const uint8_t *>(unit), name, nullptr) < 0)
             return true;
         if (owner == targetGuid) {
             best = owner;
@@ -142,7 +116,7 @@ uint64_t OfAreaAura(uint64_t targetGuid, uint32_t spellId) {
         float pos[3];
         if (!Unit::Position::Read(unit, pos))
             return true;
-        const float distSq = DistanceSq(pos, targetPos);
+        const float distSq = Game::DistanceSq(pos, targetPos);
         if (distSq < bestDistSq) {
             best = owner;
             bestDistSq = distSq;

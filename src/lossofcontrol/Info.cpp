@@ -65,9 +65,7 @@ using Time::Clock::NowMs;
 using Time::Clock::Reached;
 
 const char *SpellName(const uint8_t *rec) {
-    const int locale = Game::Read<int>(Offsets::VAR_LOCALE_INDEX);
-    const char *n =
-        Game::Read<const char *>(rec, Offsets::OFF_SPELL_NAMES + locale * 4);
+    const char *n = ::Spell::Lookup::Name(rec);
     return (n != nullptr) ? n : "";
 }
 

@@ -64,8 +64,7 @@ using AbilityLookup_t = const uint8_t *(__fastcall *)(char race, char classId,
 
 // A 9-locale string field, in the client's locale; "" for an empty slot.
 const char *LocalizedName(const uint8_t *record, int offset) {
-    const int locale = Game::Read<int>(Offsets::VAR_LOCALE_INDEX);
-    const char *name = Game::Read<const char *>(record, offset + locale * 4);
+    const char *name = DBC::LocalizedString(record, offset);
     return name != nullptr ? name : "";
 }
 

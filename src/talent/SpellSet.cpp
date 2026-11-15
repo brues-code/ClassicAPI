@@ -30,11 +30,7 @@ namespace Talent::SpellSet {
 namespace {
 
 const char *Name(int spellID) {
-    const uint8_t *rec = Spell::Lookup::RecordForID(spellID);
-    if (rec == nullptr)
-        return nullptr;
-    const int locale = Game::Read<int>(Offsets::VAR_LOCALE_INDEX);
-    return Game::Read<const char *>(rec, Offsets::OFF_SPELL_NAMES + locale * 4);
+    return Spell::Lookup::Name(Spell::Lookup::RecordForID(spellID));
 }
 
 // Every spellID in a Talent.dbc rank column. Each record stores rank-N

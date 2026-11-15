@@ -24,6 +24,7 @@
 #include "object/Resolve.h"
 #include "spell/CrowdControl.h"
 #include "spell/IsSelfBuff.h"
+#include "spell/Lookup.h"
 #include "tick/WorldTick.h"
 #include "time/Clock.h"
 #include "turtle/Detect.h"
@@ -55,25 +56,11 @@ const uint8_t *SpellRecord(uint32_t spellID) {
                        Offsets::VAR_SPELL_RECORD_COUNT, spellID);
 }
 
-int LocaleIndex() {
-    return *reinterpret_cast<const int *>(
-        static_cast<uintptr_t>(Offsets::VAR_LOCALE_INDEX));
-}
-
-const char *LocalizedSpellName(const uint8_t *spellRecord) {
-    if (spellRecord == nullptr)
-        return nullptr;
-    const auto *names = reinterpret_cast<const char *const *>(
-        spellRecord + Offsets::OFF_SPELL_NAMES);
-    const char *s = names[LocaleIndex()];
-    return (s == nullptr || *s == '\0') ? nullptr : s;
-}
-
 // True when the spell's locale-resolved name equals `query`, ignoring case:
 // Storm's SStrCmpI, the compare 4.3.4's GetSortedAuraSlot makes for UnitAura's
 // name form.
 bool SpellNameMatches(const uint8_t *spellRecord, const char *query) {
-    const char *name = LocalizedSpellName(spellRecord);
+    const char *name = Spell::Lookup::Name(spellRecord);
     if (name == nullptr || query == nullptr)
         return false;
     return Game::StrCmpI(name, query) == 0;
@@ -885,7 +872,7 @@ static Display ResolveDisplay(uint32_t spellID, uint64_t casterGuid, bool isHelp
             spellRecord + Offsets::OFF_SPELL_DISPEL_TYPE);
     }
     Display d;
-    d.name = LocalizedSpellName(spellRecord);
+    d.name = Spell::Lookup::Name(spellRecord);
     d.icon = SpellIconPath(spellRecord);
     d.dispelName = DispelName(dispelTypeID);
     d.castByPlayer = Guid::IsPlayer(casterGuid);

@@ -35,6 +35,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "cvar/Factory.h"
+#include "spell/Lookup.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -162,7 +163,7 @@ bool Matches(const Filter &f, const Entry &e) {
         return e.spellId == f.spellId;
     if (!f.spellNamed)
         return true;
-    const char *name = e.spellPrefix ? SpellName(SpellRecord(e.spellId)) : nullptr;
+    const char *name = e.spellPrefix ? Spell::Lookup::Name(SpellRecord(e.spellId)) : nullptr;
     return name != nullptr && Game::StrCmpI(name, f.spellName.c_str()) == 0;
 }
 

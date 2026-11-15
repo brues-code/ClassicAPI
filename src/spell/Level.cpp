@@ -91,11 +91,6 @@ bool SpellHiddenFromSpellbook(int spellID) {
 // checks are NOT in the 1.12 client's Spell.dbc — server-only columns — so
 // the spellLevel rule is the only client-readable target-level mechanism.)
 
-int LocaleIndex() {
-    return Game::Read<int>(
-        static_cast<uintptr_t>(Offsets::VAR_LOCALE_INDEX));
-}
-
 // The friendly-target IDs the server's SelectAuraRankForLevel treats as
 // "positive" for rank selection: IsExplicitPositiveTarget (21/35/45/57/61)
 // plus IsAreaEffectPossitiveTarget (20/30/31/33/34/37/56/61). Narrower than
@@ -127,9 +122,7 @@ bool IsPositiveRankTarget(uint32_t t) {
 // single-rank buffs (Power Infusion / Innervate / Blessing of Kings, all
 // empty Rank and un-gated) vs ranked ones (Divine Spirit / Fortitude).
 bool HasRankString(const uint8_t *record) {
-    const char *rank = Game::Read<const char *>(
-        record, Offsets::OFF_SPELL_RECORD_RANK + LocaleIndex() * 4);
-    return rank != nullptr && *rank != '\0';
+    return Spell::Lookup::Rank(record) != nullptr;
 }
 
 // Minimum target level required to apply this exact spell (rank), or 0 if

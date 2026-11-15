@@ -166,11 +166,6 @@ std::vector<uint32_t> g_glowing;
 bool g_reconciling = false;
 bool g_again = false;
 
-const char *SpellName(const uint8_t *rec) {
-    const int locale = Game::Read<int>(Offsets::VAR_LOCALE_INDEX);
-    return Game::Read<const char *>(rec, Offsets::OFF_SPELL_NAMES + locale * 4);
-}
-
 uint32_t ActiveRows() {
     const uint8_t *player = Unit::Identity::PlayerObject();
     if (player == nullptr)
@@ -224,8 +219,8 @@ std::vector<uint32_t> GlowTargets(uint32_t rows, const std::vector<uint32_t> &us
     std::vector<const char *> names;
     for (uint32_t id : usable) {
         const uint8_t *rec = Spell::Lookup::RecordForID(static_cast<int>(id));
-        if (rec != nullptr && SpellName(rec) != nullptr)
-            names.push_back(SpellName(rec));
+        if (rec != nullptr && Spell::Lookup::Name(rec) != nullptr)
+            names.push_back(Spell::Lookup::Name(rec));
     }
 
     const int count = std::min(Game::Read<int>(Offsets::VAR_PLAYER_SPELLBOOK_COUNT),
@@ -238,7 +233,7 @@ std::vector<uint32_t> GlowTargets(uint32_t rows, const std::vector<uint32_t> &us
         bool glow = false;
         for (const Mask &m : masks)
             glow = glow || Spell::Lookup::IsFitToFamily(rec, m.family, m.flags);
-        const char *name = SpellName(rec);
+        const char *name = Spell::Lookup::Name(rec);
         for (const char *n : names)
             glow = glow || (name != nullptr && std::strcmp(name, n) == 0);
         if (glow)

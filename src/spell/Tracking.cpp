@@ -115,9 +115,7 @@ static int __fastcall Script_GetTrackingInfo(void *L) {
         return 0; // index past the number of tracking types -> nil
 
     const uint8_t *record = Spell::Lookup::RecordForID(spellID);
-    const int locale = Game::Read<int>(static_cast<uintptr_t>(Offsets::VAR_LOCALE_INDEX));
-    const char *name =
-        Game::Read<const char *>(record, Offsets::OFF_SPELL_NAMES + locale * 4);
+    const char *name = Spell::Lookup::Name(record);
 
     const bool active =
         Game::Read<int>(static_cast<uintptr_t>(Offsets::VAR_ACTIVE_TRACKING_SPELL)) ==
@@ -135,7 +133,7 @@ static int __fastcall Script_GetTrackingInfo(void *L) {
         texture = Game::Read<const char *>(iconRec, Offsets::OFF_SPELLICON_PATH);
     }
 
-    Game::Lua::PushString(L, name);    // 1. name (PushString handles NULL -> nil)
+    Game::Lua::PushString(L, name != nullptr ? name : ""); // 1. name
     Game::Lua::PushString(L, texture); // 2. texture (icon path) or nil
     if (active)                        // 3. active: 1 or nil
         Game::Lua::PushNumber(L, 1.0);

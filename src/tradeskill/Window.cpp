@@ -125,8 +125,7 @@ const uint8_t *Ability(uint32_t race, uint32_t classId, uint32_t spellID) {
 }
 
 const char *SpellName(int spellID) {
-    return DBC::LocalizedField(Offsets::VAR_SPELL_RECORDS, Offsets::VAR_SPELL_RECORD_COUNT,
-                               static_cast<uint32_t>(spellID), Offsets::OFF_SPELL_NAMES);
+    return Spell::Lookup::Name(Spell::Lookup::RecordForID(spellID));
 }
 
 // The window open on `open` builds its rows from the link.

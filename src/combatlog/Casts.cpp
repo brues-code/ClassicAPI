@@ -157,7 +157,7 @@ void __fastcall SpellFail_h(void *player, int spellId, const char *text) {
     if (player != nullptr && text != nullptr && *text != '\0' && spell != nullptr &&
         (Game::Read<uint32_t>(spell, Offsets::OFF_SPELL_RECORD_ATTRIBUTES) & ATTR_FAIL_HIDDEN) ==
             0 &&
-        SpellName(spell) != nullptr) {
+        Spell::Lookup::Name(spell) != nullptr) {
         Entry e = Begin(Unit::Identity::GuidForObject(player), 0, SPELL_CAST_FAILED, spell);
         e.info |= INFO_TEXT;
         e.text = text;

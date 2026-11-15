@@ -85,10 +85,7 @@ const Game::Live<double> kFalloffBase{Offsets::VAR_CAMERA_SHAKE_FALLOFF_BASE};
 // The falloff (0x005116E0): false past the far range; else the amplitude,
 // cut beyond the near range. The squared distance is a float, as stored.
 bool Falloff(const float (&eye)[3], const Shake &shake, float &amplitude) {
-    const float dx = eye[0] - shake.position[0];
-    const float dy = eye[1] - shake.position[1];
-    const float dz = eye[2] - shake.position[2];
-    const float distanceSq = dx * dx + dy * dy + dz * dz;
+    const float distanceSq = Game::DistanceSq(eye, shake.position);
     if (distanceSq > kFarSq)
         return false;
     amplitude = shake.amplitude;

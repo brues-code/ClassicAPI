@@ -150,9 +150,6 @@ struct Entry {
 // The Spell.dbc record of `spellId`, or nullptr.
 const uint8_t *SpellRecord(int spellId);
 
-// The spell's name in the client's locale, or nullptr when it has none.
-const char *SpellName(const uint8_t *spell);
-
 // 4.3.4's rule for a spell that writes nothing: no record, Attributes 0x80 or
 // 0x100, or no name in the client's locale.
 bool Hidden(const uint8_t *spell);
