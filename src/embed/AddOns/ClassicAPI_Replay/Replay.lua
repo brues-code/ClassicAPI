@@ -8,7 +8,10 @@
 -- along the client's arc, its weapons drawn or sheathed, and its stand
 -- state's animation (sitting, sleeping, dead, kneeling). Scene positions are
 -- map positions. Click a unit to follow it with the camera; click the ground
--- to stop. /replay toggles the window.
+-- to stop. Drag to turn and tilt the camera, right drag to move it across
+-- the view. With the cursor over the scene, W, A, S and D fly the camera
+-- along its view, Space and X up and down, Shift faster. /replay toggles the
+-- window.
 
 local ANIM_STAND, ANIM_WALK, ANIM_RUN, ANIM_MOUNT = 0, 4, 5, 91
 -- In the air (Offsets.h ANIM_JUMP, ANIM_FALL): from a jump, or off a ledge.
@@ -31,6 +34,17 @@ local CAMERA_ZOOM, CAMERA_MIN_ZOOM, CAMERA_MAX_ZOOM = 60, 2, 250;
 local CAMERA_FAR_CLIP = 800;
 -- A press and release closer than this many pixels is a click, not a drag.
 local CLICK_DISTANCE = 4;
+-- How far the camera tilts up or down, short of straight up or down (where
+-- its yaw would flip), in radians.
+local MAX_PITCH = 1.45;
+-- The free camera: yards a second, and how much faster with Shift. Each key
+-- moves along the view (forward), across it (right) or straight up.
+local FLY_SPEED, FLY_FAST = 20, 4;
+local FLY_KEYS = {
+	W = { 1, 0, 0 }, S = { -1, 0, 0 },
+	D = { 0, 1, 0 }, A = { 0, -1, 0 },
+	SPACE = { 0, 0, 1 }, X = { 0, 0, -1 },
+};
 local PLAYER_NAME_COLOR = { 0.4, 0.8, 1 };
 local CREATURE_NAME_COLOR = { 1, 0.82, 0 };
 
@@ -47,6 +61,7 @@ local playSpeed = DEFAULT_PLAY_SPEED;
 local focus;          -- the unit the camera follows
 local settingTimeline = false;
 local pressX, pressY;
+local flying = {};     -- the fly keys held, by key name
 
 ------------------------------------------------------------------------------
 -- Text
@@ -360,7 +375,53 @@ local function SetPlaying(on)
 	UpdatePlayButton();
 end
 
+-- Moves the camera's target by the fly keys held: along the view, across it
+-- level, and straight up. Flying stops following a unit.
+local function Fly(elapsed)
+	local forward, right, up = 0, 0, 0;
+	for key in pairs(flying) do
+		local move = FLY_KEYS[key];
+		forward, right, up = forward + move[1], right + move[2], up + move[3];
+	end
+	if forward == 0 and right == 0 and up == 0 then
+		return;
+	end
+	SetFocus(nil);
+	local step = FLY_SPEED * elapsed * (IsShiftKeyDown() and FLY_FAST or 1);
+	local fx, fy, fz = camera:GetForwardVector();
+	-- Right of the view, level: forward x up (the map's y grows to the left).
+	local rx, ry = fy, -fx;
+	local length = math.sqrt(rx * rx + ry * ry);
+	if length > 0 then
+		rx, ry = rx / length, ry / length;
+	end
+	local x, y, z = camera:GetTarget();
+	camera:SetTarget(x + (fx * forward + rx * right) * step, y + (fy * forward + ry * right) * step,
+		z + (fz * forward + up) * step);
+	camera:SnapAllInterpolatedValues();
+end
+
+-- A fly key pressed over the scene is the scene's; every other key goes on
+-- to the game.
+local function OnSceneKeyDown(self, key)
+	local fly = FLY_KEYS[key] and MouseIsOver(scene);
+	self:SetPropagateKeyboardInput(not fly);
+	if fly then
+		flying[key] = true;
+	end
+end
+
+local function OnSceneKeyUp(self, key)
+	flying[key] = nil;
+end
+
 local function OnUpdate(self, elapsed)
+	local pitch = camera:GetPitch();
+	if math.abs(pitch) > MAX_PITCH then
+		camera:SetPitch(pitch > 0 and MAX_PITCH or -MAX_PITCH);
+		camera:SnapToTargetInterpolationPitch();
+	end
+	Fly(elapsed);
 	if #units == 0 then
 		return;
 	end
@@ -523,7 +584,10 @@ function ClassicAPIReplay_OnLoad(self)
 	self.Title:SetText(REPLAY_TITLE);
 	self:SetScript("OnMouseDown", function(f) f:StartMoving(); end);
 	self:SetScript("OnMouseUp", function(f) f:StopMovingOrSizing(); end);
-	self:SetScript("OnHide", function() SetPlaying(false); end);
+	self:SetScript("OnHide", function()
+		SetPlaying(false);
+		flying = {};
+	end);
 	self:SetScript("OnEvent", OnEvent);
 	self:RegisterEvent("COMBAT_LOG_REPLAY_ENCOUNTERS_READY");
 	self:RegisterEvent("COMBAT_LOG_REPLAY_LOADED");
@@ -536,8 +600,15 @@ function ClassicAPIReplay_OnLoad(self)
 	camera:SetOrientationSpline(nil);
 	camera:SetMinZoomDistance(CAMERA_MIN_ZOOM);
 	camera:SetMaxZoomDistance(CAMERA_MAX_ZOOM);
+	-- Left drag turns and tilts; right drag moves the camera across the view.
+	camera:SetLeftMouseButtonYMode(ORBIT_CAMERA_MOUSE_MODE_PITCH_ROTATION, true);
+	camera:SetRightMouseButtonXMode(ORBIT_CAMERA_MOUSE_MODE_TARGET_HORIZONTAL, true);
+	camera:SetRightMouseButtonYMode(ORBIT_CAMERA_MOUSE_MODE_TARGET_VERTICAL, true);
 	scene:HookScript("OnMouseDown", OnSceneMouseDown);
 	scene:HookScript("OnMouseUp", OnSceneMouseUp);
+	scene:EnableKeyboard(true);
+	scene:SetScript("OnKeyDown", OnSceneKeyDown);
+	scene:SetScript("OnKeyUp", OnSceneKeyUp);
 	self:SetScript("OnUpdate", OnUpdate);
 
 	self.PlayButton:SetScript("OnClick", function()
