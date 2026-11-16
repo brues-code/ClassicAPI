@@ -41,6 +41,7 @@ namespace Spell::CastPacket {
 namespace {
 
 using Net::CDataStore;
+using Net::Overrun;
 using Net::Read;
 using Net::ReadPackedGuid;
 
@@ -51,8 +52,6 @@ constexpr uint32_t kTargetStringCapacity = 256;
 
 // Every hit a u8 count can name.
 uint64_t g_hits[255];
-
-bool Overrun(const CDataStore *p) { return p->m_read > p->m_size; }
 
 Header ReadHeader(CDataStore *p) {
     Header h{};

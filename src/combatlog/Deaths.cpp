@@ -67,7 +67,7 @@ void OnPacket(uint32_t opcode, CDataStore *p) {
         return;
     const uint64_t killer = Read<uint64_t>(p);
     const uint64_t victim = Read<uint64_t>(p);
-    if (p->m_read > p->m_size)
+    if (Net::Overrun(p))
         return;
     Entry e = Begin(killer, victim, PARTY_KILL, nullptr);
     Queue(e);

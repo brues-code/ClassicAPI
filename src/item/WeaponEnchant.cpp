@@ -303,7 +303,7 @@ void OnEnchantTimePacket(uint32_t opcode, Net::CDataStore *packet) {
         return;
     const uint64_t itemGuid = Net::Read<uint64_t>(packet);
     const uint32_t slot = Net::Read<uint32_t>(packet);
-    if (packet->m_read > packet->m_size ||
+    if (Net::Overrun(packet) ||
         slot != Offsets::DESCRIPTOR_ENCHANTMENT_SLOT_TEMPORARY)
         return;
     if (IsEquippedWeapon(itemGuid))

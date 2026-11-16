@@ -39,6 +39,11 @@ struct CDataStore {
     uint32_t m_read;    // +0x14
 };
 
+// Whether a read ran past the packet's end: every reader below poisons the
+// cursor to one past `m_size` on overrun, so one test after a run of reads
+// covers them all.
+inline bool Overrun(const CDataStore *p) { return p->m_read > p->m_size; }
+
 // Reads a fixed-width field and advances the cursor. On overrun it poisons
 // `m_read` (so subsequent reads short-circuit) and returns a zero value.
 template <typename T>
@@ -59,7 +64,7 @@ T Read(CDataStore *p) {
 // On overrun it poisons `m_read` and returns null. The bytes live in the
 // packet, so read them before the subscriber returns.
 inline const uint8_t *ReadBytes(CDataStore *p, uint32_t n) {
-    if (p->m_read > p->m_size || n > p->m_size - p->m_read) {
+    if (Overrun(p) || n > p->m_size - p->m_read) {
         p->m_read = p->m_size + 1;
         return nullptr;
     }
@@ -75,7 +80,7 @@ inline const uint8_t *ReadBytes(CDataStore *p, uint32_t n) {
 // a poisoned cursor. The bytes live in the packet, so read them before the
 // subscriber returns.
 inline const char *ReadCString(CDataStore *p, uint32_t capacity) {
-    if (p->m_read > p->m_size)
+    if (Overrun(p))
         return nullptr;
     const uint8_t *at = p->m_buffer - p->m_base + p->m_read;
     const uint32_t left = p->m_size - p->m_read;

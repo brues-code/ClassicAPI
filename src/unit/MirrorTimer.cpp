@@ -95,13 +95,13 @@ void OnPacket(uint32_t opcode, Net::CDataStore *packet) {
         t.scale = Net::Read<int32_t>(packet);
         t.paused = Net::Read<uint8_t>(packet);
         t.spellID = Net::Read<uint32_t>(packet);
-        if (packet->m_read > packet->m_size || t.type >= Offsets::MIRROR_TIMER_SLOT_COUNT)
+        if (Net::Overrun(packet) || t.type >= Offsets::MIRROR_TIMER_SLOT_COUNT)
             return;
         t.startMs = Time::Clock::NowMs();
         g_timers[t.type] = t;
     } else if (opcode == Offsets::SMSG_OPCODE_MIRROR_TIMER_STOP) {
         const uint32_t type = Net::Read<uint32_t>(packet);
-        if (packet->m_read > packet->m_size || type >= Offsets::MIRROR_TIMER_SLOT_COUNT)
+        if (Net::Overrun(packet) || type >= Offsets::MIRROR_TIMER_SLOT_COUNT)
             return;
         g_timers[type] = Timer{};
     }

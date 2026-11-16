@@ -58,6 +58,7 @@ namespace CombatLog::Execute {
 namespace {
 
 using Net::CDataStore;
+using Net::Overrun;
 using Net::Read;
 using Net::ReadPackedGuid;
 
@@ -109,8 +110,6 @@ enum Effect : uint32_t {
 
 // AttributesEx3 0x2000000: a drain 4.3.4 logs as periodic.
 constexpr uint32_t ATTR_EX3_TREAT_AS_PERIODIC = 0x2000000;
-
-bool Overrun(const CDataStore *p) { return p->m_read > p->m_size; }
 
 // UnitCombatLogPowerDrain.
 void PowerDrainEffect(uint64_t caster, uint64_t target, const uint8_t *spell, int amount,

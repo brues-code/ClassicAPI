@@ -104,7 +104,7 @@ void OnPacket(uint32_t opcode, Net::CDataStore *packet) {
         return;
     const uint8_t slot = Net::Read<uint8_t>(packet);
     const int32_t ms = Net::Read<int32_t>(packet);
-    if (packet->m_read > packet->m_size || slot >= Offsets::PLAYER_BUFF_TABLE_COUNT)
+    if (Net::Overrun(packet) || slot >= Offsets::PLAYER_BUFF_TABLE_COUNT)
         return;
     const uint8_t *player = Unit::Identity::PlayerObject();
     const uint32_t previous = g_playerDurationMs[slot];

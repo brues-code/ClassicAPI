@@ -59,6 +59,7 @@ namespace CombatLog::Auras {
 namespace {
 
 using Net::CDataStore;
+using Net::Overrun;
 using Net::Read;
 using Net::ReadPackedGuid;
 
@@ -67,8 +68,6 @@ constexpr uint32_t SMSG_SPELLDISPELLOG = 0x27b;
 
 // The effects a dispelling cast has.
 constexpr int SPELL_EFFECT_DISPEL_MECHANIC = 108;
-
-bool Overrun(const CDataStore *p) { return p->m_read > p->m_size; }
 
 int Health(const void *unit) {
     const auto *fields = Object::Fields(unit);

@@ -58,7 +58,7 @@ int __fastcall Handler_h(void *thisPlayer, void *edx, Net::CDataStore *packet) {
     Net::Read<uint32_t>(packet); // always 3
     const uint32_t xpReward = Net::Read<uint32_t>(packet);
     const uint32_t moneyReward = Net::Read<uint32_t>(packet);
-    const bool complete = packet->m_read <= packet->m_size;
+    const bool complete = !Net::Overrun(packet);
     packet->m_read = saved;
 
     if (complete && questID > 0)

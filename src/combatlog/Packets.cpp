@@ -65,6 +65,7 @@ namespace CombatLog::Packets {
 namespace {
 
 using Net::CDataStore;
+using Net::Overrun;
 using Net::Read;
 using Net::ReadPackedGuid;
 
@@ -111,8 +112,6 @@ constexpr uint32_t AURA_PERIODIC_MANA_LEECH = 64;
 constexpr uint32_t AURA_PERIODIC_DAMAGE_PERCENT = 89;
 
 constexpr int kMaxDamageParts = 5;
-
-bool Overrun(const CDataStore *p) { return p->m_read > p->m_size; }
 
 void *Unit(uint64_t guid) { return Object::ByGuid(Offsets::TYPEMASK_UNIT, guid); }
 
