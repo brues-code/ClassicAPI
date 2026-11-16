@@ -35,6 +35,7 @@
 #include "equipmentset/Text.h"
 #include "item/CGItem.h"
 #include "item/Location.h"
+#include "object/Resolve.h"
 
 #include <cstdint>
 #include <string>
@@ -53,7 +54,7 @@ int __fastcall Script_C_Container_GetContainerItemEquipmentSetInfo(void *L) {
     const int slotIndex = static_cast<int>(Game::Lua::ToNumber(L, 2));
 
     const uint64_t guid =
-        Item::Guid(Item::Location::ResolveBag(bagID, slotIndex));
+        ::Object::Guid(Item::Location::ResolveBag(bagID, slotIndex));
 
     const std::string setList = EquipmentSet::Text::SetList(guid);
 

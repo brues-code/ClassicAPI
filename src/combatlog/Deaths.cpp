@@ -27,6 +27,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "net/PacketDispatch.h"
+#include "object/Resolve.h"
 #include "unit/Identity.h"
 
 #include <cstdint>
@@ -50,7 +51,7 @@ using PresentDeath_t = void(__fastcall *)(void *unit);
 PresentDeath_t PresentDeath_o = nullptr;
 
 void __fastcall PresentDeath_h(void *unit) {
-    Entry e = Begin(0, Unit::Identity::GuidForObject(unit),
+    Entry e = Begin(0, ::Object::Guid(unit),
                     IsSummoned(unit) ? UNIT_DESTROYED : UNIT_DIED, nullptr);
     Queue(e);
     PresentDeath_o(unit);

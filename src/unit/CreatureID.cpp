@@ -16,8 +16,8 @@
 //
 // Three places carry an "entry", and on this server family they DISAGREE:
 //
-//  - The unit's INSTANCE BLOCK entry (`[[unit + OFF_UNIT_GUID_PTR] +
-//    OFF_UNIT_INSTANCE_ENTRY]`) is the LIVE creature_template entry — the
+//  - The unit's INSTANCE BLOCK entry (`[[unit + OFF_OBJECT_DATA] +
+//    OFF_OBJECT_FIELD_ENTRY]`) is the LIVE creature_template entry — the
 //    field the engine keys the creature NAME query on (`FUN_00604600` calls
 //    the creature cache with exactly this read, on creation and as the
 //    OBJECT-bank field-0xC handler). It is the `creature_template` primary
@@ -61,12 +61,7 @@
 namespace Unit::CreatureID {
 
 uint32_t ForObject(const void *unit) {
-    if (unit == nullptr)
-        return 0;
-    auto *block = Game::Read<const uint8_t *>(unit, Offsets::OFF_UNIT_GUID_PTR);
-    if (block == nullptr)
-        return 0;
-    return Game::Read<uint32_t>(block, Offsets::OFF_UNIT_INSTANCE_ENTRY);
+    return ::Object::Entry(unit);
 }
 
 uint32_t ForGuid(uint64_t guid) {

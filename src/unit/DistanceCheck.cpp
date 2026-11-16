@@ -63,7 +63,7 @@ void __fastcall UpdateRaidRecordSite(void *player, uint32_t mode, uint32_t withP
                                                                                withPet);
     if (!Event::Custom::HasListeners(kEvent.Slot()))
         return;
-    const uint64_t guid = Unit::Identity::GuidForObject(player);
+    const uint64_t guid = ::Object::Guid(player);
     if (guid == 0 || guid == Unit::Identity::PlayerGuid() ||
         reinterpret_cast<IsGroupMember_t>(Offsets::FUN_UNIT_IS_GROUP_MEMBER_OR_PET)(&guid) == 0)
         return;

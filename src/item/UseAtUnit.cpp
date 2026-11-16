@@ -39,6 +39,7 @@
 #include "Game.h"
 #include "item/Location.h"
 #include "item/Use.h"
+#include "object/Resolve.h"
 #include "spell/Placement.h"
 #include "unit/Identity.h"
 #include "unit/Position.h"
@@ -71,7 +72,7 @@ int __fastcall Script_C_Item_UseAtUnit(void *L) {
         Game::Lua::PushBool(L, false);
         return 1;
     }
-    const uint64_t targetGuid = Unit::Identity::GuidForObject(unitObj);
+    const uint64_t targetGuid = ::Object::Guid(unitObj);
 
     const uint8_t *item = Item::Location::ResolveItemArgOrLocation(L, 1);
     if (item == nullptr) {

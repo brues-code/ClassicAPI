@@ -34,6 +34,7 @@
 #include "guid/Guid.h"
 #include "item/CGItem.h"
 #include "item/Location.h"
+#include "object/Resolve.h"
 
 #include <cstdint>
 
@@ -84,7 +85,7 @@ int __fastcall Script_C_Item_UnlockItem(void *L) {
         Game::Lua::Error(L, "Usage: C_Item.UnlockItem(itemLocation)");
         return 0;
     }
-    const uint64_t guid = Item::Guid(Item::Location::Resolve(L, 1));
+    const uint64_t guid = ::Object::Guid(Item::Location::Resolve(L, 1));
     if (guid != 0)
         Item::SetLocked(guid, false);
     return 0;
@@ -109,7 +110,7 @@ int __fastcall Script_C_Item_LockItem(void *L) {
         Game::Lua::Error(L, "Usage: C_Item.LockItem(itemLocation)");
         return 0;
     }
-    const uint64_t guid = Item::Guid(Item::Location::Resolve(L, 1));
+    const uint64_t guid = ::Object::Guid(Item::Location::Resolve(L, 1));
     if (guid != 0)
         Item::SetLocked(guid, true);
     return 0;

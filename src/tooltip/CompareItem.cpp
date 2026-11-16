@@ -49,6 +49,7 @@
 #include "item/Record.h"
 #include "item/StatAccum.h"
 #include "item/TooltipItem.h"
+#include "object/Resolve.h"
 #include "tooltip/Lines.h"
 #include "tooltip/SetEvents.h"
 #include "ui/ColorData.h"
@@ -552,7 +553,7 @@ int __fastcall Script_SetHyperlinkCompareItem(void *L) {
     const int equippedID = Item::ID::FromCGItem(eqItem);
     if (equippedID <= 0)
         return result(false);
-    uint64_t equippedGUID = Item::Guid(eqItem);
+    uint64_t equippedGUID = ::Object::Guid(eqItem);
 
     // The tooltip's underlying CFrameScriptObject — the `this` for the
     // engine's builder / add-line thiscalls.

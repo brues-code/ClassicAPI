@@ -120,10 +120,6 @@ bool Relation(uintptr_t fn, void *caster, void *other) {
     return reinterpret_cast<Relation_t>(fn)(caster, other);
 }
 
-const uint8_t *Head(const void *obj) {
-    return Game::Read<const uint8_t *>(obj, Offsets::OFF_UNIT_GUID_PTR);
-}
-
 void *Pet() {
     return Object::ByGuid(Offsets::TYPEMASK_UNIT,
                           Game::Read<uint64_t>(static_cast<uintptr_t>(Offsets::VAR_PET_GUID)));
@@ -216,7 +212,7 @@ bool AdmitsUnit(void *caster, const uint8_t *rec, uint32_t word, void *unit) {
         return true;
 
     const bool isPlayer =
-        (Game::Read<uint32_t>(Head(unit), Offsets::OFF_OBJECT_FIELD_TYPE) &
+        (::Object::Type(unit) &
          Offsets::TYPEMASK_PLAYER) != 0;
     if ((word & TARGET_WORD_CORPSE_ALLY) && dead &&
         (isPlayer || Game::Read<uint32_t>(fields, Offsets::OFF_UNIT_FIELD_PETNUMBER) != 0))
@@ -247,14 +243,14 @@ void *AdmittedTarget(void *caster, const uint8_t *rec, void *target) {
         word |= TARGET_WORD_UNIT;
     }
 
-    const uint32_t type = Game::Read<uint32_t>(Head(target), Offsets::OFF_OBJECT_FIELD_TYPE);
+    const uint32_t type = ::Object::Type(target);
     if (type & Offsets::TYPEMASK_UNIT) {
         if ((word & TARGET_WORD_CORPSE_ALLY) && (type & Offsets::TYPEMASK_PLAYER)) {
             const auto *info = Game::Read<const uint8_t *>(target, Offsets::OFF_CGPLAYER_INFO);
             if (info != nullptr &&
                 (Game::Read<uint32_t>(info, Offsets::OFF_PLAYER_INFO_FLAGS) &
                  Offsets::PLAYER_FLAG_GHOST) != 0) {
-                if (void *corpse = Object::Corpse::ByOwner(Game::Read<uint64_t>(Head(target), 0)))
+                if (void *corpse = Object::Corpse::ByOwner(::Object::Guid(target)))
                     return corpse;
             }
         }

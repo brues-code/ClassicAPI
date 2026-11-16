@@ -38,6 +38,7 @@
 #include "item/Link.h"
 #include "item/Location.h"
 #include "item/Record.h"
+#include "object/Resolve.h"
 #include "unit/Identity.h"
 #include "tick/WorldTick.h"
 
@@ -328,7 +329,7 @@ int __fastcall Script_SellAllJunkItems(void *L) {
             const int itemID = Item::ID::FromCGItem(item);
             if (itemID <= 0 || ItemQuality(static_cast<uint32_t>(itemID)) != 0)
                 return true;
-            const uint64_t guid = Item::Guid(item);
+            const uint64_t guid = ::Object::Guid(item);
             if (guid != 0)
                 g_pending.queue.push_back(guid);
             return true;

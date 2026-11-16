@@ -22,6 +22,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "event/Custom.h"
+#include "object/Resolve.h"
 #include "unit/FlagsChanged.h"
 #include "unit/Identity.h"
 
@@ -44,7 +45,7 @@ void OnFlags(void *unit, uint32_t oldFlags, uint32_t flags) {
         !Event::Custom::HasListeners(slot))
         return;
     char tokens[16][32];
-    const int n = Unit::Identity::TokensForGUID(Unit::Identity::GuidForObject(unit), tokens, 16);
+    const int n = Unit::Identity::TokensForGUID(::Object::Guid(unit), tokens, 16);
     for (int i = 0; i < n; ++i)
         Event::Custom::Fire(slot, "%s", tokens[i]);
 }

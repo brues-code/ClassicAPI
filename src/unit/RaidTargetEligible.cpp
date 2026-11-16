@@ -49,9 +49,7 @@ bool CanBeRaidTarget(uint64_t guid) {
     if (player == nullptr || unit == nullptr)
         return false;
 
-    const auto *fields = Game::Read<const uint8_t *>(unit, Offsets::OFF_UNIT_GUID_PTR);
-    if ((Game::Read<uint32_t>(fields, Offsets::OFF_OBJECT_FIELD_TYPE) &
-         Offsets::TYPEMASK_PLAYER) == 0)
+    if ((::Object::Type(unit) & Offsets::TYPEMASK_PLAYER) == 0)
         return true;
     return reinterpret_cast<CanCooperate_t>(Offsets::FUN_UNIT_CAN_COOPERATE)(player, nullptr,
                                                                            unit) ||

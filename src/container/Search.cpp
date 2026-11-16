@@ -56,6 +56,7 @@
 #include "item/Record.h"
 #include "item/TypeInfo.h"
 #include "localization/Locale.h"
+#include "object/Resolve.h"
 #include "unit/Identity.h"
 
 #include <algorithm>
@@ -180,7 +181,7 @@ bool Contains(const char *text) {
 // Whether an equipment set that holds this very item has a matching name.
 // The GUID test goes first: it is cheap, and most items are in no set.
 bool InMatchingSet(const uint8_t *item) {
-    const uint64_t guid = Item::Guid(item);
+    const uint64_t guid = ::Object::Guid(item);
     if (guid == EquipmentSet::GUID_EMPTY || guid == EquipmentSet::GUID_IGNORED)
         return false;
     for (const EquipmentSet::Set &set : EquipmentSet::Data::All()) {

@@ -15,23 +15,10 @@
 
 #include <cstdint>
 
-// Accessors for a `CGItem`'s two descriptor-like pointers (see the "Item
-// lookups" notes in CLAUDE.md). Every item module used to spell out the same
-// `*reinterpret_cast<const uint8_t *const *>(cgItem + OFF_...)` deref; these
-// name it once.
+// Accessors for a `CGItem`'s descriptor fields. Its GUID and itemID sit in the
+// object data block every object has (Object::Guid, Item::ID::FromCGItem).
 
 namespace Item {
-
-// The item's **instance block** (`CGItem + 0x08` dereferenced): a `uint64`
-// item GUID at `+0x00` and the `uint32` itemID at `+0x0C`. This is the block
-// the canonical inventory→cache path reads the itemID from. Returns nullptr
-// for a null `cgItem`; the stored pointer itself may still be null (callers
-// null-check the result before reading fields).
-const uint8_t *InstanceBlock(const uint8_t *cgItem);
-
-// The item's GUID, read from its instance block. 0 for a null `cgItem` or
-// a missing block.
-uint64_t Guid(const uint8_t *cgItem);
 
 // The item's **m_objectFields descriptor** (`CGItem + 0x114` dereferenced):
 // the UpdateField block holding stack count (`+0x20`), flags (`+0x3C`),

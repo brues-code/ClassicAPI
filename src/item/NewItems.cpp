@@ -210,7 +210,7 @@ int ScanBags(uint64_t *out) {
          ++bagID) {
         const int slots = Item::Location::GetBagSlotCount(bagID);
         for (int slot = 1; slot <= slots; ++slot) {
-            const uint64_t guid = Item::Guid(Item::Location::ResolveBag(bagID, slot));
+            const uint64_t guid = ::Object::Guid(Item::Location::ResolveBag(bagID, slot));
             if (guid != 0)
                 AddUnique(out, &count, guid);
         }
@@ -256,7 +256,7 @@ void AppendNonBagOwned(uint64_t *out, int *count) {
     // banker gate), so go through the normal per-slot resolver.
     for (int slot = Offsets::EQUIPMENT_SLOT_FIRST; slot <= Offsets::INVSLOT_BAG1 + 3;
          ++slot) {
-        const uint64_t guid = Item::Guid(Item::Location::ResolveEquipmentSlot(slot));
+        const uint64_t guid = ::Object::Guid(Item::Location::ResolveEquipmentSlot(slot));
         if (guid != 0)
             AddUnique(out, count, guid);
     }
@@ -348,7 +348,7 @@ void OnSend(uint32_t opcode, Net::CDataStore *packet) {
     const uint8_t *source = PacketSlotItem(srcBag, srcSlot);
     if (source == nullptr)
         return;
-    g_splits[g_splitCount++] = {Item::Guid(source),
+    g_splits[g_splitCount++] = {::Object::Guid(source),
                                   static_cast<uint32_t>(Item::ID::FromCGItem(source)),
                                   Item::StackCount(source)};
 }
@@ -498,7 +498,7 @@ uint64_t SlotGUID(void *L) {
         return 0;
     const int bagID = static_cast<int>(Game::Lua::ToNumber(L, 1));
     const int slotIndex = static_cast<int>(Game::Lua::ToNumber(L, 2));
-    return Item::Guid(Item::Location::ResolveBag(bagID, slotIndex));
+    return ::Object::Guid(Item::Location::ResolveBag(bagID, slotIndex));
 }
 
 int __fastcall Script_IsNewItem(void *L) {

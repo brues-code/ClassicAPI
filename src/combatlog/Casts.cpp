@@ -123,7 +123,7 @@ void __fastcall SpellFail_h(void *player, int spellId, const char *text) {
         (Game::Read<uint32_t>(spell, Offsets::OFF_SPELL_RECORD_ATTRIBUTES) &
          Offsets::SPELL_ATTR_DO_NOT_DISPLAY) == 0 &&
         Spell::Lookup::Name(spell) != nullptr) {
-        Entry e = Begin(Unit::Identity::GuidForObject(player), 0, SPELL_CAST_FAILED, spell);
+        Entry e = Begin(::Object::Guid(player), 0, SPELL_CAST_FAILED, spell);
         e.info |= INFO_TEXT;
         e.text = text;
         Queue(e);

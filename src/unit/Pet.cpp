@@ -86,7 +86,7 @@ int __fastcall Script_UnitIsMinion(void *L) {
     bool minion = Guid::IsPlayer(Unit::Identity::OwnerGuid(unit));
     // Fallback: a player-controlled non-player with no owner GUID.
     if (!minion && Unit::Flags::IsPlayerControlled(unit))
-        minion = !Guid::IsPlayer(Unit::Identity::GuidForObject(unit));
+        minion = !Guid::IsPlayer(::Object::Guid(unit));
     Game::Lua::PushBool(L, minion);
     return 1;
 }

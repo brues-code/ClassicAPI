@@ -55,14 +55,6 @@ const uint8_t *PlayerDescriptor();
 // (null pre-world). Prefer this over re-deriving `player + 0x1D38` per module.
 const uint8_t *PlayerInventoryManager();
 
-// The 64-bit GUID of a resolved CGUnit/CGObject pointer, read through the
-// pointer at `+0x08` to an instance block whose first 8 bytes are the GUID
-// (verified in `Script_GetInventoryItemLink`; see `OFF_UNIT_GUID_PTR`).
-// Returns 0 if `unitObject` or the block pointer is null. Use this for any
-// "GUID of this object pointer" read so callers stay consistent (the aura
-// caster cache keys on it from both the lookup and the OnAuraAdded hook).
-uint64_t GuidForObject(const void *unitObject);
-
 // A unit's owner or controller: UNIT_FIELD_CHARMEDBY, else
 // UNIT_FIELD_CREATEDBY — the charmer-or-creator pair the engine itself reads
 // for ownership (a pet, guardian or totem names its summoner in CREATEDBY; a

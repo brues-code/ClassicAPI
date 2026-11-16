@@ -17,7 +17,7 @@
 
 // `Unit::CreatureID` — a unit's creature_template entry (the NPC id), read the
 // way the engine reads it for the creature's NAME: the instance-block entry at
-// `[[unit + OFF_UNIT_GUID_PTR] + OFF_UNIT_INSTANCE_ENTRY]`. See CreatureID.cpp
+// `[[unit + OFF_OBJECT_DATA] + OFF_OBJECT_FIELD_ENTRY]` (Object::Entry). See CreatureID.cpp
 // for why the GUID's entry bits are only a fallback (and the descriptor slot
 // is not usable at all).
 namespace Unit::CreatureID {

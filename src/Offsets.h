@@ -2804,7 +2804,7 @@ enum Offsets {
     //   movzx eax, byte [edx + 0x79] ; class
     OFF_OBJECT_FIELDS = 0x110,
     // A creature's LIVE creature_template entry — in the INSTANCE BLOCK at
-    // `[unit + OFF_UNIT_GUID_PTR]` (GUID @+0x00, entry @+0x0C), the same
+    // `[unit + OFF_OBJECT_DATA]` (GUID @+0x00, entry @+0x0C), the same
     // shape as CGItem's block (GUID @+0x00, itemID @+0x0C). NOT the
     // descriptor's OBJECT_FIELD_ENTRY slot (+0xC), which reads 0 for
     // creatures exactly as it does for items (in-game probe: a Gordunni
@@ -2819,8 +2819,8 @@ enum Offsets {
     // template with `UpdateEntry` → `SetEntry` only, so multi-id spawns (6,935
     // Turtle rows) and respawn re-rolls put a different template behind the
     // same GUID entry — Turtle's Gordunni rows are {5236, 5238, 5239} and
-    // every one of them carries 5236 in its GUID. Read by `Unit::CreatureID`.
-    OFF_UNIT_INSTANCE_ENTRY = 0x0C,
+    // every one of them carries 5236 in its GUID. Read by `Unit::CreatureID`
+    // as OFF_OBJECT_FIELD_ENTRY in the OFF_OBJECT_DATA block.
 
     // ── Nameplates (CGNamePlateFrame) ──────────────────────────────────
     //
@@ -2908,14 +2908,16 @@ enum Offsets {
     // returns the raw id. Same field as `OFF_CREATURE_FAMILY` in the creature
     // cache data block, reached through the unit here.
     OFF_CREATURE_CACHE_FAMILY = 0x1C,
-    // Pointer to the CGUnit's 8-byte GUID at `*(CGUnit + 0x08)`. Verified
-    // in `Script_GetInventoryItemLink` at `0x004C8CB0`-`0x004C8CB5`:
-    // `mov eax, [esi+8]; mov edi, [eax]; mov ecx, [eax+4]` reads the
-    // GUID's lo+hi dwords through this indirection. CGItem uses the same
-    // offset for its instance block (also containing a GUID + itemID),
-    // so the layout is consistent across CGObject subclasses — but the
-    // contents differ per class.
-    OFF_UNIT_GUID_PTR = 0x08,
+    // The object's own field block, the pointer at CGObject + 0x08 on every
+    // object type: OBJECT_FIELD_GUID @+0x00, OBJECT_FIELD_TYPE @+0x08,
+    // OBJECT_FIELD_ENTRY @+0x0C, OBJECT_FIELD_SCALE_X @+0x10. Verified in
+    // `Script_GetInventoryItemLink` at `0x004C8CB0`-`0x004C8CB5`
+    // (`mov eax, [esi+8]; mov edi, [eax]; mov ecx, [eax+4]` reads the GUID),
+    // and for an item at 0x004C8B1F-2D (the inventory→cache lookup reads the
+    // itemID at `[[item+8]+0xC]` right after GetItemBySlot). Distinct from
+    // the subclass descriptor at OFF_OBJECT_FIELDS (+0x110; an item's at
+    // OFF_ITEM_DESCRIPTOR, +0x114). Read through Object::Data.
+    OFF_OBJECT_DATA = 0x08,
     // UNIT_FIELD_FLAGS within m_objectFields. Bit 3 (`0x08`) is
     // `UNIT_FLAG_PLAYER_CONTROLLED`, which `Script_UnitPlayerControlled`
     // (`0x00516410`) tests via `mov eax, [m_objectFields + 0xA0];
@@ -5480,7 +5482,7 @@ enum Offsets {
     OFF_CGOBJECT_OVERRIDE_MODEL = 0xDC,
     OFF_CGOBJECT_VTBL_SELECTION_COLOR = 0x2C,
     OFF_CGUNIT_SELECTION_RADIUS = 0xCF0,
-    OFF_OBJECT_FIELD_SCALE_X = 0x10, // in the block at OFF_UNIT_GUID_PTR
+    OFF_OBJECT_FIELD_SCALE_X = 0x10, // in the block at OFF_OBJECT_DATA
     FUN_BUILD_YAW_MATRIX = 0x00615070,
     FUN_SELECTION_CIRCLE_STATE = 0x00614E00,
     FUN_DRAW_DECAL = 0x006D7330,
@@ -5546,12 +5548,15 @@ enum Offsets {
     // cast-start line drops a spell it gives 0 (0x0062B460 pushes the
     // record's id and calls [vtbl+0xB4]); 4.3.4's GetSpellCastingTime.
     OFF_CGUNIT_VTBL_GET_SPELL_CASTING_TIME = 0xB4,
-    // OBJECT_FIELD_TYPE, the type word, in the block at OFF_UNIT_GUID_PTR
-    // (the GUID is its +0): the hover dispatch reads `[[obj+8]+8]`.
+    // The fields of the block at OFF_OBJECT_DATA (UpdateField table
+    // 0x0083DB64, indices 0..4). OBJECT_FIELD_GUID is a qword.
+    OFF_OBJECT_FIELD_GUID = 0x00,
+    // The TYPEMASK_* word: the hover dispatch reads `[[obj+8]+8]`.
     OFF_OBJECT_FIELD_TYPE = 0x08,
-    // OBJECT_FIELD_ENTRY in the same block (UpdateField table 0x0083DB64:
-    // index 3): an item's template id, read by the combat log namer as
-    // `[[obj+8]+0xC]`.
+    // The template id: an item's itemID, a creature's or game object's entry
+    // (the combat log namer reads `[[obj+8]+0xC]`). For a creature this is the
+    // template actually applied, which the GUID's entry bits are not; see
+    // Unit::CreatureID.
     OFF_OBJECT_FIELD_ENTRY = 0x0C,
 
     // World line-segment collision test (client-side LoS core):
@@ -6113,21 +6118,6 @@ enum Offsets {
     // refresh, idle check) it returns the raw base cost.
     FUN_ITEM_REPAIR_COST = 0x004FAF30,
 
-    // CGItem has TWO descriptor-like pointers and they hold different things:
-    //   +0x114 = m_objectFields (the UpdateField array we read FLAGS from at
-    //            +0x3C). For item instances, OBJECT_FIELD_ENTRY in this array
-    //            is empirically 0 — don't try to read itemID from here.
-    //   +0x08  = a separate identification block. Contains the item's GUID at
-    //            +0x00 (qword) and the itemID at +0x0C (dword).
-    // The canonical "look up the cache record for this item" sequence is:
-    //   item = GetItemBySlot(invMgr, slot)
-    //   id   = *(uint32_t *)(*(void **)(item + 0x08) + 0x0C)
-    //   _GetRecord(cache, id, ...)
-    // Verified at 0x004C8B1F-2D (inventory→cache lookup right after a
-    // GetItemBySlot call). The same shape appears in many other inventory
-    // sites that call _GetRecord.
-    OFF_ITEM_INSTANCE_BLOCK = 0x08,
-    OFF_INSTANCE_BLOCK_ITEM_ID = 0x0C,
 
     // Item stats cache (the client-side cache of ItemSparse-style records that
     // gets populated by SMSG_ITEM_QUERY_SINGLE_RESPONSE). The cache instance
@@ -11939,10 +11929,6 @@ enum Offsets {
     EQUIPMENT_SLOT_FIRST = 1,
     EQUIPMENT_SLOT_LAST = 19,
 
-    // CGItem instance block GUID — qword at +0x00 of the instance block
-    // (which sits behind the pointer at CGItem +0x08). Sibling of
-    // OFF_INSTANCE_BLOCK_ITEM_ID at +0x0C in the same block.
-    OFF_INSTANCE_BLOCK_GUID = 0x00,
 
     // `Script_ClearCursor` / `Script_PickupInventoryItem` Lua C
     // functions — both `__fastcall(void *L)`. ClearCursor takes no

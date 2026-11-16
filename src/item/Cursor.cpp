@@ -18,6 +18,7 @@
 #include "cursor/Info.h"
 #include "item/CGItem.h"
 #include "item/Location.h"
+#include "object/Resolve.h"
 
 #include <cstdint>
 
@@ -50,7 +51,7 @@ bool PickupBagItem(int bagID, int slotIndex) {
     if (::Cursor::Info::HasItem() || Item::IsLocked(d.item))
         return false;
 
-    const uint64_t itemGuid = Item::Guid(d.item);
+    const uint64_t itemGuid = ::Object::Guid(d.item);
     if (itemGuid == 0)
         return false;
     // The "source container" the engine records for the eventual drop.

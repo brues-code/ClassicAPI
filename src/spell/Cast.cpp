@@ -748,7 +748,7 @@ void __fastcall ClearCastingSpell_h(void *unit, void *edx, int spellID,
     if (unit != nullptr && spellID != 0) {
         const int current = Game::Read<int>(unit, Offsets::OFF_UNIT_CAST_SPELL);
         if (current != 0 && current == spellID)
-            HandleCastAborted(Unit::Identity::GuidForObject(unit), spellID,
+            HandleCastAborted(::Object::Guid(unit), spellID,
                               /*castSlotOnly*/ true);
     }
     g_origClearCastingSpell(unit, edx, spellID, notify, cleanup);
@@ -1024,7 +1024,7 @@ struct UnitCast {
 static UnitCast FindUnitCast(void *u) {
     if (u == Resolve("player"))
         return {g_cast, Unit::Identity::PlayerGuid(), Unit::Identity::PlayerObject()};
-    const uint64_t guid = Unit::Identity::GuidForObject(u);
+    const uint64_t guid = ::Object::Guid(u);
     const RemoteCast *rc = FindRemoteCast(guid);
     if (rc != nullptr && !rc->isChannel && !Ended(rc->endMs))
         return {TrackedSpell{rc->spellID, rc->startMs, rc->endMs}, guid, static_cast<const uint8_t *>(u)};
@@ -1090,7 +1090,7 @@ static UnitChannel FindUnitChannel(void *u) {
     // hasn't caught up yet (unconfirmed — PollRemoteChannels drops the entry
     // once a confirmed field clears). Otherwise the field alone answers.
     const int spellID = Game::Read<int>(desc, Offsets::OFF_UNIT_FIELD_CHANNEL_SPELL);
-    const RemoteCast *rc = FindRemoteCast(Unit::Identity::GuidForObject(unit));
+    const RemoteCast *rc = FindRemoteCast(::Object::Guid(unit));
     if (rc != nullptr && rc->isChannel && !Ended(rc->endMs) &&
         (spellID == rc->spellID || (spellID == 0 && !rc->confirmed)))
         return {rc->spellID, rc->startMs, rc->endMs, true, unit};

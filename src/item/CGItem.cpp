@@ -17,21 +17,6 @@
 
 namespace Item {
 
-const uint8_t *InstanceBlock(const uint8_t *cgItem) {
-    if (cgItem == nullptr)
-        return nullptr;
-    return *reinterpret_cast<const uint8_t *const *>(
-        cgItem + Offsets::OFF_ITEM_INSTANCE_BLOCK);
-}
-
-uint64_t Guid(const uint8_t *cgItem) {
-    const uint8_t *instance = InstanceBlock(cgItem);
-    if (instance == nullptr)
-        return 0;
-    return *reinterpret_cast<const uint64_t *>(
-        instance + Offsets::OFF_INSTANCE_BLOCK_GUID);
-}
-
 const uint8_t *ObjectFields(const uint8_t *cgItem) {
     if (cgItem == nullptr)
         return nullptr;

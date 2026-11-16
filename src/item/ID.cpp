@@ -16,19 +16,14 @@
 #include "item/CGItem.h"
 #include "item/ID.h"
 #include "item/Location.h"
+#include "object/Resolve.h"
 
 #include <cstdint>
 
 namespace Item::ID {
 
 int FromCGItem(const uint8_t *item) {
-    if (item == nullptr)
-        return 0;
-    auto *instance = Item::InstanceBlock(item);
-    if (instance == nullptr)
-        return 0;
-    return static_cast<int>(*reinterpret_cast<const uint32_t *>(
-        instance + Offsets::OFF_INSTANCE_BLOCK_ITEM_ID));
+    return static_cast<int>(::Object::Entry(item));
 }
 
 static int __fastcall Script_GetItemID(void *L) {

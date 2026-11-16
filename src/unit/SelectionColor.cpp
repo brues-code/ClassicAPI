@@ -162,7 +162,7 @@ Type ForGuid(uint64_t guid, bool extended) {
         reinterpret_cast<IsPvp>(static_cast<uintptr_t>(Offsets::FUN_UNIT_IS_PVP_UI))(unit);
     // The engine skips the party test for the player itself; IsMember counts it.
     Type type;
-    if (extended && guid != Unit::Identity::GuidForObject(viewer) && GroupType(guid, pvp, &type))
+    if (extended && guid != ::Object::Guid(viewer) && GroupType(guid, pvp, &type))
         return type;
     return pvp ? Friendly : PlayerType(extended);
 }
@@ -170,7 +170,7 @@ Type ForGuid(uint64_t guid, bool extended) {
 // --- the engine's ladder: the friend rung -----------------------------------
 
 uint32_t ExitColor(const void *unit, uintptr_t engineColor) {
-    if (FriendList::IsGuidFriend(Unit::Identity::GuidForObject(unit)))
+    if (FriendList::IsGuidFriend(::Object::Guid(unit)))
         return kColors[Friend];
     return Game::Read<uint32_t>(engineColor);
 }

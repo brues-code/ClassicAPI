@@ -133,16 +133,6 @@ const uint8_t *PlayerDescriptor() {
     return Object::Fields(player);
 }
 
-uint64_t GuidForObject(const void *unitObject) {
-    if (unitObject == nullptr)
-        return 0;
-    const auto *unit = static_cast<const uint8_t *>(unitObject);
-    const uint8_t *block =
-        Game::Read<const uint8_t *>(unit, Offsets::OFF_UNIT_GUID_PTR);
-    if (block == nullptr)
-        return 0;
-    return *reinterpret_cast<const uint64_t *>(block);
-}
 
 uint64_t OwnerGuid(const void *unitObject) {
     if (unitObject == nullptr)

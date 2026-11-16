@@ -60,6 +60,7 @@
 #include "item/Location.h"
 #include "item/Record.h"
 #include "item/Swap.h"
+#include "object/Resolve.h"
 #include "tick/WorldTick.h"
 #include "item/BagFamily.h"
 
@@ -130,7 +131,7 @@ SlotInfo ReadSlot(void *L, int bag, int slot) {
     r.item = item;
     r.itemID = Item::ID::FromCGItem(item);
     r.count = static_cast<int>(Item::StackCount(item));
-    r.guid = Item::Guid(item);
+    r.guid = ::Object::Guid(item);
     return r;
 }
 

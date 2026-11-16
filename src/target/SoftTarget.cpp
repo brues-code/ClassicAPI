@@ -214,11 +214,7 @@ struct Scan {
 void *Resolve(const Entity &e, int typeMask, bool live) {
     if (!live || e.object == nullptr)
         return Object::ByGuid(typeMask, e.guid, nullptr, 0);
-    const auto *fields = Game::Read<const uint8_t *>(e.object, Offsets::OFF_UNIT_GUID_PTR);
-    return fields != nullptr &&
-                   (Game::Read<uint32_t>(fields, Offsets::OFF_OBJECT_FIELD_TYPE) & typeMask) != 0
-               ? e.object
-               : nullptr;
+    return (::Object::Type(e.object) & typeMask) != 0 ? e.object : nullptr;
 }
 
 void Consider(Scan &s, const Entity &e, bool live) {

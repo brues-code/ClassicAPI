@@ -316,15 +316,13 @@ const char *ItemName(uint32_t itemId) {
 // the high dword's low word, which is not the entry on this server's GUIDs.
 const char *ObjectName(uint64_t guid) {
     if (void *object = Object::ByGuid(Offsets::TYPEMASK_OBJECT, guid)) {
-        const auto *fields = Game::Read<const uint8_t *>(object, Offsets::OFF_UNIT_GUID_PTR);
-        const uint32_t type =
-            fields != nullptr ? Game::Read<uint32_t>(fields, Offsets::OFF_OBJECT_FIELD_TYPE) : 0;
+        const uint32_t type = ::Object::Type(object);
         if (type & Offsets::TYPEMASK_UNIT)
             return Unit::Identity::NameForUnit(object);
         if (type & Offsets::TYPEMASK_GAMEOBJECT)
             return reinterpret_cast<GameObjectName_t>(Offsets::FUN_GAMEOBJECT_GET_NAME)(object);
         if (type & Offsets::TYPEMASK_ITEM)
-            return ItemName(Game::Read<uint32_t>(fields, Offsets::OFF_OBJECT_FIELD_ENTRY));
+            return ItemName(::Object::Entry(object));
         return nullptr;
     }
     if (Guid::IsPlayer(guid)) {

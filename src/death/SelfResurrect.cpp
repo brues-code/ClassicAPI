@@ -32,6 +32,7 @@
 #include "Offsets.h"
 #include "event/Custom.h"
 #include "item/Link.h"
+#include "object/Resolve.h"
 #include "spell/Lookup.h"
 #include "unit/Identity.h"
 
@@ -80,9 +81,7 @@ bool CurrentOption(Option &out, char *itemName, size_t itemNameSize) {
     if (item == nullptr)
         return false;
     Item::Link::NameFromCGItem(item, itemName, itemNameSize);
-    const auto *fields = Game::Read<const uint8_t *>(item, Offsets::OFF_UNIT_GUID_PTR);
-    out = {itemName, OPTION_TYPE_ITEM,
-           fields != nullptr ? Game::Read<int32_t>(fields, Offsets::OFF_OBJECT_FIELD_ENTRY) : 0};
+    out = {itemName, OPTION_TYPE_ITEM, static_cast<int32_t>(::Object::Entry(item))};
     return true;
 }
 
@@ -143,7 +142,7 @@ Watchers_t g_origRemoveWatchers = nullptr;
 
 void __fastcall AddActiveWatchers_h(void *player, void *edx) {
     g_origAddWatchers(player, edx);
-    const uint64_t guid = Unit::Identity::GuidForObject(player);
+    const uint64_t guid = ::Object::Guid(player);
     reinterpret_cast<Register_t>(Offsets::FUN_DESC_OBSERVER_REGISTER)(
         Offsets::DESC_OBSERVER_BANK_PLAYER, Offsets::OFF_CGPLAYER_INFO_SELF_RES_SPELL,
         static_cast<uint32_t>(guid), static_cast<uint32_t>(guid >> 32), 4,
@@ -153,7 +152,7 @@ void __fastcall AddActiveWatchers_h(void *player, void *edx) {
 // Removed before the original, while the registry is as the engine's own
 // removals find it.
 void __fastcall RemoveActiveWatchers_h(void *player, void *edx) {
-    const uint64_t guid = Unit::Identity::GuidForObject(player);
+    const uint64_t guid = ::Object::Guid(player);
     reinterpret_cast<Unregister_t>(Offsets::FUN_DESC_OBSERVER_UNREGISTER)(
         Offsets::DESC_OBSERVER_BANK_PLAYER, Offsets::OFF_CGPLAYER_INFO_SELF_RES_SPELL,
         static_cast<uint32_t>(guid), static_cast<uint32_t>(guid >> 32),

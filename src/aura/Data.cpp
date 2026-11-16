@@ -37,13 +37,6 @@ namespace Aura::Data {
 
 namespace {
 
-// Keys into the `Aura::Source` caster/expiration cache. Thin alias for the
-// shared `Unit::Identity::GuidForObject` so the lookup here and the
-// OnAuraAdded hook in `Aura::Source` read the GUID the same way.
-uint64_t UnitGuid(const uint8_t *unit) {
-    return Unit::Identity::GuidForObject(unit);
-}
-
 const uint8_t *SpellRecord(uint32_t spellID) {
     return DBC::Record(Offsets::VAR_SPELL_RECORDS,
                        Offsets::VAR_SPELL_RECORD_COUNT, spellID);
@@ -351,7 +344,7 @@ bool IsPlayerCast(const uint8_t *unit, int slot) {
     if (spellID == 0)
         return false;
     return IsPlayerOwnedCaster(
-        Attribute(UnitGuid(unit), spellID, slot).caster);
+        Attribute(::Object::Guid(unit), spellID, slot).caster);
 }
 
 // The slot's descriptor flag nibble. Bit 0x01 is the cancelable bit on every
@@ -531,7 +524,7 @@ uint64_t KnowledgeKey() {
 }
 
 const uint8_t *SlotRanks(const uint8_t *unit) {
-    const uint64_t guid = UnitGuid(unit);
+    const uint64_t guid = ::Object::Guid(unit);
     SortedUnit &su = g_sorted[(guid ^ (guid >> 32)) % kSortedUnits];
     uint32_t spell[Offsets::UNIT_AURA_TOTAL];
     for (int s = 0; s < Offsets::UNIT_AURA_TOTAL; ++s)
@@ -1108,7 +1101,7 @@ static Attribution CachedAttribution(const Aura::Source::CachedAura &c) {
 void Push(void *L, const uint8_t *unit, int slot, Emit emit) {
     const uint32_t spellID = ReadSpellID(unit, slot);
     const bool isHelpful = !IsSlotHarmful(unit, slot); // nibble, not slot range
-    PushEnriched(L, UnitGuid(unit), spellID, isHelpful, ReadStacks(unit, slot),
+    PushEnriched(L, ::Object::Guid(unit), spellID, isHelpful, ReadStacks(unit, slot),
                  unit != nullptr && unit == Unit::Identity::PlayerObject(), slot,
                  /*known*/ nullptr, emit, Aura::Instance::IDForSlot(unit, slot));
 }
@@ -1128,7 +1121,7 @@ void PushFromCache(void *L, const uint8_t *unit,
     // with another caster's would otherwise resolve to a miss and drop the
     // caster. Stacks aren't in SMSG_SPELL_GO, so `applications` is 1.
     const Attribution a = CachedAttribution(c);
-    PushEnriched(L, UnitGuid(unit), c.spellId, isHelpful, 1, false,
+    PushEnriched(L, ::Object::Guid(unit), c.spellId, isHelpful, 1, false,
                  c.slot, &a, emit);
 }
 
@@ -1148,7 +1141,7 @@ void ReconcileCache(const uint8_t *unit) {
     uint32_t present[Offsets::UNIT_AURA_TOTAL];
     for (int slot = 0; slot < Offsets::UNIT_AURA_TOTAL; ++slot)
         present[slot] = ReadSpellID(unit, slot);
-    Aura::Source::EvictAbsent(UnitGuid(unit), present);
+    Aura::Source::EvictAbsent(::Object::Guid(unit), present);
 }
 
 // True if `unit`'s descriptor currently exposes any visible aura in either
@@ -1212,7 +1205,7 @@ int EligibleFallbacks(const uint8_t *unit, Filter filter,
     ReconcileCache(unit); // drop entries the (synced) descriptor contradicts
     if (DescriptorHasVisibleAura(unit))
         return 0; // descriptor authoritative — see DescriptorHasVisibleAura
-    const uint64_t guid = UnitGuid(unit);
+    const uint64_t guid = ::Object::Guid(unit);
     if (guid == 0)
         return 0;
     Aura::Source::CachedAura raw[kFallbackMax];

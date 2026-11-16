@@ -1693,7 +1693,7 @@ void StampApplication(void *unit, uint32_t spellId, int slot) {
     const uint8_t *rec = Spell::Lookup::RecordForID(static_cast<int>(spellId));
     if (!SpellAppliesAura(rec))
         return;
-    const uint64_t unitGuid = Unit::Identity::GuidForObject(unit);
+    const uint64_t unitGuid = ::Object::Guid(unit);
     if (unitGuid == 0)
         return;
     // If the local player just cast this aura, use its player-talented duration
@@ -1776,7 +1776,7 @@ void NotifyObservers(const Change &change) {
 // next aura's flags, so its polarity is the one recorded when it landed.
 Change MakeChange(ChangeType type, void *unit, int slot, uint32_t spellId) {
     Change c{type, unit, slot, spellId, 0, false, 0, 0};
-    const Entry *e = FindInstance(Unit::Identity::GuidForObject(unit), spellId, slot);
+    const Entry *e = FindInstance(::Object::Guid(unit), spellId, slot);
     if (e != nullptr)
         c.caster = e->casterGuid;
     if (type != ChangeType::Removed)
@@ -1854,7 +1854,7 @@ void __fastcall OnAuraRemoved_h(void *unit, void *edx, uint32_t slot,
                                 uint32_t spellId) {
     g_origOnAuraRemoved(unit, edx, slot, spellId);
     NotifyObservers(MakeChange(ChangeType::Removed, unit, static_cast<int>(slot), spellId));
-    Evict(Unit::Identity::GuidForObject(unit), spellId, static_cast<int>(slot));
+    Evict(::Object::Guid(unit), spellId, static_cast<int>(slot));
     NotifyIfPlayer(unit);
 }
 

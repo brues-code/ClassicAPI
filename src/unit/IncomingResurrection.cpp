@@ -129,7 +129,7 @@ bool HasIncomingResurrection(uint64_t guid) {
     if (Targeted(guid))
         return true;
     const void *corpse = Object::Corpse::ByOwner(guid);
-    return corpse != nullptr && Targeted(Unit::Identity::GuidForObject(corpse));
+    return corpse != nullptr && Targeted(::Object::Guid(corpse));
 }
 
 bool IsResurrect(int spellID) {

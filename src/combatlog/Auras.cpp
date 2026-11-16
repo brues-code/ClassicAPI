@@ -79,7 +79,7 @@ void OnAuraChange(const Aura::Source::Change &c) {
     const uint8_t *spell = SpellRecord(static_cast<int>(c.spellId));
     if (c.spellId == 0 || Hidden(spell))
         return;
-    const uint64_t unit = Unit::Identity::GuidForObject(c.unit);
+    const uint64_t unit = ::Object::Guid(c.unit);
     if (c.type == Aura::Source::ChangeType::Stacks) {
         if (Game::Read<uint32_t>(spell, Offsets::OFF_SPELL_RECORD_STACK_AMOUNT) <= 1 ||
             c.newStacks == c.oldStacks)

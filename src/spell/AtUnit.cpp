@@ -49,6 +49,7 @@
 // `UnitHealth("garbage")`.
 
 #include "Game.h"
+#include "object/Resolve.h"
 #include "spell/AtUnit.h"
 #include "spell/MacroPrimarySpell.h"
 #include "spell/Placement.h"
@@ -72,7 +73,7 @@ bool CastCore(const char *token, bool byNumber, int spellID, const char *spellNa
     float pos[3];
     if (unitObj == nullptr || !Unit::Position::Read(unitObj, pos))
         return false;
-    const uint64_t targetGuid = Unit::Identity::GuidForObject(unitObj);
+    const uint64_t targetGuid = ::Object::Guid(unitObj);
 
     if (allowGroundPlacement)
         Spell::Placement::Stop();

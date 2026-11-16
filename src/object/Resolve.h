@@ -54,6 +54,35 @@ bool RegistryReady();
 void *ByGuid(int typeMask, uint64_t guid, const char *debugName = nullptr,
              int priority = 0x172);
 
+// The object's own field block (OFF_OBJECT_DATA, CGObject + 0x08), which every
+// object type has: the OBJECT_FIELD_* values (GUID, type word, entry, scale).
+// Null for a null object or before the block is set.
+inline const uint8_t *Data(const void *obj) {
+    if (obj == nullptr)
+        return nullptr;
+    return *reinterpret_cast<const uint8_t *const *>(static_cast<const uint8_t *>(obj) +
+                                                     Offsets::OFF_OBJECT_DATA);
+}
+
+// OBJECT_FIELD_GUID, or 0.
+inline uint64_t Guid(const void *obj) {
+    const uint8_t *data = Data(obj);
+    return data != nullptr ? *reinterpret_cast<const uint64_t *>(data + Offsets::OFF_OBJECT_FIELD_GUID) : 0;
+}
+
+// OBJECT_FIELD_TYPE, the TYPEMASK_* word, or 0.
+inline uint32_t Type(const void *obj) {
+    const uint8_t *data = Data(obj);
+    return data != nullptr ? *reinterpret_cast<const uint32_t *>(data + Offsets::OFF_OBJECT_FIELD_TYPE) : 0;
+}
+
+// OBJECT_FIELD_ENTRY, the template id (an item's itemID, a creature's entry),
+// or 0.
+inline uint32_t Entry(const void *obj) {
+    const uint8_t *data = Data(obj);
+    return data != nullptr ? *reinterpret_cast<const uint32_t *>(data + Offsets::OFF_OBJECT_FIELD_ENTRY) : 0;
+}
+
 // The object's descriptor block (`m_objectFields`, the broadcast UpdateField
 // values) for a unit, player, game object or corpse: the pointer at
 // `OFF_OBJECT_FIELDS`. Null for a null object. An item's sits elsewhere

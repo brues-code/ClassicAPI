@@ -120,10 +120,6 @@ bool HasTokens(uint64_t guid) {
     return ListTokens(guid, t, kMaxTokens) > 0;
 }
 
-uint64_t UnitGuid(const void *unit) {
-    const auto *block = Game::Read<const uint8_t *>(unit, Offsets::OFF_UNIT_GUID_PTR);
-    return (block != nullptr) ? Game::Read<uint64_t>(block, Offsets::OFF_INSTANCE_BLOCK_GUID) : 0;
-}
 
 // --- watching: the registration bit -----------------------------------------
 
@@ -135,7 +131,7 @@ void __fastcall Recompute_h(void *unit) {
         return;
     const uint32_t mask = Game::Read<uint32_t>(unit, Offsets::OFF_CGUNIT_SCRIPT_REGISTRATION);
     const bool has = (mask & Offsets::UNIT_SCRIPT_REG_TOKENS) != 0;
-    const bool want = HasTokens(UnitGuid(unit));
+    const bool want = HasTokens(::Object::Guid(unit));
     if (want && !has)
         reinterpret_cast<ScriptBits_t>(static_cast<uintptr_t>(Offsets::FUN_UNIT_SCRIPT_REGISTER))(
             unit, Offsets::UNIT_SCRIPT_REG_TOKENS);

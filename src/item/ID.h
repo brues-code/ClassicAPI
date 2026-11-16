@@ -17,9 +17,9 @@
 
 namespace Item::ID {
 
-// Reads the itemID off a resolved `CGItem *` via the instance block at
-// `OFF_ITEM_INSTANCE_BLOCK + OFF_INSTANCE_BLOCK_ITEM_ID`. Returns 0 for
-// null/unpopulated items so callers can short-circuit to a nil push.
+// The itemID of a resolved `CGItem *`: OBJECT_FIELD_ENTRY in its object data
+// block (Object::Entry). 0 for a null or unpopulated item, so callers can
+// short-circuit to a nil push.
 int FromCGItem(const uint8_t *item);
 
 } // namespace Item::ID

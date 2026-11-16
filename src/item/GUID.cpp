@@ -16,6 +16,7 @@
 #include "guid/Guid.h"
 #include "item/CGItem.h"
 #include "item/Location.h"
+#include "object/Resolve.h"
 
 #include <cstdint>
 
@@ -46,7 +47,7 @@ static int __fastcall Script_C_Item_GetItemGUID(void *L) {
     const uint8_t *item = Item::Location::Resolve(L, 1);
     if (item == nullptr)
         return 0;
-    const uint64_t guid = Item::Guid(item);
+    const uint64_t guid = ::Object::Guid(item);
     if (guid == 0)
         return 0;
 
@@ -83,7 +84,7 @@ static int __fastcall Script_C_Item_IsItemGUIDInInventory(void *L) {
     // Equipped slots 1..19.
     for (int slot = 1; slot <= 19 && !found; ++slot) {
         const uint8_t *item = Item::Location::ResolveEquipmentSlot(slot);
-        if (item != nullptr && Item::Guid(item) == target)
+        if (item != nullptr && ::Object::Guid(item) == target)
             found = true;
     }
     // Bags 0..4 (backpack + equipped bags).
@@ -91,7 +92,7 @@ static int __fastcall Script_C_Item_IsItemGUIDInInventory(void *L) {
         const int slots = Item::Location::GetBagSlotCount(bag);
         for (int slot = 1; slot <= slots; ++slot) {
             const uint8_t *item = Item::Location::ResolveBag(bag, slot);
-            if (item != nullptr && Item::Guid(item) == target) {
+            if (item != nullptr && ::Object::Guid(item) == target) {
                 found = true;
                 break;
             }

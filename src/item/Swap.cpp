@@ -18,6 +18,7 @@
 #include "cursor/Info.h"
 #include "item/CGItem.h"
 #include "item/Location.h"
+#include "object/Resolve.h"
 #include "unit/Identity.h"
 
 #include <cstdint>
@@ -63,7 +64,7 @@ void SendSwapPacket(void *player,
 // CGObject-derived pointer (CGItem, CGPlayer, CGContainer all use
 // the same +0x8 → instance block → +0x00 GUID layout).
 bool ReadGuid(const void *cgObject, uint32_t *lo, uint32_t *hi) {
-    const uint64_t guid = Item::Guid(static_cast<const uint8_t *>(cgObject));
+    const uint64_t guid = ::Object::Guid(static_cast<const uint8_t *>(cgObject));
     if (guid == 0)
         return false;
     *lo = static_cast<uint32_t>(guid);

@@ -173,7 +173,7 @@ void SyncAll(Tracked &t, const uint8_t *unit) {
 // false from the getters (the caller is reading the auras right now).
 Tracked *Track(const uint8_t *unit, bool full, bool *seeded) {
     *seeded = false;
-    const uint64_t guid = Unit::Identity::GuidForObject(unit);
+    const uint64_t guid = ::Object::Guid(unit);
     if (guid == 0 || Object::Fields(unit) == nullptr)
         return nullptr;
     auto [it, inserted] = g_units.try_emplace(guid);
