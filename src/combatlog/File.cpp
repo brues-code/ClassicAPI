@@ -106,6 +106,7 @@
 #include <cstdio>
 #include <ctime>
 #include <string>
+#include <unordered_map>
 
 namespace CombatLog::File {
 
@@ -144,6 +145,16 @@ constexpr const char *kEnvironmentalNames[] = {"Fatigue", "Drowning", "Falling",
 LogFile g_log;
 uint32_t g_session = 0; // files opened this session
 std::string g_fileTime; // the open file's MMDDYY_HHMMSS
+
+// The template id in the GUID string of each creature, pet and game object
+// written since the last header. Retail's GUID string packs it, so a unit's
+// string never changes; 1.12's only comes from the live object: a pet's GUID
+// packs the pet number, and a creature's packs the spawn row's first id,
+// not the rolled one (Unit::CreatureID). Kept from the first line, the
+// string stays the same after the unit leaves view (UNIT_DIED for a pet
+// gone at once, an aura removed after a dismiss, UNIT_GONE).
+std::unordered_map<uint64_t, uint32_t> g_templates;
+
 CVar::Factory::Handle g_advancedCvar = nullptr;
 // ADVANCED_LOG_ENABLED of the last header written.
 bool g_headerAdvanced = false;
@@ -189,6 +200,7 @@ void Header() {
     const char *version = reinterpret_cast<const char *>(
         static_cast<uintptr_t>(Offsets::VAR_BUILD_VERSION_STRING));
     g_headerAdvanced = Advanced();
+    g_templates.clear();
     char text[128];
     std::snprintf(text, sizeof text,
                   "COMBAT_LOG_VERSION,%d,ADVANCED_LOG_ENABLED,%d,BUILD_VERSION,%s,PROJECT_ID,%d",
@@ -274,12 +286,24 @@ void Decimal(std::string &line, int value) {
 
 void Flag(std::string &line, bool value) { line += value ? ",1" : ",nil"; }
 
-// The creature or game-object template id: the live object's when it is in
-// view, else the one the GUID packs.
-uint32_t GameObjectEntry(uint64_t guid) {
+// The template id now: the live object's when it is in view, else the one
+// the GUID packs (none for a pet).
+uint32_t LiveTemplate(uint64_t guid, ::Guid::Type type) {
+    if (type != ::Guid::Type::GameObject)
+        return Unit::CreatureID::ForGuid(guid);
     if (void *object = Object::ByGuid(Offsets::TYPEMASK_GAMEOBJECT, guid))
         return Object::Entry(object);
     return static_cast<uint32_t>(guid >> 24) & 0xFFFFFF;
+}
+
+uint32_t TemplateId(uint64_t guid, ::Guid::Type type) {
+    const auto it = g_templates.find(guid);
+    if (it != g_templates.end())
+        return it->second;
+    const uint32_t id = LiveTemplate(guid, type);
+    if (id != 0)
+        g_templates.emplace(guid, id);
+    return id;
 }
 
 // Retail's GUID strings. 1.12 has no server, instance or zone numbers, so
@@ -290,21 +314,22 @@ void GuidPart(std::string &line, uint64_t guid) {
     const uint32_t spawn = low & 0xFFFFFF;
     const int map = Game::Read<int>(Offsets::VAR_CURRENT_MAP_ID);
     char text[64];
-    switch (::Guid::Classify(guid)) {
+    const ::Guid::Type type = ::Guid::Classify(guid);
+    switch (type) {
     case ::Guid::Type::Player:
         std::snprintf(text, sizeof text, ",Player-0-%08X", low);
         break;
     case ::Guid::Type::Creature:
         std::snprintf(text, sizeof text, ",Creature-0-0-%d-0-%u-%010X", map,
-                      Unit::CreatureID::ForGuid(guid), spawn);
+                      TemplateId(guid, type), spawn);
         break;
     case ::Guid::Type::Pet:
         std::snprintf(text, sizeof text, ",Pet-0-0-%d-0-%u-%010X", map,
-                      Unit::CreatureID::ForGuid(guid), spawn);
+                      TemplateId(guid, type), spawn);
         break;
     case ::Guid::Type::GameObject:
         std::snprintf(text, sizeof text, ",GameObject-0-0-%d-0-%u-%010X", map,
-                      GameObjectEntry(guid), spawn);
+                      TemplateId(guid, type), spawn);
         break;
     default:
         std::snprintf(text, sizeof text, ",%016llX", static_cast<unsigned long long>(guid));

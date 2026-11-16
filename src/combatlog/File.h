@@ -45,6 +45,8 @@ const std::string &FileTime();
 bool Advanced();
 
 // Appends `,` and the GUID as the file writes it (Player-0-0000ABCD, ...).
+// A unit's string stays the same from one header to the next, also after it
+// leaves view.
 void AppendGuid(std::string &line, uint64_t guid);
 
 // Appends `,"text"` with the file's quoting, or `,nil` for no text.
