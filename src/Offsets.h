@@ -8745,6 +8745,11 @@ enum Offsets {
     // exact "was it added to the book" gate the engine itself uses before
     // firing LEARNED_SPELL_IN_TAB. Read by `Spell::Learn`.
     VAR_PLAYER_SPELLBOOK_COUNT = 0x00B7116C,
+    // Populated-slot count of the pet array. The engine's book walk
+    // (FUN_004B3A10, under the name -> slot resolver) bounds the player
+    // book by the count above and the pet book by this one (0x004B3AAD:
+    // `mov edi, [B71174]`), never by SPELLBOOK_MAX_SLOTS.
+    VAR_PET_SPELLBOOK_COUNT = 0x00B71174,
 
     // The reactive-spell list: 8-byte entries `{spellID, usable}`, one per
     // NAME among the learned spells whose record has AttributesEx4 bit 0x200

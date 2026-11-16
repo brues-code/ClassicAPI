@@ -77,6 +77,22 @@ bool HasAuraEffect(const uint8_t *spellRecord, int aura);
 //   - "pet"                          → 1 (pet)
 int SpellbookSlotToID(int slot1Based, int bookType);
 
+// `bookType`'s spellbook array (0 player, 1 pet) and its populated slot
+// count (capped at SPELLBOOK_MAX_SLOTS). Slots at or past the count are not
+// part of the book: the engine's own walks (FUN_004B3A10) stop there.
+const int *BookArray(int bookType);
+int BookCount(int bookType);
+
+// Calls `fn(slot0, spellID)` for each populated slot of `bookType`'s book in
+// slot order (a spell's ranks ascend), until `fn` returns false. Skips 0.
+template <class F> void ForEachBookSpell(int bookType, F fn) {
+    const int *book = BookArray(bookType);
+    const int count = BookCount(bookType);
+    for (int i = 0; i < count; ++i)
+        if (book[i] > 0 && !fn(i, book[i]))
+            return;
+}
+
 // The 1.12 `bookType` string at Lua stack `idx` → the engine bookType above:
 // 1 when it is "pet", case-insensitive and whole (the SStrCmpI test in the
 // engine's FUN_READ_BOOK_SLOT_ARGS); 0 for any other value or no argument.

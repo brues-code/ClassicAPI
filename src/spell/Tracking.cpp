@@ -57,26 +57,19 @@ static bool IsTrackingSpell(int spellID) {
 // number of tracking spells found (so callers detect out-of-range by
 // comparing the return against `wantNth`).
 //
-// The spellbook array is zero-padded past the populated count (see
-// `Spell::Lookup::FindSpellbookSlot`), so a 0 entry is just an empty slot —
-// skip it and keep scanning the full range rather than break, matching the
-// existing spellbook walkers.
 static int EnumerateTracking(int wantNth, int *outSpellID, int *outSlot) {
-    auto *book = reinterpret_cast<const int *>(
-        static_cast<uintptr_t>(Offsets::VAR_PLAYER_SPELLBOOK));
     int found = 0;
-    for (int i = 0; i < Offsets::SPELLBOOK_MAX_SLOTS; ++i) {
-        const int spellID = book[i];
-        if (spellID <= 0 || !IsTrackingSpell(spellID))
-            continue;
-        ++found;
-        if (found == wantNth) {
+    Spell::Lookup::ForEachBookSpell(0, [&](int i, int spellID) {
+        if (!IsTrackingSpell(spellID))
+            return true;
+        if (++found == wantNth) {
             if (outSpellID != nullptr)
                 *outSpellID = spellID;
             if (outSlot != nullptr)
                 *outSlot = i + 1;
         }
-    }
+        return true;
+    });
     return found;
 }
 

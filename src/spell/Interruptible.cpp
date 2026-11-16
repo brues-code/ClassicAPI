@@ -127,14 +127,11 @@ const Capability &PlayerCapability() {
     if (g_valid && epoch == g_epoch)
         return g_cap;
     Capability cap;
-    const int count = Game::Read<int>(Offsets::VAR_PLAYER_SPELLBOOK_COUNT);
-    for (int slot = 1; slot <= count && slot <= Offsets::SPELLBOOK_MAX_SLOTS; ++slot) {
-        const int id = Spell::Lookup::SpellbookSlotToID(slot, /*player*/ 0);
-        if (id <= 0)
-            continue;
+    Spell::Lookup::ForEachBookSpell(0, [&](int, int id) {
         if (const uint8_t *rec = Spell::Lookup::RecordForID(id))
             Fold(rec, cap, /*followTrigger*/ true);
-    }
+        return true;
+    });
     g_cap = cap;
     g_epoch = epoch;
     g_valid = true;

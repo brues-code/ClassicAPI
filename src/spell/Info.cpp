@@ -418,41 +418,6 @@ static int __fastcall Script_C_IsSpellPassive(void *L) {
     return PushIsPassive(L, Spell::Arg::ResolveSpellID(L, 1));
 }
 
-// Walks the known-spell bitmap and calls `fn(spellID, record)` for every
-// set bit that has a Spell.dbc row, in ascending spellID order, until `fn`
-// returns false. This is `IsPlayerSpell` turned around: only a set bit ever
-// touches a record, so a full pass costs a few hundred lookups, not the
-// ~28,000-row table. The bitmap covers spellIDs 0..spellCount inclusive,
-// one bit each, so the last word is index spellCount >> 5; zero words — the
-// vast majority — cost one compare. No-op before login, when the bitmap is
-// not yet allocated.
-template <typename F>
-static void ForEachKnownSpell(F fn) {
-    auto *bitmap = Game::Read<const uint32_t *>(
-        static_cast<uintptr_t>(Offsets::VAR_PLAYER_SPELL_BITMAP));
-    if (bitmap == nullptr)
-        return;
-    const int spellCount = Game::Read<int>(
-        static_cast<uintptr_t>(Offsets::VAR_SPELL_RECORD_COUNT));
-    for (int word = 0; word <= (spellCount >> 5); ++word) {
-        const uint32_t bits = bitmap[word];
-        if (bits == 0)
-            continue;
-        for (int bit = 0; bit < 32; ++bit) {
-            if ((bits & (1u << bit)) == 0)
-                continue;
-            const int spellID = (word << 5) | bit;
-            if (spellID < 1 || spellID > spellCount)
-                continue;
-            const uint8_t *record = Spell::Lookup::RecordForID(spellID);
-            if (record == nullptr)
-                continue;
-            if (!fn(spellID, record))
-                return;
-        }
-    }
-}
-
 // `C_SpellBook.GetPlayerSpellsByAura(auraName)` -> { spellID, ... }
 //
 // Every spell the player currently knows whose Spell.dbc record has an
@@ -488,9 +453,10 @@ static int __fastcall Script_GetPlayerSpellsByAura(void *L) {
         return 1;
 
     int n = 0;
-    ForEachKnownSpell([&](int spellID, const uint8_t *record) {
+    Spell::Known::ForEach([&](uint32_t spellID) {
         // One entry per spell, however many effects match.
-        if (Spell::Lookup::HasAuraEffect(record, auraName)) {
+        if (Spell::Lookup::HasAuraEffect(Spell::Lookup::RecordForID(static_cast<int>(spellID)),
+                                         auraName)) {
             Game::Lua::PushNumber(L, static_cast<double>(++n));
             Game::Lua::PushNumber(L, static_cast<double>(spellID));
             Game::Lua::RawSet(L, -3);
@@ -507,7 +473,10 @@ static int __fastcall Script_GetPlayerSpellsByAura(void *L) {
 // adds counts too.
 static int __fastcall Script_ContainsAnyDisenchantSpell(void *L) {
     bool found = false;
-    ForEachKnownSpell([&](int, const uint8_t *record) {
+    Spell::Known::ForEach([&](uint32_t spellID) {
+        const uint8_t *record = Spell::Lookup::RecordForID(static_cast<int>(spellID));
+        if (record == nullptr)
+            return true;
         auto *effects = reinterpret_cast<const int32_t *>(
             record + Offsets::OFF_SPELL_RECORD_EFFECT);
         for (int e = 0; e < Offsets::SPELL_RECORD_EFFECT_COUNT; ++e) {

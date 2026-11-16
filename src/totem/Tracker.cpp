@@ -128,15 +128,10 @@ void ScanTools() {
     if (!anyUnknown)
         return;
 
-    auto *book = reinterpret_cast<const int32_t *>(
-        static_cast<uintptr_t>(Offsets::VAR_PLAYER_SPELLBOOK));
-    for (int slot = 0; slot < Offsets::SPELLBOOK_MAX_SLOTS; ++slot) {
-        const int spellID = book[slot];
-        if (spellID <= 0)
-            continue;
+    Spell::Lookup::ForEachBookSpell(0, [](int, int spellID) {
         const uint8_t *rec = Spell::Lookup::RecordForID(spellID);
         if (rec == nullptr)
-            continue;
+            return true;
         const auto *eff = Game::Ptr<const int32_t>(rec, Offsets::OFF_SPELL_RECORD_EFFECT);
         for (int i = 0; i < Offsets::SPELL_RECORD_EFFECT_COUNT; ++i) {
             const int e = eff[i];
@@ -147,7 +142,8 @@ void ScanTools() {
                 g_toolItem[s] = TotemToolItem(rec);
             break;
         }
-    }
+        return true;
+    });
 }
 
 // Re-resolve tool items whenever the player's spells (re)load.

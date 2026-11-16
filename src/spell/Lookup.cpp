@@ -107,10 +107,18 @@ int SpellbookSlotToID(int slot1Based, int bookType) {
     const int slot = slot1Based - 1;
     if (slot < 0 || slot >= Offsets::SPELLBOOK_MAX_SLOTS)
         return 0;
-    const auto base = (bookType == 1) ? Offsets::VAR_PET_SPELLBOOK
-                                      : Offsets::VAR_PLAYER_SPELLBOOK;
-    auto *array = reinterpret_cast<const int *>(static_cast<uintptr_t>(base));
-    return array[slot];
+    return BookArray(bookType)[slot];
+}
+
+const int *BookArray(int bookType) {
+    return reinterpret_cast<const int *>(static_cast<uintptr_t>(
+        bookType == 1 ? Offsets::VAR_PET_SPELLBOOK : Offsets::VAR_PLAYER_SPELLBOOK));
+}
+
+int BookCount(int bookType) {
+    const int count = Game::Read<int>(static_cast<uintptr_t>(
+        bookType == 1 ? Offsets::VAR_PET_SPELLBOOK_COUNT : Offsets::VAR_PLAYER_SPELLBOOK_COUNT));
+    return count < 0 ? 0 : (count > Offsets::SPELLBOOK_MAX_SLOTS ? Offsets::SPELLBOOK_MAX_SLOTS : count);
 }
 
 int BookTypeArg(void *L, int idx) {
@@ -168,26 +176,18 @@ int NthRecipeReagentItemID(const uint8_t *spellRecord, int reagentIndex1) {
 int FindSpellbookSlot(int spellID, int *outBookType) {
     if (spellID <= 0)
         return 0;
-    // Walk the full SPELLBOOK_MAX_SLOTS range rather than break-on-zero
-    // — the BSS arrays are zero-padded past the populated count, so any
-    // 0 entry is "empty slot" and won't match a positive spellID. Cost
-    // is 1024 dword reads per book = 8KB of cache-friendly memory.
-    auto *playerArray = reinterpret_cast<const int *>(
-        static_cast<uintptr_t>(Offsets::VAR_PLAYER_SPELLBOOK));
-    for (int i = 0; i < Offsets::SPELLBOOK_MAX_SLOTS; i++) {
-        if (playerArray[i] == spellID) {
+    for (int bookType = 0; bookType <= 1; ++bookType) {
+        int slot = 0;
+        ForEachBookSpell(bookType, [&](int i, int id) {
+            if (id != spellID)
+                return true;
+            slot = i + 1;
+            return false;
+        });
+        if (slot != 0) {
             if (outBookType != nullptr)
-                *outBookType = 0;
-            return i + 1;
-        }
-    }
-    auto *petArray = reinterpret_cast<const int *>(
-        static_cast<uintptr_t>(Offsets::VAR_PET_SPELLBOOK));
-    for (int i = 0; i < Offsets::SPELLBOOK_MAX_SLOTS; i++) {
-        if (petArray[i] == spellID) {
-            if (outBookType != nullptr)
-                *outBookType = 1;
-            return i + 1;
+                *outBookType = bookType;
+            return slot;
         }
     }
     return 0;
@@ -232,31 +232,25 @@ int SpellNameToID(const char *name) {
     // keep the LAST matching slot: a spell's ranks are stored in ascending
     // order, so the final match is the highest rank the player knows. For a
     // rank subtext we return the exact name+rank match.
-    const uintptr_t books[2] = {Offsets::VAR_PLAYER_SPELLBOOK,
-                                Offsets::VAR_PET_SPELLBOOK};
-    for (uintptr_t bookBase : books) {
-        auto *array = reinterpret_cast<const int *>(bookBase);
-        int best = 0;
-        for (int i = 0; i < Offsets::SPELLBOOK_MAX_SLOTS; ++i) {
-            const int spellID = array[i];
-            if (spellID <= 0)
-                continue; // BSS-zeroed empty slot
+    for (int bookType = 0; bookType <= 1; ++bookType) {
+        int found = 0;
+        ForEachBookSpell(bookType, [&](int, int spellID) {
             const uint8_t *record = RecordForID(spellID);
-            if (record == nullptr)
-                continue;
             const char *sname = Name(record);
             if (sname == nullptr || std::strcmp(sname, base) != 0)
-                continue;
+                return true;
             if (!haveRank) {
-                best = spellID; // highest rank (last match)
-                continue;
+                found = spellID; // highest rank (last match)
+                return true;
             }
             const char *srank = Rank(record);
-            if (srank != nullptr && std::strcmp(srank, wantRank) == 0)
-                return spellID; // exact name + rank
-        }
-        if (!haveRank && best != 0)
-            return best;
+            if (srank == nullptr || std::strcmp(srank, wantRank) != 0)
+                return true;
+            found = spellID; // exact name + rank
+            return false;
+        });
+        if (found != 0)
+            return found;
     }
     return 0;
 }

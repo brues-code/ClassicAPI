@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include "Offsets.h"
+
 #include <cstdint>
 
 namespace Spell::Known {
@@ -23,6 +25,31 @@ namespace Spell::Known {
 // profession recipes. Rebuilt for each character at login. False for IDs
 // out of range or before the bitmap exists.
 bool IsKnown(uint32_t spellID);
+
+// Calls `fn(spellID)` for every spell IsKnown is true for, in ascending ID
+// order, until `fn` returns false. The bitmap covers IDs 0..spell count, so
+// a pass costs one compare per 32 IDs plus one call per known spell. No-op
+// before the bitmap exists.
+template <class F> void ForEach(F fn) {
+    const uint32_t *bitmap = *reinterpret_cast<const uint32_t *const *>(
+        static_cast<uintptr_t>(Offsets::VAR_PLAYER_SPELL_BITMAP));
+    if (bitmap == nullptr)
+        return;
+    const uint32_t count = *reinterpret_cast<const uint32_t *>(
+        static_cast<uintptr_t>(Offsets::VAR_SPELL_RECORD_COUNT));
+    for (uint32_t word = 0; word <= (count >> 5); ++word) {
+        for (uint32_t bits = bitmap[word]; bits != 0; bits &= bits - 1) {
+            uint32_t bit = 0;
+            while (((bits >> bit) & 1u) == 0)
+                ++bit;
+            const uint32_t spellID = (word << 5) | bit;
+            if (spellID == 0 || spellID > count)
+                continue;
+            if (!fn(spellID))
+                return;
+        }
+    }
+}
 
 // True iff the local player can hold a weapon in the off hand.
 bool CanDualWield();

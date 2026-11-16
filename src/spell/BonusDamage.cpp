@@ -70,6 +70,7 @@
 #include "item/StatAccum.h"
 #include "player/StatSignal.h"
 #include "spell/HealingAura.h"
+#include "spell/Known.h"
 #include "spell/Lookup.h"
 #include "tick/WorldTick.h"
 #include "unit/Identity.h"
@@ -262,15 +263,10 @@ long ComputeHealing() {
     // and any passive flat healing, via the known-spell bitmap (bounded by
     // spellCount). The passive gate assumes ranks supersede (only the learned
     // rank is known), so no per-rank dedup is needed.
-    auto *bitmap = Game::Read<const uint32_t *>(
-        static_cast<uintptr_t>(Offsets::VAR_PLAYER_SPELL_BITMAP));
-    const int spellCount = Game::Read<int>(
-        static_cast<uintptr_t>(Offsets::VAR_SPELL_RECORD_COUNT));
-    if (bitmap != nullptr && spellCount > 0) {
-        for (int id = 1; id <= spellCount; ++id)
-            if (bitmap[id >> 5] & (1u << (id & 31)))
-                AddSpellHealingAuras(total, id, spirit, armor, /*requirePassive=*/true);
-    }
+    Spell::Known::ForEach([&](uint32_t id) {
+        AddSpellHealingAuras(total, static_cast<int>(id), spirit, armor, /*requirePassive=*/true);
+        return true;
+    });
 
     return total;
 }

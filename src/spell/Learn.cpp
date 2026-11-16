@@ -57,9 +57,7 @@ const Game::Doc::Event kLearnedDoc{
 
 const Event::Custom::AutoReserve _evtLearned{"LEARNED_SPELL_IN_SKILL_LINE", &kLearnedDoc};
 
-int PlayerBookCount() {
-    return Game::Read<int>(Offsets::VAR_PLAYER_SPELLBOOK_COUNT);
-}
+int PlayerBookCount() { return Spell::Lookup::BookCount(0); }
 
 using LearnSpell_t = void(__fastcall *)(uint32_t spellID, int notify,
                                         uint32_t replacedSpellID);

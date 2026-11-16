@@ -24,6 +24,7 @@
 #include "object/Resolve.h"
 #include "spell/CrowdControl.h"
 #include "spell/IsSelfBuff.h"
+#include "spell/Known.h"
 #include "spell/Lookup.h"
 #include "tick/WorldTick.h"
 #include "time/Clock.h"
@@ -518,8 +519,7 @@ const Tick::WorldTick::AutoSubscribe _tick{&OnWorldTick};
 uint64_t KnowledgeKey() {
     const uint64_t pet =
         Game::Read<uint64_t>(static_cast<uintptr_t>(Offsets::VAR_PET_GUID));
-    const uint32_t book =
-        Game::Read<uint32_t>(static_cast<uintptr_t>(Offsets::VAR_PLAYER_SPELLBOOK_COUNT));
+    const uint32_t book = static_cast<uint32_t>(Spell::Lookup::BookCount(0));
     return pet ^ (static_cast<uint64_t>(book) << 32);
 }
 
@@ -682,21 +682,11 @@ const char *DispelName(uint32_t dispelTypeID) {
 // else the pet spellbook — the same two sources the engine's raid-buff test
 // (`FUN_SPELL_IS_CASTABLE_AURA`) reads.
 static bool PlayerOrPetKnowsSpell(uint32_t spellID) {
-    const int spellCount = Game::Read<int>(
-        static_cast<uintptr_t>(Offsets::VAR_SPELL_RECORD_COUNT));
-    if (spellID == 0 || static_cast<int>(spellID) > spellCount)
-        return false;
-    auto *bitmap = Game::Read<const uint32_t *>(
-        static_cast<uintptr_t>(Offsets::VAR_PLAYER_SPELL_BITMAP));
-    if (bitmap != nullptr && (bitmap[spellID >> 5] & (1u << (spellID & 31))) != 0)
+    if (Spell::Known::IsKnown(spellID))
         return true;
-    auto *petBook = reinterpret_cast<const uint32_t *>(
-        static_cast<uintptr_t>(Offsets::VAR_PET_SPELLBOOK));
-    for (int i = 0; i < Offsets::SPELLBOOK_MAX_SLOTS; ++i) {
-        if (petBook[i] == spellID)
-            return true;
-    }
-    return false;
+    int bookType = 0;
+    return Spell::Lookup::FindSpellbookSlot(static_cast<int>(spellID), &bookType) != 0 &&
+           bookType == 1;
 }
 
 // 4.3.4's `CGSpellBook::CanApplyAura`: the player or their pet knows the
@@ -744,29 +734,15 @@ static uint32_t OffensiveDispelMask() {
     if (key == s_key)
         return s_mask;
     uint32_t mask = 0;
-    const int spellCount = Game::Read<int>(
-        static_cast<uintptr_t>(Offsets::VAR_SPELL_RECORD_COUNT));
-    auto *bitmap = Game::Read<const uint32_t *>(
-        static_cast<uintptr_t>(Offsets::VAR_PLAYER_SPELL_BITMAP));
-    if (bitmap != nullptr) {
-        for (int word = 0; word <= (spellCount >> 5); ++word) {
-            for (uint32_t bits = bitmap[word]; bits != 0; bits &= bits - 1) {
-                int bit = 0;
-                while (((bits >> bit) & 1u) == 0)
-                    ++bit;
-                const uint8_t *rec = SpellRecord(static_cast<uint32_t>(word * 32 + bit));
-                if (rec != nullptr)
-                    mask |= SpellOffensiveDispels(rec);
-            }
-        }
-    }
-    auto *petBook = reinterpret_cast<const uint32_t *>(
-        static_cast<uintptr_t>(Offsets::VAR_PET_SPELLBOOK));
-    for (int i = 0; i < Offsets::SPELLBOOK_MAX_SLOTS; ++i) {
-        const uint8_t *rec = petBook[i] != 0 ? SpellRecord(petBook[i]) : nullptr;
-        if (rec != nullptr)
+    auto add = [&mask](uint32_t spellID) {
+        if (const uint8_t *rec = SpellRecord(spellID))
             mask |= SpellOffensiveDispels(rec);
-    }
+        return true;
+    };
+    Spell::Known::ForEach(add);
+    Spell::Lookup::ForEachBookSpell(1, [&](int, int spellID) {
+        return add(static_cast<uint32_t>(spellID));
+    });
     s_key = key;
     s_mask = mask;
     return mask;

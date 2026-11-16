@@ -224,13 +224,10 @@ std::vector<uint32_t> GlowTargets(uint32_t rows, const std::vector<uint32_t> &us
             names.push_back(Spell::Lookup::Name(rec));
     }
 
-    const int count = std::min(Game::Read<int>(Offsets::VAR_PLAYER_SPELLBOOK_COUNT),
-                               static_cast<int>(Offsets::SPELLBOOK_MAX_SLOTS));
-    for (int slot = 0; slot < count; ++slot) {
-        const int id = Game::Read<int>(Offsets::VAR_PLAYER_SPELLBOOK + slot * 4);
+    Spell::Lookup::ForEachBookSpell(0, [&](int, int id) {
         const uint8_t *rec = Spell::Lookup::RecordForID(id);
         if (rec == nullptr)
-            continue;
+            return true;
         bool glow = false;
         for (const Mask &m : masks)
             glow = glow || Spell::Lookup::IsFitToFamily(rec, m.family, m.flags);
@@ -239,7 +236,8 @@ std::vector<uint32_t> GlowTargets(uint32_t rows, const std::vector<uint32_t> &us
             glow = glow || (name != nullptr && std::strcmp(name, n) == 0);
         if (glow)
             out.push_back(static_cast<uint32_t>(id));
-    }
+        return true;
+    });
     std::sort(out.begin(), out.end());
     out.erase(std::unique(out.begin(), out.end()), out.end());
     return out;
