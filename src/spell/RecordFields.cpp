@@ -20,29 +20,22 @@
 // `OFF_SPELL_RECORD_ATTRIBUTES` (+0x18), `OFF_SPELL_RECORD_ATTRIBUTES_EX2`
 // (+0x20), `OFF_SPELL_RECORD_INTERRUPT_FLAGS` (+0x54).
 //
-// Melee rules (server core, Spell.h / Spell.cpp):
-//   on-next-swing = Attributes & (0x04 | 0x400)  — two bits (Spell.h:434)
-//   resets swing  = (InterruptFlags & 0x08) && !(AttributesEx2 & 0x20000)
-//                   (Spell.cpp:3964 + Spell.h:441)
+// The two melee answers are Combat::Swing's rules, the ones the swing timer
+// itself runs on, so the API and PLAYER_SWING never disagree (a server
+// override such as Turtle's Slam reset included).
 
 #include "Arg.h"
 #include "Lookup.h"
 
 #include "Game.h"
 #include "Offsets.h"
+#include "combat/Swing.h"
 
 #include <cstdint>
 
 namespace Spell::RecordFields {
 
 namespace {
-
-// Attributes bits 0x04 (SPELL_ATTR_ON_NEXT_SWING) and 0x400
-// (SPELL_ATTR_ON_NEXT_SWING_2) both mark an on-next-melee-swing ability
-// (server Spell.h:434 tests the pair).
-// InterruptFlags bit 0x08 = SPELL_INTERRUPT_FLAG_AUTOATTACK.
-// AttributesEx2 bit 0x20000 = NOT_RESET_AUTO_ACTIONS — exempts the spell
-// from the swing reset the AUTOATTACK interrupt flag would otherwise cause.
 
 uint32_t ReadField(const uint8_t *rec, int offset) {
     return *reinterpret_cast<const uint32_t *>(rec + offset);
@@ -64,26 +57,17 @@ static int __fastcall Script_GetSpellDispelType(void *L) {
 // C_Spell.IsNextMeleeSpell(spellId) -> bool. True for on-next-swing abilities
 // (Heroic Strike, Maul, Cleave, Raptor Strike, Slam).
 static int __fastcall Script_IsNextMeleeSpell(void *L) {
-    const uint8_t *rec = Spell::Lookup::RecordForID(Spell::Arg::ResolveSpellID(L, 1));
-    const bool onNextSwing =
-        rec != nullptr &&
-        (ReadField(rec, Offsets::OFF_SPELL_RECORD_ATTRIBUTES) & Offsets::SPELL_ATTR_ON_NEXT_SWING) != 0;
-    Game::Lua::PushBool(L, onNextSwing);
+    Game::Lua::PushBool(L, Combat::Swing::IsNextSwing(
+                               Spell::Lookup::RecordForID(Spell::Arg::ResolveSpellID(L, 1))));
     return 1;
 }
 
 // C_Spell.ResetsMeleeSwing(spellId) -> bool. True when casting the spell
-// resets the melee swing timer (AUTOATTACK interrupt flag set and the
-// NOT_RESET_AUTO_ACTIONS exemption clear).
+// resets the melee swing timer.
 static int __fastcall Script_ResetsMeleeSwing(void *L) {
-    const uint8_t *rec = Spell::Lookup::RecordForID(Spell::Arg::ResolveSpellID(L, 1));
-    const bool resets =
-        rec != nullptr &&
-        (ReadField(rec, Offsets::OFF_SPELL_RECORD_INTERRUPT_FLAGS) &
-         Offsets::SPELL_INTERRUPT_FLAG_AUTOATTACK) != 0 &&
-        (ReadField(rec, Offsets::OFF_SPELL_RECORD_ATTRIBUTES_EX2) &
-         Offsets::SPELL_ATTR_EX2_NOT_RESET_AUTO_ACTIONS) == 0;
-    Game::Lua::PushBool(L, resets);
+    const int spellID = Spell::Arg::ResolveSpellID(L, 1);
+    Game::Lua::PushBool(L, Combat::Swing::ResetsSwing(static_cast<uint32_t>(spellID),
+                                                      Spell::Lookup::RecordForID(spellID)));
     return 1;
 }
 

@@ -50,6 +50,15 @@ void OnWeaponSlotChanged(int slot0);
 // time) and `Combat::SwingRange` (the melee `C_SwingTimer` check).
 bool InMeleeRange(void *player, void *target);
 
+// The server's melee rules for a spell record (null reads false):
+// IsNextSwing — Attributes & ON_NEXT_SWING: the spell replaces the next
+// main-hand white hit (Heroic Strike, Maul, Raptor Strike).
+// ResetsSwing — InterruptFlags & AUTOATTACK, exempted by AttributesEx2
+// NOT_RESET_AUTO_ACTIONS unless an AutoSwingResetOverride below forces the
+// reset: a non-triggered cast restarts both melee timers.
+bool IsNextSwing(const uint8_t *spellRecord);
+bool ResetsSwing(uint32_t spellId, const uint8_t *spellRecord);
+
 // Extension point for server-specific exceptions to the "does casting this
 // spell reset the caster's melee swing timer" rule. The stock rule is
 // data-driven off the client's own `Spell.dbc` (`InterruptFlags &

@@ -321,9 +321,7 @@ void OnSpellGo(uint32_t spellId) {
     if (rec == nullptr)
         return;
 
-    const uint32_t attr =
-        *reinterpret_cast<const uint32_t *>(rec + Offsets::OFF_SPELL_RECORD_ATTRIBUTES);
-    if (attr & Offsets::SPELL_ATTR_ON_NEXT_SWING) {
+    if (IsNextSwing(rec)) {
         // Replaces the next white hit -- not also evaluated as a cast-reset
         // spell below (an on-next-swing ability's InterruptFlags is unrelated).
         MarkReset(MAIN_HAND, AttackTimeMs(MAIN_HAND));
@@ -337,12 +335,7 @@ void OnSpellGo(uint32_t spellId) {
         return;
     }
 
-    const uint32_t interrupt = *reinterpret_cast<const uint32_t *>(
-        rec + Offsets::OFF_SPELL_RECORD_INTERRUPT_FLAGS);
-    if ((interrupt & Offsets::SPELL_INTERRUPT_FLAG_AUTOATTACK) &&
-        (ForcedSwingReset(spellId) ||
-         !(attrEx2 & Offsets::SPELL_ATTR_EX2_NOT_RESET_AUTO_ACTIONS)) &&
-        WasNonTriggeredCast(spellId)) {
+    if (ResetsSwing(spellId, rec) && WasNonTriggeredCast(spellId)) {
         // The server resets both timers on every such cast, attacking or
         // not (Spell::cast). Out of an attack no swing follows, so a buff
         // cast must not start a bar; the attack start below reports a reset
@@ -432,6 +425,22 @@ void OnCastGo(const Spell::CastPacket::Go &g) {
 const Spell::CastPacket::AutoGo _go{&OnCastGo};
 
 } // namespace
+
+bool IsNextSwing(const uint8_t *rec) {
+    return rec != nullptr &&
+           (Game::Read<uint32_t>(rec, Offsets::OFF_SPELL_RECORD_ATTRIBUTES) &
+            Offsets::SPELL_ATTR_ON_NEXT_SWING) != 0;
+}
+
+bool ResetsSwing(uint32_t spellId, const uint8_t *rec) {
+    if (rec == nullptr ||
+        (Game::Read<uint32_t>(rec, Offsets::OFF_SPELL_RECORD_INTERRUPT_FLAGS) &
+         Offsets::SPELL_INTERRUPT_FLAG_AUTOATTACK) == 0)
+        return false;
+    return (Game::Read<uint32_t>(rec, Offsets::OFF_SPELL_RECORD_ATTRIBUTES_EX2) &
+            Offsets::SPELL_ATTR_EX2_NOT_RESET_AUTO_ACTIONS) == 0 ||
+           ForcedSwingReset(spellId);
+}
 
 // ---- Weapon swap mid-combat (inventory-slot observer) -------------------
 //
