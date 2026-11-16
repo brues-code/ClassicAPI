@@ -21,7 +21,7 @@
 #include "Offsets.h"
 #include "dbc/Lookup.h"
 #include "net/PacketReader.h"
-#include "net/SendObserver.h"
+#include "spell/CastPacket.h"
 #include "spell/Mod.h"
 #include "time/Clock.h"
 #include "unit/Identity.h"
@@ -108,16 +108,12 @@ int ConsumeCapturedCP(uint32_t spellId) {
 // Snapshot the combo points at the moment the cast request leaves: the
 // server consumes them before SMSG_SPELL_GO arrives, so reading at
 // SpellGo time is too late. We watch sends through the shared
-// `Net::SendObserver` rather than owning the funnel hook ourselves.
-void OnSend(uint32_t opcode, Net::CDataStore *packet) {
-    if (opcode != Offsets::OP_CMSG_CAST_SPELL)
-        return;
-    const uint32_t spellId = Net::Read<uint32_t>(packet);
-    if (spellId != 0)
-        RememberCapture(spellId, CurrentComboPoints(), NowMs());
+// `Spell::CastPacket` decoder rather than owning the funnel hook ourselves.
+void OnSend(const Spell::CastPacket::Sent &s) {
+    RememberCapture(s.spellId, CurrentComboPoints(), NowMs());
 }
 
-const Net::SendObserver::AutoSubscribe _sendSub{&OnSend};
+const Spell::CastPacket::AutoSent _sendSub{&OnSend};
 
 // ---- Duration data (SpellDuration.dbc + Lua overrides) --------------------
 

@@ -24,11 +24,15 @@
 // object bit (unit, game object or corpse); one packed GUID for an item
 // target; 3 floats for the source and 3 for the destination; a C string for a
 // string target. Ammo info (CAST_FLAG_AMMO) follows and nobody reads it.
+//
+//   CMSG_CAST_SPELL   u32 spell, SpellCastTargets (the client writes what the
+//                     server's SpellCastTargets::read takes)
 
 #include "spell/CastPacket.h"
 
 #include "Offsets.h"
 #include "net/PacketDispatch.h"
+#include "net/SendObserver.h"
 
 #include <cstdint>
 
@@ -47,6 +51,7 @@ constexpr uint32_t kTargetStringCapacity = 256;
 
 AutoStart *g_start = nullptr;
 AutoGo *g_go = nullptr;
+AutoSent *g_sent = nullptr;
 
 // Every hit a u8 count can name.
 uint64_t g_hits[255];
@@ -126,9 +131,24 @@ void OnPacket(uint32_t opcode, CDataStore *p) {
 
 const Net::PacketDispatch::AutoSubscribe _sub{&OnPacket};
 
+void OnSend(uint32_t opcode, CDataStore *p) {
+    if (opcode != Offsets::OP_CMSG_CAST_SPELL || p == nullptr || g_sent == nullptr)
+        return;
+    Sent s{};
+    s.spellId = Read<uint32_t>(p);
+    s.targets = ReadTargets(p);
+    if (Overrun(p) || s.spellId == 0)
+        return;
+    for (const AutoSent *a = g_sent; a != nullptr; a = a->next)
+        a->fn(s);
+}
+
+const Net::SendObserver::AutoSubscribe _sendSub{&OnSend};
+
 } // namespace
 
 AutoStart::AutoStart(StartCallback f) : fn(f), next(g_start) { g_start = this; }
 AutoGo::AutoGo(GoCallback f) : fn(f), next(g_go) { g_go = this; }
+AutoSent::AutoSent(SentCallback f) : fn(f), next(g_sent) { g_sent = this; }
 
 } // namespace Spell::CastPacket

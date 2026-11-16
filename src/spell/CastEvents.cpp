@@ -16,8 +16,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "event/Custom.h"
-#include "net/PacketReader.h"
-#include "net/SendObserver.h"
+#include "spell/CastPacket.h"
 #include "spell/Lookup.h"
 #include "time/Clock.h"
 #include "unit/Identity.h"
@@ -409,40 +408,29 @@ const Game::HookAutoRegister _failedHook{
     reinterpret_cast<void **>(&g_origSpellFailed)};
 
 // ---- UNIT_SPELLCAST_SENT (CMSG_CAST_SPELL leaving the client) ----------
-// Watch outgoing sends via the shared observer (no funnel hook of our own).
+// The decoded send from Spell::CastPacket (no funnel hook of our own).
 // This is the earliest point in a cast's life: mint the castGUID here and
 // stash it pending so the matching START / SUCCEEDED / FAILED reuse it.
-void OnSend(uint32_t opcode, Net::CDataStore *packet) {
-    if (opcode != Offsets::OP_CMSG_CAST_SPELL)
-        return;
-    const int spellID = static_cast<int>(Net::Read<uint32_t>(packet));
-    if (spellID == 0)
-        return;
+void OnSend(const Spell::CastPacket::Sent &s) {
+    const int spellID = static_cast<int>(s.spellId);
     // If this is the spell whose reticle is up, the player just PLACED it —
     // the reticle will clear by placement, not cancel, so suppress its
     // RETICLE_CLEAR (retail fires CLEAR only on a real cancel).
     if (s_reticleSpell != 0 && spellID == s_reticleSpell)
         s_reticlePlaced = true;
-    // CMSG_CAST_SPELL body after spellId is SpellCastTargets: targetMask
-    // (u16), then a packed unit GUID when the UNIT flag is set (self /
-    // no-target casts carry none). Resolve that GUID to a unit token for
-    // SENT's `target` arg. Layout confirmed against the server's
-    // SpellCastTargets::read (tortoise-wow).
+    // SENT's `target` arg: the unit target's token (self / no-target casts
+    // carry none).
     char target[64];
     target[0] = '\0';
-    const uint16_t mask = Net::Read<uint16_t>(packet);
-    if (mask & Offsets::SPELL_TARGET_FLAG_UNIT) {
-        const uint64_t targetGuid = Net::ReadPackedGuid(packet);
-        if (targetGuid != 0)
-            Unit::Identity::TokenFromGUID(targetGuid, target, sizeof(target));
-    }
+    if ((s.targets.mask & Offsets::SPELL_TARGET_FLAG_UNIT) && s.targets.object != 0)
+        Unit::Identity::TokenFromGUID(s.targets.object, target, sizeof(target));
     const int guid = MakeCastUID(); // real cast (Type 3) → time-based UID
     g_pendingGuid = guid;
     g_pendingSpell = spellID;
     FireSent(spellID, guid, target);
 }
 
-const Net::SendObserver::AutoSubscribe _sendSub{&OnSend};
+const Spell::CastPacket::AutoSent _sendSub{&OnSend};
 
 // ---- Remote (non-player) unit cast events ------------------------------
 

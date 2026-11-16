@@ -15,8 +15,8 @@
 
 #include <cstdint>
 
-// SMSG_SPELL_START and SMSG_SPELL_GO, decoded once for every module that reads
-// them. One Net::PacketDispatch subscriber parses each packet (so, like every
+// SMSG_SPELL_START and SMSG_SPELL_GO, and the player's own CMSG_CAST_SPELL,
+// decoded once for every module that reads them. One Net::PacketDispatch subscriber parses each packet (so, like every
 // dispatch subscriber, it runs before the engine's own handler) and calls the
 // subscribers below with the result. The layout is the server's writer
 // (vmangos WorldPackets::Spell::SpellStart / SpellGo::AppendBodyTo and
@@ -58,9 +58,17 @@ struct Go {
     Targets targets;
 };
 
+// CMSG_CAST_SPELL leaving the client (Net::SendObserver), as the server's
+// SpellCastTargets::read takes it: u32 spell, then the targets block.
+struct Sent {
+    uint32_t spellId;
+    Targets targets;
+};
+
 // Called only for a packet that decoded to its end without overrunning.
 using StartCallback = void (*)(const Start &);
 using GoCallback = void (*)(const Go &);
+using SentCallback = void (*)(const Sent &);
 
 // File-scope `static const` instances chain onto the decoder at static-init
 // time. Order across subscribers is unspecified.
@@ -74,6 +82,12 @@ struct AutoGo {
     explicit AutoGo(GoCallback fn);
     GoCallback fn;
     AutoGo *next;
+};
+
+struct AutoSent {
+    explicit AutoSent(SentCallback fn);
+    SentCallback fn;
+    AutoSent *next;
 };
 
 } // namespace Spell::CastPacket

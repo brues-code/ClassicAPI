@@ -51,7 +51,6 @@
 #include "item/Record.h"
 #include "net/PacketDispatch.h"
 #include "net/PacketReader.h"
-#include "net/SendObserver.h"
 #include "object/Resolve.h"
 #include "tick/WorldTick.h"
 #include "time/Clock.h"
@@ -209,15 +208,9 @@ bool WasNonTriggeredCast(uint32_t spellId) {
     return false;
 }
 
-void OnSend(uint32_t opcode, CDataStore *packet) {
-    if (opcode != Offsets::OP_CMSG_CAST_SPELL)
-        return;
-    const uint32_t spellId = Net::Read<uint32_t>(packet);
-    if (spellId != 0)
-        RememberSentCast(spellId);
-}
+void OnSend(const Spell::CastPacket::Sent &s) { RememberSentCast(s.spellId); }
 
-const Net::SendObserver::AutoSubscribe _sendSub{&OnSend};
+const Spell::CastPacket::AutoSent _sendSub{&OnSend};
 
 // ---- Parry haste ----------------------------------------------------------
 

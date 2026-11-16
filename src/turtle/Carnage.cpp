@@ -38,11 +38,10 @@
 // excludes ability-based generation; an off-GCD proc is the one uncovered case.
 
 #include "aura/Source.h"
+#include "spell/CastPacket.h"
 #include "turtle/Detect.h"
 
 #include "Offsets.h"
-#include "net/PacketReader.h"
-#include "net/SendObserver.h"
 #include "spell/Lookup.h"
 #include "tick/WorldTick.h"
 #include "time/Clock.h"
@@ -104,10 +103,8 @@ const uint8_t *ComboInfo() {
 // Arm on a Ferocious Bite send. The combo-target GUID is where the points live
 // and where Rip/Rake sit — the authoritative unit this finisher applies to, so
 // it survives a target swap in the window.
-void OnSend(uint32_t opcode, Net::CDataStore *packet) {
-    if (opcode != Offsets::OP_CMSG_CAST_SPELL || !Turtle::Detected())
-        return;
-    if (!IsFerociousBite(Net::Read<uint32_t>(packet)))
+void OnSend(const Spell::CastPacket::Sent &s) {
+    if (!Turtle::Detected() || !IsFerociousBite(s.spellId))
         return;
     const uint8_t *info = ComboInfo();
     if (info == nullptr)
@@ -146,7 +143,7 @@ void OnTick() {
     }
 }
 
-const Net::SendObserver::AutoSubscribe _sendSub{&OnSend};
+const Spell::CastPacket::AutoSent _sendSub{&OnSend};
 const Tick::WorldTick::AutoSubscribe _tickSub{&OnTick};
 
 } // namespace
