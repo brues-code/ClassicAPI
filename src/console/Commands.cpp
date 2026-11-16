@@ -65,18 +65,6 @@ bool StartsWithIgnoreCase(const char *name, const char *prefix) {
     return true;
 }
 
-void SetStringField(void *L, const char *key, const char *value) {
-    Game::Lua::PushString(L, key);
-    Game::Lua::PushString(L, value != nullptr ? value : "");
-    Game::Lua::SetTable(L, -3);
-}
-
-void SetIntField(void *L, const char *key, int value) {
-    Game::Lua::PushString(L, key);
-    Game::Lua::PushNumber(L, static_cast<double>(value));
-    Game::Lua::SetTable(L, -3);
-}
-
 // `ConsoleGetAllCommands() -> ConsoleCommandInfo[]`
 int __fastcall Script_GetAllCommands(void *L) {
     Game::Lua::SetTop(L, 0);
@@ -86,13 +74,13 @@ int __fastcall Script_GetAllCommands(void *L) {
     Console::Registry::ForEach([&](const Console::Registry::Command &command) {
         Game::Lua::PushNumber(L, ++count);
         Game::Lua::NewTable(L);
-        SetStringField(L, "command", command.name);
-        SetStringField(L, "help", command.help);
-        SetIntField(L, "category", command.category);
-        SetIntField(L, "commandType",
+        Game::Lua::SetFieldString(L, "command", command.name);
+        Game::Lua::SetFieldString(L, "help", command.help);
+        Game::Lua::SetFieldNumber(L, "category", command.category);
+        Game::Lua::SetFieldNumber(L, "commandType",
                     command.IsCvar() ? kCommandTypeCvar : kCommandTypeCommand);
-        SetStringField(L, "scriptContents", "");
-        SetStringField(L, "scriptParameters", "");
+        Game::Lua::SetFieldString(L, "scriptContents", "");
+        Game::Lua::SetFieldString(L, "scriptParameters", "");
         Game::Lua::SetTable(L, -3);
     });
     return 1;

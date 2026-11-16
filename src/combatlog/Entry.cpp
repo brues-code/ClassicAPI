@@ -394,10 +394,7 @@ int Push(void *L, const Entry &e) {
         const uint8_t *spell = SpellRecord(e.spellId);
         PushNumber(L, e.spellId);
         const char *name = Spell::Lookup::Name(spell);
-        if (name != nullptr)
-            PushString(L, name);
-        else
-            PushNil(L);
+        PushString(L, name);
         PushNumber(L, spell != nullptr ? SpellSchoolMask(spell) : e.spellSchool);
         count += 3;
     }
@@ -473,10 +470,7 @@ int Push(void *L, const Entry &e) {
         const uint8_t *extra = SpellRecord(e.v[0]);
         PushNumber(L, e.v[0]);
         const char *name = Spell::Lookup::Name(extra);
-        if (name != nullptr)
-            PushString(L, name);
-        else
-            PushNil(L);
+        PushString(L, name);
         PushNumber(L, SpellSchoolMask(extra));
         count += 3;
     }

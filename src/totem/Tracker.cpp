@@ -304,15 +304,6 @@ void OnTick() {
 
 const Tick::WorldTick::AutoSubscribe _tick{&OnTick};
 
-// Pushes `s`, or nil for nullptr — Lua 5.1's `lua_pushstring(NULL)`, which
-// 3.3.5 relies on for an unresolved name or icon.
-void PushStringOrNil(void *L, const char *s) {
-    if (s != nullptr)
-        Game::Lua::PushString(L, s);
-    else
-        Game::Lua::PushNil(L);
-}
-
 // Reads the 1-based slot argument the way 3.3.5's totem scripts do: a usage
 // error when it isn't a number, a range error outside 1-4. Returns the
 // 0-based slot.
@@ -347,10 +338,10 @@ int __fastcall Script_GetTotemInfo(void *L) {
     const Slot &t = g_slots[slot];
     if (t.active) {
         Game::Lua::PushBool(L, true);
-        PushStringOrNil(L, t.name);
+        Game::Lua::PushString(L, t.name);
         Game::Lua::PushNumber(L, static_cast<double>(t.startMs / 1000));
         Game::Lua::PushNumber(L, static_cast<double>(t.durationMs / 1000));
-        PushStringOrNil(L, t.icon);
+        Game::Lua::PushString(L, t.icon);
         Game::Lua::PushNumber(L, 1.0);
         Game::Lua::PushNumber(L, static_cast<double>(t.spellID));
         return 7;

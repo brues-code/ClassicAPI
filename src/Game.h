@@ -405,6 +405,7 @@ inline void PushFlag(void *L, bool on) {
 // text it does not recognize is `defaultValue`, and any other type is
 // `defaultValue`.
 bool ToFlag(void *L, int index, bool defaultValue = false);
+// A null string pushes nil (the TEST EDX / JMP lua_pushnil at 0x006F3890).
 extern const lua_pushstring_t PushString;
 extern const lua_pushlstring_t PushLString;
 extern const lua_pushvalue_t PushValue;

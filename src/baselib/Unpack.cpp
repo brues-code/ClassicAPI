@@ -32,7 +32,6 @@ namespace {
 
 // Engine auxlib/API entries (see Offsets.h for derivations).
 using LuaLGetN_t = int(__fastcall *)(void *L, int idx);
-using RawGetI_t = void(__fastcall *)(void *L, int idx, int n);
 
 // Range argument at `idx`: absent/nil → `fallback`; a number (or numeric
 // string, matching luaL_optint's coercion) → its value; anything else
@@ -64,9 +63,8 @@ int __fastcall Script_unpack(void *L) {
         Game::Lua::Error(L, "too many results to unpack");
         return 0; // unreachable
     }
-    const auto rawGetI = reinterpret_cast<RawGetI_t>(Offsets::LUA_RAWGETI);
     for (int k = i; k <= e; ++k)
-        rawGetI(L, 1, k);
+        Game::Lua::RawGetI(L, 1, k);
     return n;
 }
 

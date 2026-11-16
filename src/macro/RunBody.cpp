@@ -129,10 +129,7 @@ int __fastcall Script_StopMacro(void * /*L*/) {
 // `GetRunningMacroButton()` — the button the running macro was started with,
 // or nil.
 int __fastcall Script_GetRunningMacroButton(void *L) {
-    if (g_runningButton != nullptr)
-        Game::Lua::PushString(L, g_runningButton);
-    else
-        Game::Lua::PushNil(L);
+    Game::Lua::PushString(L, g_runningButton);
     return 1;
 }
 

@@ -535,10 +535,7 @@ int __fastcall Script_GetPlayerInfo(void *L) {
     else
         Game::Lua::PushNil(L);
     const char *classToken = DBC::ClassToken(r.classId);     // 2 class token
-    if (classToken != nullptr)
-        Game::Lua::PushString(L, classToken);
-    else
-        Game::Lua::PushNil(L);
+    Game::Lua::PushString(L, classToken);
     Game::Lua::PushNumber(L, static_cast<double>(r.rollType)); // 3 rollType
     if (r.roll != 0)
         Game::Lua::PushNumber(L, static_cast<double>(r.roll)); // 4 roll

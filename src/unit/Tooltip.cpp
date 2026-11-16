@@ -307,10 +307,7 @@ static int __fastcall Script_GameTooltipGetUnitGUID(void *L) {
         return 0;
 
     const char *name = ResolveUnitName(guidLo, guidHi);
-    if (name != nullptr)
-        Game::Lua::PushString(L, name);
-    else
-        Game::Lua::PushNil(L);
+    Game::Lua::PushString(L, name);
 
     const uint64_t guid = (static_cast<uint64_t>(guidHi) << 32) | guidLo;
     char buf[Guid::STRING_SIZE];
