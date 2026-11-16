@@ -407,10 +407,7 @@ static int __fastcall Script_GameTooltipIsUnit(void *L) {
         (static_cast<uint64_t>(Game::Read<uint32_t>(base, Offsets::OFF_TOOLTIP_UNIT_GUID_HI))
          << 32) |
         Game::Read<uint32_t>(base, Offsets::OFF_TOOLTIP_UNIT_GUID_LO);
-    if (guid != 0 && guid == shown)
-        Game::Lua::PushNumber(L, 1.0);
-    else
-        Game::Lua::PushNil(L);
+    Game::Lua::PushFlag(L, guid != 0 && guid == shown);
     return 1;
 }
 

@@ -75,10 +75,7 @@ using BuildSpellTooltip_t = int(__thiscall *)(void *tooltip, int spellID, int br
 // conditions refreshes even when the builder has nothing pending — its answer
 // can change under a held modifier or a new mouseover with no event to say so.
 int PushRefresh(void *L, bool refresh) {
-    if (refresh)
-        Game::Lua::PushNumber(L, 1.0);
-    else
-        Game::Lua::PushNil(L);
+    Game::Lua::PushFlag(L, refresh);
     return 1;
 }
 

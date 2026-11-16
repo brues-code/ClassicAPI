@@ -80,10 +80,7 @@ int __fastcall Script_GetDontSavePosition(void *L) {
     void *frame = Game::Lua::ResolveFrame(L);
     if (frame == nullptr)
         return 0;
-    if (DontSave(frame))
-        Game::Lua::PushNumber(L, 1.0);
-    else
-        Game::Lua::PushNil(L);
+    Game::Lua::PushFlag(L, DontSave(frame));
     return 1;
 }
 

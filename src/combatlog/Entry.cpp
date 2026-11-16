@@ -363,12 +363,6 @@ void PushNumberOrNil(void *L, int value) {
         Game::Lua::PushNil(L);
 }
 
-void PushFlag(void *L, bool value) {
-    if (value)
-        Game::Lua::PushNumber(L, 1.0);
-    else
-        Game::Lua::PushNil(L);
-}
 
 void PushName(void *L, bool named, const std::string &name) {
     if (named)
@@ -417,7 +411,7 @@ int Push(void *L, const Entry &e) {
     }
     if (e.info & INFO_MISS) {
         PushString(L, MissName(e.v[0]));
-        PushFlag(L, e.offHand);
+        Game::Lua::PushFlag(L, e.offHand);
         count += 2;
     }
     if (e.info & INFO_ENVIRONMENTAL) {
@@ -431,10 +425,10 @@ int Push(void *L, const Entry &e) {
         PushNumberOrNil(L, e.v[5]);
         PushNumberOrNil(L, e.v[6]);
         PushNumberOrNil(L, e.v[4]);
-        PushFlag(L, e.critical);
-        PushFlag(L, e.glancing);
-        PushFlag(L, e.crushing);
-        PushFlag(L, e.offHand);
+        Game::Lua::PushFlag(L, e.critical);
+        Game::Lua::PushFlag(L, e.glancing);
+        Game::Lua::PushFlag(L, e.crushing);
+        Game::Lua::PushFlag(L, e.offHand);
         count += 10;
     }
     if (e.info & INFO_MISS_ABSORBED) {
@@ -453,7 +447,7 @@ int Push(void *L, const Entry &e) {
         PushNumber(L, e.v[0]);
         PushNumber(L, e.v[1]);
         PushNumber(L, e.v[2]);
-        PushFlag(L, e.critical);
+        Game::Lua::PushFlag(L, e.critical);
         count += 4;
     }
     if (e.info & INFO_ENERGIZE) {

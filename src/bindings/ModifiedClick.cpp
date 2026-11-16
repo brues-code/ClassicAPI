@@ -419,10 +419,7 @@ int __fastcall Script_GetModifiedClick(void *L) {
 
 int __fastcall Script_IsModifiedClick(void *L) {
     const char *action = Game::Lua::IsString(L, 1) ? Game::Lua::ToString(L, 1) : nullptr;
-    if (IsModifiedClick(action))
-        Game::Lua::PushNumber(L, 1.0);
-    else
-        Game::Lua::PushNil(L);
+    Game::Lua::PushFlag(L, IsModifiedClick(action));
     return 1;
 }
 

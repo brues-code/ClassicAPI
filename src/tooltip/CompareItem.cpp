@@ -525,10 +525,7 @@ int __fastcall Script_SetHyperlinkCompareItem(void *L) {
 
     auto result = [&](bool filled) -> int {
         Game::Lua::SetTop(L, argc);
-        if (filled)
-            Game::Lua::PushNumber(L, 1.0);
-        else
-            Game::Lua::PushNil(L);
+        Game::Lua::PushFlag(L, filled);
         return 1;
     };
 

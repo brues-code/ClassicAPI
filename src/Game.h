@@ -390,6 +390,14 @@ extern const lua_pushboolean_t PushBoolean;
 // engine's `lua_pushboolean` ABI wants `int` (any non-zero = true), so
 // this just funnels through the raw binding with a single conversion.
 inline void PushBool(void *L, bool b) { PushBoolean(L, static_cast<int>(b)); }
+// The 1.12 engine's boolean: 1 for true, nil for false (what its own
+// Script_ functions push, and what vanilla-shaped globals return).
+inline void PushFlag(void *L, bool on) {
+    if (on)
+        PushNumber(L, 1.0);
+    else
+        PushNil(L);
+}
 // The engine's script-flag argument reader (FUN_LUA_TO_BOOLEAN_LOOSE, 4.3.4's
 // `StringToBOOL(L, index, default)`), which every engine method taking an
 // optional flag uses: nil is false, a boolean is itself, a number is its

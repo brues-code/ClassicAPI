@@ -259,10 +259,7 @@ int __fastcall Script_UnitIsInMyGuild(void *L) {
     const uint8_t *match = ResolvePlayerByGuid(Unit::Identity::FindGuidByName(
         input, Offsets::TYPEMASK_PLAYER, /*exact*/ true, kPartyThenObjects));
     if (match != nullptr) {
-        if (ReadGuildKey(match) == playerKey)
-            Game::Lua::PushNumber(L, 1.0);
-        else
-            Game::Lua::PushNil(L);
+        Game::Lua::PushFlag(L, ReadGuildKey(match) == playerKey);
         return 1;
     }
 

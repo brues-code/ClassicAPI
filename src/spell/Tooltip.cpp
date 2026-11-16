@@ -99,10 +99,7 @@ int SetOrAddSpellByID(void *L, bool append) {
     if (append && Game::Read<int>(tooltip, Offsets::OFF_GAMETOOLTIP_NUM_LINES) > before)
         RewriteAppendHeader(tooltip, before, spellID, showSubtext);
 
-    if (result != 0)
-        Game::Lua::PushNumber(L, 1.0);
-    else
-        Game::Lua::PushNil(L);
+    Game::Lua::PushFlag(L, result != 0);
     return 1;
 }
 

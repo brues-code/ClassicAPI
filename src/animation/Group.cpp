@@ -635,10 +635,7 @@ int __fastcall Script_GetIgnoreFramerateThrottle(void *L) {
     Group *g = Self(L);
     if (g == nullptr)
         return 0;
-    if (g->flags & GROUP_IGNORE_THROTTLE)
-        Game::Lua::PushNumber(L, 1.0);
-    else
-        Game::Lua::PushNil(L);
+    Game::Lua::PushFlag(L, g->flags & GROUP_IGNORE_THROTTLE);
     return 1;
 }
 int __fastcall Script_SetToFinalAlpha(void *L) {

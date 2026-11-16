@@ -101,14 +101,8 @@ int __fastcall Script_IsUsableItem(void *L) {
     const int itemID = Item::Arg::ResolveItemID(L, 1);
     const Usability r = ComputeUsability(itemID);
     Game::Lua::SetTop(L, 0);
-    if (r.usable)
-        Game::Lua::PushNumber(L, 1.0);
-    else
-        Game::Lua::PushNil(L);
-    if (r.noMana)
-        Game::Lua::PushNumber(L, 1.0);
-    else
-        Game::Lua::PushNil(L);
+    Game::Lua::PushFlag(L, r.usable);
+    Game::Lua::PushFlag(L, r.noMana);
     return 2;
 }
 

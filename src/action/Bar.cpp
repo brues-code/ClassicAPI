@@ -31,10 +31,7 @@ namespace Action::Bar {
 namespace {
 
 int PushFlag(void *L, bool on) {
-    if (on)
-        Game::Lua::PushNumber(L, 1.0);
-    else
-        Game::Lua::PushNil(L);
+    Game::Lua::PushFlag(L, on);
     return 1;
 }
 

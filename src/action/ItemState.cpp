@@ -97,10 +97,7 @@ int __fastcall Script_IsConsumableAction(void *L) {
     Macro::ShowTooltip::Info info;
     if (!ItemTarget(L, &info))
         return Engine(Offsets::FUN_SCRIPT_IS_CONSUMABLE_ACTION, L);
-    if (IsConsumable(info.itemID))
-        Game::Lua::PushNumber(L, 1.0);
-    else
-        Game::Lua::PushNil(L);
+    Game::Lua::PushFlag(L, IsConsumable(info.itemID));
     return 1;
 }
 

@@ -83,18 +83,12 @@ int OnUseSpellForArg(void *L) {
 }
 
 int __fastcall Script_IsHelpfulItem(void *L) {
-    if (::Spell::Info::IsHelpful(OnUseSpellForArg(L)))
-        Game::Lua::PushNumber(L, 1.0);
-    else
-        Game::Lua::PushNil(L);
+    Game::Lua::PushFlag(L, ::Spell::Info::IsHelpful(OnUseSpellForArg(L)));
     return 1;
 }
 
 int __fastcall Script_IsHarmfulItem(void *L) {
-    if (::Spell::Info::IsHarmful(OnUseSpellForArg(L)))
-        Game::Lua::PushNumber(L, 1.0);
-    else
-        Game::Lua::PushNil(L);
+    Game::Lua::PushFlag(L, ::Spell::Info::IsHarmful(OnUseSpellForArg(L)));
     return 1;
 }
 

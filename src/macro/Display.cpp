@@ -96,10 +96,7 @@ int SetMacroValue(void *L, Macro::ShowTooltip::Accept accept, const char *usage)
     options.accept = accept;
     options.unit = Game::Lua::IsString(L, 3) ? Game::Lua::ToString(L, 3) : nullptr;
     options.untilEdit = true;
-    if (Macro::ShowTooltip::Publish(macroSlot, Game::Lua::ToString(L, 2), options))
-        Game::Lua::PushNumber(L, 1);
-    else
-        Game::Lua::PushNil(L);
+    Game::Lua::PushFlag(L, Macro::ShowTooltip::Publish(macroSlot, Game::Lua::ToString(L, 2), options));
     return 1;
 }
 

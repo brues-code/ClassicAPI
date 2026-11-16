@@ -182,10 +182,7 @@ int __fastcall Script_IsAssistingRitual(void *L) {
 // exists (pre-world). Vanilla 1.12 ships no binding for this.
 //
 int __fastcall Script_IsIndoors(void *L) {
-    if (PlayerOutdoorState() == 0)
-        Game::Lua::PushNumber(L, 1.0);
-    else
-        Game::Lua::PushNil(L);
+    Game::Lua::PushFlag(L, PlayerOutdoorState() == 0);
     return 1;
 }
 
@@ -193,10 +190,7 @@ int __fastcall Script_IsIndoors(void *L) {
 // inside a WMO interior), else nil. Exact complement of `IsIndoors` for a
 // resolvable player; both return nil pre-world. See `Script_IsIndoors`.
 int __fastcall Script_IsOutdoors(void *L) {
-    if (PlayerOutdoorState() == 1)
-        Game::Lua::PushNumber(L, 1.0);
-    else
-        Game::Lua::PushNil(L);
+    Game::Lua::PushFlag(L, PlayerOutdoorState() == 1);
     return 1;
 }
 

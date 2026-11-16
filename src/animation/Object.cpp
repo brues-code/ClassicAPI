@@ -221,10 +221,7 @@ int __fastcall Script_IsObjectType(void *L) {
         Game::Lua::Error(L, "Usage: %s:IsObjectType(\"TYPE\")", object->DisplayName());
         return 0;
     }
-    if (V_IsAName(object, nullptr, Game::Lua::ToString(L, 2)))
-        Game::Lua::PushNumber(L, 1.0);
-    else
-        Game::Lua::PushNil(L);
+    Game::Lua::PushFlag(L, V_IsAName(object, nullptr, Game::Lua::ToString(L, 2)));
     return 1;
 }
 
@@ -256,10 +253,7 @@ int __fastcall Script_HasScript(void *L) {
         Game::Lua::Error(L, "Usage: %s:HasScript(\"type\")", object->DisplayName());
         return 0;
     }
-    if (V_ResolveScript(object, nullptr, Game::Lua::ToString(L, 2)) != nullptr)
-        Game::Lua::PushNumber(L, 1.0);
-    else
-        Game::Lua::PushNil(L);
+    Game::Lua::PushFlag(L, V_ResolveScript(object, nullptr, Game::Lua::ToString(L, 2)) != nullptr);
     return 1;
 }
 

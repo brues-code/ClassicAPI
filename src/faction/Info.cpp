@@ -51,12 +51,6 @@ const uint8_t *FactionRecord(int factionID) {
 // the number-or-nil shape here so encountered and unencountered
 // factions return identically and addons can use a single
 // comparison path.
-void PushFlag(void *L, bool value) {
-    if (value)
-        Game::Lua::PushNumber(L, 1.0);
-    else
-        Game::Lua::PushNil(L);
-}
 
 // Resolves the local player's CGPlayer-side info sub-struct at
 // `[player + 0xE68]`. Returns nullptr if "player" isn't resolvable
@@ -297,11 +291,11 @@ static int __fastcall Script_GetFactionInfoByID(void *L) {
         static_cast<double>(d.nextReactionThreshold));             // 5
     Game::Lua::PushNumber(L,
         static_cast<double>(d.currentStanding));                   // 6
-    PushFlag(L, d.atWarWith);                                       // 7
-    PushFlag(L, d.canToggleAtWar);                                  // 8
-    PushFlag(L, d.isHeader);                                        // 9
-    PushFlag(L, d.isCollapsed);                                     // 10
-    PushFlag(L, d.isWatched);                                       // 11
+    Game::Lua::PushFlag(L, d.atWarWith);                                       // 7
+    Game::Lua::PushFlag(L, d.canToggleAtWar);                                  // 8
+    Game::Lua::PushFlag(L, d.isHeader);                                        // 9
+    Game::Lua::PushFlag(L, d.isCollapsed);                                     // 10
+    Game::Lua::PushFlag(L, d.isWatched);                                       // 11
     return 11;
 }
 

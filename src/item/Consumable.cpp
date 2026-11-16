@@ -82,10 +82,7 @@ bool IsConsumable(void *L) {
 }
 
 int __fastcall Script_IsConsumableItem(void *L) {
-    if (IsConsumable(L))
-        Game::Lua::PushNumber(L, 1.0);
-    else
-        Game::Lua::PushNil(L);
+    Game::Lua::PushFlag(L, IsConsumable(L));
     return 1;
 }
 

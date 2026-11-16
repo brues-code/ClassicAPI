@@ -45,10 +45,7 @@ constexpr uint32_t kIndented = Offsets::FONT_STYLE_INDENTED_WORD_WRAP;
 
 
 int PushIndented(void *L, uint32_t styleFlags) {
-    if (styleFlags & kIndented)
-        Game::Lua::PushNumber(L, 1.0);
-    else
-        Game::Lua::PushNil(L);
+    Game::Lua::PushFlag(L, styleFlags & kIndented);
     return 1;
 }
 

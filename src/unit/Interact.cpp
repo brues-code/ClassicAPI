@@ -105,10 +105,7 @@ int __fastcall Script_InteractUnit(void *L) {
         Game::Lua::Error(L, "Usage: InteractUnit(unitToken[, exactMatch])");
         return 0;
     }
-    if (Interact(L, false))
-        Game::Lua::PushNumber(L, 1.0);
-    else
-        Game::Lua::PushNil(L);
+    Game::Lua::PushFlag(L, Interact(L, false));
     return 1;
 }
 

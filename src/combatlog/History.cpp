@@ -182,10 +182,7 @@ void DropOldest() {
 }
 
 void PushCurrent(void *L) {
-    if (g_current >= 0)
-        Game::Lua::PushNumber(L, 1.0);
-    else
-        Game::Lua::PushNil(L);
+    Game::Lua::PushFlag(L, g_current >= 0);
 }
 
 int Count() { return static_cast<int>(g_entries.size()); }
@@ -344,10 +341,7 @@ int __fastcall Script_CombatLog_Object_IsA(void *L) {
     const uint32_t flags =
         static_cast<uint32_t>(static_cast<int64_t>(Game::Lua::ToNumber(L, 1))) &
         static_cast<uint32_t>(static_cast<int64_t>(Game::Lua::ToNumber(L, 2)));
-    if ((flags & SPECIAL_MASK) != 0 || Complete(flags))
-        Game::Lua::PushNumber(L, 1.0);
-    else
-        Game::Lua::PushNil(L);
+    Game::Lua::PushFlag(L, (flags & SPECIAL_MASK) != 0 || Complete(flags));
     return 1;
 }
 

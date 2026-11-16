@@ -40,10 +40,7 @@ int __fastcall Script_CanCancelAuction(void *L) {
 
     const uint32_t index = static_cast<uint32_t>(static_cast<int64_t>(Game::Lua::ToNumber(L, 1))) - 1;
     const auto *entries = reinterpret_cast<void *const *>(Offsets::VAR_AUCTION_OWNER_ENTRIES);
-    if (index < Game::Read<uint32_t>(Offsets::VAR_AUCTION_OWNER_COUNT) && entries[index] != nullptr)
-        Game::Lua::PushNumber(L, 1.0);
-    else
-        Game::Lua::PushNil(L);
+    Game::Lua::PushFlag(L, index < Game::Read<uint32_t>(Offsets::VAR_AUCTION_OWNER_COUNT) && entries[index] != nullptr);
     return 1;
 }
 

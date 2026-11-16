@@ -110,10 +110,7 @@ uint32_t g_overrideMask = 0;
 HHOOK g_msgHook = nullptr;
 
 void PushDown(void *L, bool down) {
-    if (down)
-        Game::Lua::PushNumber(L, 1.0);
-    else
-        Game::Lua::PushNil(L);
+    Game::Lua::PushFlag(L, down);
 }
 
 // The engine's IsKeyDown for shift / ctrl / alt (0 / 1 / 2) answers from the

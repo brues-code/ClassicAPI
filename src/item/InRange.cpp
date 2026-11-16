@@ -80,10 +80,7 @@ bool ItemHasRange(int itemID) {
 }
 
 int __fastcall Script_ItemHasRange(void *L) {
-    if (ItemHasRange(Item::Arg::ResolveItemID(L, 1)))
-        Game::Lua::PushNumber(L, 1.0);
-    else
-        Game::Lua::PushNil(L);
+    Game::Lua::PushFlag(L, ItemHasRange(Item::Arg::ResolveItemID(L, 1)));
     return 1;
 }
 

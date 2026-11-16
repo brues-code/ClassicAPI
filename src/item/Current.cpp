@@ -42,10 +42,7 @@ bool IsCastItem(int itemID) {
 }
 
 int __fastcall Script_IsCurrentItem(void *L) {
-    if (IsCastItem(Item::Location::IDForArg(L, 1, Offsets::INVMGR_SEARCH_BANK)))
-        Game::Lua::PushNumber(L, 1.0);
-    else
-        Game::Lua::PushNil(L);
+    Game::Lua::PushFlag(L, IsCastItem(Item::Location::IDForArg(L, 1, Offsets::INVMGR_SEARCH_BANK)));
     return 1;
 }
 

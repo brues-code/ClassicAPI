@@ -75,10 +75,7 @@ bool IsDressable(int itemID) {
 }
 
 int __fastcall Script_IsDressableItem(void *L) {
-    if (IsDressable(Item::Location::IDForArg(L, 1, Offsets::INVMGR_SEARCH_BANK)))
-        Game::Lua::PushNumber(L, 1.0);
-    else
-        Game::Lua::PushNil(L);
+    Game::Lua::PushFlag(L, IsDressable(Item::Location::IDForArg(L, 1, Offsets::INVMGR_SEARCH_BANK)));
     return 1;
 }
 

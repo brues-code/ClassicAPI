@@ -55,10 +55,7 @@ int __fastcall Script_IsInIMECompositionMode(void *L) {
     void *editBox = Game::Lua::ResolveEditBox(L);
     if (editBox == nullptr)
         return 0;
-    if (Game::Read<int>(editBox, Offsets::OFF_EDITBOX_IME_COMPOSITION) != 0)
-        Game::Lua::PushNumber(L, 1.0);
-    else
-        Game::Lua::PushNil(L);
+    Game::Lua::PushFlag(L, Game::Read<int>(editBox, Offsets::OFF_EDITBOX_IME_COMPOSITION) != 0);
     return 1;
 }
 

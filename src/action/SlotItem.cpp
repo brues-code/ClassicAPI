@@ -67,10 +67,7 @@ int __fastcall Script_IsStackableAction(void *L) {
     int slot0;
     if (!SlotArg(L, "Usage: IsStackableAction(slot)", &slot0))
         return 0;
-    if (IsStackable(slot0))
-        Game::Lua::PushNumber(L, 1.0);
-    else
-        Game::Lua::PushNil(L);
+    Game::Lua::PushFlag(L, IsStackable(slot0));
     return 1;
 }
 

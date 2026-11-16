@@ -67,10 +67,7 @@ bool IsEquippable(void *L) {
 }
 
 int __fastcall Script_IsEquippableItem(void *L) {
-    if (IsEquippable(L))
-        Game::Lua::PushNumber(L, 1.0);
-    else
-        Game::Lua::PushNil(L);
+    Game::Lua::PushFlag(L, IsEquippable(L));
     return 1;
 }
 
@@ -137,10 +134,7 @@ int __fastcall Script_IsEquippedItemType(void *L) {
             ? Item::Location::Walk(&MatchesInvType, &invType, Offsets::INVMGR_SEARCH_EQUIPMENT)
             : Item::Location::Walk(&MatchesClassType, const_cast<char *>(type),
                                    Offsets::INVMGR_SEARCH_EQUIPMENT);
-    if (item != nullptr)
-        Game::Lua::PushNumber(L, 1.0);
-    else
-        Game::Lua::PushNil(L);
+    Game::Lua::PushFlag(L, item != nullptr);
     return 1;
 }
 
