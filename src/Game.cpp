@@ -578,6 +578,7 @@ ModuleAutoRegister *g_moduleHead = nullptr;
 GlueModuleAutoRegister *g_glueModuleHead = nullptr;
 HookAutoRegister *g_hookHead = nullptr;
 ReloadAutoRegister *g_reloadHead = nullptr;
+GlueBootAutoRegister *g_glueBootHead = nullptr;
 } // namespace
 
 ModuleAutoRegister::ModuleAutoRegister(Fn f) : fn(f), next(g_moduleHead) {
@@ -609,6 +610,15 @@ ReloadAutoRegister::ReloadAutoRegister(Fn f) : fn(f), next(g_reloadHead) {
 
 void RunReloadCleanups() {
     for (auto *node = g_reloadHead; node != nullptr; node = node->next)
+        node->fn();
+}
+
+GlueBootAutoRegister::GlueBootAutoRegister(Fn f) : fn(f), next(g_glueBootHead) {
+    g_glueBootHead = this;
+}
+
+void RunGlueBootCleanups() {
+    for (auto *node = g_glueBootHead; node != nullptr; node = node->next)
         node->fn();
 }
 

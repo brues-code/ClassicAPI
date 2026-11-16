@@ -18,13 +18,6 @@ namespace Texture::Transform {
 // storage and the SetRotation/GetRotation Lua surface are shared; only the
 // apply-to-geometry step forks by type.
 
-// Clears the per-region transform table (rotation + vertex offsets). Called
-// from DllMain's reload / glue teardown paths: addon textures and fontstrings
-// are destroyed on `/reload` and world→glue, and the region pool reuses their
-// addresses, so a stale entry must not survive to transform a new region that
-// lands on the same pointer.
-void PrepareForReload();
-
 // Rotates a text render node's freshly-baked glyph vertices in place, by the
 // rotation stored for its owning CSimpleFontString `fs`, around the vertex
 // block's centre. No-op when `fs` has no rotation. MUST be called only right

@@ -17,11 +17,6 @@
 
 namespace Text::InlineTexture {
 
-// Called from FrameScript_Initialize_h before the /reload teardown: the reload
-// frees every fontstring and text node, so the node→owner map and the per-node
-// icon records are dropped (they rebuild as the reloaded UI re-emits its text).
-void PrepareForReload();
-
 // The room the tall inline icons on the line [text, text + len) take when
 // `fs` renders it, in the font string's own units (its height getter's):
 // `before` is how far the render moves that line's text down, `after` how

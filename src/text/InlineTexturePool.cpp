@@ -371,5 +371,6 @@ void PrepareForReload() {
 }
 
 static const Game::ReloadAutoRegister _reloadReg{&PrepareForReload};
+static const Game::GlueBootAutoRegister _glueBootReg{&PrepareForReload};
 
 } // namespace Text::InlineTexturePool

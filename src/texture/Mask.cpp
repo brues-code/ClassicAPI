@@ -641,5 +641,6 @@ void PrepareForReload() {
 bool AnyMaskActive() { return g_enabled && (!g_regionMask.empty() || !g_baseMasks.empty()); }
 
 static const Game::ReloadAutoRegister _reloadReg{&PrepareForReload};
+static const Game::GlueBootAutoRegister _glueBootReg{&PrepareForReload};
 
 } // namespace Texture::Mask

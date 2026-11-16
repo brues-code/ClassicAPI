@@ -67,9 +67,4 @@ void Apply(void *fs, std::vector<Placement> &&icons);
 // Its textures stay pooled for them.
 void Release(void *fs);
 
-// Called BEFORE the /reload teardown and on glue boot: forgets every
-// fontstring and deletes every icon texture at the next tick, after a draw
-// whose batches no longer hold them.
-void PrepareForReload();
-
 } // namespace Text::InlineTexturePool

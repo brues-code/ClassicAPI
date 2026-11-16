@@ -876,4 +876,21 @@ struct ReloadAutoRegister {
 
 void RunReloadCleanups();
 
+// A cleanup that runs AGAIN when the glue UI boots (RunGlueBootCleanups, from
+// the FUN_LOAD_GLUE_SCRIPT_FUNCTIONS hook). World→glue destroys every world
+// fontstring and texture, and a bulk teardown can bypass the per-object
+// hooks, so a module that keeps maps keyed by those pointers declares
+// `static const Game::GlueBootAutoRegister _glueBootReg{&PrepareForReload};`
+// next to its ReloadAutoRegister. Only for a cleanup that forgets pointers
+// (or releases engine handles) and touches no Lua: the glue Lua state is a
+// fresh one.
+struct GlueBootAutoRegister {
+    using Fn = void (*)();
+    explicit GlueBootAutoRegister(Fn fn);
+    Fn fn;
+    GlueBootAutoRegister *next;
+};
+
+void RunGlueBootCleanups();
+
 } // namespace Game

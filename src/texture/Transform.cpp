@@ -817,12 +817,16 @@ const Frame::RegionDestruction::AutoSubscribe _destructionSub{&OnRegionDestroyed
 
 } // namespace
 
+// /reload and world→glue destroy every addon texture and fontstring, and the
+// region pool reuses their addresses: a stale entry must not transform a new
+// region that lands on the same pointer.
 void PrepareForReload() {
     g_xf.clear();
     g_fsBaseline.clear();
 }
 
 static const Game::ReloadAutoRegister _reloadReg{&PrepareForReload};
+static const Game::GlueBootAutoRegister _glueBootReg{&PrepareForReload};
 
 // Fresh-bake entry (the inline-texture DrawBuilder co-hook): the emitter just
 // baked axis-aligned verts, so capture the baseline and apply the rotation. See

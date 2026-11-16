@@ -20,10 +20,6 @@
 #include "debug/Log.h"
 #include "event/Custom.h"
 #include "player/NameCache.h"
-#include "text/InlineTexture.h"
-#include "text/InlineTexturePool.h"
-#include "texture/Mask.h"
-#include "texture/Transform.h"
 
 static Game::FrameScript_Initialize_t FrameScript_Initialize_o = nullptr;
 static Game::LoadScriptFunctions_t LoadScriptFunctions_o = nullptr;
@@ -70,14 +66,10 @@ static void __fastcall LoadScriptFunctions_h() {
 static void __stdcall LoadGlueScriptFunctions_h() {
     LoadGlueScriptFunctions_o();
     Game::RunGlueModuleRegistrations();
-    // World→glue teardown destroyed every world fontstring and text node the
-    // inline-icon maps reference; forget them now that the glue UI is booting.
-    // (Glue→world is covered by FrameScript_Initialize_h; the node-free hook
-    // handles individual deaths, but bulk teardown paths may bypass it.)
-    Text::InlineTexture::PrepareForReload();
-    Text::InlineTexturePool::PrepareForReload();
-    Texture::Transform::PrepareForReload();
-    Texture::Mask::PrepareForReload();
+    // World→glue teardown destroyed every world fontstring, text node and
+    // texture; the modules keyed by those pointers forget them now (see
+    // Game::GlueBootAutoRegister).
+    Game::RunGlueBootCleanups();
 }
 
 // Every Lua-side `frame:RegisterEvent(...)` is a chance to claim a slot

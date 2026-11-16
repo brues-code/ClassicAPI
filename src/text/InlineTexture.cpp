@@ -2228,5 +2228,6 @@ bool LineIconShift(void *fs, const uint8_t *text, int len, float &before, float 
 }
 
 static const Game::ReloadAutoRegister _reloadReg{&PrepareForReload};
+static const Game::GlueBootAutoRegister _glueBootReg{&PrepareForReload};
 
 } // namespace Text::InlineTexture
