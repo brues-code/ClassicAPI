@@ -25,6 +25,8 @@
 // with the shared packet reader and restore the read cursor, so the engine
 // handler sees an untouched packet.
 
+#include "quest/TurnedIn.h"
+
 #include "Game.h"
 #include "Offsets.h"
 #include "event/Custom.h"
@@ -35,6 +37,8 @@
 namespace Quest::TurnedIn {
 
 namespace {
+
+AutoSubscribe *g_subscribers = nullptr;
 
 const Game::Doc::Field kPayload[] = {
     Game::Doc::Req("questID", "number"),
@@ -59,6 +63,10 @@ int __fastcall Handler_h(void *thisPlayer, void *edx, Net::CDataStore *packet) {
     const bool complete = packet->m_read <= packet->m_size;
     packet->m_read = saved;
 
+    if (complete && questID > 0)
+        for (const AutoSubscribe *s = g_subscribers; s != nullptr; s = s->next)
+            s->fn(questID);
+
     const int result = Handler_o(thisPlayer, edx, packet);
 
     if (complete && questID > 0)
@@ -67,6 +75,8 @@ int __fastcall Handler_h(void *thisPlayer, void *edx, Net::CDataStore *packet) {
 }
 
 } // namespace
+
+AutoSubscribe::AutoSubscribe(Callback f) : fn(f), next(g_subscribers) { g_subscribers = this; }
 
 static const Game::HookAutoRegister _hook{
     Offsets::FUN_QUEST_GIVER_QUEST_COMPLETE_HANDLER,

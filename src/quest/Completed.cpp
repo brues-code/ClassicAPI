@@ -60,6 +60,7 @@
 #include "net/PacketDispatch.h"
 #include "net/PacketReader.h"
 #include "net/PacketWriter.h"
+#include "quest/TurnedIn.h"
 #include "turtle/Detect.h"
 #include "unit/Identity.h"
 
@@ -110,9 +111,8 @@ void OnLoginVerifyWorld() {
         Request();
 }
 
-void OnQuestComplete(Net::CDataStore *packet) {
-    const uint32_t questID = Net::Read<uint32_t>(packet);
-    if (packet->m_read > packet->m_size || questID == 0 || !Turtle::Detected())
+void OnQuestComplete(uint32_t questID) {
+    if (!Turtle::Detected())
         return;
     const auto at = std::lower_bound(g_completed.begin(), g_completed.end(), questID);
     if (at == g_completed.end() || *at != questID)
@@ -170,15 +170,13 @@ void OnPacket(uint32_t opcode, Net::CDataStore *packet) {
     case Offsets::SMSG_LOGIN_VERIFY_WORLD:
         OnLoginVerifyWorld();
         break;
-    case Offsets::SMSG_QUESTGIVER_QUEST_COMPLETE:
-        OnQuestComplete(packet);
-        break;
     default:
         break;
     }
 }
 
 const Net::PacketDispatch::AutoSubscribe _sub{&OnPacket};
+const Quest::TurnedIn::AutoSubscribe _turnedIn{&OnQuestComplete};
 
 // 3.3.5's Script_QueryQuestsCompleted (0x005B1BB0) sends its request every
 // time, with no answer awaited.
