@@ -12,7 +12,8 @@
 -- health over its head, from the log's advanced data, and the log's lines
 -- scroll by in the corner in the client's own combat log words. Scene
 -- positions are map positions. Click a unit, or its name in the unit list,
--- to follow it with the camera; click the ground to stop. Drag to turn and tilt the camera, right drag to move it across
+-- to follow it with the camera, which then stops in front of walls as the
+-- world's camera does; click the ground to stop. Drag to turn and tilt the camera, right drag to move it across
 -- the view. With the cursor over the scene, W, A, S and D fly the camera
 -- along its view, Space and X up and down, Shift faster. /replay toggles the
 -- window.
@@ -47,11 +48,9 @@ local RUN_SPEED = 4;
 local MOVING_SPEED = 0.1;
 local PLAY_SPEEDS = { 0.25, 0.5, 1, 2, 4 };
 local DEFAULT_PLAY_SPEED = 3;
--- The ground shown around the units' area, in yards past its edge, and its
--- bounds (one map tile is 533 yards).
-local TERRAIN_MARGIN, MIN_TERRAIN_RADIUS, MAX_TERRAIN_RADIUS = 60, 150, 600;
+-- The UiModelScene the window's scene starts from (its camera's settings).
+local MODEL_SCENE_ID = 4;
 local CAMERA_ZOOM, CAMERA_MIN_ZOOM, CAMERA_MAX_ZOOM = 60, 2, 250;
-local CAMERA_FAR_CLIP = 800;
 -- A press and release closer than this many pixels is a click, not a drag.
 local CLICK_DISTANCE = 4;
 -- How far the camera tilts up or down, short of straight up or down (where
@@ -108,6 +107,7 @@ local playing = false;
 local playSpeed = DEFAULT_PLAY_SPEED;
 local focus;          -- the unit the camera follows
 local settingTimeline = false;
+local timelineValue, timeSecond; -- what the timeline and the time text show
 local pressX, pressY;
 local flying = {};     -- the fly keys held, by key name
 local combatTime;      -- the replay time the combat state is at, nil before the first
@@ -289,8 +289,12 @@ local function SetMount(u, mountDisplay)
 	if not u.mount:IsShown() then
 		u.mount:Show();
 	end
-	-- A model that has not loaded yet seats nothing; try again next frame.
+	-- A seated rider's place and facing are relative to its seat, so it sits
+	-- at the seat itself, not at the map place it last walked to. A model
+	-- that has not loaded yet seats nothing; try again next frame.
 	if not u.seated then
+		u.actor:SetPosition(0, 0, 0);
+		u.actor:SetYaw(0);
 		u.seated = u.mount:AttachToMount(u.actor, ANIM_MOUNT);
 	end
 	return u.mount;
@@ -584,13 +588,15 @@ local function Aim(x, y, z)
 	camera:SnapAllInterpolatedValues();
 end
 
+-- The camera follows the followed unit's moving body (its mount while it
+-- rides) as the world's camera follows a unit: at its pivot height, stopped
+-- in front of the walls between it and the eye. With no unit, or one out of
+-- view, it is a free orbit camera where it was.
 local function FollowFocus()
-	if not focus then
-		return;
-	end
-	local x, y, z = C_CombatLogReplay.GetUnitPosition(focus.index, now);
-	if x then
-		camera:SetTarget(x, y, z + 1);
+	local u = focus;
+	local body = u and u.actor and u.actor:IsShown() and (u.seated and u.mount or u.actor) or nil;
+	if camera:GetFollowActor() ~= body then
+		camera:SetFollowActor(body);
 	end
 end
 
@@ -623,6 +629,7 @@ local function SetFocus(u)
 	if focus and focus.actor then
 		focus.actor:SetHighlight("target", true);
 	end
+	FollowFocus();
 	UpdateUnitList();
 	if focus then
 		frame.UnitList.ScrollBox:ScrollToElementData(focus, ScrollBoxConstants.AlignNearest);
@@ -631,7 +638,6 @@ end
 
 local function OnUnitRowClick(row)
 	SetFocus(row.unit);
-	FollowFocus();
 end
 
 local function InitUnitRow(row, u)
@@ -702,12 +708,19 @@ end
 ------------------------------------------------------------------------------
 -- The map
 
--- The middle of where the units are over the replay, and how far from it
--- most of them stay (AREA_SHARE of the places). The median, not the middle
--- of all of them: the log can hold a unit far from the rest (one Stormwind
--- log had a player 9,900 yards away, and players on flight paths leave the
--- city), which would put the middle in a mountain.
-local AREA_SHARE = 0.9;
+-- The camera sees as far as the world's camera: the farclip setting, which
+-- also sets how much ground the scene keeps loaded.
+local function SetFarClip()
+	local farClip = tonumber(GetCVar("farclip"));
+	if farClip then
+		scene:SetCameraFarClip(farClip);
+	end
+end
+
+-- The middle of where the units are over the replay: the median, not the
+-- middle of all of them, since the log can hold a unit far from the rest
+-- (one Stormwind log had a player 9,900 yards away, and players on flight
+-- paths leave the city), which would put the middle in a mountain.
 
 -- The median of a list, which it leaves as it was.
 local function Median(values)
@@ -731,33 +744,22 @@ local function UnitArea()
 			end
 		end
 	end
-	local count = #xs;
-	if count == 0 then
+	if #xs == 0 then
 		return nil;
 	end
-	local x, y = Median(xs), Median(ys);
-	local distances = {};
-	for i = 1, count do
-		local dx, dy = xs[i] - x, ys[i] - y;
-		distances[i] = math.sqrt(dx * dx + dy * dy);
-	end
-	table.sort(distances);
-	return x, y, Median(zs), distances[math.max(1, math.floor(count * AREA_SHARE))];
+	return Median(xs), Median(ys), Median(zs);
 end
 
--- Shows the replay's map: the map's WMO when it is one, else its ground
--- around the units. Aims the camera at the middle of the units.
+-- Shows the replay's map: the map's WMO when it is one, else its ground,
+-- which follows the camera. Aims the camera at the middle of the units.
 local function ShowMap(mapID)
 	scene:ClearWorldModel();
 	scene:ClearWorldTerrain();
-	local x, y, z, reach = UnitArea();
+	local x, y, z = UnitArea();
 	if mapID < 0 then
 		SetStatus(REPLAY_NO_MAP);
-	elseif not scene:SetWorldModelByMapID(mapID) and x then
-		local radius = math.max(MIN_TERRAIN_RADIUS, math.min(MAX_TERRAIN_RADIUS, reach + TERRAIN_MARGIN));
-		if not scene:SetWorldTerrain(mapID, x, y, radius) then
-			SetStatus(string.format(REPLAY_NO_GROUND, mapID));
-		end
+	elseif not scene:SetWorldModelByMapID(mapID) and not scene:SetWorldTerrain(mapID) then
+		SetStatus(string.format(REPLAY_NO_GROUND, mapID));
 	end
 	if x then
 		Aim(x, y, z);
@@ -771,11 +773,22 @@ local function UpdatePlayButton()
 	frame.PlayButton:SetText(playing and REPLAY_PAUSE or REPLAY_PLAY);
 end
 
-local function UpdateTimeline()
-	settingTimeline = true;
-	frame.Timeline:SetValue(now);
-	settingTimeline = false;
-	frame.Time:SetText(string.format(REPLAY_TIME, FormatTime(now), FormatTime(duration)));
+-- The timeline's thumb moves once it would move a pixel, and the time text
+-- once its second changes: setting the slider runs its scripts (about half a
+-- millisecond a call), too much for every frame. `force` sets both.
+local function UpdateTimeline(force)
+	local step = duration / math.max(frame.Timeline:GetWidth(), 1);
+	if force or not timelineValue or math.abs(now - timelineValue) >= step then
+		settingTimeline = true;
+		frame.Timeline:SetValue(now);
+		settingTimeline = false;
+		timelineValue = now;
+	end
+	local second = math.floor(now);
+	if force or second ~= timeSecond then
+		frame.Time:SetText(string.format(REPLAY_TIME, FormatTime(now), FormatTime(duration)));
+		timeSecond = second;
+	end
 end
 
 local function SetPlaying(on)
@@ -847,7 +860,7 @@ local function OnUpdate(self, elapsed)
 	Apply(now);
 	FollowFocus();
 	UpdateUnitList();
-	UpdateTimeline();
+	UpdateTimeline(now >= duration);
 end
 
 local function Seek(time)
@@ -855,7 +868,7 @@ local function Seek(time)
 	Apply(now);
 	FollowFocus();
 	UpdateUnitList();
-	UpdateTimeline();
+	UpdateTimeline(true);
 end
 
 -- The loaded replay, from the start.
@@ -978,6 +991,11 @@ local function OnEvent(self, event, ...)
 		else
 			SetStatus(REPLAY_LOAD_FAILED);
 		end
+	elseif event == "CVAR_UPDATE" then
+		local name = ...;
+		if name and string.lower(name) == "farclip" then
+			SetFarClip();
+		end
 	elseif event == "CREATURE_DATA_LOAD_RESULT" then
 		local creatureID, success = ...;
 		if success then
@@ -1019,11 +1037,18 @@ function ClassicAPIReplay_OnLoad(self)
 	self:RegisterEvent("COMBAT_LOG_REPLAY_ENCOUNTERS_READY");
 	self:RegisterEvent("COMBAT_LOG_REPLAY_LOADED");
 	self:RegisterEvent("CREATURE_DATA_LOAD_RESULT");
+	self:RegisterEvent("CVAR_UPDATE");
 
 	scene.ControlFrame:SetModelScene(scene);
-	scene:TransitionToModelSceneID(4, CAMERA_TRANSITION_TYPE_IMMEDIATE, CAMERA_MODIFICATION_TYPE_DISCARD, true);
-	scene:SetCameraFarClip(CAMERA_FAR_CLIP);
-	camera = scene:GetActiveCamera();
+	scene:TransitionToModelSceneID(MODEL_SCENE_ID, CAMERA_TRANSITION_TYPE_IMMEDIATE, CAMERA_MODIFICATION_TYPE_DISCARD,
+		true);
+	SetFarClip();
+	-- A follow camera beside the scene's own, with its settings, in its place.
+	local _, cameraIDs = C_ModelInfo.GetModelSceneInfoByID(MODEL_SCENE_ID);
+	camera = scene:AddCamera(CameraRegistry:CreateCameraByType("FollowCamera"));
+	camera:ApplyFromModelSceneCameraInfo(C_ModelInfo.GetModelSceneCameraInfoByID(cameraIDs[1]),
+		CAMERA_TRANSITION_TYPE_IMMEDIATE, CAMERA_MODIFICATION_TYPE_DISCARD);
+	scene:SetActiveCamera(camera);
 	camera:SetTargetSpline(nil);
 	camera:SetOrientationSpline(nil);
 	camera:SetMinZoomDistance(CAMERA_MIN_ZOOM);

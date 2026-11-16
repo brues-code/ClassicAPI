@@ -61,6 +61,7 @@
 #include "model/M2.h"
 #include "model/SceneContact.h"
 #include "model/SceneFile.h"
+#include "time/Clock.h"
 
 #include <algorithm>
 #include <cmath>
@@ -69,6 +70,7 @@
 #include <cstdio>
 #include <cstring>
 #include <map>
+#include <string>
 #include <unordered_map>
 #include <memory>
 #include <utility>
@@ -138,9 +140,10 @@ struct Tile {
     uint32_t row = 0;
     const char *names = nullptr;
     uint32_t namesSize = 0;
+    uint32_t textures = 0; // the MTEX names
     std::unique_ptr<AreaMemory> area;
-    // The MCIN indices of the chunks inside the radius.
-    std::vector<uint32_t> wanted;
+    // The chunks whose record does not check (CheckedRecord): never built.
+    std::vector<bool> bad = std::vector<bool>(Offsets::ADT_CHUNKS);
     // The model tables (MMDX names, MMID offsets, MDDF placements), or null.
     const char *modelNames = nullptr;
     uint32_t modelNamesSize = 0;
@@ -158,39 +161,50 @@ struct Tile {
     uint32_t objectCount = 0;
 };
 
+using Buffers = std::pair<void *, void *>; // a vertex and an index buffer
+
 struct Chunk {
     std::unique_ptr<ChunkMemory> memory;
     Tile *tile = nullptr;
     uint32_t index = 0; // row * 16 + column in the tile
-    std::vector<uint32_t> props; // its MCRF doodads, as indices into the land's props
+    std::vector<uint32_t> props; // the unique ids of its MCRF doodads
     // CreateDetailDoodads reads 512 bytes at the MCSH pointer whether or not
     // the chunk has a shadow map; false when they lie outside the file.
     bool detailSafe = false;
+    Buffers buffers{};
+    std::vector<Buffers> liquidBuffers; // one pair per liquid slot, in slot order
     void *object() { return memory->bytes; }
 };
+
+// Buffer pairs of one size, made in blocks as CreateChunkBufferPool
+// (0x006AE640) and CreateLiquidBufferPool (0x0068CA50) make the world's: a
+// vertex and an index pool, a pair of sub-buffers per item. A pair given back
+// goes to the next taker.
+struct BufferPool {
+    uint32_t vertexSize = 0, vertexCount = 0, indexCount = 0, block = 0;
+    const char *vertexName = nullptr, *indexName = nullptr;
+    std::vector<void *> pools;
+    std::vector<Buffers> made, free;
+};
+
+// A cell of the grid: (row, column), tiles' or chunks'.
+using Key = std::pair<uint32_t, uint32_t>;
 
 } // namespace
 
 struct Land {
-    std::vector<std::unique_ptr<Tile>> tiles;
-    std::vector<Chunk> chunks;
-    void *vertexPool = nullptr;
-    void *indexPool = nullptr;
-    std::vector<std::pair<void *, void *>> buffers; // one pair per chunk, in order
-    // The liquid slots' buffers, one pair per slot in chunk and slot order.
-    void *liquidVertexPool = nullptr;
-    void *liquidIndexPool = nullptr;
-    std::vector<std::pair<void *, void *>> liquidBuffers;
     uint32_t mapID = 0;
+    std::string directory;
+    // The WDT's MAIN flags: the tiles the map has, by row * 64 + column.
+    std::vector<bool> listed;
+    std::map<Key, std::unique_ptr<Tile>> tiles;   // by (tile row, tile column)
+    std::map<Key, Chunk> chunks;                  // by (global row, global column), as the area table finds them
+    BufferPool chunkBuffers, liquidBuffers;
     Settings built;
-    // The chunks by (global row, global column), as the world finds them in
-    // its area table.
-    std::map<std::pair<uint32_t, uint32_t>, void *> byCell;
-    // Each chunk object's props, for the box query.
-    std::map<const void *, const std::vector<uint32_t> *> propsOf;
     World::Props *props = nullptr;
-    uint32_t serial = 0; // this terrain among all loaded, for the actors' caches
+    uint32_t serial = 0;      // this terrain's chunks among all loaded, for the actors' caches
     uint32_t detailStamp = 0; // the detail pools' rebuild stamp the batches were made under
+    bool objectsChanged = false; // a chunk with map object references came or went
 };
 
 namespace {
@@ -415,67 +429,77 @@ void BuildChunk(Chunk &c) {
 }
 
 // LinkNeighbours' rule (0x006C29C0) over the scene's own chunks: a row
-// before, a column after, a row after, a column before.
-void LinkNeighbours(Land &land) {
-    std::map<std::pair<uint32_t, uint32_t>, void *> &at = land.byCell;
-    at.clear();
-    land.propsOf.clear();
-    for (Chunk &c : land.chunks) {
-        at[{Game::Read<uint32_t>(c.object(), Offsets::OFF_CMAPCHUNK_GLOBAL_ROW),
-            Game::Read<uint32_t>(c.object(), Offsets::OFF_CMAPCHUNK_GLOBAL_COLUMN)}] = c.object();
-        land.propsOf[c.object()] = &c.props;
-    }
-    const int steps[4][2] = {{-1, 0}, {0, 1}, {1, 0}, {0, -1}};
-    for (Chunk &c : land.chunks) {
-        void *o = c.object();
-        const uint32_t row = Game::Read<uint32_t>(o, Offsets::OFF_CMAPCHUNK_GLOBAL_ROW);
-        const uint32_t column = Game::Read<uint32_t>(o, Offsets::OFF_CMAPCHUNK_GLOBAL_COLUMN);
-        for (int i = 0; i < 4; ++i) {
-            const auto found = at.find({row + steps[i][0], column + steps[i][1]});
-            Game::Ref<void *>(o, Offsets::OFF_CMAPCHUNK_NEIGHBOURS + i * 4) =
-                found != at.end() ? found->second : nullptr;
-        }
+// before, a column after, a row after, a column before. A new chunk links
+// its neighbours and they link it back; a leaving one is unlinked from them.
+constexpr int kSteps[4][2] = {{-1, 0}, {0, 1}, {1, 0}, {0, -1}};
+
+void *&NeighbourSlot(void *chunk, int side) {
+    return Game::Ref<void *>(chunk, Offsets::OFF_CMAPCHUNK_NEIGHBOURS + side * 4);
+}
+
+void Link(Land &land, const Key &key, void *chunk) {
+    for (int i = 0; i < 4; ++i) {
+        const auto found = land.chunks.find({key.first + kSteps[i][0], key.second + kSteps[i][1]});
+        void *neighbour = found != land.chunks.end() && found->second.memory != nullptr ? found->second.object()
+                                                                                       : nullptr;
+        NeighbourSlot(chunk, i) = neighbour;
+        if (neighbour != nullptr)
+            NeighbourSlot(neighbour, (i + 2) % 4) = chunk;
     }
 }
 
-// LoadReferences' doodad leg (0x006B00F0) for the scene's chunks: each MCRF
-// doodad index into MDDF, one prop per unique id (the def hash 0x00CA7DDC).
-// An index or a name outside the tile's tables is skipped.
-void MakeProps(Land &land, void *frame) {
-    land.props = World::NewProps();
-    std::unordered_map<uint32_t, uint32_t> byUniqueId;
-    for (Chunk &c : land.chunks) {
-        const Tile &t = *c.tile;
-        if (t.placements == nullptr)
-            continue;
-        const uint8_t *record = At(t.file, U32(McinEntry(t, c.index)));
-        const uint8_t *header = record + Offsets::MCNK_RECORD_HEADER;
-        const uint32_t refs = U32(header + Offsets::OFF_MCNK_DOODAD_REF_COUNT);
-        const uint64_t list = uint64_t{U32(McinEntry(t, c.index))} + U32(header + Offsets::OFF_MCNK_MCRF) +
-                              Offsets::MCNK_RECORD_HEADER;
-        if (!Inside(t.file, list, uint64_t{refs} * sizeof(uint32_t)))
-            continue;
-        for (uint32_t i = 0; i < refs; ++i) {
-            const uint32_t placement = U32(At(t.file, list + uint64_t{i} * sizeof(uint32_t)));
-            if (placement >= t.placementCount)
-                continue;
-            const uint8_t *entry = t.placements + static_cast<size_t>(placement) * Offsets::MDDF_SIZE;
-            const uint32_t nameIndex = U32(entry + Offsets::OFF_MDDF_NAME_INDEX);
-            if (nameIndex >= t.modelCount)
-                continue;
-            const uint32_t nameOffset = t.modelOffsets[nameIndex];
-            if (nameOffset >= t.modelNamesSize ||
-                std::memchr(t.modelNames + nameOffset, 0, t.modelNamesSize - nameOffset) == nullptr)
-                continue;
-            const uint32_t unique = U32(entry + Offsets::OFF_MDDF_UNIQUE_ID);
-            auto found = byUniqueId.find(unique);
-            if (found == byUniqueId.end())
-                found = byUniqueId
-                            .emplace(unique, World::AddProp(*land.props, frame, t.modelNames + nameOffset, entry))
-                            .first;
-            c.props.push_back(found->second);
-        }
+void Unlink(void *chunk) {
+    for (int i = 0; i < 4; ++i) {
+        if (void *neighbour = NeighbourSlot(chunk, i))
+            NeighbourSlot(neighbour, (i + 2) % 4) = nullptr;
+        NeighbourSlot(chunk, i) = nullptr;
     }
+}
+
+// The chunk's MCRF list: its doodad references, then its map object
+// references; null when the list lies outside the file.
+const uint8_t *References(const Chunk &c, uint32_t &doodads, uint32_t &objects) {
+    const Tile &t = *c.tile;
+    const uint8_t *header = At(t.file, U32(McinEntry(t, c.index))) + Offsets::MCNK_RECORD_HEADER;
+    doodads = U32(header + Offsets::OFF_MCNK_DOODAD_REF_COUNT);
+    objects = U32(header + Offsets::OFF_MCNK_MAPOBJ_REF_COUNT);
+    const uint64_t list =
+        uint64_t{U32(McinEntry(t, c.index))} + U32(header + Offsets::OFF_MCNK_MCRF) + Offsets::MCNK_RECORD_HEADER;
+    if (!Inside(t.file, list, (uint64_t{doodads} + objects) * sizeof(uint32_t)))
+        return nullptr;
+    return At(t.file, list);
+}
+
+// LoadReferences' doodad leg (0x006B00F0) for one chunk: each MCRF doodad
+// index into MDDF, one prop per unique id (the def hash 0x00CA7DDC), held
+// while a chunk refers to it. An index or a name outside the tile's tables
+// is skipped.
+void AddProps(Land &land, Chunk &c, void *frame) {
+    const Tile &t = *c.tile;
+    uint32_t doodads = 0, objects = 0;
+    const uint8_t *list = t.placements != nullptr ? References(c, doodads, objects) : nullptr;
+    if (list == nullptr)
+        return;
+    for (uint32_t i = 0; i < doodads; ++i) {
+        const uint32_t placement = U32(list + i * sizeof(uint32_t));
+        if (placement >= t.placementCount)
+            continue;
+        const uint8_t *entry = t.placements + static_cast<size_t>(placement) * Offsets::MDDF_SIZE;
+        const uint32_t nameIndex = U32(entry + Offsets::OFF_MDDF_NAME_INDEX);
+        if (nameIndex >= t.modelCount)
+            continue;
+        const uint32_t nameOffset = t.modelOffsets[nameIndex];
+        if (nameOffset >= t.modelNamesSize ||
+            std::memchr(t.modelNames + nameOffset, 0, t.modelNamesSize - nameOffset) == nullptr)
+            continue;
+        c.props.push_back(World::AddProp(*land.props, frame, t.modelNames + nameOffset, entry));
+    }
+}
+
+void ReleaseProps(Land &land, Chunk &c) {
+    for (uint32_t unique : c.props)
+        World::ReleaseProp(*land.props, unique);
+    c.props.clear();
 }
 
 } // namespace
@@ -485,20 +509,14 @@ void MakeProps(Land &land, void *frame) {
 // skipped.
 std::vector<World::TileDef> MapObjects(const Land &land) {
     std::vector<World::TileDef> defs;
-    for (const Chunk &c : land.chunks) {
+    for (const auto &[key, c] : land.chunks) {
         const Tile &t = *c.tile;
-        if (t.objects == nullptr)
-            continue;
-        const uint8_t *record = At(t.file, U32(McinEntry(t, c.index)));
-        const uint8_t *header = record + Offsets::MCNK_RECORD_HEADER;
-        const uint32_t doodads = U32(header + Offsets::OFF_MCNK_DOODAD_REF_COUNT);
-        const uint32_t refs = U32(header + Offsets::OFF_MCNK_MAPOBJ_REF_COUNT);
-        const uint64_t list = uint64_t{U32(McinEntry(t, c.index))} + U32(header + Offsets::OFF_MCNK_MCRF) +
-                              Offsets::MCNK_RECORD_HEADER;
-        if (!Inside(t.file, list, (uint64_t{doodads} + refs) * sizeof(uint32_t)))
+        uint32_t doodads = 0, refs = 0;
+        const uint8_t *list = t.objects != nullptr ? References(c, doodads, refs) : nullptr;
+        if (list == nullptr)
             continue;
         for (uint32_t i = 0; i < refs; ++i) {
-            const uint32_t index = U32(At(t.file, list + (uint64_t{doodads} + i) * sizeof(uint32_t)));
+            const uint32_t index = U32(list + (doodads + i) * sizeof(uint32_t));
             if (index >= t.objectCount)
                 continue;
             const uint8_t *entry = t.objects + static_cast<size_t>(index) * Offsets::MODF_SIZE;
@@ -520,46 +538,93 @@ std::vector<World::TileDef> MapObjects(const Land &land) {
 
 namespace {
 
-void AttachBuffers(Land &land) {
-    for (size_t i = 0; i < land.chunks.size(); ++i) {
-        void *o = land.chunks[i].object();
-        Game::Ref<void *>(o, Offsets::OFF_CMAPCHUNK_VERTEX_BUFFER) = land.buffers[i].first;
-        Game::Ref<void *>(o, Offsets::OFF_CMAPCHUNK_INDEX_BUFFER) = land.buffers[i].second;
-    }
-}
-
 void *LiquidSlot(void *chunk, uint32_t slot) {
     return Game::Read<void *>(chunk, Offsets::OFF_CMAPCHUNK_LIQUIDS + slot * sizeof(void *));
 }
 
-// The scene's liquid buffers onto its slots, in chunk and slot order, marked
-// unfilled (a rebuilt slot fills them again).
-void AttachLiquidBuffers(Land &land) {
-    using Invalidate_t = void(__fastcall *)(void *buffer);
-    size_t next = 0;
-    for (Chunk &c : land.chunks) {
-        for (uint32_t i = 0; i < Offsets::CHUNK_LIQUID_SLOTS; ++i) {
-            void *slot = LiquidSlot(c.object(), i);
-            if (slot == nullptr || next >= land.liquidBuffers.size())
-                continue;
-            const auto &pair = land.liquidBuffers[next++];
-            Game::Ref<void *>(slot, Offsets::OFF_CHUNKLIQUID_VERTEX_BUFFER) = pair.first;
-            Game::Ref<void *>(slot, Offsets::OFF_CHUNKLIQUID_INDEX_BUFFER) = pair.second;
-            reinterpret_cast<Invalidate_t>(Offsets::FUN_GX_BUFFER_INVALIDATE)(pair.first);
-            reinterpret_cast<Invalidate_t>(Offsets::FUN_GX_BUFFER_INVALIDATE)(pair.second);
+// A pair from the pool, with a new block made when none is free; false when
+// the device makes no pool or buffer.
+bool Take(BufferPool &pool, Buffers &out) {
+    if (pool.free.empty()) {
+        using Pool_t =
+            void *(__fastcall *)(uint32_t kind, uint32_t usage, uint32_t size, uint32_t arg, const char *name);
+        using Buffer_t = void *(__fastcall *)(void *pool, uint32_t itemSize, uint32_t count, uint32_t offset);
+        const uint32_t vertexBytes = pool.vertexSize * pool.vertexCount;
+        const uint32_t indexBytes = Offsets::CHUNK_INDEX_SIZE * pool.indexCount;
+        void *vertices = reinterpret_cast<Pool_t>(Offsets::FUN_GX_CREATE_POOL)(
+            Offsets::GX_POOL_KIND_VERTEX, Offsets::GX_POOL_USAGE_STATIC, pool.block * vertexBytes,
+            Offsets::GX_POOL_ARG, pool.vertexName);
+        if (vertices == nullptr)
+            return false;
+        pool.pools.push_back(vertices);
+        void *indices = reinterpret_cast<Pool_t>(Offsets::FUN_GX_CREATE_POOL)(
+            Offsets::GX_POOL_KIND_INDEX, Offsets::GX_POOL_USAGE_STATIC, pool.block * indexBytes,
+            Offsets::GX_POOL_ARG, pool.indexName);
+        if (indices == nullptr)
+            return false;
+        pool.pools.push_back(indices);
+        for (uint32_t i = 0; i < pool.block; ++i) {
+            void *v = reinterpret_cast<Buffer_t>(Offsets::FUN_GX_POOL_BUFFER)(vertices, pool.vertexSize,
+                                                                              pool.vertexCount, i * vertexBytes);
+            void *x = reinterpret_cast<Buffer_t>(Offsets::FUN_GX_POOL_BUFFER)(indices, Offsets::CHUNK_INDEX_SIZE,
+                                                                              pool.indexCount, i * indexBytes);
+            pool.made.emplace_back(v, x);
+            if (v != nullptr && x != nullptr)
+                pool.free.emplace_back(v, x);
         }
+        if (pool.free.empty())
+            return false;
     }
+    out = pool.free.back();
+    pool.free.pop_back();
+    return true;
 }
 
-void BuildAll(Land &land) {
-    land.built = Settings::Current();
-    for (auto &t : land.tiles)
-        LoadTextures(*t);
-    for (Chunk &c : land.chunks)
-        BuildChunk(c);
-    LinkNeighbours(land);
-    AttachBuffers(land);
-    AttachLiquidBuffers(land);
+// FreeChunkBufferPool's order (0x006AE5C0): each sub-buffer, then the pools.
+void FreePool(BufferPool &pool) {
+    using Free_t = void(__fastcall *)(void *buffer);
+    for (const Buffers &pair : pool.made) {
+        if (pair.first != nullptr)
+            reinterpret_cast<Free_t>(Offsets::FUN_GX_FREE_BUFFER)(pair.first);
+        if (pair.second != nullptr)
+            reinterpret_cast<Free_t>(Offsets::FUN_GX_FREE_BUFFER)(pair.second);
+    }
+    for (auto it = pool.pools.rbegin(); it != pool.pools.rend(); ++it)
+        reinterpret_cast<Free_t>(Offsets::FUN_GX_BUFFER_RELEASE)(*it);
+    pool.made.clear();
+    pool.free.clear();
+    pool.pools.clear();
+}
+
+// The chunk's buffers onto it, and a pair onto each liquid slot it has,
+// marked unfilled (a rebuilt slot fills them again). A slot the pool cannot
+// serve draws nothing.
+void AttachBuffers(Land &land, Chunk &c) {
+    using Invalidate_t = void(__fastcall *)(void *buffer);
+    void *o = c.object();
+    Game::Ref<void *>(o, Offsets::OFF_CMAPCHUNK_VERTEX_BUFFER) = c.buffers.first;
+    Game::Ref<void *>(o, Offsets::OFF_CMAPCHUNK_INDEX_BUFFER) = c.buffers.second;
+    size_t next = 0;
+    for (uint32_t i = 0; i < Offsets::CHUNK_LIQUID_SLOTS; ++i) {
+        void *slot = LiquidSlot(o, i);
+        if (slot == nullptr)
+            continue;
+        if (next == c.liquidBuffers.size()) {
+            Buffers pair;
+            if (!Take(land.liquidBuffers, pair))
+                continue;
+            c.liquidBuffers.push_back(pair);
+        }
+        const Buffers &pair = c.liquidBuffers[next++];
+        Game::Ref<void *>(slot, Offsets::OFF_CHUNKLIQUID_VERTEX_BUFFER) = pair.first;
+        Game::Ref<void *>(slot, Offsets::OFF_CHUNKLIQUID_INDEX_BUFFER) = pair.second;
+        reinterpret_cast<Invalidate_t>(Offsets::FUN_GX_BUFFER_INVALIDATE)(pair.first);
+        reinterpret_cast<Invalidate_t>(Offsets::FUN_GX_BUFFER_INVALIDATE)(pair.second);
+    }
+    while (c.liquidBuffers.size() > next) {
+        land.liquidBuffers.free.push_back(c.liquidBuffers.back());
+        c.liquidBuffers.pop_back();
+    }
 }
 
 // The detail doodad batch of a chunk, freed (FreeDetailDoodadBatch); it holds
@@ -572,182 +637,220 @@ void FreeDetail(void *chunk) {
     batch = nullptr;
 }
 
-// UnloadChunk and the destructor, as DestroyChunk (0x006A6A00) does less
-// the pool: the buffers are the scene's and stay; then each tile's
-// textures.
-void UnloadAll(Land &land) {
+// UnloadChunk and the destructor, as DestroyChunk (0x006A6A00) does less the
+// pool: the buffers are the land's.
+void DestroyObject(void *o) {
+    FreeDetail(o);
     using This_t = void(__thiscall *)(void *);
-    for (Chunk &c : land.chunks) {
-        void *o = c.object();
-        reinterpret_cast<This_t>(Offsets::FUN_UNLOAD_CHUNK)(o);
-        reinterpret_cast<This_t>(Offsets::FUN_CMAPCHUNK_DTOR)(o);
-    }
-    for (auto &t : land.tiles)
-        CloseTextures(*t);
+    reinterpret_cast<This_t>(Offsets::FUN_UNLOAD_CHUNK)(o);
+    reinterpret_cast<This_t>(Offsets::FUN_CMAPCHUNK_DTOR)(o);
 }
 
-// The scene's pool, made as CreateChunkBufferPool makes the world's: one
-// vertex and one index pool, a full-level pair of sub-buffers per chunk.
-bool MakeBuffers(Land &land) {
-    using Pool_t = void *(__fastcall *)(uint32_t kind, uint32_t usage, uint32_t size, uint32_t arg, const char *name);
-    using Buffer_t = void *(__fastcall *)(void *pool, uint32_t itemSize, uint32_t count, uint32_t offset);
-    const uint32_t n = static_cast<uint32_t>(land.chunks.size());
-    const uint32_t vertexBytes = FullVertexCount() * Offsets::CHUNK_VERTEX_SIZE;
-    const uint32_t indexBytes = FullIndexCount() * Offsets::CHUNK_INDEX_SIZE;
-    land.vertexPool = reinterpret_cast<Pool_t>(Offsets::FUN_GX_CREATE_POOL)(
-        Offsets::GX_POOL_KIND_VERTEX, Offsets::GX_POOL_USAGE_STATIC, n * vertexBytes, Offsets::GX_POOL_ARG,
-        kVertexPoolName);
-    land.indexPool = reinterpret_cast<Pool_t>(Offsets::FUN_GX_CREATE_POOL)(
-        Offsets::GX_POOL_KIND_INDEX, Offsets::GX_POOL_USAGE_STATIC, n * indexBytes, Offsets::GX_POOL_ARG,
-        kIndexPoolName);
-    if (land.vertexPool == nullptr || land.indexPool == nullptr)
-        return false;
-    for (uint32_t i = 0; i < n; ++i) {
-        void *v = reinterpret_cast<Buffer_t>(Offsets::FUN_GX_POOL_BUFFER)(
-            land.vertexPool, Offsets::CHUNK_VERTEX_SIZE, FullVertexCount(), i * vertexBytes);
-        void *x = reinterpret_cast<Buffer_t>(Offsets::FUN_GX_POOL_BUFFER)(
-            land.indexPool, Offsets::CHUNK_INDEX_SIZE, FullIndexCount(), i * indexBytes);
-        land.buffers.emplace_back(v, x);
-        if (v == nullptr || x == nullptr)
-            return false;
+// The chunks built again from the kept files under the current settings.
+void Rebuild(Land &land) {
+    land.built = Settings::Current();
+    for (auto &[key, c] : land.chunks)
+        DestroyObject(c.object());
+    for (auto &[key, t] : land.tiles) {
+        CloseTextures(*t);
+        LoadTextures(*t);
     }
+    for (auto &[key, c] : land.chunks)
+        BuildChunk(c);
+    for (auto &[key, c] : land.chunks) {
+        Link(land, key, c.object());
+        AttachBuffers(land, c);
+    }
+}
+
+bool HasMapObjects(const Chunk &c) {
+    uint32_t doodads = 0, objects = 0;
+    return c.tile->objects != nullptr && References(c, doodads, objects) != nullptr && objects != 0;
+}
+
+// CreateAreaChunk for one chunk of a read tile: built, linked, its buffers
+// and its doodads. False for a record that does not check or when the pool
+// has no buffers.
+bool AddChunk(Land &land, Tile &t, uint32_t index, const Key &key, void *frame) {
+    if (t.bad[index])
+        return false;
+    if (CheckedRecord(t, index, t.textures) == nullptr) {
+        t.bad[index] = true;
+        return false;
+    }
+    Buffers buffers;
+    if (!Take(land.chunkBuffers, buffers))
+        return false;
+    Chunk &c = land.chunks[key];
+    c.memory = std::make_unique<ChunkMemory>();
+    c.tile = &t;
+    c.index = index;
+    c.buffers = buffers;
+    const uint32_t record = U32(McinEntry(t, index));
+    const uint8_t *header = At(t.file, uint64_t{record} + Offsets::MCNK_RECORD_HEADER);
+    c.detailSafe = Inside(t.file,
+                          uint64_t{record} + U32(header + Offsets::OFF_MCNK_MCSH) + Offsets::MCNK_RECORD_HEADER,
+                          Offsets::MCSH_SIZE);
+    BuildChunk(c);
+    Link(land, key, c.object());
+    AttachBuffers(land, c);
+    AddProps(land, c, frame);
+    land.objectsChanged = land.objectsChanged || HasMapObjects(c);
     return true;
 }
 
-// The liquid pools, made as CreateLiquidBufferPool (0x0068CA50) makes the
-// world's: a vertex and an index pair for each of the slots.
-void MakeLiquidBuffers(Land &land) {
-    using Pool_t = void *(__fastcall *)(uint32_t kind, uint32_t usage, uint32_t size, uint32_t arg, const char *name);
-    using Buffer_t = void *(__fastcall *)(void *pool, uint32_t itemSize, uint32_t count, uint32_t offset);
-    uint32_t slots = 0;
-    for (Chunk &c : land.chunks)
-        for (uint32_t i = 0; i < Offsets::CHUNK_LIQUID_SLOTS; ++i)
-            if (LiquidSlot(c.object(), i) != nullptr)
-                ++slots;
-    if (slots == 0)
-        return;
-    const uint32_t vertexBytes = Offsets::LIQUID_VERTEX_SIZE * Offsets::LIQUID_VERTEX_COUNT;
-    const uint32_t indexBytes = Offsets::CHUNK_INDEX_SIZE * Offsets::LIQUID_INDEX_COUNT;
-    land.liquidVertexPool = reinterpret_cast<Pool_t>(Offsets::FUN_GX_CREATE_POOL)(
-        Offsets::GX_POOL_KIND_VERTEX, Offsets::GX_POOL_USAGE_STATIC, slots * vertexBytes, Offsets::GX_POOL_ARG,
-        kLiquidVertexPoolName);
-    land.liquidIndexPool = reinterpret_cast<Pool_t>(Offsets::FUN_GX_CREATE_POOL)(
-        Offsets::GX_POOL_KIND_INDEX, Offsets::GX_POOL_USAGE_STATIC, slots * indexBytes, Offsets::GX_POOL_ARG,
-        kLiquidIndexPoolName);
-    if (land.liquidVertexPool == nullptr || land.liquidIndexPool == nullptr)
-        return;
-    for (uint32_t i = 0; i < slots; ++i) {
-        void *v = reinterpret_cast<Buffer_t>(Offsets::FUN_GX_POOL_BUFFER)(
-            land.liquidVertexPool, Offsets::LIQUID_VERTEX_SIZE, Offsets::LIQUID_VERTEX_COUNT, i * vertexBytes);
-        void *x = reinterpret_cast<Buffer_t>(Offsets::FUN_GX_POOL_BUFFER)(
-            land.liquidIndexPool, Offsets::CHUNK_INDEX_SIZE, Offsets::LIQUID_INDEX_COUNT, i * indexBytes);
-        if (v == nullptr || x == nullptr)
-            break;
-        land.liquidBuffers.emplace_back(v, x);
-    }
+// DestroyChunk for one chunk: unlinked, unloaded, its buffers back in the
+// pools and its doodads let go.
+void DropChunk(Land &land, std::map<Key, Chunk>::iterator it) {
+    Chunk &c = it->second;
+    void *o = c.object();
+    land.objectsChanged = land.objectsChanged || HasMapObjects(c);
+    ReleaseProps(land, c);
+    Unlink(o);
+    DestroyObject(o);
+    land.chunkBuffers.free.push_back(c.buffers);
+    for (const Buffers &pair : c.liquidBuffers)
+        land.liquidBuffers.free.push_back(pair);
+    land.chunks.erase(it);
 }
 
-// FreeChunkBufferPool's order (0x006AE5C0): each sub-buffer, then the pools.
-void FreeBuffers(Land &land) {
-    using Free_t = void(__fastcall *)(void *buffer);
-    for (auto &pair : land.buffers) {
-        if (pair.first != nullptr)
-            reinterpret_cast<Free_t>(Offsets::FUN_GX_FREE_BUFFER)(pair.first);
-        if (pair.second != nullptr)
-            reinterpret_cast<Free_t>(Offsets::FUN_GX_FREE_BUFFER)(pair.second);
+// The tile's ADT, read whole and its textures loaded; null when the WDT does
+// not list it, or when it does not read (it is not tried again).
+Tile *TileAt(Land &land, uint32_t row, uint32_t column) {
+    const Key key{row, column};
+    const auto found = land.tiles.find(key);
+    if (found != land.tiles.end())
+        return found->second.get();
+    const uint32_t index = row * Offsets::MAP_TILES + column;
+    if (index >= land.listed.size() || !land.listed[index])
+        return nullptr;
+    char path[260];
+    std::snprintf(path, sizeof path, "World\\Maps\\%s\\%s_%u_%u.adt", land.directory.c_str(),
+                  land.directory.c_str(), column, row);
+    auto t = std::make_unique<Tile>();
+    t->column = column;
+    t->row = row;
+    if (!File(path).ReadAll(t->file) || !ParseHeader(*t)) {
+        land.listed[index] = false;
+        return nullptr;
     }
-    land.buffers.clear();
-    for (auto &pair : land.liquidBuffers) {
-        reinterpret_cast<Free_t>(Offsets::FUN_GX_FREE_BUFFER)(pair.first);
-        reinterpret_cast<Free_t>(Offsets::FUN_GX_FREE_BUFFER)(pair.second);
-    }
-    land.liquidBuffers.clear();
-    for (void *pool : {land.indexPool, land.vertexPool, land.liquidIndexPool, land.liquidVertexPool})
-        if (pool != nullptr)
-            reinterpret_cast<Free_t>(Offsets::FUN_GX_BUFFER_RELEASE)(pool);
-    land.vertexPool = land.indexPool = land.liquidVertexPool = land.liquidIndexPool = nullptr;
+    t->textures = TextureCount(*t);
+    LoadTextures(*t);
+    return land.tiles.emplace(key, std::move(t)).first->second.get();
 }
 
-// The distance from a point to a chunk's square, its corner at the MCNK
-// position and its sides one 16th of a tile toward the map's far side.
-bool ChunkInRadius(const uint8_t *record, float x, float y, float radius, float side) {
-    const uint8_t *position = record + Offsets::MCNK_RECORD_HEADER + Offsets::OFF_MCNK_POSITION;
-    const float maxX = F32(position), maxY = F32(position + 4);
-    const float dx = x < maxX - side ? maxX - side - x : (x > maxX ? x - maxX : 0.0f);
-    const float dy = y < maxY - side ? maxY - side - y : (y > maxY ? y - maxY : 0.0f);
-    return dx * dx + dy * dy <= radius * radius;
+// A window of chunk indices, its rows from x and its columns from y, both
+// ends in.
+struct AreaWindow {
+    int32_t rowFirst, columnFirst, rowLast, columnLast;
+    bool Holds(int32_t row, int32_t column) const {
+        return row >= rowFirst && row <= rowLast && column >= columnFirst && column <= columnLast;
+    }
+};
+
+// CWorld::PrepareAreaOfInterest's windows (0x00672730) around `eye`: the
+// chunk under it, x's distance from the origin negated, times the chunks per
+// yard and stored, y's negated distance stored, then times them and stored,
+// each less a half and rounded to nearest (fistp); the inner window that
+// ± (1 − ftol(farClip × −0.03)) chunks (0x006725D0), the outer ± the larger of
+// that + 2 and 8; each end clamped to the map.
+void Windows(const float (&eye)[3], float farClip, AreaWindow &inner, AreaWindow &outer) {
+    const double origin = Game::Read<float>(Offsets::VAR_MAP_ORIGIN);
+    const double perYard = Game::Read<float>(Offsets::VAR_AOI_CHUNKS_PER_YARD);
+    const double half = Game::Read<float>(Offsets::VAR_AOI_HALF_CHUNK);
+    const float rowProduct = static_cast<float>(-(static_cast<double>(eye[0]) - origin) * perYard);
+    const float fromY = static_cast<float>(-(static_cast<double>(eye[1]) - origin));
+    const float columnProduct = static_cast<float>(perYard * fromY);
+    const int32_t row = static_cast<int32_t>(std::lrint(static_cast<double>(rowProduct) - half));
+    const int32_t column = static_cast<int32_t>(std::lrint(static_cast<double>(columnProduct) - half));
+    const int32_t reach =
+        1 - static_cast<int32_t>(static_cast<double>(farClip) *
+                                 Game::Read<float>(Offsets::VAR_AOI_NEGATIVE_CHUNKS_PER_YARD));
+    const int32_t outerReach = (std::max)(reach + static_cast<int32_t>(Offsets::AOI_OUTER_EXTRA), static_cast<int32_t>(Offsets::AOI_MIN_OUTER_REACH));
+    const int32_t last = Offsets::MAP_TILES * Offsets::TILE_CHUNKS - 1;
+    const auto clamp = [last](int32_t v) { return v < 0 ? 0 : (v > last ? last : v); };
+    inner = {clamp(row - reach), clamp(column - reach), clamp(row + reach), clamp(column + reach)};
+    outer = {clamp(row - outerReach), clamp(column - outerReach), clamp(row + outerReach), clamp(column + outerReach)};
 }
 
-int TileIndex(float origin, float coordinate, float tile) {
-    return static_cast<int>(std::floor((origin - coordinate) / tile));
+uint32_t NextSerial() {
+    static uint32_t serials = 0;
+    return ++serials;
 }
 
 } // namespace
 
-Land *Load(void *frame, uint32_t mapID, float x, float y, float radius) {
-    if (!(radius >= 0.0f) || !std::isfinite(x) || !std::isfinite(y) || !std::isfinite(radius))
-        return nullptr;
-    const char *dir =
-        DBC::StringField(Offsets::VAR_MAP_RECORDS, Offsets::VAR_MAP_COUNT, mapID, Offsets::OFF_MAP_DIRECTORY);
-    if (dir == nullptr || *dir == '\0')
-        return nullptr;
-    const float origin = Game::Read<float>(Offsets::VAR_MAP_ORIGIN);
-    const float tile = Game::Read<float>(Offsets::VAR_TILE_SIZE);
-    const float side = tile / static_cast<float>(Offsets::TILE_CHUNKS);
-    const int last = Offsets::MAP_TILES - 1;
-    const auto clamp = [last](int v) { return v < 0 ? 0 : (v > last ? last : v); };
-    const int rowFirst = clamp(TileIndex(origin, x + radius, tile));
-    const int rowLast = clamp(TileIndex(origin, x - radius, tile));
-    const int columnFirst = clamp(TileIndex(origin, y + radius, tile));
-    const int columnLast = clamp(TileIndex(origin, y - radius, tile));
+Land *Open(uint32_t mapID) {
     auto land = std::make_unique<Land>();
-    for (int row = rowFirst; row <= rowLast; ++row) {
-        for (int column = columnFirst; column <= columnLast; ++column) {
-            char path[260];
-            std::snprintf(path, sizeof path, "World\\Maps\\%s\\%s_%d_%d.adt", dir, dir, column, row);
-            auto t = std::make_unique<Tile>();
-            t->column = static_cast<uint32_t>(column);
-            t->row = static_cast<uint32_t>(row);
-            if (!File(path).ReadAll(t->file) || !ParseHeader(*t))
+    if (!World::MapTiles(mapID, land->directory, land->listed) ||
+        std::find(land->listed.begin(), land->listed.end(), true) == land->listed.end())
+        return nullptr;
+    land->mapID = mapID;
+    land->chunkBuffers = {Offsets::CHUNK_VERTEX_SIZE, FullVertexCount(), FullIndexCount(), Offsets::ADT_CHUNKS,
+                          kVertexPoolName, kIndexPoolName, {}, {}, {}};
+    land->liquidBuffers = {Offsets::LIQUID_VERTEX_SIZE, Offsets::LIQUID_VERTEX_COUNT, Offsets::LIQUID_INDEX_COUNT,
+                           Offsets::TILE_CHUNKS, kLiquidVertexPoolName, kLiquidIndexPoolName, {}, {}, {}};
+    land->built = Settings::Current();
+    land->props = World::NewProps();
+    land->serial = NextSerial();
+    return land.release();
+}
+
+bool Stream(Land &land, void *frame, const float (&eye)[3], float farClip) {
+    if (!std::isfinite(eye[0]) || !std::isfinite(eye[1]) || !(farClip > 0.0f))
+        return false;
+    if (!(Settings::Current() == land.built))
+        Rebuild(land);
+    AreaWindow inner, outer;
+    Windows(eye, farClip, inner, outer);
+    bool changed = false;
+    // The tile load pass (0x006985D0) over the outer window: a chunk of the
+    // inner window is built now, one of the outer ring only while less than
+    // the budget has passed since the pass began. The scene reads a tile
+    // whole when it first needs one of its chunks (the world reads it
+    // asynchronously, and the inner window waits for it).
+    const uint32_t start = Time::Clock::NowMs();
+    for (int32_t row = outer.rowFirst; row <= outer.rowLast; ++row) {
+        for (int32_t column = outer.columnFirst; column <= outer.columnLast; ++column) {
+            const Key key{static_cast<uint32_t>(row), static_cast<uint32_t>(column)};
+            if (land.chunks.count(key) != 0)
                 continue;
-            const uint32_t textures = TextureCount(*t);
-            for (uint32_t i = 0; i < Offsets::ADT_CHUNKS; ++i) {
-                const uint8_t *record = CheckedRecord(*t, i, textures);
-                if (record != nullptr && ChunkInRadius(record, x, y, radius, side))
-                    t->wanted.push_back(i);
-            }
-            if (t->wanted.empty())
+            if (!inner.Holds(row, column) &&
+                Time::Clock::Elapsed(start, Time::Clock::NowMs()) >= Offsets::TERRAIN_BUILD_BUDGET_MS)
                 continue;
-            for (uint32_t i : t->wanted) {
-                Chunk c;
-                c.memory = std::make_unique<ChunkMemory>();
-                c.tile = t.get();
-                c.index = i;
-                const uint32_t record = U32(McinEntry(*t, i));
-                const uint8_t *header = At(t->file, uint64_t{record} + Offsets::MCNK_RECORD_HEADER);
-                c.detailSafe = Inside(t->file,
-                                      uint64_t{record} + U32(header + Offsets::OFF_MCNK_MCSH) +
-                                          Offsets::MCNK_RECORD_HEADER,
-                                      Offsets::MCSH_SIZE);
-                land->chunks.push_back(std::move(c));
-            }
-            land->tiles.push_back(std::move(t));
+            Tile *t = TileAt(land, key.first / Offsets::TILE_CHUNKS, key.second / Offsets::TILE_CHUNKS);
+            if (t != nullptr && AddChunk(land, *t,
+                                         (key.first % Offsets::TILE_CHUNKS) * Offsets::TILE_CHUNKS +
+                                             key.second % Offsets::TILE_CHUNKS,
+                                         key, frame))
+                changed = true;
         }
     }
-    if (land->chunks.empty())
-        return nullptr;
-    if (!MakeBuffers(*land)) {
-        FreeBuffers(*land);
-        return nullptr;
+    // The area unload (0x006984F0) and the chunk window (0x006C1F70): the
+    // chunks past the outer window, then the tiles past it.
+    for (auto it = land.chunks.begin(); it != land.chunks.end();) {
+        const auto next = std::next(it);
+        if (!outer.Holds(static_cast<int32_t>(it->first.first), static_cast<int32_t>(it->first.second))) {
+            DropChunk(land, it);
+            changed = true;
+        }
+        it = next;
     }
-    land->mapID = mapID;
-    BuildAll(*land);
-    MakeLiquidBuffers(*land);
-    AttachLiquidBuffers(*land);
-    MakeProps(*land, frame);
-    static uint32_t serials = 0;
-    land->serial = ++serials;
-    return land.release();
+    for (auto it = land.tiles.begin(); it != land.tiles.end();) {
+        const int32_t row = static_cast<int32_t>(it->first.first), column = static_cast<int32_t>(it->first.second);
+        if (row < outer.rowFirst / Offsets::TILE_CHUNKS || row > outer.rowLast / Offsets::TILE_CHUNKS ||
+            column < outer.columnFirst / Offsets::TILE_CHUNKS || column > outer.columnLast / Offsets::TILE_CHUNKS) {
+            CloseTextures(*it->second);
+            it = land.tiles.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    if (changed)
+        land.serial = NextSerial();
+    const bool objects = land.objectsChanged;
+    land.objectsChanged = false;
+    return objects;
 }
 
 uint32_t Serial(const Land &land) { return land.serial; }
@@ -764,12 +867,21 @@ void Silence(Land &land) {
         World::SilenceProps(*land.props);
 }
 
+void CullProps(Land &land, const float (&eye)[3]) {
+    if (land.props != nullptr)
+        World::CullProps(*land.props, eye);
+}
+
 void Free(Land *land) {
     if (land == nullptr)
         return;
+    while (!land->chunks.empty())
+        DropChunk(*land, land->chunks.begin());
+    for (auto &[key, t] : land->tiles)
+        CloseTextures(*t);
     World::FreeProps(land->props);
-    UnloadAll(*land);
-    FreeBuffers(*land);
+    FreePool(land->chunkBuffers);
+    FreePool(land->liquidBuffers);
     delete land;
 }
 
@@ -856,8 +968,7 @@ void Draw(Land &land, void *frame, const float (&eye)[3], const World::ViewVolum
     if ((worldFlags & Offsets::WORLD_FLAG_CHUNKS) == 0)
         return;
     if (!(Settings::Current() == land.built)) {
-        UnloadAll(land);
-        BuildAll(land);
+        Rebuild(land);
     }
     // The detail pools, as the world's frame prepares them (0x0068121D) before
     // its passes; when they were rebuilt since, the scene's batches were made
@@ -866,7 +977,7 @@ void Draw(Land &land, void *frame, const float (&eye)[3], const World::ViewVolum
         reinterpret_cast<void(__cdecl *)()>(Offsets::FUN_PREPARE_DETAIL_DOODAD_BUFFERS)();
     const uint32_t detailStamp = Game::Read<uint32_t>(Offsets::VAR_DETAIL_DOODAD_STAMP);
     if (detailStamp != land.detailStamp) {
-        for (Chunk &c : land.chunks)
+        for (auto &[key, c] : land.chunks)
             FreeDetail(c.object());
         land.detailStamp = detailStamp;
     }
@@ -884,7 +995,7 @@ void Draw(Land &land, void *frame, const float (&eye)[3], const World::ViewVolum
     const float lodDist = Game::Read<float>(Offsets::VAR_CHUNK_LOD_DIST);
     const uint32_t nearLevel = Game::Read<uint32_t>(Offsets::VAR_CHUNK_MAX_LOD);
     const uint32_t farLevel = Game::Read<uint32_t>(Offsets::VAR_CHUNK_FAR_LOD);
-    for (Chunk &c : land.chunks) {
+    for (auto &[key, c] : land.chunks) {
         void *o = c.object();
         const float depth = staged.Depth(Game::Ptr<float>(o, Offsets::OFF_CMAPCHUNK_CENTRE),
                                          Game::Read<float>(o, Offsets::OFF_CMAPCHUNK_RADIUS));
@@ -912,7 +1023,7 @@ void Draw(Land &land, void *frame, const float (&eye)[3], const World::ViewVolum
         for (int i = 0; i < Offsets::MIP_BIAS_STAGES; ++i)
             Gx::SetStateFloat(Offsets::GXRS_MIP_BIAS_STAGE0 + i, bias);
     }
-    for (Chunk &c : land.chunks) {
+    for (auto &[key, c] : land.chunks) {
         void *o = c.object();
         const uint8_t *header = Game::Read<const uint8_t *>(o, Offsets::OFF_CMAPCHUNK_HEADER);
         if (Game::Read<uint16_t>(header, Offsets::OFF_MCNK_HOLES) == Offsets::MCNK_HOLES_ALL ||
@@ -956,7 +1067,7 @@ namespace {
 // a slot's box is its chunk's with the slot's heights as z (0x0068DF40).
 std::vector<void *> VisibleSlots(Land &land, const Staged &staged, uint32_t pass) {
     std::vector<void *> out;
-    for (Chunk &c : land.chunks) {
+    for (auto &[key, c] : land.chunks) {
         void *slot = LiquidSlot(c.object(), pass);
         if (slot == nullptr)
             continue;
@@ -1088,8 +1199,8 @@ int32_t Cell(float perYard, float half, float distance) {
 void *ChunkAt(const Land &land, int32_t row, int32_t column) {
     if (row < 0 || column < 0)
         return nullptr;
-    const auto found = land.byCell.find({static_cast<uint32_t>(row), static_cast<uint32_t>(column)});
-    return found != land.byCell.end() ? found->second : nullptr;
+    const auto found = land.chunks.find({static_cast<uint32_t>(row), static_cast<uint32_t>(column)});
+    return found != land.chunks.end() ? found->second.memory->bytes : nullptr;
 }
 
 const float *Vertices(const void *chunk) { return Game::Ptr<float>(chunk, Offsets::OFF_CMAPCHUNK_VERTICES); }
@@ -1275,16 +1386,17 @@ bool QueryFacets(Land &land, const float (&box)[6], std::vector<Contact::Facet> 
     bool complete = true;
     for (int32_t row = cells[0] >> 3; row <= cells[2] >> 3; ++row) {
         for (int32_t column = cells[1] >> 3; column <= cells[3] >> 3; ++column) {
-            const void *chunk = ChunkAt(land, row, column);
-            if (chunk == nullptr)
+            if (row < 0 || column < 0)
                 continue;
-            GatherChunk(chunk, row, column, cells, box, out);
+            const auto found = land.chunks.find({static_cast<uint32_t>(row), static_cast<uint32_t>(column)});
+            if (found == land.chunks.end())
+                continue;
+            GatherChunk(found->second.object(), row, column, cells, box, out);
             // GatherChunkFacets' doodad leg (0x006AB496), after its triangles;
             // a doodad still loading fails the chunk.
-            const auto found = land.propsOf.find(chunk);
-            if (land.props == nullptr || found == land.propsOf.end())
+            if (land.props == nullptr)
                 continue;
-            for (uint32_t prop : *found->second) {
+            for (uint32_t prop : found->second.props) {
                 if (!World::AddPropFacets(*land.props, prop, box, out)) {
                     complete = false;
                     break;

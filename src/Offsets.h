@@ -14665,6 +14665,11 @@ enum Offsets {
     WDT_MAIN_SIZE = 0x8000,
     WDT_MPHD_SIZE = 0x20,
     WDT_FLAG_MAP_OBJECT = 0x1,
+    // MAIN is the tile state table the map update reads (0x00C89F50 + 8 x
+    // (row x 64 + column), benilla terrain/mapupdate): bit 0 the map has the
+    // tile's ADT (the tile load pass 0x006985D0 skips a tile without it).
+    WDT_MAIN_ENTRY_SIZE = 8,
+    WDT_TILE_FLAG_ADT = 0x1,
     MODF_SIZE = 0x40,
     // An ADT's entry, as CMapChunk::LoadReferences (0x006B00F0) and
     // PlaceMapObjDef (0x00695650) read it: +0x00 the MWID index, +0x04 the
@@ -16520,6 +16525,17 @@ enum Offsets {
     //   IsBoxCulled `uint __thiscall(const float box[6])`: nonzero when the
     //   top of the frustum stack rejects the box (0x00683C3C).
     FUN_FRUSTUM_IS_BOX_CULLED = 0x00682F40,
+    //   IsSphereCulled `uint __thiscall(const float centre[3], float radius)`
+    //   (`ret 4`): 0 when the sphere is inside the six planes of the top
+    //   volume, else 1 (benilla terrain/scene "Sphere and box tests").
+    FUN_FRUSTUM_IS_SPHERE_CULLED = 0x00682EF0,
+    // The walk's cull of an entity (0x00683340) and of a doodad def
+    // (0x00683700): one the frustum rejects is set animated only while its
+    // centre lies within this squared distance of the camera (10.0 at
+    // 0x00810178 and 0x0081017C, read from the image), else it stays off the
+    // animate list and so is neither animated nor drawn that frame.
+    VAR_ENTITY_CULLED_ANIMATE_DISTANCE_SQ = 0x00810178,
+    VAR_DOODAD_CULLED_ANIMATE_DISTANCE_SQ = 0x0081017C,
     // The world flags (benilla terrain/world.md): 2 chunks drawn, 4 lod,
     // 0x40 map shadows, the sign anisotropic: the chunk pass then sets the
     // mip bias of stages 0-3 (states 0x27-0x2A) to the immediate pushed at
@@ -16885,6 +16901,21 @@ enum Offsets {
     // 533.33331 (0x0080654C): the row from x, the column from y; a tile is
     // <dir>\<dir>_<column>_<row>.adt (0x006C274D) of 16 x 16 chunks.
     VAR_MAP_ORIGIN = 0x007FFAB4,
+    // CWorld::PrepareAreaOfInterest's windows (0x00672730, benilla terrain/
+    // world "Area of interest"): the chunk under a point is round(-(p -
+    // origin) x 0.03 - 0.5) per axis (0.03 at 0x0080FE84, 0.5 at
+    // 0x00867914); the inner reach 1 - ftol(farClip x -0.03) (0x006725D0,
+    // -0.03 at 0x0080FECC), the outer the larger of that + 2 and 8
+    // (0x00672966 .. 0x00672971). Values read from the image.
+    VAR_AOI_CHUNKS_PER_YARD = 0x0080FE84,
+    VAR_AOI_HALF_CHUNK = 0x00867914,
+    VAR_AOI_NEGATIVE_CHUNKS_PER_YARD = 0x0080FECC,
+    AOI_OUTER_EXTRA = 2,
+    AOI_MIN_OUTER_REACH = 8,
+    // The tile load pass (0x006985D0) builds an outer-ring chunk only while
+    // fewer than 5 ms (OsGetAsyncTimeMs) have passed since it began
+    // (`cmp eax, 5` at 0x006986C8).
+    TERRAIN_BUILD_BUDGET_MS = 5,
     VAR_TILE_SIZE = 0x0080654C,
     MAP_TILES = 64,
     TILE_CHUNKS = 16,

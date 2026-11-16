@@ -108,8 +108,9 @@
 // object draw after the animate pass, with its doodads as models of the
 // scene; Set/GetPlayWorldModelSounds: the doodads' sounds
 // (model/SceneWorld.cpp). SetWorldTerrain / ClearWorldTerrain: a map's ADT
-// chunks around a point, built and drawn by the world's own chunk functions
-// before the WMO (model/SceneTerrain.cpp).
+// chunks, kept around the scene's camera as the world keeps its own around
+// its camera, built and drawn by the world's own chunk functions before the
+// WMO (model/SceneTerrain.cpp).
 
 #include "model/Scene.h"
 
@@ -314,6 +315,34 @@ void InitFog(void *frame) {
 void PlaceActors(void *frame) {
     for (Actor *actor : *F(frame).actors)
         actor->Place();
+}
+
+// The walk's entity cull (0x00683340) over the actors, with the view volume
+// on the frustum stack: an actor whose model's sphere (its bounds through
+// its placement) the volume rejects is hidden, and animated only while its
+// centre lies within the squared distance of the camera; off the animate
+// list it is neither animated nor drawn. A seated rider goes with its mount
+// (the mount animates it).
+void CullActors(void *frame, const float (&eye)[3]) {
+    const float near = Game::Read<float>(Offsets::VAR_ENTITY_CULLED_ANIMATE_DISTANCE_SQ);
+    for (Actor *actor : *F(frame).actors) {
+        void *model = actor->model;
+        if (model == nullptr || M2::Parent(model) != nullptr || !M2::IsReady(model, 0, 1))
+            continue;
+        float box[6];
+        M2::GetBoundingBox(model, box);
+        if (!(box[0] <= box[3] && box[1] <= box[4] && box[2] <= box[5]))
+            continue;
+        float world[6];
+        Gx::TransformBox(M2::BaseMatrix(model), box, world);
+        const float centre[3] = {(world[0] + world[3]) * 0.5f, (world[1] + world[4]) * 0.5f,
+                                 (world[2] + world[5]) * 0.5f};
+        const float radius = std::sqrt(Game::DistanceSq(&world[3], centre));
+        if (!World::SphereCulled(centre, radius))
+            continue;
+        M2::SetVisible(model, false);
+        M2::SetAnimated(model, Game::DistanceSq(centre, eye) < near);
+    }
 }
 
 // SimpleModelDraw's clamp: at or past 1 (and NaN) is 1, at or below 0 is 0.
@@ -761,6 +790,15 @@ void __fastcall Paint(void *frame) {
         else
             Gx::Clear(2);
         PlaceActors(frame);
+        // The world's walk elects what it animates and draws before the
+        // animate pass (0x00682FA0, then 0x00707680).
+        World::PushFrustum(volume);
+        CullActors(frame, eye);
+        if (world != nullptr)
+            World::CullDoodads(*world, eye);
+        if (terrain != nullptr)
+            Terrain::CullProps(*terrain, eye);
+        World::PopFrustum();
         void *scene = Model::Pane::Scene(frame);
         M2::AnimateScene(scene, eye);
         // The world's frame draws its chunks before its map objects, and the
@@ -1084,8 +1122,12 @@ void __fastcall SetFrameAlpha(void *self, void *, uint8_t alpha) {
 void __fastcall OnFrameUpdate(void *self, void *, float elapsedSec) {
     for (Actor *actor : *F(self).actors)
         actor->Link();
-    World::Backdrop *world = F(self).world;
     Terrain::Land *terrain = F(self).terrain;
+    // The world's map update runs first in its frame (0x00698390): the
+    // chunks around the camera, then the map objects they place.
+    if (terrain != nullptr && Terrain::Stream(*terrain, self, CameraView(self).eye, F(self).farClip))
+        World::SetTileObjects(F(self).world, Terrain::MapObjects(*terrain), Terrain::MapOf(*terrain));
+    World::Backdrop *world = F(self).world;
     if (world != nullptr)
         World::Update(*world, terrain, self, F(self).playWorldModelSounds, elapsedSec);
     if (terrain != nullptr)
@@ -1636,30 +1678,25 @@ int __fastcall Script_ClearWorldModel(void *L) {
 }
 
 // The scene's terrain (a ClassicAPI extension, model/SceneTerrain.cpp), with
-// the WMOs its tiles place. A set that fails clears it, as SetWorldModel does.
+// no chunk until the scene's update streams them. A set that fails clears
+// it, as SetWorldModel does. The old terrain's WMOs go with it (a unique id
+// names a def only within its map).
 void SetTerrain(void *frame, Terrain::Land *terrain) {
     Terrain::Free(F(frame).terrain);
     F(frame).terrain = terrain;
-    World::SetTileObjects(F(frame).world, terrain != nullptr ? Terrain::MapObjects(*terrain) : std::vector<World::TileDef>{},
-                          terrain != nullptr ? Terrain::MapOf(*terrain) : World::kNoMap);
+    World::SetTileObjects(F(frame).world, {}, World::kNoMap);
 }
 
-constexpr char kUsageSetWorldTerrain[] = "SetWorldTerrain(mapID, x, y [, radius])";
+constexpr char kUsageSetWorldTerrain[] = "SetWorldTerrain(mapID)";
 
 int __fastcall Script_SetWorldTerrain(void *L) {
     void *frame = Self(L);
     if (frame == nullptr)
         return 0;
     const char *owner = Game::Lua::ObjectDisplayName(frame);
-    if (!NumberArgs(L, 2, 3, owner, kUsageSetWorldTerrain))
+    if (!NumberArgs(L, 2, 1, owner, kUsageSetWorldTerrain))
         return 0;
-    const bool hasRadius = Game::Lua::Type(L, 5) > Game::Lua::TYPE_NIL;
-    if (hasRadius && !NumberArgs(L, 5, 1, owner, kUsageSetWorldTerrain))
-        return 0;
-    // One tile's width by default, the world's own unit of terrain.
-    const float radius = hasRadius ? FloatArg(L, 5) : Game::Read<float>(Offsets::VAR_TILE_SIZE);
-    SetTerrain(frame, Terrain::Load(frame, static_cast<uint32_t>(Game::Lua::ToNumber(L, 2)), FloatArg(L, 3),
-                                    FloatArg(L, 4), radius));
+    SetTerrain(frame, Terrain::Open(static_cast<uint32_t>(Game::Lua::ToNumber(L, 2))));
     Game::Lua::PushBool(L, F(frame).terrain != nullptr);
     return 1;
 }
@@ -2196,19 +2233,17 @@ const Game::Doc::Function kSetWorldModelByMapID{
 const Game::Doc::Function kClearWorldModel{"Removes the scene's WMO.", {}, {}, nullptr, true};
 const Game::Doc::Field kWorldTerrainArgs[] = {
     Req("mapID", "number", "A Map.dbc row with terrain, for example 0 (Eastern Kingdoms)."),
-    Req("x", "number", "The map's x, as the map places its terrain."),
-    Req("y", "number"),
-    Opt("radius", "number", "533.33331", "Chunks within this distance of (x, y) are shown: one map tile by default."),
 };
 const Game::Doc::Function kSetWorldTerrain{
-    "Shows the map's ground around a point the way the world draws it, with its textures, shadows and "
-    "level of detail, in map coordinates. The scene's light stands in for the sun, and its fog for the "
-    "zone's. The map's sky shows behind it. Actors walk on it, and TraceSegment and SweepCollider find it; past the radius there is no "
-    "ground. The WMOs the map places on it (buildings, cities) show too, each as SetWorldModel shows one. "
-    "The map's props on it (trees, plants, rocks) show too, and actors collide with them; its "
-    "grass shows near the camera, and its water and lava show; actors swim in the water, and under it the "
-    "camera takes the map's underwater fog. Returns false, and shows no terrain, when no ground lies within the "
-    "radius.",
+    "Shows the map's ground the way the world draws it, with its textures, shadows and level of detail, in "
+    "map coordinates. The ground follows the scene's camera as the world's follows its own: what lies within "
+    "the camera's far clip loads at once, a ring past it loads a little each frame, and ground farther away "
+    "is let go. The scene's light stands in for the sun, and its fog for the zone's. The map's sky shows "
+    "behind it. Actors walk on it, and TraceSegment and SweepCollider find it where it has loaded. The WMOs "
+    "the map places on it (buildings, cities) show too, each as SetWorldModel shows one. The map's props on "
+    "it (trees, plants, rocks) show too, and actors collide with them; its grass shows near the camera, and "
+    "its water and lava show; actors swim in the water, and under it the camera takes the map's underwater "
+    "fog. Returns false, and shows no terrain, for a map without terrain (a map that is one WMO).",
     kWorldTerrainArgs, kWorldModelRet, nullptr, true};
 const Game::Doc::Function kClearWorldTerrain{"Removes the scene's terrain.", {}, {}, nullptr, true};
 const Game::Doc::Field kTraceSegmentArgs[] = {

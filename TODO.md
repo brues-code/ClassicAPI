@@ -4330,7 +4330,11 @@ embedded load-on-demand addon. Layers:
   the client's cached name, and an uncached creature is requested
   (RequestLoadCreatureByID) and renamed on CREATURE_DATA_LOAD_RESULT.
   Raids: SetWorldTerrain places the tiles' WMOs, so
-  BWL/ZG/AQ/Naxx take the terrain path already; not checked.
+  BWL/ZG/AQ/Naxx take the terrain path. ZG checked 2026-11-16: the
+  played side rendered, but a fixed disc of ground left parts of the
+  instance bare. The scene's terrain now streams around its camera with
+  the world's windows (SetWorldTerrain(mapID); docs/notes/model-scene.md
+  "Streaming"), not yet seen in game.
 Maps (probe 2026-11-16, `SetWorldModelByMapID`): only Onyxia 249 and MC
 409 are single WMOs. BWL 469, ZG 309, AQ 509/531 and Naxx 533 need
 terrain plus the WMOs placed on tiles (MODF). DONE (2026-11-16):

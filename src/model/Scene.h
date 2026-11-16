@@ -649,6 +649,11 @@ inline void PushFrustum(const ViewVolume &volume) {
     reinterpret_cast<void(__thiscall *)(const void *)>(Offsets::FUN_FRUSTUM_STORE)(volume.bytes);
 }
 inline void PopFrustum() { reinterpret_cast<void(__cdecl *)()>(Offsets::FUN_FRUSTUM_POP)(); }
+// Whether the volume on top of the stack rejects a sphere (0x00682EF0).
+inline bool SphereCulled(const float (&centre)[3], float radius) {
+    return reinterpret_cast<uint32_t(__thiscall *)(const float *, float)>(Offsets::FUN_FRUSTUM_IS_SPHERE_CULLED)(
+               centre, radius) != 0;
+}
 // Whether `path` names a WMO (ends in ".wmo"), which only the scene shows.
 bool IsWmoPath(const char *path);
 // SetWorldModel's WMO in `set`, replacing the one it had; the tiles' stay.
@@ -663,14 +668,19 @@ bool SetModel(Backdrop *&set, const char *path, const float (&placement)[16], ui
 // The same with the single WMO of a WMO-only map at the map's own placement;
 // false for any other map.
 bool SetMapModel(Backdrop *&set, uint32_t mapID);
+// CMap::LoadWdt's read (0x00694760) through MAIN: the map's directory and,
+// for each tile (row x 64 + column), whether the map has its ADT. False when
+// the map has no directory or its WDT does not read.
+bool MapTiles(uint32_t mapID, std::string &directory, std::vector<bool> &listed);
 void ClearModel(Backdrop *&set);
 // An ADT's MODF entry and its MWMO name.
 struct TileDef {
     std::string path;
     uint8_t entry[Offsets::MODF_SIZE];
 };
-// The terrain tiles' WMOs in `set` (in place of the ones it had), one per
-// unique id, in the order given, placed as the world places a tile's.
+// The terrain tiles' WMOs in `set`, one per unique id, placed as the world
+// places a tile's: the ones it had and `defs` still names stay, the others
+// go, and new ones join in the order given.
 void SetTileObjects(Backdrop *&set, const std::vector<TileDef> &defs, uint32_t mapID);
 // SetWorldModel's placement: at `position`, turned by `yaw` about z.
 void Placement(const float (&position)[3], float yaw, float (&out)[16]);
@@ -684,6 +694,12 @@ void Free(Backdrop *backdrop);
 void Update(Backdrop &backdrop, const Terrain::Land *terrain, void *frame, bool sounds, float elapsed);
 // Drops the doodads' loop sounds (the scene hid).
 void Silence(Backdrop &backdrop);
+// From the paint, with the view volume on the frustum stack, before the
+// animate pass: the walk's doodad def cull (0x00683700) over the WMOs'
+// doodads the update showed. One whose sphere the volume rejects leaves the
+// animate list, so it is neither animated nor drawn, unless its centre is
+// near the camera, which keeps it animated.
+void CullDoodads(Backdrop &backdrop, const float (&eye)[3]);
 // From the paint, in place of its depth clear: the world's frame clear and,
 // with the camera outside the WMO's interior groups and dry, the world's sky
 // (the dome, the sun and moons, the stars, the clouds and the skyboxes) in
@@ -776,16 +792,21 @@ struct Props;
 Props *NewProps();
 void FreeProps(Props *props);
 // PlaceDoodadDef (0x00694BC0) for a 36-byte MDDF entry, then
-// CreateDoodadModel; returns the prop's index.
+// CreateDoodadModel, once per unique id: a later add of the same id holds
+// the prop once more. Returns the unique id.
 uint32_t AddProp(Props &props, void *frame, const char *path, const uint8_t *entry);
+// Lets go of one hold; the last frees the prop.
+void ReleaseProp(Props &props, uint32_t unique);
 // From the scene's update: bounds, fade, the animate list and sounds.
 void UpdateProps(Props &props, void *frame, bool sounds);
 void SilenceProps(Props &props);
+// CullDoodads for the map's own doodads.
+void CullProps(Props &props, const float (&eye)[3]);
 // One box query: BeginPropQuery once, then AddPropFacets for each prop a
 // gathered chunk holds (a prop two chunks hold gives its facets once). False
 // while the prop's model is loading.
 void BeginPropQuery(Props &props);
-bool AddPropFacets(Props &props, uint32_t prop, const float (&box)[6], std::vector<Contact::Facet> &out);
+bool AddPropFacets(Props &props, uint32_t unique, const float (&box)[6], std::vector<Contact::Facet> &out);
 // How far below the eye the camera's liquid probe is (0x006809E2): the
 // lowest of the eye and the four near corners of the view volume, from the
 // paint (the device's view and projection).
@@ -837,11 +858,19 @@ class LiquidFog {
 // The scene's terrain (SetWorldTerrain; model/SceneTerrain.cpp).
 namespace Terrain {
 struct Land;
-// The chunks of map `mapID`'s ADT tiles within `radius` of (x, y), in map
-// coordinates; null when the map has no directory or no chunk in reach
-// opens and reads.
-Land *Load(void *frame, uint32_t mapID, float x, float y, float radius);
+// Map `mapID`'s terrain, with no chunk yet; null when the map has no WDT
+// tile (a WMO-only map) or no directory.
+Land *Open(uint32_t mapID);
 void Free(Land *land);
+// From the scene's update, first: the world's map update over the scene's
+// chunks (0x00698390), around the scene's camera as the world's frame runs
+// it around its own (0x0066FD50). The windows of CWorld::PrepareAreaOfInterest
+// (0x00672730) from `eye` and `farClip`; the tile load pass (0x006985D0):
+// each chunk of the inner window built now, of the outer ring while less
+// than 5 ms have passed; the unload (0x006984F0, 0x006C1F70): the chunks and
+// tiles past the outer window. True when a chunk with map object references
+// came or went (MapObjects changed).
+bool Stream(Land &land, void *frame, const float (&eye)[3], float farClip);
 // From the paint, after the animate pass and before the WMO: the chunks the
 // scene's view shows, as the world's chunk pass draws them. `farClip` is the
 // scene's, the fog end of a scene without fog.
@@ -858,6 +887,9 @@ void DrawWater(Land &land, void *frame, const float (&eye)[3], const World::View
 void Update(Land &land, void *frame, bool sounds);
 // Drops the doodads' loop sounds (the scene hid).
 void Silence(Land &land);
+// From the paint, with the view volume on the frustum stack: the chunks'
+// doodads culled as World::CullDoodads culls a WMO's.
+void CullProps(Land &land, const float (&eye)[3]);
 // The world box test's terrain leg for a decal (TestTerrainBox 0x006AD4E0):
 // the triangles of the chunks' cells in `box` (scene space) into the
 // client's triangle batches, one per chunk (TestChunkTriangles 0x006AD7E0).

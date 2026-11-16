@@ -690,7 +690,7 @@ void PutOnWaiting(Actor &actor) {
             // that one now.
             if (worn != request.itemID) {
                 waiting[i].itemID = worn;
-                Item::Data::WarmCache(worn);
+                Item::Data::WarmCacheShown(worn);
             }
             ++i;
             continue;
@@ -710,7 +710,7 @@ int Actor::TryOnItem(const Model::TryOn::Request &request) {
     if (record == nullptr) {
         // An uncached recipe waits for itself, then for the item it makes
         // (PutOnWaiting); a cached one waits for that item now.
-        Item::Data::WarmCache(worn);
+        Item::Data::WarmCacheShown(worn);
         TryOn::Request waiting = request;
         waiting.itemID = worn;
         pendingTryOns.push_back(waiting);

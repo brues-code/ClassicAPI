@@ -39,6 +39,13 @@ namespace Item::Data {
 // the queue is full and nothing will report on it.
 bool WarmCache(uint32_t itemID);
 
+// WarmCache for an item a model on screen waits to put on (a scene actor's
+// try-on): its query goes on the priority lane with the player's carried
+// items, as the engine queries a player's visible items as soon as it sees
+// the player (the visible-item watcher 0x005DEE30), instead of waiting its
+// turn behind the background rate floor.
+bool WarmCacheShown(uint32_t itemID);
+
 // The cached item record (Item::PeekRecord), or nullptr after asking for it
 // through WarmCache. For a reader that wants the record now and will look
 // again later.

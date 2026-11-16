@@ -149,6 +149,7 @@
 #include <iterator>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -836,6 +837,19 @@ void ShowDoodads(const std::vector<std::unique_ptr<Doodad>> &doodads, const View
     }
 }
 
+// The doodad def cull (0x00683700) over doodads the update showed: one whose
+// sphere the volume rejects is set animated only while its centre lies
+// within the squared distance of the camera, else taken off the animate
+// list, which also keeps it out of the draw.
+void CullDoodadList(const std::vector<std::unique_ptr<Doodad>> &doodads, const float (&eye)[3]) {
+    const float near = EngineFloat(Offsets::VAR_DOODAD_CULLED_ANIMATE_DISTANCE_SQ);
+    for (const auto &d : doodads) {
+        if (d->model == nullptr || !d->bounded || !SphereCulled(d->center, d->radius))
+            continue;
+        M2::SetAnimated(d->model, Game::DistanceSq(d->center, eye) < near);
+    }
+}
+
 void ReleaseDoodad(Doodad &d) {
     DropSound(d);
     if (d.model == nullptr)
@@ -991,25 +1005,70 @@ bool SetModel(Backdrop *&set, const char *path, const float (&placement)[16], ui
     return PlaceModel(set, NewObject(path, placement, doodadSet), mapID);
 }
 
-// CMap::LoadWdt's read (0x00694760) and PlaceMapObjDef's placement
-// (0x00695650) with the zero origin the WDT passes.
-bool SetMapModel(Backdrop *&set, uint32_t mapID) {
+namespace {
+
+// The map's directory (Map.dbc), or null.
+const char *MapDirectory(uint32_t mapID) {
     const char *dir =
         DBC::StringField(Offsets::VAR_MAP_RECORDS, Offsets::VAR_MAP_COUNT, mapID, Offsets::OFF_MAP_DIRECTORY);
-    if (dir == nullptr || *dir == '\0')
-        return PlaceModel(set, nullptr, mapID);
-    char wdtPath[260];
-    std::snprintf(wdtPath, sizeof wdtPath, "World\\Maps\\%s\\%s.wdt", dir, dir);
-    File wdt(wdtPath);
+    return dir != nullptr && *dir != '\0' ? dir : nullptr;
+}
+
+// CMap::LoadWdt's read (0x00694760) through MAIN: the version, MPHD's first
+// dword (its flags) and the MAIN entries.
+bool ReadWdtHead(File &wdt, uint32_t &flags, std::vector<uint8_t> &main) {
     ChunkHeader h{};
     uint32_t version = 0;
     uint8_t mphd[Offsets::WDT_MPHD_SIZE];
-    std::vector<uint8_t> main(Offsets::WDT_MAIN_SIZE);
+    main.resize(Offsets::WDT_MAIN_SIZE);
     if (!ReadChunk(wdt, "MVER", h) || !wdt.Read(&version, sizeof version) || !ReadChunk(wdt, "MPHD", h) ||
         !wdt.Read(mphd, sizeof mphd) || !ReadChunk(wdt, "MAIN", h) || !wdt.Read(main.data(), Offsets::WDT_MAIN_SIZE))
-        return PlaceModel(set, nullptr, mapID);
-    uint32_t flags = 0;
+        return false;
     std::memcpy(&flags, mphd, sizeof flags);
+    return true;
+}
+
+std::string WdtPath(const char *dir) {
+    char path[260];
+    std::snprintf(path, sizeof path, "World\\Maps\\%s\\%s.wdt", dir, dir);
+    return path;
+}
+
+} // namespace
+
+bool MapTiles(uint32_t mapID, std::string &directory, std::vector<bool> &listed) {
+    const char *dir = MapDirectory(mapID);
+    if (dir == nullptr)
+        return false;
+    File wdt(WdtPath(dir).c_str());
+    uint32_t flags = 0;
+    std::vector<uint8_t> main;
+    if (!ReadWdtHead(wdt, flags, main))
+        return false;
+    // MAIN is the tile state table (0x00C89F50): an entry per tile, bit 0
+    // the map's ADT there.
+    listed.assign(Offsets::WDT_MAIN_SIZE / Offsets::WDT_MAIN_ENTRY_SIZE, false);
+    for (size_t i = 0; i < listed.size(); ++i) {
+        uint32_t state = 0;
+        std::memcpy(&state, main.data() + i * Offsets::WDT_MAIN_ENTRY_SIZE, sizeof state);
+        listed[i] = (state & Offsets::WDT_TILE_FLAG_ADT) != 0;
+    }
+    directory = dir;
+    return true;
+}
+
+// CMap::LoadWdt's read (0x00694760) and PlaceMapObjDef's placement
+// (0x00695650) with the zero origin the WDT passes.
+bool SetMapModel(Backdrop *&set, uint32_t mapID) {
+    const char *dir = MapDirectory(mapID);
+    if (dir == nullptr)
+        return PlaceModel(set, nullptr, mapID);
+    File wdt(WdtPath(dir).c_str());
+    ChunkHeader h{};
+    uint32_t flags = 0;
+    std::vector<uint8_t> main;
+    if (!ReadWdtHead(wdt, flags, main))
+        return PlaceModel(set, nullptr, mapID);
     if ((flags & Offsets::WDT_FLAG_MAP_OBJECT) == 0 || !ReadChunk(wdt, "MWMO", h) || h.size == 0 || h.size > 260)
         return PlaceModel(set, nullptr, mapID);
     std::vector<char> name(h.size + 1, '\0');
@@ -1033,10 +1092,28 @@ void ClearModel(Backdrop *&set) {
 // unique id (PlaceMapObjDef returns the one it has), in the order the
 // chunks name them, placed from the map's origin.
 void SetTileObjects(Backdrop *&set, const std::vector<TileDef> &defs, uint32_t mapID) {
-    if (set != nullptr)
-        Remove(*set, [](const MapObject &o) { return o.tile; });
-    const float origin = Game::Read<float>(Offsets::VAR_MAP_ORIGIN);
+    // A def stays while a chunk refers to its unique id; the ones no chunk
+    // refers to go, and new ones join the end of the list, in placement
+    // order, as the world's def list (0x00CA7D98) takes them.
+    std::unordered_set<uint32_t> wanted;
+    for (const TileDef &def : defs) {
+        uint32_t unique = 0;
+        std::memcpy(&unique, def.entry + Offsets::OFF_MODF_UNIQUE_ID, sizeof unique);
+        wanted.insert(unique);
+    }
     std::unordered_set<uint32_t> placed;
+    if (set != nullptr) {
+        bool leaving = false;
+        for (const auto &o : set->objects) {
+            if (o->tile && wanted.count(o->uniqueId) == 0)
+                leaving = true;
+            else if (o->tile)
+                placed.insert(o->uniqueId);
+        }
+        if (leaving)
+            Remove(*set, [&wanted](const MapObject &o) { return o.tile && wanted.count(o.uniqueId) == 0; });
+    }
+    const float origin = Game::Read<float>(Offsets::VAR_MAP_ORIGIN);
     std::vector<std::unique_ptr<MapObject>> made;
     for (const TileDef &def : defs) {
         uint32_t unique = 0;
@@ -1059,7 +1136,7 @@ void SetTileObjects(Backdrop *&set, const std::vector<TileDef> &defs, uint32_t m
         made.push_back(std::move(o));
     }
     if (made.empty()) {
-        if (set != nullptr)
+        if (set != nullptr && wanted.empty())
             set->tileMapID = kNoMap;
         FreeIfEmpty(set);
         return;
@@ -1085,6 +1162,11 @@ void Free(Backdrop *backdrop) {
     for (const auto &o : backdrop->objects)
         FreeObject(*o);
     delete backdrop;
+}
+
+void CullDoodads(Backdrop &b, const float (&eye)[3]) {
+    for (const auto &o : b.objects)
+        CullDoodadList(o->doodads, eye);
 }
 
 void Silence(Backdrop &b) {
@@ -2885,6 +2967,9 @@ void ClearAndDrawOpenSky(void *frame, uint32_t mapID, uint32_t cameraLiquid, con
 
 struct Props {
     std::vector<std::unique_ptr<Doodad>> doodads;
+    // Each prop by its MDDF unique id (the def hash 0x00CA7DDC), with the
+    // number of chunks that refer to it.
+    std::unordered_map<uint32_t, std::pair<Doodad *, uint32_t>> byUniqueId;
     bool sounds = false; // SetPlayWorldModelSounds, in the world
     uint32_t queryId = 0;
 };
@@ -2900,6 +2985,12 @@ void FreeProps(Props *props) {
 }
 
 uint32_t AddProp(Props &props, void *frame, const char *path, const uint8_t *entry) {
+    const uint32_t unique = Game::Read<uint32_t>(entry, Offsets::OFF_MDDF_UNIQUE_ID);
+    const auto found = props.byUniqueId.find(unique);
+    if (found != props.byUniqueId.end()) {
+        ++found->second.second;
+        return unique;
+    }
     // PlaceDoodadDef (0x00694BC0): the position from the map's corner, the
     // scale word over 1024, the angles in degrees (z a half turn more), each
     // rounded where the client stores it.
@@ -2933,8 +3024,22 @@ uint32_t AddProp(Props &props, void *frame, const char *path, const uint8_t *ent
     Gx::Scale(m, d.scale);
     std::memcpy(d.matrix, m, sizeof d.matrix);
     MakeModel(d, path, m);
+    props.byUniqueId.emplace(unique, std::make_pair(&d, 1u));
     props.doodads.push_back(std::move(owned));
-    return static_cast<uint32_t>(props.doodads.size() - 1);
+    return unique;
+}
+
+void ReleaseProp(Props &props, uint32_t unique) {
+    const auto found = props.byUniqueId.find(unique);
+    if (found == props.byUniqueId.end() || --found->second.second != 0)
+        return;
+    Doodad *d = found->second.first;
+    props.byUniqueId.erase(found);
+    ReleaseDoodad(*d);
+    const auto it = std::find_if(props.doodads.begin(), props.doodads.end(),
+                                 [d](const std::unique_ptr<Doodad> &p) { return p.get() == d; });
+    if (it != props.doodads.end())
+        props.doodads.erase(it);
 }
 
 void UpdateProps(Props &props, void *frame, bool sounds) {
@@ -2944,6 +3049,8 @@ void UpdateProps(Props &props, void *frame, bool sounds) {
     ShowDoodads(props.doodads, CameraView(frame));
 }
 
+void CullProps(Props &props, const float (&eye)[3]) { CullDoodadList(props.doodads, eye); }
+
 void SilenceProps(Props &props) {
     for (const auto &d : props.doodads)
         DropSound(*d);
@@ -2951,11 +3058,12 @@ void SilenceProps(Props &props) {
 
 void BeginPropQuery(Props &props) { ++props.queryId; }
 
-bool AddPropFacets(Props &props, uint32_t prop, const float (&box)[6], std::vector<Contact::Facet> &out) {
+bool AddPropFacets(Props &props, uint32_t unique, const float (&box)[6], std::vector<Contact::Facet> &out) {
     // GatherDoodadFacets' rules (0x006ABC40), as for a WMO group's doodads.
-    if (prop >= props.doodads.size())
+    const auto found = props.byUniqueId.find(unique);
+    if (found == props.byUniqueId.end())
         return true;
-    Doodad &d = *props.doodads[prop];
+    Doodad &d = *found->second.first;
     if (d.stamp == props.queryId || d.model == nullptr)
         return true;
     if (!d.bounded)

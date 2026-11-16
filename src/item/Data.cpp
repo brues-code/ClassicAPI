@@ -26,6 +26,7 @@
 #include "unit/Identity.h"
 
 #include <cstdint>
+#include <unordered_set>
 
 namespace Item::Data {
 
@@ -135,7 +136,12 @@ static bool g_ownedEverBuilt = false;
 // or /reload) in RegisterLuaFunctions.
 static bool g_ownedPrefetched = false;
 
+// The items a model on screen waits to put on (WarmCacheShown), until each
+// resolves.
+static std::unordered_set<uint32_t> g_shown;
+
 static void OnLoadDone(uint32_t itemID, bool success, bool requested) {
+    g_shown.erase(itemID);
     if (requested)
         FireItemDataLoadResult(static_cast<int>(itemID), success);
     else
@@ -211,8 +217,12 @@ static bool IsOwned(uint32_t itemID) {
     return false;
 }
 
+// The priority lane: the player's carried items, and the items a model on
+// screen waits for.
+static bool IsPriority(uint32_t itemID) { return IsOwned(itemID) || g_shown.count(itemID) != 0; }
+
 static const Cache::QueryLoad::Client _client{Cache::QueryLoad::KIND_ITEM, &OnLoadDone,
-                                              &IsOwned};
+                                              &IsPriority};
 
 static bool Track(uint32_t itemID, bool requested) {
     return Cache::QueryLoad::Track(Cache::QueryLoad::KIND_ITEM, itemID, requested);
@@ -264,6 +274,13 @@ static const Tick::WorldTick::AutoSubscribe _tickSub{&OnWorldTick};
 // governs all outgoing queries (issue #25). An already-cached item resolves
 // for free (a pure lookup, no SMSG); only a genuine miss is queued, and its
 // answer fires `GET_ITEM_INFO_RECEIVED`, never `ITEM_DATA_LOAD_RESULT`.
+bool WarmCacheShown(uint32_t itemID) {
+    if (itemID == 0 || IsCached(itemID))
+        return itemID != 0;
+    g_shown.insert(itemID);
+    return Track(itemID, /*requested=*/false);
+}
+
 bool WarmCache(uint32_t itemID) {
     // Do NOT issue the query here. Two reasons converge on the queue:
     //   - Network: a post-settle immediate CacheFetch let a reload-time

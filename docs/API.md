@@ -858,7 +858,7 @@ build instructions.
   - [`scene:SetWorldModel(path [, x, y, z [, yaw [, doodadSet [, mapID]]]])`](#scenesetworldmodelpath--x-y-z--yaw--doodadset--mapid)
   - [`scene:SetWorldModelByMapID(mapID)`](#scenesetworldmodelbymapidmapid)
   - [`scene:ClearWorldModel()`](#sceneclearworldmodel)
-  - [`scene:SetWorldTerrain(mapID, x, y [, radius])`](#scenesetworldterrainmapid-x-y--radius)
+  - [`scene:SetWorldTerrain(mapID)`](#scenesetworldterrainmapid)
   - [`scene:ClearWorldTerrain()`](#sceneclearworldterrain)
   - [`scene:SetPlayWorldModelSounds(enabled)` / `scene:GetPlayWorldModelSounds()`](#scenesetplayworldmodelsoundsenabled--scenegetplayworldmodelsounds)
   - [`scene:TraceSegment(startX, startY, startZ, endX, endY, endZ [, camera])`](#scenetracesegmentstartx-starty-startz-endx-endy-endz--camera)
@@ -19213,7 +19213,7 @@ the sounds of their footsteps and death thuds (see
 Without `terrainTypeID`, an actor stands on the floor of the WMO of the scene
 ([`scene:SetWorldModel`](#scenesetworldmodelpath--x-y-z--yaw--doodadset--mapid))
 or on its ground
-([`scene:SetWorldTerrain`](#scenesetworldterrainmapid-x-y--radius)),
+([`scene:SetWorldTerrain`](#scenesetworldterrainmapid)),
 whichever is nearer under it, as in the world. The material of the WMO floor,
 or the main texture of the ground at that point, selects the sounds. An actor
 with no floor and no ground under it makes no footsteps and no death thuds.
@@ -19326,14 +19326,18 @@ onyxia:SetPosition(0.7, -211.97, -86.08) -- her place in the lair
 
 Removes the WMO of the scene and its props. This is a ClassicAPI extension.
 
-### `scene:SetWorldTerrain(mapID, x, y [, radius])`
+### `scene:SetWorldTerrain(mapID)`
 
-Shows the ground of a map around a point and returns `true`. `mapID` is a
-row of `Map.dbc`, for example `0` for Eastern Kingdoms. `x` and `y` are a
-position on that map, so the positions in the scene are the positions on
-the map. The scene shows each part of the ground that is less than
-`radius` yards from the point. The default radius is 533.33 yards, the
-width of one map tile.
+Shows the ground of a map and returns `true`. `mapID` is a row of
+`Map.dbc`, for example `0` for Eastern Kingdoms. The positions in the scene
+are the positions on the map.
+
+The ground follows the camera of the scene, as the ground of the world
+follows the camera of the world. The ground within the far clip of the
+camera (see `scene:SetCameraFarClip`) loads at once. A ring of ground past
+it loads a little in each frame. Ground that the camera leaves behind is
+removed. When the camera moves to a new place, the ground there loads in
+the same frame, so a large move can make one frame slow.
 
 The ground looks as it does in the world: the same textures, the same
 shadows and the same level of detail. The light of the scene stands in for
@@ -19351,7 +19355,9 @@ actors. A WMO that you set with `scene:SetWorldModel` shows together with
 them. To put it on the ground, give it its position on the same map.
 
 The function returns `false` and shows no ground when the map has no
-ground within the radius. A new call replaces the ground of the scene.
+ground, for example a map that is one WMO (use
+[`scene:SetWorldModelByMapID`](#scenesetworldmodelbymapidmapid) for it). A
+new call replaces the ground of the scene.
 
 Actors stand, walk and fall on the ground as on the floor of a WMO (see
 [`actor:SetMovementEnabled`](#actorsetmovementenabledenabled--actorismovementenabled)),
@@ -19359,7 +19365,7 @@ and
 [`scene:TraceSegment`](#scenetracesegmentstartx-starty-startz-endx-endy-endz--camera)
 and
 [`scene:SweepCollider`](#scenesweepcolliderfeetx-feety-feetz-radius-height-movex-movey-movez)
-find it. Past the radius there is no ground.
+find it where it has loaded.
 
 The props of the map on that ground, for example trees, plants and rocks,
 show as in the world. They fade with distance, and actors collide with them.
@@ -19377,8 +19383,9 @@ extension.
 
 ```lua
 -- The Gurubashi Arena: its ground, with the arena WMO that the map puts there.
-scene:SetWorldTerrain(0, -13205.914, 271.832, 250)
 scene:SetCameraFarClip(500)
+scene:SetCameraPosition(-13205.914, 271.832, 60)
+scene:SetWorldTerrain(0)
 ```
 
 ### `scene:ClearWorldTerrain()`
@@ -19403,7 +19410,7 @@ Returns the first face of the WMO or of the ground on the segment from the
 start to the end. The positions are scene positions. The function tests the
 faces that the line of sight of the world tests: the walls, floors and
 roofs of the WMO, and the ground of
-[`scene:SetWorldTerrain`](#scenesetworldterrainmapid-x-y--radius). It does
+[`scene:SetWorldTerrain`](#scenesetworldterrainmapid). It does
 not test small details or the props of the WMO.
 
 The function returns `hitX, hitY, hitZ, normalX, normalY, normalZ, fraction`:
@@ -19435,7 +19442,7 @@ local _, _, floorZ = scene:TraceSegment(x, y, z + 2, x, y, z - 50)
 ### `scene:GetLiquidAtPoint(x, y, z)`
 
 Returns the liquid of the WMO or of the terrain
-([`scene:SetWorldTerrain`](#scenesetworldterrainmapid-x-y--radius)) at a
+([`scene:SetWorldTerrain`](#scenesetworldterrainmapid)) at a
 scene point, as the world finds it for a unit that stands at the point. The
 liquid of the WMO comes first. The function returns `liquidType, surfaceZ`:
 
@@ -19456,7 +19463,7 @@ This is a ClassicAPI extension.
 
 Moves a body in a straight line until it touches the WMO, one of its
 props, or the ground of
-[`scene:SetWorldTerrain`](#scenesetworldterrainmapid-x-y--radius). The
+[`scene:SetWorldTerrain`](#scenesetworldterrainmapid). The
 world moves a character into a wall or onto a floor in the same way. The body
 has the shape of a character in the world: a square box over a downward
 point at the feet. `radius` is half the width of the box, and `height` is
@@ -19580,7 +19587,7 @@ same pulsing yellow mark that the world shows where you click to move. The
 scene shows one marker. A new call moves it to the new point.
 
 - In a scene with a WMO or ground
-  ([`scene:SetWorldTerrain`](#scenesetworldterrainmapid-x-y--radius)), the
+  ([`scene:SetWorldTerrain`](#scenesetworldterrainmapid)), the
   marker lies on their faces near the point. In a scene with neither, it
   lies flat at the height of the point.
 - The marker pulses between 0.5 and 0.75 yards in size, two times each
@@ -20126,7 +20133,7 @@ default. When it is `true`, the animations play these sounds:
   every 10 seconds. A copy of your own character does not play it.
 - Footsteps and the death thud. These need a ground: the floor of the WMO
   of the scene, its ground from
-  [`scene:SetWorldTerrain`](#scenesetworldterrainmapid-x-y--radius), or a
+  [`scene:SetWorldTerrain`](#scenesetworldterrainmapid), or a
   ground that you set with
   [`scene:SetGroundTerrain`](#scenesetgroundterrainterraintypeid--scenegetgroundterrain).
   Footsteps also need the `FootstepSounds` setting. At the surface of
@@ -20163,7 +20170,7 @@ units have on the ground in the world. The default is off.
 - In a scene with a WMO
   ([`scene:SetWorldModel`](#scenesetworldmodelpath--x-y-z--yaw--doodadset--mapid))
   or ground
-  ([`scene:SetWorldTerrain`](#scenesetworldterrainmapid-x-y--radius)), the
+  ([`scene:SetWorldTerrain`](#scenesetworldterrainmapid)), the
   shadow lies on the floor under the actor, as on the ground in the world.
   It follows slopes and steps, and it fades with the height of the actor
   above the floor. An actor with no floor under it shows no shadow.
