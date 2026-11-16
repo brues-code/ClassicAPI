@@ -5603,6 +5603,13 @@ enum Offsets {
     OFF_QUEST_SLOT_STATE = 0x07,
     QUEST_SLOT_STATE_COMPLETE = 0x02,
     OFF_PLAYER_INFO_FLAGS = 0x08,
+    // PLAYER_BYTES (player index 5) and PLAYER_BYTES_2 (index 6) in the same
+    // block: skin, face, hair style and hair color at +0x14..+0x17, facial
+    // hair at +0x18. CGUnit_C::BuildCharacterComponent (0x005FB200) reads the
+    // five bytes there into the character component of a player shown in
+    // its own display.
+    OFF_PLAYER_INFO_BYTES = 0x14,
+    OFF_PLAYER_INFO_BYTES_2 = 0x18,
     PLAYER_FLAG_AFK = 0x02,
     PLAYER_FLAG_DND = 0x04,
     // Chat AFK mirror (4.3.4 CGChat::m_afk), dword, nonzero = AFK. Five
@@ -7724,6 +7731,9 @@ enum Offsets {
     // Read by `IsStealthed()`.
     OFF_UNIT_FIELD_BYTES_1 = 0x210,
     UNIT_BYTES_1_STEALTH_FLAG = 0x02000000,
+    // UNIT_FIELD_BYTES_2 (update-field table index 0x9E): byte 0 is the
+    // sheath state the server broadcasts.
+    OFF_UNIT_FIELD_BYTES_2 = 0x278,
 
     // `__fastcall(void)` engine helper that refreshes the bonus
     // action bar from the local player's current shapeshift form
@@ -11848,6 +11858,13 @@ enum Offsets {
     // DressUpModel's ready byte is DISPLAYID == NATIVEDISPLAYID (0x00504450,
     // benilla ui/dressup): a shapeshifted unit takes no armor try-on.
     OFF_UNIT_FIELD_NATIVEDISPLAYID = 0x1F8,
+    // UNIT_VIRTUAL_ITEM_SLOT_DISPLAY (update-field table index 0x1F, count 3):
+    // the ItemDisplayInfo of each hand a creature holds (main, off, ranged),
+    // and UNIT_VIRTUAL_ITEM_INFO (index 0x22, count 6): two dwords per hand,
+    // the held lane (Model::Outfit::HeldLane) the unit hangs it with.
+    OFF_UNIT_FIELD_VIRTUAL_ITEM_SLOT_DISPLAY = 0x7C,
+    OFF_UNIT_FIELD_VIRTUAL_ITEM_INFO = 0x88,
+    UNIT_VIRTUAL_ITEM_SLOTS = 3,
 
     // Local player movement-flags u32. Lives directly on the
     // CGPlayer object (not the broadcast descriptor) — this is

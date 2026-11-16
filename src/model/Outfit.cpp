@@ -407,20 +407,23 @@ void ReadWorn(void *unit, uint64_t guid, const Weapons &weapons, Worn &worn) {
             continue;
         Appearance &held = worn[invSlot - 1];
         held.item = Game::Read<uint32_t>(item, Offsets::OFF_VISIBLE_ITEM_ITEM_ID);
-        if (weapons.visual[i] == 0)
-            continue;
-        // GetItemDescVisual's walk: the first enchant with an ItemVisual.
-        for (uint32_t e = 0; e < Offsets::VISIBLE_ITEM_ENCHANT_COUNT; ++e) {
-            const auto id = Game::Read<uint32_t>(item, Offsets::OFF_VISIBLE_ITEM_ENCHANTS + e * 4);
-            const uint8_t *enchant = DBC::Record(Offsets::VAR_SPELLITEMENCHANT_RECORDS,
-                                                 Offsets::VAR_SPELLITEMENCHANT_COUNT, id);
-            if (enchant != nullptr &&
-                Game::Read<uint32_t>(enchant, Offsets::OFF_SPELLITEMENCHANT_ITEM_VISUAL) != 0) {
-                held.enchant = id;
-                break;
-            }
-        }
+        if (weapons.visual[i] != 0)
+            held.enchant = ShownEnchant(item);
     }
+}
+
+uint32_t ShownEnchant(const uint8_t *visibleItem) {
+    // GetItemDescVisual's walk: the first enchant with an ItemVisual.
+    for (uint32_t e = 0; e < Offsets::VISIBLE_ITEM_ENCHANT_COUNT; ++e) {
+        const auto id =
+            Game::Read<uint32_t>(visibleItem, Offsets::OFF_VISIBLE_ITEM_ENCHANTS + e * 4);
+        const uint8_t *enchant = DBC::Record(Offsets::VAR_SPELLITEMENCHANT_RECORDS,
+                                             Offsets::VAR_SPELLITEMENCHANT_COUNT, id);
+        if (enchant != nullptr &&
+            Game::Read<uint32_t>(enchant, Offsets::OFF_SPELLITEMENCHANT_ITEM_VISUAL) != 0)
+            return id;
+    }
+    return 0;
 }
 
 void TrimWorn(void *component, const Lanes &lanes, Worn &worn) {

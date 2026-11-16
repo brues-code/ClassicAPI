@@ -181,6 +181,11 @@ using Worn = Appearance[kInventorySlots]; // inventory slot n at [n - 1]
 // unit that is not a player, which has no visible items.
 void ReadWorn(void *unit, uint64_t guid, const Weapons &weapons, Worn &worn);
 
+// The SpellItemEnchantment whose glow a visible-item entry
+// (Item::ID::VisibleEntry) shows: GetItemDescVisual's walk, the first of its
+// enchants with an ItemVisual. 0 for none.
+uint32_t ShownEnchant(const uint8_t *visibleItem);
+
 // Zeroes each slot of `worn` the model no longer shows: an armor slot the
 // component holds no record for (every one without a component), an empty
 // lane.

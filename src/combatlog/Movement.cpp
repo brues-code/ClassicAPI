@@ -43,8 +43,24 @@
 //     start at the unit's start point and end at the destination, all
 //     absolute, transport-relative when transportGUID is not 0. facingType
 //     is the server's 0 (none), 2 (a point), 3 (a unit) or 4 (an angle);
-//   MONSTER_STOP,unitGUID,transportGUID,splineID,x,y,z.
-// GUIDs are written as the combat log writes them.
+//   MONSTER_STOP,unitGUID,transportGUID,splineID,x,y,z;
+//   UNIT_INFO,unitGUID,x,y,z,facing,displayID,nativeDisplayID,
+//     mountDisplayID,scale,bytes1,bytes2,heldDisplay1..3,heldInfo1..6
+//     what a unit looks like, and where it is, when it comes into view and
+//     each time its look changes (UnitInfo.cpp): bytes1 and bytes2 are
+//     UNIT_FIELD_BYTES_1 (stand state, shapeshift form, stealth) and
+//     UNIT_FIELD_BYTES_2 (sheath state), the held fields the hands a
+//     creature holds (UNIT_VIRTUAL_ITEM_SLOT_DISPLAY, and two
+//     UNIT_VIRTUAL_ITEM_INFO dwords per hand);
+//   PLAYER_INFO,unitGUID,race,class,sex,skin,face,hairStyle,hairColor,
+//     facialHair,playerFlags,item1,enchant1,...,item19,enchant19
+//     after a player's UNIT_INFO, and each time it changes: what the client
+//     dresses a player in its own display with. Each inventory slot gives
+//     its item and the enchant whose glow it shows, 0 for none;
+//   UNIT_GONE,unitGUID
+//     the unit left view.
+// GUIDs are written as the combat log writes them. After a header the unit
+// lines start over: every unit in view is written again.
 //
 // The wire formats are the client's own readers:
 //   - a movement status (0x0047EBA0): flags, time, x, y, z, facing; with
@@ -71,14 +87,15 @@
 // SMSG_COMPRESSED_MOVES re-dispatches each message it holds through the same
 // funnel Net::PacketDispatch observes, so those arrive here one by one.
 //
-// Not logged: a unit's position when it comes into view (the object update's
-// movement block), knockback parameters (the fall that follows is logged),
-// and the spline mode toggles (0x304 to 0x31A).
+// Not logged: the path a unit is on when it comes into view (the object
+// update's spline; its next move is logged), knockback parameters (the fall
+// that follows is logged), and the spline mode toggles (0x304 to 0x31A).
 
 #include "Game.h"
 #include "Offsets.h"
 #include "combatlog/File.h"
 #include "combatlog/LogFile.h"
+#include "combatlog/Movement.h"
 #include "cvar/Factory.h"
 #include "event/EnteringWorld.h"
 #include "net/PacketDispatch.h"
@@ -93,7 +110,7 @@ namespace CombatLog::Movement {
 
 namespace {
 
-constexpr int kVersion = 1;
+constexpr int kVersion = 2;
 
 constexpr uint32_t MSG_MOVE_TELEPORT_ACK = 0xC7;
 constexpr uint32_t SMSG_MONSTER_MOVE = 0xDD;
@@ -175,6 +192,7 @@ const char *NameOf(const Named (&table)[N], uint32_t opcode) {
 
 LogFile g_log;
 uint32_t g_session = 0; // the combat log session the open file belongs to
+uint32_t g_generation = 0; // headers written
 CVar::Factory::Handle g_cvar = nullptr;
 
 void RegisterCVars() {
@@ -193,6 +211,7 @@ void Header() {
     std::snprintf(text, sizeof text, "MOVEMENT_LOG_VERSION,%d,BUILD_VERSION,%s,MAP_ID,%d",
                   kVersion, version, Game::Read<int>(Offsets::VAR_CURRENT_MAP_ID));
     g_log.Emit(text);
+    ++g_generation;
 }
 
 // The combat log session to write for, 0 when the file should be closed.
@@ -225,27 +244,13 @@ void OnEnterWorld() {
 
 const Event::EnteringWorld::AutoObserve _enterWorld{&OnEnterWorld};
 
-void Fixed(std::string &line, float value, int decimals) {
-    char text[32];
-    std::snprintf(text, sizeof text, ",%.*f", decimals, static_cast<double>(value));
-    line += text;
-}
-
-void Unsigned(std::string &line, uint32_t value) {
-    char text[16];
-    std::snprintf(text, sizeof text, ",%u", value);
-    line += text;
-}
-
-void Hex(std::string &line, uint32_t value) {
-    char text[16];
-    std::snprintf(text, sizeof text, ",0x%x", value);
-    line += text;
-}
+using File::AppendFixed;
+using File::AppendHex;
+using File::AppendUnsigned;
 
 void Point(std::string &line, const float (&p)[3]) {
     for (const float v : p)
-        Fixed(line, v, 2);
+        AppendFixed(line, v, 2);
 }
 
 void ReadPoint(Net::CDataStore *packet, float (&p)[3]) {
@@ -275,13 +280,13 @@ bool AppendStatus(std::string &line, Net::CDataStore *packet) {
     }
     if (Net::Overrun(packet))
         return false;
-    Hex(line, flags);
+    AppendHex(line, flags);
     Point(line, position);
-    Fixed(line, facing, 4);
-    Fixed(line, pitch, 4);
-    Unsigned(line, fallTime);
+    AppendFixed(line, facing, 4);
+    AppendFixed(line, pitch, 4);
+    AppendUnsigned(line, fallTime);
     for (const float v : jump)
-        Fixed(line, v, 4);
+        AppendFixed(line, v, 4);
     return true;
 }
 
@@ -299,7 +304,7 @@ void Speed(uint64_t guid, const char *type, float speed) {
     File::AppendGuid(line, guid);
     line += ',';
     line += type;
-    Fixed(line, speed, 4);
+    AppendFixed(line, speed, 4);
     g_log.Emit(line);
 }
 
@@ -316,7 +321,7 @@ void MonsterMove(uint32_t opcode, Net::CDataStore *packet) {
     std::string line = type == kMoveStop ? "MONSTER_STOP" : "MONSTER_MOVE";
     File::AppendGuid(line, guid);
     File::AppendGuid(line, transport);
-    Unsigned(line, splineId);
+    AppendUnsigned(line, splineId);
     if (type == kMoveStop) {
         Point(line, start);
         g_log.Emit(line);
@@ -340,13 +345,13 @@ void MonsterMove(uint32_t opcode, Net::CDataStore *packet) {
         count = 1;
     if (Net::Overrun(packet) || count > (packet->m_size - packet->m_read) / 4)
         return;
-    Hex(line, flags);
-    Unsigned(line, duration);
-    Unsigned(line, type);
+    AppendHex(line, flags);
+    AppendUnsigned(line, duration);
+    AppendUnsigned(line, type);
     Point(line, facePoint);
     File::AppendGuid(line, faceGuid);
-    Fixed(line, faceAngle, 4);
-    Unsigned(line, count + 1);
+    AppendFixed(line, faceAngle, 4);
+    AppendUnsigned(line, count + 1);
     Point(line, start);
     if (flags & kSplineWholePoints) {
         for (uint32_t i = 0; i < count; ++i) {
@@ -419,5 +424,14 @@ void OnSend(uint32_t opcode, Net::CDataStore *packet) {
 const Net::SendObserver::AutoSubscribe _sent{&OnSend};
 
 } // namespace
+
+bool IsOpen() { return g_log.IsOpen(); }
+
+void Emit(const std::string &body) {
+    if (g_log.IsOpen())
+        g_log.Emit(body);
+}
+
+uint32_t Generation() { return g_generation; }
 
 } // namespace CombatLog::Movement

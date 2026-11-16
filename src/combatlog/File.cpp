@@ -265,12 +265,6 @@ void Plain(std::string &line, const char *text) {
 
 void Quoted(std::string &line, const char *text) { AppendQuoted(line, text); }
 
-void Hex(std::string &line, uint32_t value) {
-    char text[16];
-    std::snprintf(text, sizeof text, ",0x%x", value);
-    line += text;
-}
-
 void Number(std::string &line, int value) {
     char text[16];
     std::snprintf(text, sizeof text, ",%d", value);
@@ -364,8 +358,8 @@ void UnitPart(std::string &line, uint64_t guid, bool named, const std::string &n
               uint32_t flags, uint32_t raidFlags) {
     GuidPart(line, guid);
     UnitName(line, guid, named, name);
-    Hex(line, flags);
-    Hex(line, raidFlags);
+    AppendHex(line, flags);
+    AppendHex(line, raidFlags);
 }
 
 bool SingleUnitTarget(int target) {
@@ -579,7 +573,7 @@ std::string Pack(const Entry &e, bool advanced, bool landed) {
         spell = SpellRecord(e.spellId);
         Number(line, e.spellId);
         Quoted(line, Spell::Lookup::Name(spell));
-        Hex(line, spell != nullptr ? SpellSchoolMask(spell) : e.spellSchool);
+        AppendHex(line, spell != nullptr ? SpellSchoolMask(spell) : e.spellSchool);
     }
     const Info info = landed ? Info::Dest : InfoUnit(e.event);
     if (advanced && info != Info::None)
@@ -689,6 +683,24 @@ void AppendQuoted(std::string &line, const char *text) {
         line += *c;
     }
     line += '"';
+}
+
+void AppendHex(std::string &line, uint32_t value) {
+    char text[16];
+    std::snprintf(text, sizeof text, ",0x%x", value);
+    line += text;
+}
+
+void AppendUnsigned(std::string &line, uint32_t value) {
+    char text[16];
+    std::snprintf(text, sizeof text, ",%u", value);
+    line += text;
+}
+
+void AppendFixed(std::string &line, float value, int decimals) {
+    char text[32];
+    std::snprintf(text, sizeof text, ",%.*f", decimals, static_cast<double>(value));
+    line += text;
 }
 
 } // namespace CombatLog::File

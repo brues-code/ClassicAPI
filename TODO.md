@@ -4258,9 +4258,39 @@ sends, TELEPORT_ACK), UNIT_SPEED, MONSTER_MOVE / MONSTER_STOP, and a
 header with the map. Formats are in the file's comment. Checked in game:
 own and another player's moves, creature paths, creature speeds (about 7
 lines/s in Stormwind). Not yet seen: MONSTER_STOP, transport moves,
-teleports, forced speed changes. Open: a unit's position when it comes
-into view (the object update's movement block) is not logged, so a unit
-that never moves or fights has no position. Next: layer 2 (the replay).
+teleports, forced speed changes.
+
+Replay layer 0 DONE (2026-11-16, checked in game in Stormwind: stand-state
+and mount changes, player gear, guard weapons decode as `HeldLane`s):
+`combatlog/UnitInfo.cpp` writes UNIT_INFO (place, display, native and
+mount display, scale, BYTES_1/BYTES_2, a creature's held items),
+PLAYER_INFO (race, class, sex, skin, face, hair, facial hair, PLAYER_FLAGS,
+19 visible items with the enchant whose glow shows) and UNIT_GONE to the
+movement file (MOVEMENT_LOG_VERSION 2). Each frame it compares the units in
+view with their last lines. The fields are the ones
+`CGUnit_C::BuildCharacterComponent` (0x005FB200) builds a model from. This
+closes the "unit that never moves has no position" gap. Not logged: the
+path a unit is on when it comes into view (its next move is logged).
+
+**Replay plan (scoped 2026-11-16).** In game, on ModelScene, as an
+embedded load-on-demand addon. Layers:
+- L0 record the look (above).
+- L1 a reader in the DLL: index encounters in `WoWCombatLog-*` files
+  (ENCOUNTER_START/END offsets), load one encounter from both files into
+  per-unit tracks (positions, splines, HP, auras as intervals, events),
+  and a `C_*` extension API for Lua. Lua cannot read files, and a night's
+  log is 115-164 MB.
+- L2 viewer v1: map, actors at interpolated positions, run/stand,
+  play/pause/scrub/speed, orbit camera. Players as bare race models.
+- L3 player models built from PLAYER_INFO (needs a DLL extension: build a
+  character from data, on the character component / `model/Outfit`).
+- L4 combat: cast visuals and missiles, auras, swings, deaths, health bars,
+  an event feed.
+- L5 follow camera, unit list, raids built on terrain.
+Maps (probe 2026-11-16, `SetWorldModelByMapID`): only Onyxia 249 and MC
+409 are single WMOs. BWL 469, ZG 309, AQ 509/531 and Naxx 533 need
+terrain plus the WMOs placed on tiles (MODF), which `SetWorldTerrain`
+does not draw yet.
 
 **Layer 1: advanced combat logging (the `advancedCombatLogging` cvar).**
 Our combat log file (`combatlog/File.cpp`) writes 4.3.4's PackEvent line.

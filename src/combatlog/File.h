@@ -52,4 +52,10 @@ void AppendGuid(std::string &line, uint64_t guid);
 // Appends `,"text"` with the file's quoting, or `,nil` for no text.
 void AppendQuoted(std::string &line, const char *text);
 
+// Appends `,` and the value: in hex (0x1f), as an unsigned number, or with
+// `decimals` places.
+void AppendHex(std::string &line, uint32_t value);
+void AppendUnsigned(std::string &line, uint32_t value);
+void AppendFixed(std::string &line, float value, int decimals);
+
 } // namespace CombatLog::File
