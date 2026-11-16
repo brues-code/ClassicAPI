@@ -84,7 +84,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "addons/Embedded.h"
-#include "addons/EngineIO.h"
+#include "storm/File.h"
 #include "addons/Registry.h"
 #include "storm/Memory.h"
 
@@ -179,11 +179,8 @@ bool ReadToc(const char *name, void **buf, size_t *size) {
     char path[260];
     std::snprintf(path, sizeof(path), "Interface\\AddOns\\%s\\%s.toc", name,
                   name);
-    auto read = reinterpret_cast<AddOns::EngineIO::FileReadFn>(
-        static_cast<uintptr_t>(Offsets::FUN_FILE_READ));
-    *buf = nullptr;
     *size = 0;
-    return read(0, path, buf, size, 1, 1, 0) != 0 && *buf != nullptr;
+    return Storm::File::Read(path, buf, size, 1);
 }
 
 // FNV-1a over the TOC's `##` lines only. File-reference lines are

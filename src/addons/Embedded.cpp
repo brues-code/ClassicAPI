@@ -69,7 +69,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "addons/Embedded.h"
-#include "addons/EngineIO.h"
+#include "storm/File.h"
 #include "addons/FlavorBindings.h"
 #include "addons/FlavorToc.h"
 #include "addons/Registry.h"
@@ -149,11 +149,11 @@ Embed::Bytes LookupEmbedded(const char *relPath) {
     return Embed::File(file->resourceId, file->index);
 }
 
-// Engine file I/O + Storm allocator — see addons/EngineIO.h for the shapes and
+// Engine file I/O + Storm allocator — see storm/File.h for the shapes and
 // the __stdcall / ESP-drift hazard. A buffer we SMemAlloc here is freed cleanly
 // by the caller's standard SMemFree in turn.
-using AddOns::EngineIO::FileExistsFn;
-using AddOns::EngineIO::FileReadFn;
+using FileExistsFn = Storm::File::ExistsFn;
+using FileReadFn = Storm::File::ReadFn;
 
 // The trampolines to the original FUN_FILE_READ / FUN_FILE_EXISTS (installed
 // by the co-hooks below).

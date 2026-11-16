@@ -45,7 +45,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
-#include "addons/EngineIO.h"
+#include "storm/File.h"
 #include "addons/Toc.h"
 #include "script/LoadFile.h"
 #include "storm/Memory.h"
@@ -64,9 +64,7 @@ namespace {
 constexpr size_t NPOS = static_cast<size_t>(-1);
 
 // Engine file I/O via the hooked FUN_FILE_READ (so a flavor TOC's flag is read —
-// FlavorToc applies), the exists-check, and the Storm free. See addons/EngineIO.h.
-using AddOns::EngineIO::FileExistsFn;
-using AddOns::EngineIO::FileReadFn;
+// FlavorToc applies), the exists-check, and the Storm free. See storm/File.h.
 using LoadTocFilesFn = uint32_t(__fastcall *)(char *tocPath, int *a2, int *a3);
 using NameFn = const char *(*)(); // no-arg readers (return in EAX)
 
@@ -137,11 +135,9 @@ struct SvFlags {
 // TOC's directives are honored) and extract the three flags above.
 SvFlags ReadSvFlags(const char *tocPath) {
     SvFlags f;
-    auto FileRead =
-        reinterpret_cast<FileReadFn>(static_cast<uintptr_t>(Offsets::FUN_FILE_READ));
     void *buf = nullptr;
     size_t size = 0;
-    if (FileRead(0, tocPath, &buf, &size, 1, 1, 0) == 0 || buf == nullptr)
+    if (!Storm::File::Read(tocPath, &buf, &size, 1))
         return f;
     const char *b = static_cast<const char *>(buf);
 
@@ -165,8 +161,7 @@ SvFlags ReadSvFlags(const char *tocPath) {
 }
 
 bool FileExists(const char *path) {
-    return reinterpret_cast<FileExistsFn>(
-               static_cast<uintptr_t>(Offsets::FUN_FILE_EXISTS))(path, 1) != 0;
+    return Storm::File::Exists(path);
 }
 
 // Load a SavedVariables file we found, then mark its path so the engine's own

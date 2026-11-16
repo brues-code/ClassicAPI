@@ -31,7 +31,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
-#include "addons/EngineIO.h"
+#include "storm/File.h"
 #include "addons/Toc.h"
 #include "luasyntax/AddonNamespace.h"
 #include "storm/Memory.h"
@@ -48,10 +48,8 @@ namespace {
 // passing the name string works because the lookup hashes it. See Offsets.h.
 using IsLoadedFn_t = uint8_t(__fastcall *)(const char *name);
 
-// FUN_FILE_READ / the Storm free (see addons/EngineIO.h). Calling the raw
-// FUN_FILE_READ address routes through Embedded's file-read hook, which forwards
+// Storm::File::Read routes through Embedded's file-read hook, which forwards
 // every non-`!!!ClassicAPI` path to the original untouched — what we want here.
-using AddOns::EngineIO::FileReadFn;
 
 // True iff the addon's `.toc` has a line `## AllowAddOnTableAccess: <nonzero>`.
 // The value is read as a TOC boolean flag: parse the leading integer, true iff
@@ -69,8 +67,7 @@ bool TocAllowsTableAccess(const char *name) {
 
     void *buf = nullptr;
     size_t size = 0;
-    auto fileRead = reinterpret_cast<FileReadFn>(Offsets::FUN_FILE_READ);
-    if (fileRead(0, path, &buf, &size, 1, 1, 0) == 0 || buf == nullptr)
+    if (!Storm::File::Read(path, &buf, &size, 1))
         return false;
 
     const char *v = nullptr;

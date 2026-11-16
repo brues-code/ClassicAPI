@@ -50,6 +50,7 @@
 #include "dbc/Lookup.h"
 #include "dbc/Names.h"
 #include "map/Area.h"
+#include "storm/File.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -272,10 +273,7 @@ int __fastcall Script_GetMapInfoAtPosition(void *L) {
 constexpr int kWorldMapDetailTiles = 12;
 
 bool FileExists(const char *path) {
-    using FileExists_t = int(__stdcall *)(const char *path, int mode);
-    auto fn = reinterpret_cast<FileExists_t>(
-        static_cast<uintptr_t>(Offsets::FUN_FILE_EXISTS));
-    return fn(path, 1) != 0;
+    return Storm::File::Exists(path);
 }
 
 // Builds tile `n`'s texture path (1-based) for map directory `dir`, without

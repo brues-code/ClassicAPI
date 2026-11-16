@@ -93,6 +93,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "debug/Log.h"
+#include "storm/File.h"
 #include "storm/Memory.h"
 
 #include <windows.h>
@@ -107,14 +108,6 @@
 namespace Interface::Export {
 
 namespace {
-
-// Engine's file-content reader (see Offsets::FUN_FILE_READ). __stdcall
-// (callee cleans 28 bytes via RET 0x1C — NOT __cdecl; getting this
-// wrong corrupts the caller's stack). Allocates a Storm buffer; free
-// with SMemFree.
-using FileRead_t = int(__stdcall *)(int unused, const char *path, void **outBuf,
-                                    unsigned int *outSize, unsigned int extraBytes,
-                                    int flag1, int flag2);
 
 // MPQ enumerator (see Offsets::FUN_MPQ_ENUM_FILES). The callback
 // receives each listfile entry's full path in ecx; returning 0 STOPS
@@ -300,14 +293,13 @@ void ScanPathGetters(Collector &c) {
 // without re-running the export.
 int WriteFiles(const std::vector<std::string> &files, size_t prefixLen,
                const char *dstRoot, int *skipped) {
-    auto FileRead = reinterpret_cast<FileRead_t>(Offsets::FUN_FILE_READ);
 
     int written = 0;
     int missed = 0;
     for (const std::string &src : files) {
         void *buf = nullptr;
-        unsigned int size = 0;
-        if (FileRead(0, src.c_str(), &buf, &size, 0, 1, 0) == 0 || buf == nullptr) {
+        size_t size = 0;
+        if (!Storm::File::Read(src.c_str(), &buf, &size, 0)) {
             ++missed;
             Debug::Log::Printf("Export: read failed: %s", src.c_str());
             continue;

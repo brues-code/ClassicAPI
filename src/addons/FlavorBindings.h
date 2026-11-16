@@ -15,12 +15,12 @@
 
 #include <cstddef>
 
-#include "addons/EngineIO.h"
+#include "storm/File.h"
 
 namespace AddOns::FlavorBindings {
 
-using EngineIO::FileExistsFn;
-using EngineIO::FileReadFn;
+using FileExistsFn = Storm::File::ExistsFn;
+using FileReadFn = Storm::File::ReadFn;
 
 // Flavor-specific addon Bindings selection — the Bindings.xml analog of
 // AddOns::FlavorToc.

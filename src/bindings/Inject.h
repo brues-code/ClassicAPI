@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include "storm/File.h"
+
 #include <cstddef>
 
 namespace Bindings::Inject {
@@ -20,10 +22,7 @@ namespace Bindings::Inject {
 // `FUN_FILE_READ` shape — Storm-style: __stdcall, returns 1 on success
 // with the buffer allocated via SMemAlloc into `*outBuf` (size in
 // `*outSize`, plus `extraBytes` of trailing zero padding).
-using FileReadFn = int(__stdcall *)(int unused, const char *path,
-                                     void **outBuf, size_t *outSize,
-                                     size_t extraBytes,
-                                     int flag1, int flag2);
+using FileReadFn = Storm::File::ReadFn;
 
 // Path-matches `Interface\FrameXML\Bindings.xml`. On match: fetches
 // the real file via `original`, splices our ClassicAPI bindings into

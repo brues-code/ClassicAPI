@@ -42,7 +42,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
-#include "addons/EngineIO.h"
+#include "storm/File.h"
 #include "baselib/Ascii.h"
 #include "frame/ClickEvents.h"
 #include "input/Modifier.h"
@@ -216,8 +216,7 @@ using TreeFree_t = void(__fastcall *)(void *tree);
 void LoadModifiedClicks(const char *path, void *status) {
     void *data = nullptr;
     size_t size = 0;
-    if (!reinterpret_cast<AddOns::EngineIO::FileReadFn>(Offsets::FUN_FILE_READ)(0, path, &data,
-                                                                                 &size, 0, 1, 0))
+    if (!Storm::File::Read(path, &data, &size, 0))
         return;
     void *tree = reinterpret_cast<TreeLoad_t>(Offsets::FUN_XML_TREE_LOAD)(
         static_cast<const char *>(data), static_cast<uint32_t>(size));

@@ -44,7 +44,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
-#include "addons/EngineIO.h"
+#include "storm/File.h"
 #include "script/LoadFile.h"
 #include "xml/FileStack.h"
 
@@ -55,8 +55,7 @@ namespace Xml::ScriptPath {
 namespace {
 
 bool FileExists(const char *path) {
-    return reinterpret_cast<AddOns::EngineIO::FileExistsFn>(
-               static_cast<uintptr_t>(Offsets::FUN_FILE_EXISTS))(path, 1) != 0;
+    return Storm::File::Exists(path);
 }
 
 bool IsSep(char c) { return c == '\\' || c == '/'; }

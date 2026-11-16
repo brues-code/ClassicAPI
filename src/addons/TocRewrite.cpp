@@ -11,7 +11,7 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-#include "addons/EngineIO.h"
+#include "storm/File.h"
 #include "addons/TocRewrite.h"
 #include "addons/Toc.h"
 #include "localization/Locale.h"

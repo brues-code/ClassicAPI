@@ -15,11 +15,11 @@
 
 #include <cstddef>
 
-#include "addons/EngineIO.h"
+#include "storm/File.h"
 
 namespace AddOns::FlavorToc {
 
-using EngineIO::FileReadFn;
+using FileReadFn = Storm::File::ReadFn;
 
 // Modern-client multi-flavor TOC selection, backported.
 //
