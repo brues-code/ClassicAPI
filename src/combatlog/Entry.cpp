@@ -47,6 +47,7 @@
 #include "time/Clock.h"
 #include "unit/Focus.h"
 #include "unit/Identity.h"
+#include "unit/RaidTarget.h"
 #include "unit/Power.h"
 
 #include <ctime>
@@ -257,11 +258,8 @@ uint32_t RaidFlags(uint64_t guid) {
         return NONE;
     if (Group::Roster::RaidCount() == 0 && Group::Roster::PartyCount() == 0)
         return 0;
-    for (int i = 0; i < 8; ++i) {
-        if (Game::Read<uint64_t>(Offsets::VAR_RAID_TARGET_GUIDS + i * sizeof(uint64_t)) == guid)
-            return 1u << i;
-    }
-    return 0;
+    const int mark = Unit::RaidTarget::MarkOf(guid);
+    return mark != 0 ? 1u << (mark - 1) : 0;
 }
 
 using GameObjectName_t = const char *(__fastcall *)(void *object);

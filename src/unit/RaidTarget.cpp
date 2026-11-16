@@ -87,4 +87,13 @@ uint64_t GetGUIDByMark(int mark) {
     return MarkerTable()[mark - 1];
 }
 
+int MarkOf(uint64_t guid) {
+    using FindSlot_t = int(__stdcall *)(uint32_t guidLo, uint32_t guidHi);
+    if (guid == 0)
+        return 0;
+    const int slot = reinterpret_cast<FindSlot_t>(Offsets::FUN_RAID_TARGET_FIND_SLOT)(
+        static_cast<uint32_t>(guid), static_cast<uint32_t>(guid >> 32));
+    return slot < kMarkCount ? slot + 1 : 0;
+}
+
 } // namespace Unit::RaidTarget

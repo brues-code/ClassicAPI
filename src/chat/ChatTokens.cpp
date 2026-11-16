@@ -64,24 +64,14 @@ const char *UnitName(uint64_t guid) {
 
 // `{rtN}` for a unit that carries raid marker N, else nothing.
 void AppendMarker(std::string &out, uint64_t guid) {
-    for (int mark = 1; mark <= Unit::RaidTarget::kMarkCount; ++mark) {
-        if (Unit::RaidTarget::GetGUIDByMark(mark) == guid) {
-            char prefix[8];
-            std::snprintf(prefix, sizeof prefix, "{rt%d}", mark);
-            out += prefix;
-            return;
-        }
+    if (const int mark = Unit::RaidTarget::MarkOf(guid)) {
+        char prefix[8];
+        std::snprintf(prefix, sizeof prefix, "{rt%d}", mark);
+        out += prefix;
     }
 }
 
-bool IsMarked(uint64_t guid) {
-    if (guid == 0)
-        return false;
-    for (int mark = 1; mark <= Unit::RaidTarget::kMarkCount; ++mark)
-        if (Unit::RaidTarget::GetGUIDByMark(mark) == guid)
-            return true;
-    return false;
-}
+bool IsMarked(uint64_t guid) { return Unit::RaidTarget::MarkOf(guid) != 0; }
 
 bool IsFocusCode(char c) { return c == 'f' || c == 'F'; }
 bool IsTargetCode(char c) { return c == 't' || c == 'T' || c == 'n' || c == 'N'; }

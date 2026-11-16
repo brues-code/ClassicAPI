@@ -98,11 +98,8 @@ int ListTokens(uint64_t guid, char (*out)[32], int max) {
         }
     if (n < max && guid == Unit::Focus::Get())
         std::snprintf(out[n++], sizeof out[0], "focus");
-    for (int m = 1; n < max && m <= Unit::RaidTarget::kMarkCount; ++m)
-        if (Unit::RaidTarget::GetGUIDByMark(m) == guid) {
-            std::snprintf(out[n++], sizeof out[0], "mark%d", m);
-            break;
-        }
+    if (const int m = Unit::RaidTarget::MarkOf(guid); n < max && m != 0)
+        std::snprintf(out[n++], sizeof out[0], "mark%d", m);
     if (n < max && guid == Target::SoftUnit::Current(Target::SoftUnit::Side::Enemy))
         std::snprintf(out[n++], sizeof out[0], "softenemy");
     if (n < max && guid == Target::SoftUnit::Current(Target::SoftUnit::Side::Friend))

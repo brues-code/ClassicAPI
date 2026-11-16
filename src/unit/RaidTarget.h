@@ -28,4 +28,8 @@ constexpr int kMarkCount = 8;
 // mirroring `NamePlate::Events::GetGUIDByIndex` / `Unit::Focus::Get`.
 uint64_t GetGUIDByMark(int mark);
 
+// The marker (`1..kMarkCount`) `guid` wears, or 0 for none and for a zero
+// GUID, through the engine's own lookup (FUN_RAID_TARGET_FIND_SLOT).
+int MarkOf(uint64_t guid);
+
 } // namespace Unit::RaidTarget

@@ -9595,6 +9595,10 @@ enum Offsets {
     // reads it to resolve the `markN` token and to drive the per-mark
     // unit-event observers. Matches nampower's `CGRaidInfo_m_raidtargets`.
     VAR_RAID_TARGET_GUIDS = 0x00B71368,
+    // FindRaidTargetSlot — `int __stdcall(uint32 guidLo, uint32 guidHi)`,
+    // RET 8: the slot (0..7) of VAR_RAID_TARGET_GUIDS holding the GUID, or 8.
+    // A zero GUID matches the first unassigned slot (disassembly).
+    FUN_RAID_TARGET_FIND_SLOT = 0x004BB190,
 
     // 0..7: start-up stores the Wow.ini Language+Country tag's position in
     // VAR_LOCALE_NAME_TABLE (0x402562), 0 when it matches none (enGB).
