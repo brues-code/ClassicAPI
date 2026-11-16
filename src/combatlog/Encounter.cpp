@@ -62,6 +62,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "combatlog/Combatant.h"
 #include "combatlog/File.h"
 #include "creature/Info.h"
 #include "event/EnteringWorld.h"
@@ -146,22 +147,6 @@ bool GroupFighting() {
     return false;
 }
 
-int GroupSize() {
-    const int raid = Group::Roster::RaidCount();
-    return raid != 0 ? raid : Group::Roster::PartyCount() + 1;
-}
-
-int Difficulty(int groupSize) {
-    switch (Map::Instance::CurrentType()) {
-    case kInstanceDungeon:
-        return kDifficultyDungeon;
-    case kInstanceRaid:
-        return groupSize > kRaid20Size ? kDifficultyRaid40 : kDifficultyRaid20;
-    default:
-        return 0;
-    }
-}
-
 // Every engaged boss is beaten: dead or friendly, and with `goneCounts` also
 // gone from view.
 bool Beaten(bool goneCounts) {
@@ -199,6 +184,7 @@ void Start(uint64_t boss, const std::string &name) {
     std::snprintf(tail, sizeof tail, ",%d,%d", Game::Read<int>(Offsets::VAR_CURRENT_MAP_ID),
                   kStartTail);
     File::WriteLine("ENCOUNTER_START" + Fields() + tail);
+    Combatant::WriteGroup();
 }
 
 void End(bool success) {
@@ -260,6 +246,22 @@ void OnEnterWorld() {
 const Event::EnteringWorld::AutoObserve _enterWorld{&OnEnterWorld};
 
 } // namespace
+
+int GroupSize() {
+    const int raid = Group::Roster::RaidCount();
+    return raid != 0 ? raid : Group::Roster::PartyCount() + 1;
+}
+
+int Difficulty(int groupSize) {
+    switch (Map::Instance::CurrentType()) {
+    case kInstanceDungeon:
+        return kDifficultyDungeon;
+    case kInstanceRaid:
+        return groupSize > kRaid20Size ? kDifficultyRaid40 : kDifficultyRaid20;
+    default:
+        return 0;
+    }
+}
 
 void Observe(const Entry &e) {
     if (e.event == UNIT_DIED || e.event == UNIT_DESTROYED) {

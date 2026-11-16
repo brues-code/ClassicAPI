@@ -18,6 +18,7 @@
 #include "item/Arg.h"
 #include "item/CGItem.h"
 #include "item/Data.h"
+#include "item/Record.h"
 #include "item/ID.h"
 #include "item/Location.h"
 #include "tick/WorldTick.h"
@@ -274,6 +275,13 @@ bool WarmCache(uint32_t itemID) {
     //     PLAYER_ENTERING_WORLD. The queue issues only once settled, and
     //     resends what was lost, so deferring here fixes that too.
     return Track(itemID, /*requested=*/false);
+}
+
+const uint8_t *RecordOrRequest(uint32_t itemID) {
+    if (const uint8_t *record = Item::PeekRecord(itemID))
+        return record;
+    WarmCache(itemID);
+    return nullptr;
 }
 
 // Hook for `Script_GetItemInfo`. Pre-warms the cache from arg 1, then

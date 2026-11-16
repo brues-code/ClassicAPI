@@ -20,6 +20,7 @@
 
 #include "combatlog/Entry.h"
 
+#include <cstdint>
 #include <string>
 
 namespace CombatLog::File {
@@ -35,6 +36,9 @@ void WriteLine(const std::string &body);
 // while combat logging is off. A line pair that must land in one file (an
 // encounter's start and end) compares it.
 uint32_t Session();
+
+// Appends `,` and the GUID as the file writes it (Player-0-0000ABCD, ...).
+void AppendGuid(std::string &line, uint64_t guid);
 
 // Appends `,"text"` with the file's quoting, or `,nil` for no text.
 void AppendQuoted(std::string &line, const char *text);

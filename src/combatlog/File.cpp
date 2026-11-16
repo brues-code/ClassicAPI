@@ -34,7 +34,10 @@
 //     a crash loses at most that much;
 //   - the header line (COMBAT_LOG_VERSION, ADVANCED_LOG_ENABLED, BUILD_VERSION,
 //     PROJECT_ID) starts the file and is written again on every world entry,
-//     as Era writes it after each loading screen. BUILD_VERSION is the
+//     as Era writes it after each loading screen. A ZONE_CHANGE follows each
+//     one (map ID, the real zone name, the difficulty the encounter lines
+//     use), and another comes with a new zone entered without a loading
+//     screen. BUILD_VERSION is the
 //     client's GetBuildInfo version (VAR_BUILD_VERSION_STRING); PROJECT_ID is
 //     Era's 2, WOW_PROJECT_CLASSIC;
 //   - GUIDs are written as retail's strings (Player-0-0000ABCD,
@@ -87,11 +90,12 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "cvar/Factory.h"
+#include "combatlog/Encounter.h"
 #include "event/EnteringWorld.h"
+#include "event/SignalHook.h"
 #include "guid/Guid.h"
 #include "item/Data.h"
 #include "item/ID.h"
-#include "item/Record.h"
 #include "object/Resolve.h"
 #include "spell/Lookup.h"
 #include "tick/FrameTick.h"
@@ -196,6 +200,31 @@ void Emit(const std::string &body) {
     std::fwrite(line.data(), 1, line.size(), g_file);
 }
 
+// The zone the last ZONE_CHANGE named.
+int g_zoneMap = -1;
+std::string g_zoneName;
+
+// The real zone name (GetRealZoneText), or Era's "UNKNOWN AREA" while it is
+// empty.
+std::string ZoneName() {
+    const char *name = Game::Read<const char *>(Offsets::VAR_REAL_ZONE_TEXT);
+    return name != nullptr && *name != '\0' ? name : "UNKNOWN AREA";
+}
+
+// ZONE_CHANGE,mapID,"zone",difficultyID
+void ZoneChange() {
+    g_zoneMap = Game::Read<int>(Offsets::VAR_CURRENT_MAP_ID);
+    g_zoneName = ZoneName();
+    char text[32];
+    std::snprintf(text, sizeof text, "ZONE_CHANGE,%d", g_zoneMap);
+    std::string line = text;
+    AppendQuoted(line, g_zoneName.c_str());
+    std::snprintf(text, sizeof text, ",%d", Encounter::Difficulty(Encounter::GroupSize()));
+    line += text;
+    Emit(line);
+}
+
+// The header line, and the ZONE_CHANGE Era writes after each one.
 void Header() {
     const char *version = reinterpret_cast<const char *>(
         static_cast<uintptr_t>(Offsets::VAR_BUILD_VERSION_STRING));
@@ -205,6 +234,7 @@ void Header() {
                   "COMBAT_LOG_VERSION,%d,ADVANCED_LOG_ENABLED,%d,BUILD_VERSION,%s,PROJECT_ID,%d",
                   kLogVersion, g_headerAdvanced ? 1 : 0, version, kProjectId);
     Emit(text);
+    ZoneChange();
 }
 
 // A new log named for the local time now, and its header. True when it is open.
@@ -260,6 +290,18 @@ void OnEnterWorld() {
 }
 
 const Event::EnteringWorld::AutoObserve _enterWorld{&OnEnterWorld};
+
+// A new zone without a loading screen (walking out of a city) gets its own
+// ZONE_CHANGE, as in Era's log. The engine fires ZONE_CHANGED_NEW_AREA after
+// storing the zone names; one the last line already named writes nothing.
+bool OnSignal(int eventID) {
+    if (eventID == Offsets::EVENT_ZONE_CHANGED_NEW_AREA && g_file != nullptr &&
+        (Game::Read<int>(Offsets::VAR_CURRENT_MAP_ID) != g_zoneMap || ZoneName() != g_zoneName))
+        ZoneChange();
+    return false;
+}
+
+const Event::SignalHook::AutoSubscribe _zone{&OnSignal};
 
 void Plain(std::string &line, const char *text) {
     line += ',';
@@ -487,9 +529,8 @@ int ItemLevel(void *player) {
         const uint32_t itemId = Item::ID::Visible(player, invSlot - 1);
         if (itemId == 0)
             return 0;
-        const uint8_t *record = Item::PeekRecord(itemId);
+        const uint8_t *record = Item::Data::RecordOrRequest(itemId);
         if (record == nullptr) {
-            Item::Data::WarmCache(itemId);
             complete = false;
             return 0;
         }
@@ -659,6 +700,8 @@ void WriteLine(const std::string &body) {
     if (Ready())
         Emit(body);
 }
+
+void AppendGuid(std::string &line, uint64_t guid) { GuidPart(line, guid); }
 
 uint32_t Session() { return Logging() && g_file != nullptr ? g_session : 0; }
 

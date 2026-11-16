@@ -2665,6 +2665,9 @@ enum Offsets {
     EVENT_LOOT_OPENED = 0x10B,
     EVENT_LOOT_CLOSED = 0x10D,
     EVENT_PLAYER_ENTERING_WORLD = 0x110,
+    // Fired alone by the zone commit FUN_00494780 when the zone ID changes
+    // (benilla-re ui/zonetext), after the zone name caches are stored.
+    EVENT_ZONE_CHANGED_NEW_AREA = 0xCD,
     EVENT_PLAYER_LEAVING_WORLD = 0x111,
     EVENT_QUEST_LOG_UPDATE = 0x134,
     EVENT_FRIENDLIST_UPDATE = 0x15F,
@@ -2977,6 +2980,12 @@ enum Offsets {
     // server-side; used by GetSpellBonusHealing for the Spiritual-Guidance
     // (aura 175) spirit→healing conversion.
     OFF_UNIT_FIELD_STAT_SPIRIT = 0x250,
+    // STAT0 (Strength), fieldIndex 0x90 -> +0x240: the five stats are
+    // consecutive UpdateFields (tortoise-wow UpdateFields.h UNIT_FIELD_STAT0..4),
+    // so Str/Agi/Sta/Int/Spirit are +0x240/+0x244/+0x248/+0x24C/+0x250, the
+    // last being the verified OFF_UNIT_FIELD_STAT_SPIRIT. The server sends
+    // them only to the unit itself.
+    OFF_UNIT_FIELD_STAT0 = 0x240,
     // UNIT_FIELD_RESISTANCES[0] = armor (the fully-computed total), fieldIndex
     // 0x95 → +0x254 (7 resistances: armor, then the 6 magic schools). What
     // GetArmor() / GetResistance(SPELL_SCHOOL_NORMAL) returns; used by
@@ -9411,6 +9420,11 @@ enum Offsets {
     // realZone, eventID)`; read by `Script_GetRealZoneText` and the
     // outbound party-stats builder `FUN_005f0880`.
     VAR_PLAYER_AREA_ID = 0x00B4E314,
+    // The real zone name, the zone's own name before an indoor override:
+    // `const char *`, null when empty. Script_GetRealZoneText (0x0048A0C0) is
+    // `mov edx, [0xB4B404]`, the empty string for null, then lua_pushstring;
+    // the zone commit FUN_00494780 stores it (benilla-re ui/zonetext).
+    VAR_REAL_ZONE_TEXT = 0x00B4B404,
     // Local player's current SUBZONE AreaTable.dbc ID, 0 when the area
     // under the player is itself a top-level zone. Second arg of the same
     // handler: its sole caller `FUN_0067e510` resolves the area at the
@@ -11335,6 +11349,7 @@ enum Offsets {
     // value is at `[entry+0x10]`.
     VAR_TALENT_TAB_COUNT = 0x00BDCD24,
     VAR_TALENT_TAB_INFO_ARRAY = 0x00BDCD28,
+    OFF_TABINFO_POINTS_SPENT = 0x04,
     OFF_TABINFO_NUM_TALENTS = 0x08,
     OFF_TABINFO_TALENT_ARRAY = 0x0C,
     OFF_TALENT_SPELL_RANK = 0x10,

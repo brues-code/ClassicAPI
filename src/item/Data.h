@@ -39,6 +39,11 @@ namespace Item::Data {
 // the queue is full and nothing will report on it.
 bool WarmCache(uint32_t itemID);
 
+// The cached item record (Item::PeekRecord), or nullptr after asking for it
+// through WarmCache. For a reader that wants the record now and will look
+// again later.
+const uint8_t *RecordOrRequest(uint32_t itemID);
+
 // C++ observer of every queued load's completion: called with the itemID
 // and the outcome each time this module fires GET_ITEM_INFO_RECEIVED or
 // ITEM_DATA_LOAD_RESULT for it, after the cache holds the record (success)

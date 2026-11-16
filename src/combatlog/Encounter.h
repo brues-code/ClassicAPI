@@ -24,4 +24,12 @@ namespace CombatLog::Encounter {
 // before the line that starts the fight.
 void Observe(const Entry &entry);
 
+// The group's size: the raid roster, else the party and the player.
+int GroupSize();
+
+// Era's difficultyID for the current map and a group of `groupSize`: 9 for a
+// raid of more than 20, 148 for one of 20 or fewer, 1 for a dungeon, 0
+// elsewhere. ZONE_CHANGE writes it too.
+int Difficulty(int groupSize);
+
 } // namespace CombatLog::Encounter
