@@ -4309,7 +4309,14 @@ embedded load-on-demand addon. Layers:
   (a jump is drawn as straight lines to its mid-air sample; the log has
   the jump's speeds and fall time for the client's arc).
 - L4 combat: cast visuals and missiles, auras, swings, deaths, health bars,
-  an event feed.
+  an event feed. First half DONE (2026-11-16): the reader keeps the
+  stretch's combat lines (`GetEvents`, casts paired start to end), aura
+  spans (`GetUnitAuras`) and deaths (`GetUnitLook` isDead; a corpse's own
+  death spell within 1 s is not a revival, a corpse leaving view ends the
+  death); the viewer plays casts (precast for the logged time), missiles,
+  auras, swings and deaths forward, sets the state on a jump, and hides a
+  dead unit's name. Checked offline on a Stratholme log. Left: health
+  bars, an event feed, attack animations by weapon.
 - L5 follow camera, unit list, raids built on terrain.
 Maps (probe 2026-11-16, `SetWorldModelByMapID`): only Onyxia 249 and MC
 409 are single WMOs. BWL 469, ZG 309, AQ 509/531 and Naxx 533 need

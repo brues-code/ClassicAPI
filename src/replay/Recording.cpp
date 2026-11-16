@@ -156,6 +156,11 @@ bool PlaceAt(const Recording &recording, const Unit &unit, int32_t t, Place &pla
     return Present(unit, t) && KeyPlace(recording, unit, t, 0, place);
 }
 
+bool DeadAt(const Unit &unit, int32_t t) {
+    return std::any_of(unit.deaths.begin(), unit.deaths.end(),
+                       [t](const Span &s) { return s.from <= t && t < s.to; });
+}
+
 const Look *LookAt(const Unit &unit, int32_t t) {
     const auto it = std::upper_bound(
         unit.looks.begin(), unit.looks.end(), t,

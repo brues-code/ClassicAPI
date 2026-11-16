@@ -91,6 +91,16 @@ struct Span {
     int32_t to = INT32_MAX;
 };
 
+// An aura on a unit, from its SPELL_AURA_APPLIED until before its
+// SPELL_AURA_REMOVED (or the stretch's end).
+struct AuraSpan {
+    uint32_t spellID = 0;
+    bool debuff = false;
+    int32_t caster = -1; // the applier's unit index, -1 for none
+    int32_t from = 0;
+    int32_t to = INT32_MAX;
+};
+
 struct Unit {
     std::string guid; // as the logs write it
     std::string name; // from the combat log, empty when it is not in it
@@ -101,7 +111,26 @@ struct Unit {
     std::vector<Span> spans; // empty when the movement file has no UNIT_INFO for it
     std::vector<std::pair<int32_t, Look>> looks;
     std::vector<std::pair<int32_t, Appearance>> appearances; // a player's
+    std::vector<AuraSpan> auras;
+    // While it was dead: from its UNIT_DIED until it next cast or attacked,
+    // was resurrected, or left view.
+    std::vector<Span> deaths;
     std::vector<std::pair<int32_t, Speeds>> speeds;
+};
+
+// A combat log line of the stretch, as the replay plays it.
+struct CombatEvent {
+    int32_t t = 0;
+    std::string type; // the subevent as the log names it: SPELL_CAST_START, SWING_DAMAGE, ...
+    int32_t source = -1; // unit indexes, -1 for none or not a unit
+    int32_t dest = -1;
+    uint32_t spellID = 0; // a SPELL_, RANGE_ or DAMAGE_ event's, else 0
+    bool debuff = false; // an aura event's type
+    // A SPELL_CAST_START: when the caster's SPELL_CAST_SUCCESS or
+    // SPELL_CAST_FAILED of that spell came, or -1; and whether it failed.
+    int32_t castEnd = -1;
+    bool castFailed = false;
+    bool endsCast = false; // a SPELL_CAST_SUCCESS or FAILED that ends a SPELL_CAST_START
 };
 
 struct Recording {
@@ -112,6 +141,7 @@ struct Recording {
     int map = -1;
     bool movement = false; // a movement file was read
     std::vector<Unit> units;
+    std::vector<CombatEvent> events; // in time order
 };
 
 // Where a unit is, which way it faces, and how fast it moves, in yards a
@@ -127,6 +157,9 @@ bool PlaceAt(const Recording &recording, const Unit &unit, int32_t t, Place &pla
 
 // The unit's look at `t`, null before its first.
 const Look *LookAt(const Unit &unit, int32_t t);
+
+// Whether the unit is dead at `t`.
+bool DeadAt(const Unit &unit, int32_t t);
 
 // Loads the stretch [startMs, endMs] (stamps) of a log (a Catalog name). Null
 // when the combat log cannot be read. Worker thread safe.

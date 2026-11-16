@@ -32,6 +32,7 @@
 #include "replay/Recording.h"
 #include "tick/WorldTick.h"
 
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <memory>
@@ -304,7 +305,69 @@ int __fastcall Script_GetUnitLook(void *L) {
     Lua::PushNumber(L, (look->bytes1 >> 16) & 0xFF); // shapeshift form
     Lua::PushBool(L, (look->bytes1 & Offsets::UNIT_BYTES_1_STEALTH_FLAG) != 0);
     Lua::PushNumber(L, look->bytes2 & 0xFF); // sheath state
-    return 8;
+    Lua::PushBool(L, DeadAt(*unit, TimeArg(L)));
+    return 9;
+}
+
+// The events at or after `startTime` and before `endTime`, in time order.
+int __fastcall Script_GetEvents(void *L) {
+    if (!Lua::IsNumber(L, 1) || !Lua::IsNumber(L, 2)) {
+        Lua::Error(L, "Usage: C_CombatLogReplay.GetEvents(startTime, endTime)");
+        return 0;
+    }
+    Lua::NewTable(L);
+    if (g_recording == nullptr)
+        return 1;
+    const auto from = static_cast<int32_t>(Milliseconds(Lua::ToNumber(L, 1)));
+    const auto to = static_cast<int32_t>(Milliseconds(Lua::ToNumber(L, 2)));
+    const std::vector<CombatEvent> &events = g_recording->events;
+    auto it = std::lower_bound(events.begin(), events.end(), from,
+                               [](const CombatEvent &e, int32_t t) { return e.t < t; });
+    int i = 0;
+    for (; it != events.end() && it->t < to; ++it) {
+        const CombatEvent &e = *it;
+        Lua::NewTable(L);
+        Lua::SetFieldNumber(L, "time", Seconds(e.t));
+        Lua::SetFieldString(L, "event", e.type.c_str());
+        if (e.source >= 0)
+            Lua::SetFieldNumber(L, "sourceIndex", e.source + 1);
+        if (e.dest >= 0)
+            Lua::SetFieldNumber(L, "destIndex", e.dest + 1);
+        if (e.spellID != 0)
+            Lua::SetFieldNumber(L, "spellID", e.spellID);
+        if (e.type.rfind("SPELL_AURA_", 0) == 0)
+            Lua::SetFieldString(L, "auraType", e.debuff ? "DEBUFF" : "BUFF");
+        if (e.castEnd >= 0) {
+            Lua::SetFieldNumber(L, "castTime", Seconds(e.castEnd - e.t));
+            Lua::SetFieldBool(L, "castFailed", e.castFailed);
+        }
+        if (e.endsCast)
+            Lua::SetFieldBool(L, "endsCast", true);
+        Lua::RawSetI(L, -2, ++i);
+    }
+    return 1;
+}
+
+// The auras on the unit at the time.
+int __fastcall Script_GetUnitAuras(void *L) {
+    const Unit *unit = UnitArg(L, "Usage: C_CombatLogReplay.GetUnitAuras(unitIndex, time)");
+    Lua::NewTable(L);
+    if (unit == nullptr)
+        return 1;
+    const int32_t t = TimeArg(L);
+    int i = 0;
+    for (const AuraSpan &a : unit->auras) {
+        if (!(a.from <= t && t < a.to))
+            continue;
+        Lua::NewTable(L);
+        Lua::SetFieldNumber(L, "spellID", a.spellID);
+        Lua::SetFieldString(L, "auraType", a.debuff ? "DEBUFF" : "BUFF");
+        if (a.caster >= 0)
+            Lua::SetFieldNumber(L, "sourceIndex", a.caster + 1);
+        Lua::SetFieldNumber(L, "applied", Seconds(a.from));
+        Lua::RawSetI(L, -2, ++i);
+    }
+    return 1;
 }
 
 // Each body the player had, from the time it took it: a list the viewer
@@ -452,6 +515,7 @@ const Game::Doc::Field kGetUnitLookRets[] = {
     Opt("form", "number", nullptr, "The shapeshift form, 0 for none."),
     Opt("stealthed", "bool"),
     Opt("sheathState", "number"),
+    Opt("isDead", "bool", nullptr, "From the unit's death until it next casts or attacks, is resurrected, or leaves view."),
 };
 const Game::Doc::Field kAppearanceFields[] = {
     Req("time", "number", "Seconds from the replay's start; negative when it began before it."),
@@ -480,6 +544,43 @@ const Game::Doc::Function kGetUnitAppearances{
     "Returns each body a replay player had and what it wore.", kUnitIndexArg,
     kGetUnitAppearancesRets, nullptr, true};
 
+const Game::Doc::Field kEventFields[] = {
+    Req("time", "number", "Seconds from the replay's start."),
+    Req("event", "cstring", "The subevent as the log names it, for example SPELL_CAST_START or SWING_DAMAGE."),
+    Opt("sourceIndex", "number", nullptr, "Nil when the source is not a unit."),
+    Opt("destIndex", "number", nullptr, "Nil when the destination is not a unit."),
+    Opt("spellID", "number", nullptr, "For a SPELL_, RANGE_ or DAMAGE_ event."),
+    Opt("auraType", "cstring", nullptr, "BUFF or DEBUFF, for a SPELL_AURA_ event."),
+    Opt("castTime", "number", nullptr,
+        "For a SPELL_CAST_START: seconds until the caster's SPELL_CAST_SUCCESS or SPELL_CAST_FAILED of that "
+        "spell. Nil when the log has neither."),
+    Opt("castFailed", "bool", nullptr, "For a SPELL_CAST_START with a castTime: whether the cast failed."),
+    Opt("endsCast", "bool", nullptr, "True for a SPELL_CAST_SUCCESS or SPELL_CAST_FAILED that ends a SPELL_CAST_START."),
+};
+const Game::Doc::Structure kEvent{"CombatLogReplayEvent", "CombatLogReplay", kEventFields};
+const Game::Doc::Field kTimeRangeArgs[] = {
+    Req("startTime", "number", "Seconds from the replay's start; events at it are included."),
+    Req("endTime", "number", "Events at it are not included."),
+};
+const Game::Doc::Field kGetEventsRets[] = {
+    Req("events", "table", "An array of CombatLogReplayEvent in time order."),
+};
+const Game::Doc::Function kGetEvents{"Returns the combat log events of the loaded replay between two times.",
+                                     kTimeRangeArgs, kGetEventsRets, nullptr, true};
+const Game::Doc::Field kAuraFields[] = {
+    Req("spellID", "number"),
+    Req("auraType", "cstring", "BUFF or DEBUFF."),
+    Opt("sourceIndex", "number", nullptr, "Nil when the log does not name a unit that applied it."),
+    Req("applied", "number", "When it was applied, in seconds from the replay's start; negative before it."),
+};
+const Game::Doc::Structure kAura{"CombatLogReplayAura", "CombatLogReplay", kAuraFields,
+                                 "Only auras the log saw applied are known."};
+const Game::Doc::Field kGetUnitAurasRets[] = {
+    Req("auras", "table", "An array of CombatLogReplayAura."),
+};
+const Game::Doc::Function kGetUnitAuras{"Returns the auras on a replay unit at a time.", kUnitTimeArgs,
+                                        kGetUnitAurasRets, nullptr, true};
+
 const Game::Doc::Function kGetUnitLook{"Returns what a replay unit looks like at a time.",
                                        kUnitTimeArgs, kGetUnitLookRets, nullptr, true};
 
@@ -495,6 +596,8 @@ void RegisterLuaFunctions() {
     Lua::RegisterTableFunction(kTable, "GetUnitLook", &Script_GetUnitLook, &kGetUnitLook);
     Lua::RegisterTableFunction(kTable, "GetUnitAppearances", &Script_GetUnitAppearances,
                                &kGetUnitAppearances);
+    Lua::RegisterTableFunction(kTable, "GetEvents", &Script_GetEvents, &kGetEvents);
+    Lua::RegisterTableFunction(kTable, "GetUnitAuras", &Script_GetUnitAuras, &kGetUnitAuras);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

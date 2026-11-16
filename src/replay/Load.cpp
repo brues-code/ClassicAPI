@@ -38,19 +38,30 @@ namespace {
 
 // How far past the stretch's end the movement file is read.
 constexpr int64_t kTailMs = 10000;
+// A unit's cast this soon after its death is the death's own spell, not the
+// unit acting again.
+constexpr int32_t kDeathSpellMs = 1000;
 
 class Loader {
 public:
     Loader(Recording &recording) : r_(recording) {}
 
     void Movement(std::string_view body, int32_t t);
-    void Combat(std::string_view body, bool before);
+    // A combat log line at `t` (before the stretch when negative).
+    void Combat(std::string_view body, int32_t t);
     // The map ZONE_CHANGE gives at the stretch's start, -1 for none.
     int CombatMap() const { return combatMap_; }
 
 private:
     // The unit's index, added when it is new. Adding one moves the others.
     int32_t IndexOf(std::string_view guid);
+    // The unit's index, or -1 when it is not a unit or not known yet.
+    int32_t Find(std::string_view guid) const;
+    // The unit at a combat line's field `i`: before the stretch only a known
+    // one (a unit with no place in it is not added for a line before it).
+    int32_t UnitAt(const Line::Fields &f, int i, bool before);
+    void Aura(const Line::Fields &f, int32_t t, int32_t dest, bool applied);
+    void Revive(int32_t unit, int32_t t);
     Unit &Get(std::string_view guid) { return r_.units[IndexOf(guid)]; }
     void AddKey(Unit &unit, Key key, Spline *spline = nullptr);
     void AddLook(Unit &unit, int32_t t, const Look &look);
@@ -68,6 +79,9 @@ private:
     Recording &r_;
     std::unordered_map<std::string, int32_t> index_;
     int combatMap_ = -1;
+    // The SPELL_CAST_START each caster has open, by spell: an index into
+    // the events.
+    std::unordered_map<uint64_t, size_t> openCasts_;
 };
 
 bool IsUnitGuid(std::string_view guid) {
@@ -337,22 +351,119 @@ void Loader::Movement(std::string_view body, int32_t t) {
 // A combat line names its source and its dest (fields 1-2 and 5-6), and a
 // ZONE_CHANGE gives the map: the last before the stretch, or the first in it
 // (one follows the log's header, on the same stamp).
-void Loader::Combat(std::string_view body, bool before) {
+int32_t Loader::Find(std::string_view guid) const {
+    const auto it = index_.find(std::string(guid));
+    return it != index_.end() ? it->second : -1;
+}
+
+int32_t Loader::UnitAt(const Line::Fields &f, int i, bool before) {
+    if (!IsUnitGuid(f[i]))
+        return -1;
+    return before ? Find(f[i]) : IndexOf(f[i]);
+}
+
+// SPELL_AURA_APPLIED opens a span on the destination, SPELL_AURA_REMOVED
+// ends the last open one of that spell (its source is often nil), and
+// SPELL_AURA_REFRESH opens one only when none is open.
+void Loader::Aura(const Line::Fields &f, int32_t t, int32_t dest, bool applied) {
+    if (dest < 0)
+        return;
+    std::vector<AuraSpan> &auras = r_.units[dest].auras;
+    const auto spellID = static_cast<uint32_t>(f.Int(9));
+    auto open = std::find_if(auras.rbegin(), auras.rend(),
+                             [&](const AuraSpan &a) { return a.spellID == spellID && a.to == INT32_MAX; });
+    if (!applied) {
+        if (open != auras.rend())
+            open->to = t;
+        return;
+    }
+    if (f[0] == "SPELL_AURA_REFRESH" && open != auras.rend())
+        return;
+    AuraSpan span;
+    span.spellID = spellID;
+    span.debuff = f[12] == "DEBUFF";
+    span.caster = Find(f[1]);
+    span.from = t;
+    auras.push_back(span);
+}
+
+// A dead unit that casts or attacks, or is resurrected, lives again.
+void Loader::Revive(int32_t unit, int32_t t) {
+    if (unit < 0)
+        return;
+    std::vector<Span> &deaths = r_.units[unit].deaths;
+    if (!deaths.empty() && deaths.back().to == INT32_MAX)
+        deaths.back().to = t;
+}
+
+void Loader::Combat(std::string_view body, int32_t t) {
+    const bool before = t < 0;
     if (Line::Is(body, "ZONE_CHANGE")) {
         if (before || combatMap_ < 0)
             combatMap_ = Line::Fields(body).Int(1);
         return;
     }
-    if (before)
+    if (Line::Is(body, "COMBAT_LOG_VERSION") || Line::Is(body, "ENCOUNTER_START") ||
+        Line::Is(body, "ENCOUNTER_END") || Line::Is(body, "MAP_CHANGE"))
         return;
     const Line::Fields f(body);
-    for (const int i : {1, 5}) {
-        if (!IsUnitGuid(f[i]) || !f.Quoted(i + 1))
-            continue;
-        Unit &unit = Get(f[i]);
-        if (unit.name.empty())
-            unit.name = f.Text(i + 1);
+    const int32_t source = UnitAt(f, 1, before);
+    const int32_t dest = UnitAt(f, 5, before);
+    if (!before) {
+        for (const int32_t i : {1, 5}) {
+            const int32_t unit = i == 1 ? source : dest;
+            if (unit >= 0 && f.Quoted(i + 1) && r_.units[unit].name.empty())
+                r_.units[unit].name = f.Text(i + 1);
+        }
     }
+    const std::string_view type = f[0];
+    if (type == "UNIT_DIED") {
+        if (dest >= 0) {
+            Revive(dest, t);
+            r_.units[dest].deaths.push_back({t, INT32_MAX});
+        }
+    } else if (type == "SPELL_RESURRECT") {
+        Revive(dest, t);
+    } else if (type == "SPELL_CAST_START" || type.rfind("SWING_", 0) == 0 || type.rfind("RANGE_", 0) == 0) {
+        // Its own cast or attack; not a tick of an aura it left behind.
+        Revive(source, t);
+    } else if (type == "SPELL_CAST_SUCCESS" && source >= 0) {
+        // A spell the death itself casts from the corpse comes right after
+        // it (a Ravaged Cadaver's Summon Broken Cadaver, 2 ms later).
+        const std::vector<Span> &deaths = r_.units[source].deaths;
+        if (deaths.empty() || t - deaths.back().from >= kDeathSpellMs)
+            Revive(source, t);
+    }
+    if (type == "SPELL_AURA_APPLIED" || type == "SPELL_AURA_REFRESH")
+        Aura(f, t, dest, true);
+    else if (type == "SPELL_AURA_REMOVED")
+        Aura(f, t, dest, false);
+    if (before)
+        return;
+    CombatEvent e;
+    e.t = t;
+    e.type = std::string(type);
+    e.source = source;
+    e.dest = dest;
+    if (type.rfind("SPELL_", 0) == 0 || type.rfind("RANGE_", 0) == 0 || type.rfind("DAMAGE_", 0) == 0)
+        e.spellID = static_cast<uint32_t>(f.Int(9));
+    e.debuff = type.rfind("SPELL_AURA_", 0) == 0 && f[12] == "DEBUFF";
+    // A cast's start is open until the caster's success or failure of the
+    // same spell.
+    const uint64_t key = (static_cast<uint64_t>(static_cast<uint32_t>(source)) << 32) | e.spellID;
+    if (type == "SPELL_CAST_START" && source >= 0) {
+        openCasts_[key] = r_.events.size();
+    } else if ((type == "SPELL_CAST_SUCCESS" || type == "SPELL_CAST_FAILED") && source >= 0) {
+        const auto open = openCasts_.find(key);
+        if (open != openCasts_.end()) {
+            CombatEvent &start = r_.events[open->second];
+            start.castEnd = t;
+            start.castFailed = type == "SPELL_CAST_FAILED";
+            e.endsCast = true;
+            openCasts_.erase(open);
+        }
+    }
+    r_.events.push_back(std::move(e));
 }
 
 constexpr uint32_t kDirections = Offsets::MOVEFLAG_FORWARD | Offsets::MOVEFLAG_BACKWARD |
@@ -562,11 +673,18 @@ std::unique_ptr<Recording> Load(const std::string &log, int64_t startMs, int64_t
             recording->logStartMs = ms;
         if (ms > endMs)
             return false;
-        loader.Combat(body, ms < startMs);
+        loader.Combat(body, static_cast<int32_t>(ms - startMs));
         return true;
     });
     if (recording->map < 0)
         recording->map = loader.CombatMap();
+    // A corpse leaving view ends its death: a creature can come back under
+    // its GUID (a respawn), new to view.
+    for (Unit &unit : recording->units)
+        for (Span &death : unit.deaths)
+            for (const Span &seen : unit.spans)
+                if (seen.from <= death.from && death.from < seen.to && seen.to < death.to)
+                    death.to = seen.to;
     return read ? std::move(recording) : nullptr;
 }
 

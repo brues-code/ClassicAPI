@@ -6,7 +6,9 @@
 -- its display (a player in its own display as its own body, wearing what it
 -- wore), its mount, walking or running at its speed, jumping and falling
 -- along the client's arc, its weapons drawn or sheathed, and its stand
--- state's animation (sitting, sleeping, dead, kneeling). Scene positions are
+-- state's animation (sitting, sleeping, dead, kneeling). While it plays, the
+-- log's casts, auras, swings and deaths play on the actors; a jump in time
+-- sets each unit's auras and death as they were then. Scene positions are
 -- map positions. Click a unit to follow it with the camera; click the ground
 -- to stop. Drag to turn and tilt the camera, right drag to move it across
 -- the view. With the cursor over the scene, W, A, S and D fly the camera
@@ -16,6 +18,17 @@
 local ANIM_STAND, ANIM_WALK, ANIM_RUN, ANIM_MOUNT = 0, 4, 5, 91
 -- In the air (Offsets.h ANIM_JUMP, ANIM_FALL): from a jump, or off a ledge.
 local ANIM_JUMP, ANIM_FALL = 38, 40;
+-- Combat (AnimationData.dbc): dying, then lying dead; a swing, unarmed (a
+-- creature) or one-handed (a player).
+local ANIM_DEATH, ANIM_DEAD = 1, 6;
+local ANIM_ATTACK_UNARMED, ANIM_ATTACK_1H = 16, 17;
+-- How long a swing holds its animation, in replay seconds, and how long the
+-- dying animation plays before the corpse lies still, in real seconds.
+local SWING_TIME = 0.8;
+local DYING_TIME = 1.5;
+-- A step in time longer than this (replay seconds), or one back, is a jump:
+-- the combat state is set as it was, not played.
+local MAX_PLAYED_STEP = 1;
 -- The animation a stand state shows, as the client's follow camera reads it
 -- (Offsets.h ANIM_*): sit, sleep, the three chairs, dead, kneel.
 local STAND_ANIMATION = { [1] = 97, [3] = 100, [4] = 102, [5] = 103, [6] = 104, [7] = 6, [8] = 115 };
@@ -62,6 +75,7 @@ local focus;          -- the unit the camera follows
 local settingTimeline = false;
 local pressX, pressY;
 local flying = {};     -- the fly keys held, by key name
+local combatTime;      -- the replay time the combat state is at, nil before the first
 
 ------------------------------------------------------------------------------
 -- Text
@@ -97,6 +111,7 @@ end
 -- Units
 
 local function ReleaseUnits()
+	combatTime = nil;
 	scene:ReleaseAllActors();
 	units = {};
 	unitOfActor = {};
@@ -188,16 +203,29 @@ local function Dress(actor, appearance)
 end
 
 local function ShowUnit(u, time, x, y, z, facing, speed, falling, jumping, display, nativeDisplay,
-		mountDisplay, scale, standState, sheathState)
+		mountDisplay, scale, standState, sheathState, isDead)
 	local actor = u.actor;
 	if not actor then
 		actor = Acquire(u);
 		u.actor = actor;
-		local color = u.isPlayer and PLAYER_NAME_COLOR or CREATURE_NAME_COLOR;
-		actor:SetNameText(u.name, color[1], color[2], color[3]);
+		u.named = nil;
+		for _, aura in ipairs(C_CombatLogReplay.GetUnitAuras(u.index, time)) do
+			actor:AddAuraVisual(aura.spellID);
+		end
 	end
 	if not actor:IsShown() then
 		actor:Show();
+	end
+	-- A dead unit shows no name.
+	local named = not isDead;
+	if u.named ~= named then
+		if named then
+			local color = u.isPlayer and PLAYER_NAME_COLOR or CREATURE_NAME_COLOR;
+			actor:SetNameText(u.name, color[1], color[2], color[3]);
+		else
+			actor:ClearNameText();
+		end
+		u.named = named;
 	end
 	local sheathed = sheathState ~= SHEATH_MELEE;
 	if u.sheathed ~= sheathed then
@@ -227,10 +255,14 @@ local function ShowUnit(u, time, x, y, z, facing, speed, falling, jumping, displ
 	body:SetPosition(x, y, z);
 	body:SetYaw(facing);
 	local animation;
-	if falling then
+	if isDead then
+		animation = u.dyingUntil and GetTime() < u.dyingUntil and ANIM_DEATH or ANIM_DEAD;
+	elseif falling then
 		animation = jumping and ANIM_JUMP or ANIM_FALL;
 	elseif speed > MOVING_SPEED then
 		animation = speed >= RUN_SPEED and ANIM_RUN or ANIM_WALK;
+	elseif u.swingUntil and time < u.swingUntil then
+		animation = u.isPlayer and ANIM_ATTACK_1H or ANIM_ATTACK_UNARMED;
 	else
 		animation = STAND_ANIMATION[standState] or ANIM_STAND;
 	end
@@ -240,6 +272,98 @@ local function ShowUnit(u, time, x, y, z, facing, speed, falling, jumping, displ
 	end
 end
 
+------------------------------------------------------------------------------
+-- Combat
+
+-- The shown actor of a unit index, or nil.
+local function ShownActor(index)
+	local u = index and units[index];
+	local actor = u and u.actor;
+	return actor and actor:IsShown() and actor or nil, u;
+end
+
+-- One log event, as time passes it.
+local function PlayEvent(e)
+	local source, u = ShownActor(e.sourceIndex);
+	local target, du = ShownActor(e.destIndex);
+	local kind = e.event;
+	if kind == "SPELL_CAST_START" then
+		-- The preparation lasts as long as the log's cast did, at the play
+		-- speed.
+		if source then
+			local castMs = e.castTime and e.castTime * 1000 / PLAY_SPEEDS[playSpeed];
+			local castID = source:PlaySpellVisual(e.spellID, target, castMs);
+			if castID then
+				u.casts = u.casts or {};
+				u.casts[e.spellID] = castID;
+			end
+		end
+	elseif kind == "SPELL_CAST_SUCCESS" or kind == "SPELL_CAST_FAILED" then
+		local castID = u and u.casts and u.casts[e.spellID];
+		if castID then
+			u.casts[e.spellID] = nil;
+		end
+		if kind == "SPELL_CAST_FAILED" then
+			if source and castID then
+				source:StopSpellVisual(castID);
+			end
+		elseif source and not e.endsCast then
+			source:PlaySpellVisual(e.spellID, target, 0);
+		end
+	elseif kind == "RANGE_DAMAGE" or kind == "RANGE_MISSED" then
+		if source then
+			source:PlaySpellVisual(e.spellID, target, 0);
+		end
+	elseif kind == "SPELL_AURA_APPLIED" or kind == "SPELL_AURA_REFRESH" then
+		if target then
+			target:AddAuraVisual(e.spellID);
+		end
+	elseif kind == "SPELL_AURA_REMOVED" then
+		if target then
+			target:RemoveAuraVisual(e.spellID);
+		end
+	elseif kind == "SWING_DAMAGE" or kind == "SWING_MISSED" then
+		if u then
+			u.swingUntil = e.time + SWING_TIME;
+		end
+	elseif kind == "UNIT_DIED" then
+		if du then
+			du.dyingUntil = GetTime() + DYING_TIME / PLAY_SPEEDS[playSpeed];
+		end
+	end
+end
+
+-- Each unit's combat state as it was at `time`: no cast or swing under way,
+-- its auras then; a dead unit lies still.
+local function SetCombatState(time)
+	for i = 1, #units do
+		local u = units[i];
+		u.casts, u.swingUntil, u.dyingUntil = nil, nil, nil;
+		if u.actor then
+			u.actor:StopSpellVisual();
+			u.actor:RemoveAuraVisual();
+			for _, aura in ipairs(C_CombatLogReplay.GetUnitAuras(i, time)) do
+				u.actor:AddAuraVisual(aura.spellID);
+			end
+		end
+	end
+end
+
+-- Brings the combat state to `time`: the events since the last time when
+-- time went a short way forward, else the state as it was then.
+local function Combat(time)
+	if combatTime and time >= combatTime and time - combatTime <= MAX_PLAYED_STEP then
+		if time > combatTime then
+			for _, e in ipairs(C_CombatLogReplay.GetEvents(combatTime, time)) do
+				PlayEvent(e);
+			end
+		end
+	else
+		SetCombatState(time);
+	end
+	combatTime = time;
+end
+
 -- Puts every unit where it was at `time`.
 local function Apply(time)
 	local GetUnitPosition = C_CombatLogReplay.GetUnitPosition;
@@ -247,18 +371,19 @@ local function Apply(time)
 	for i = 1, #units do
 		local u = units[i];
 		local x, y, z, facing, speed, falling, jumping = GetUnitPosition(i, time);
-		local display, nativeDisplay, mountDisplay, scale, standState, sheathState, _;
+		local display, nativeDisplay, mountDisplay, scale, standState, sheathState, isDead, _;
 		if x then
-			display, nativeDisplay, mountDisplay, scale, standState, _, _, sheathState =
+			display, nativeDisplay, mountDisplay, scale, standState, _, _, sheathState, isDead =
 				GetUnitLook(i, time);
 		end
 		if display and display > 0 then
 			ShowUnit(u, time, x, y, z, facing, speed, falling, jumping, display, nativeDisplay,
-				mountDisplay, scale, standState, sheathState);
+				mountDisplay, scale, standState, sheathState, isDead);
 		else
 			HideUnit(u);
 		end
 	end
+	Combat(time);
 end
 
 ------------------------------------------------------------------------------
