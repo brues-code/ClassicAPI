@@ -16,21 +16,19 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "macro/Slot.h"
 
 #include <cstdint>
 
 namespace Macro::Arg {
 
 int Slot(void *L) {
-    using NameToSlot_t = uint32_t(__fastcall *)(const char *name);
-    using SlotToEntry_t = const uint8_t *(__fastcall *)(uint32_t slot0);
     uint32_t slot0 = 0xFFFFFFFFu;
     if (Game::Lua::IsNumber(L, 1))
         slot0 = static_cast<uint32_t>(static_cast<int>(Game::Lua::ToNumber(L, 1)) - 1);
     else if (Game::Lua::IsString(L, 1))
-        slot0 = reinterpret_cast<NameToSlot_t>(Offsets::FUN_MACRO_NAME_TO_SLOT)(
-            Game::Lua::ToString(L, 1));
-    if (reinterpret_cast<SlotToEntry_t>(Offsets::FUN_MACRO_SLOT_TO_ENTRY)(slot0) == nullptr)
+        slot0 = ::Macro::Slot::ForName(Game::Lua::ToString(L, 1));
+    if (::Macro::Slot::Entry(slot0) == nullptr)
         return 0;
     return static_cast<int>(slot0) + 1;
 }

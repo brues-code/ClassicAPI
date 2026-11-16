@@ -53,6 +53,7 @@
 #include "equipmentset/Data.h"
 #include "item/ID.h"
 #include "item/Link.h"
+#include "macro/Slot.h"
 #include "spell/Lookup.h"
 #include "object/Resolve.h"
 
@@ -116,11 +117,8 @@ uint32_t CursorMacroSlot() {
     const uint32_t macroID = ReadVar(Offsets::VAR_CURSOR_MACRO_ID);
     if (macroID == 0)
         return 0;
-    using IdToSlot_t = uint32_t(__fastcall *)(int macroID);
-    const uint32_t slot0 = reinterpret_cast<IdToSlot_t>(
-        static_cast<uintptr_t>(Offsets::FUN_MACRO_ID_TO_SLOT))(
-        static_cast<int>(macroID));
-    return (slot0 == 0xFFFFFFFFu) ? 0 : slot0 + 1;
+    const uint32_t slot0 = ::Macro::Slot::ForId(macroID);
+    return slot0 == ::Macro::Slot::kMiss ? 0 : slot0 + 1;
 }
 
 int PushItem(void *L, const uint8_t *cgItem) {

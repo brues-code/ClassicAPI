@@ -31,6 +31,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "macro/Slot.h"
 
 #include <cstdint>
 
@@ -39,9 +40,7 @@ namespace Macro::ByName {
 namespace {
 
 using ScriptFn_t = int(__fastcall *)(void *L);
-using MacroNameToSlot_t = uint32_t(__fastcall *)(const char *name);
 
-constexpr uint32_t kSlotMiss = 0xFFFFFFFFu;
 
 ScriptFn_t g_origGetMacroInfo = nullptr;
 ScriptFn_t g_origEditMacro = nullptr;
@@ -54,11 +53,9 @@ ScriptFn_t g_origDeleteMacro = nullptr;
 void NameArgToIndex(void *L) {
     if (!Game::Lua::IsString(L, 1) || Game::Lua::IsNumber(L, 1))
         return;
-    auto nameToSlot =
-        reinterpret_cast<MacroNameToSlot_t>(Offsets::FUN_MACRO_NAME_TO_SLOT);
-    const uint32_t slot0 = nameToSlot(Game::Lua::ToString(L, 1));
+    const uint32_t slot0 = ::Macro::Slot::ForName(Game::Lua::ToString(L, 1));
     Game::Lua::PushNumber(
-        L, slot0 == kSlotMiss ? 0.0 : static_cast<double>(slot0 + 1));
+        L, slot0 == ::Macro::Slot::kMiss ? 0.0 : static_cast<double>(slot0 + 1));
     Game::Lua::Insert(L, 1); // index at 1, the name moves to 2
     Game::Lua::Remove(L, 2);
 }

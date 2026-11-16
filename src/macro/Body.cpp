@@ -23,6 +23,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "macro/Slot.h"
 
 #include <cstdint>
 
@@ -30,14 +31,12 @@ namespace Macro::Body {
 
 namespace {
 
-using SlotToEntry_t = const uint8_t *(__fastcall *)(uint32_t slot0);
 
 int __fastcall Script_GetMacroBody(void *L) {
     const int slot = Macro::Arg::Slot(L);
     if (slot == 0)
         return 0;
-    const uint8_t *entry = reinterpret_cast<SlotToEntry_t>(Offsets::FUN_MACRO_SLOT_TO_ENTRY)(
-        static_cast<uint32_t>(slot - 1));
+    const uint8_t *entry = ::Macro::Slot::Entry(static_cast<uint32_t>(slot - 1));
     Game::Lua::PushString(L, reinterpret_cast<const char *>(entry + Offsets::OFF_MACRO_BODY));
     return 1;
 }

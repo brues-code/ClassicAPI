@@ -43,6 +43,7 @@
 #include "Offsets.h"
 #include "action/Slot.h"
 #include "macro/ShowTooltip.h"
+#include "macro/Slot.h"
 
 #include <cstdint>
 
@@ -97,7 +98,6 @@ const Game::HookAutoRegister _hookreg{
     reinterpret_cast<void *>(&MacroIconPath_h),
     reinterpret_cast<void **>(&MacroIconPath_o)};
 
-using MacroSlotToEntry_t = const uint8_t *(__fastcall *)(unsigned slot0Based);
 
 // `C_Macro.GetMacroIcon(macroSlot)` — the icon the macro currently shows: the
 // spell's or item's when a `#showtooltip` / `#show` resolved and the macro's
@@ -114,8 +114,7 @@ int __fastcall Script_GetMacroIcon(void *L) {
     const int slot = static_cast<int>(Game::Lua::ToNumber(L, 1));
     if (slot < 1 || slot > Offsets::MACRO_SLOT_MAP_COUNT)
         return 0;
-    const uint8_t *entry = reinterpret_cast<MacroSlotToEntry_t>(
-        Offsets::FUN_MACRO_SLOT_TO_ENTRY)(static_cast<unsigned>(slot - 1));
+    const uint8_t *entry = ::Macro::Slot::Entry(static_cast<unsigned>(slot - 1));
     if (entry == nullptr)
         return 0;
 

@@ -28,6 +28,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "macro/Slot.h"
 
 #include <cstdint>
 #include <cstdlib>
@@ -69,17 +70,15 @@ void Text(const char *text, const char *button) {
 bool Saved(const char *macro, const char *button) {
     if (macro == nullptr || *macro == '\0')
         return false;
-    using SlotToEntry_t = const uint8_t *(__fastcall *)(unsigned slot);
-    using NameToSlot_t = uint32_t(__fastcall *)(const char *name);
     const char *digit = macro;
     while (*digit >= '0' && *digit <= '9')
         ++digit;
     const uint32_t slot =
         *digit == '\0'
             ? static_cast<uint32_t>(std::atoi(macro) - 1)
-            : reinterpret_cast<NameToSlot_t>(Offsets::FUN_MACRO_NAME_TO_SLOT)(macro);
+            : ::Macro::Slot::ForName(macro);
     const uint8_t *entry =
-        reinterpret_cast<SlotToEntry_t>(Offsets::FUN_MACRO_SLOT_TO_ENTRY)(slot);
+        ::Macro::Slot::Entry(slot);
     if (entry == nullptr)
         return false;
     RunBody::Run(entry, button);

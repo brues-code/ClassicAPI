@@ -47,6 +47,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "macro/Slot.h"
 
 #include <cstdint>
 
@@ -61,11 +62,7 @@ using MacroCreate_t = uint32_t(__fastcall *)(const char *name,
 using MacroEdit_t = void(__fastcall *)(uint32_t macroID, const char *name,
                                        const char *iconBasename,
                                        const char *body, uint32_t flag);
-using MacroIdToSlot_t = uint32_t(__fastcall *)(uint32_t macroID);
-using MacroNameToSlot_t = uint32_t(__fastcall *)(const char *name);
-using MacroSlotToEntry_t = uint8_t *(__fastcall *)(uint32_t slot0Based);
 
-constexpr uint32_t kSlotMiss = 0xFFFFFFFFu;
 
 // Last path component of `s` (after the final `\` or `/`). Turns
 // "Interface\\Icons\\INV_Sword_25" and a bare "INV_Sword_25" alike into
@@ -94,9 +91,7 @@ const char *OptString(void *L, int idx) {
 }
 
 uint8_t *EntryForSlot(uint32_t slot0) {
-    auto fn = reinterpret_cast<MacroSlotToEntry_t>(
-        Offsets::FUN_MACRO_SLOT_TO_ENTRY);
-    return fn(slot0);
+    return ::Macro::Slot::Entry(slot0);
 }
 
 // C_Macro.CreateMacro(name, iconTexture, body, isCharacterMacro) -> index
@@ -121,10 +116,8 @@ int __fastcall Script_CreateMacro(void *L) {
         return 1;
     }
 
-    auto idToSlot =
-        reinterpret_cast<MacroIdToSlot_t>(Offsets::FUN_MACRO_ID_TO_SLOT);
-    const uint32_t slot0 = idToSlot(macroID);
-    if (slot0 == kSlotMiss) {
+    const uint32_t slot0 = ::Macro::Slot::ForId(macroID);
+    if (slot0 == ::Macro::Slot::kMiss) {
         Game::Lua::PushNil(L);
         return 1;
     }
@@ -141,9 +134,7 @@ int __fastcall Script_EditMacro(void *L) {
     if (Game::Lua::IsNumber(L, 1)) {
         slot0 = static_cast<uint32_t>(static_cast<int>(Game::Lua::ToNumber(L, 1)) - 1);
     } else if (Game::Lua::IsString(L, 1)) {
-        auto nameToSlot = reinterpret_cast<MacroNameToSlot_t>(
-            Offsets::FUN_MACRO_NAME_TO_SLOT);
-        slot0 = nameToSlot(Game::Lua::ToString(L, 1));
+        slot0 = ::Macro::Slot::ForName(Game::Lua::ToString(L, 1));
     } else {
         Game::Lua::Error(
             L, "Usage: C_Macro.EditMacro(index, name, iconTexture, body)");

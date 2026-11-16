@@ -38,6 +38,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "macro/Slot.h"
 #include "spell/Lookup.h"
 
 #include <cstdint>
@@ -47,14 +48,11 @@ namespace Macro::Spell {
 namespace {
 
 
-using MacroSlotToEntry_t = const uint8_t *(__fastcall *)(unsigned slot0Based);
 
 const uint8_t *EntryForSlot(int slot1Based) {
     if (slot1Based < 1 || slot1Based > Offsets::MACRO_SLOT_MAP_COUNT)
         return nullptr;
-    auto fn = reinterpret_cast<MacroSlotToEntry_t>(
-        Offsets::FUN_MACRO_SLOT_TO_ENTRY);
-    return fn(static_cast<unsigned>(slot1Based - 1));
+    return ::Macro::Slot::Entry(static_cast<unsigned>(slot1Based - 1));
 }
 
 // `GetMacroSpell(macroSlot)` — three returns: (name, rank, spellID).
