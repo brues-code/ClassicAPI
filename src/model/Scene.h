@@ -627,7 +627,9 @@ namespace Terrain {
 struct Land;
 } // namespace Terrain
 
-// The scene's WMO (SetWorldModel; model/SceneWorld.cpp).
+// The scene's WMOs (SetWorldModel and the terrain's tiles;
+// model/SceneWorld.cpp). The scene holds one set, made with its first WMO
+// and freed with its last.
 namespace World {
 struct Backdrop;
 // The scene's view volume in scene space (the device's view moved by -eye
@@ -649,25 +651,37 @@ inline void PushFrustum(const ViewVolume &volume) {
 inline void PopFrustum() { reinterpret_cast<void(__cdecl *)()>(Offsets::FUN_FRUSTUM_POP)(); }
 // Whether `path` names a WMO (ends in ".wmo"), which only the scene shows.
 bool IsWmoPath(const char *path);
-// Null when the engine cannot read `path` safely: it is not a WMO, a file
-// does not open, the root's chunks are not in the engine's order or it has
-// more groups than the engine holds.
+// SetWorldModel's WMO in `set`, replacing the one it had; the tiles' stay.
+// False, with no WMO of its own, when the engine cannot read `path` safely:
+// it is not a WMO, a file does not open, the root's chunks are not in the
+// engine's order or it has more groups than the engine holds.
 // `mapID` is the map whose light the outdoor water takes (Light.dbc at the
-// scene's camera), or kNoMap for the world's light where the player is.
+// scene's camera), or kNoMap for the world's light where the player is (the
+// tiles' map, when the set has tiles).
 constexpr uint32_t kNoMap = 0xFFFFFFFFu;
-Backdrop *Load(const char *path, const float (&placement)[16], uint32_t doodadSet, uint32_t mapID);
-// The single WMO of a WMO-only map at the map's own placement; null for any
-// other map.
-Backdrop *LoadMap(uint32_t mapID);
+bool SetModel(Backdrop *&set, const char *path, const float (&placement)[16], uint32_t doodadSet, uint32_t mapID);
+// The same with the single WMO of a WMO-only map at the map's own placement;
+// false for any other map.
+bool SetMapModel(Backdrop *&set, uint32_t mapID);
+void ClearModel(Backdrop *&set);
+// An ADT's MODF entry and its MWMO name.
+struct TileDef {
+    std::string path;
+    uint8_t entry[Offsets::MODF_SIZE];
+};
+// The terrain tiles' WMOs in `set` (in place of the ones it had), one per
+// unique id, in the order given, placed as the world places a tile's.
+void SetTileObjects(Backdrop *&set, const std::vector<TileDef> &defs, uint32_t mapID);
 // SetWorldModel's placement: at `position`, turned by `yaw` about z.
 void Placement(const float (&position)[3], float yaw, float (&out)[16]);
 void Free(Backdrop *backdrop);
-// From the scene's update, before the scene advances: makes the doodads of
-// each group parsed since, puts the ready ones on the animate list and
-// moves their sounds with the camera, and moves the camera's WMO fog (the
-// MFOG records near the camera, faded in and out as the world fades them).
-// `sounds` is SetPlayWorldModelSounds.
-void Update(Backdrop &backdrop, void *frame, bool sounds, float elapsed);
+// From the scene's update, before the scene advances: loads the groups near
+// the camera and makes the doodads of each group parsed since, puts the
+// ready ones on the animate list and moves their sounds with the camera, and
+// moves the camera's WMO fog (the MFOG records near the camera, faded in and
+// out as the world fades them). `sounds` is SetPlayWorldModelSounds; the
+// terrain, when the scene has one, can take the camera's claim from a WMO.
+void Update(Backdrop &backdrop, const Terrain::Land *terrain, void *frame, bool sounds, float elapsed);
 // Drops the doodads' loop sounds (the scene hid).
 void Silence(Backdrop &backdrop);
 // From the paint, in place of its depth clear: the world's frame clear and,
@@ -689,7 +703,8 @@ void DrawLiquids(Backdrop &backdrop, void *frame, const float (&eye)[3]);
 // (CameraEnvironment 0x006809C0): the claimed group's, else the scene's
 // liquid at the camera's probe point.
 uint32_t CameraLiquid(const Backdrop &backdrop);
-// The map whose light the backdrop takes, or kNoMap.
+// The map whose light the WMOs take: SetWorldModel's, else the tiles', or
+// kNoMap.
 uint32_t MapOf(const Backdrop &backdrop);
 // How the world lights a unit that stands in a WMO, kept per actor: the
 // colour of the face under it, or the sun, and the WMO's lights near it.
@@ -856,6 +871,11 @@ bool GroundEffect(const Land &land, const float (&point)[3], int32_t &terrainTyp
 uint32_t Serial(const Land &land);
 // The terrain's map.
 uint32_t MapOf(const Land &land);
+// The WMOs the chunks name (CMapChunk::LoadReferences' map object leg
+// 0x006B00F0): each chunk's MCRF map object indices, in chunk order, as MODF
+// entries with their MWMO names. A WMO several chunks name comes once per
+// chunk; SetTileObjects keeps the first.
+std::vector<World::TileDef> MapObjects(const Land &land);
 // The area id of the chunk under a point (0x0069B120), 0 without one.
 uint32_t AreaAt(const Land &land, const float (&point)[3]);
 // The world's box query's terrain leg (0x006AA8B0, GatherChunkFacets

@@ -148,6 +148,14 @@ struct Tile {
     uint32_t modelCount = 0;
     const uint8_t *placements = nullptr;
     uint32_t placementCount = 0;
+    // The map object tables (MWMO names, MWID name offsets, MODF entries), or
+    // null.
+    const char *objectNames = nullptr;
+    uint32_t objectNamesSize = 0;
+    const uint32_t *objectOffsets = nullptr;
+    uint32_t objectNameCount = 0;
+    const uint8_t *objects = nullptr;
+    uint32_t objectCount = 0;
 };
 
 struct Chunk {
@@ -252,6 +260,19 @@ bool ParseHeader(Tile &t) {
         t.modelCount = offsetBytes / sizeof(uint32_t);
         t.placements = placements;
         t.placementCount = placementBytes / Offsets::MDDF_SIZE;
+    }
+    // The same for the map objects: a tile whose tables do not fit has none.
+    const uint8_t *objectNames = nullptr, *objectOffsets = nullptr, *objects = nullptr;
+    uint32_t objectNamesBytes = 0, objectOffsetBytes = 0, objectBytes = 0;
+    if (Inside(f, mhdr, Offsets::OFF_MHDR_MODF + 4) && table(Offsets::OFF_MHDR_MWMO, objectNames, objectNamesBytes) &&
+        table(Offsets::OFF_MHDR_MWID, objectOffsets, objectOffsetBytes) &&
+        table(Offsets::OFF_MHDR_MODF, objects, objectBytes)) {
+        t.objectNames = reinterpret_cast<const char *>(objectNames);
+        t.objectNamesSize = objectNamesBytes;
+        t.objectOffsets = reinterpret_cast<const uint32_t *>(objectOffsets);
+        t.objectNameCount = objectOffsetBytes / sizeof(uint32_t);
+        t.objects = objects;
+        t.objectCount = objectBytes / Offsets::MODF_SIZE;
     }
     return true;
 }
@@ -456,6 +477,48 @@ void MakeProps(Land &land, void *frame) {
         }
     }
 }
+
+} // namespace
+
+// LoadReferences' map object leg: after a chunk's doodad indices, its map
+// object indices into MODF; an index or a name outside the tile's tables is
+// skipped.
+std::vector<World::TileDef> MapObjects(const Land &land) {
+    std::vector<World::TileDef> defs;
+    for (const Chunk &c : land.chunks) {
+        const Tile &t = *c.tile;
+        if (t.objects == nullptr)
+            continue;
+        const uint8_t *record = At(t.file, U32(McinEntry(t, c.index)));
+        const uint8_t *header = record + Offsets::MCNK_RECORD_HEADER;
+        const uint32_t doodads = U32(header + Offsets::OFF_MCNK_DOODAD_REF_COUNT);
+        const uint32_t refs = U32(header + Offsets::OFF_MCNK_MAPOBJ_REF_COUNT);
+        const uint64_t list = uint64_t{U32(McinEntry(t, c.index))} + U32(header + Offsets::OFF_MCNK_MCRF) +
+                              Offsets::MCNK_RECORD_HEADER;
+        if (!Inside(t.file, list, (uint64_t{doodads} + refs) * sizeof(uint32_t)))
+            continue;
+        for (uint32_t i = 0; i < refs; ++i) {
+            const uint32_t index = U32(At(t.file, list + (uint64_t{doodads} + i) * sizeof(uint32_t)));
+            if (index >= t.objectCount)
+                continue;
+            const uint8_t *entry = t.objects + static_cast<size_t>(index) * Offsets::MODF_SIZE;
+            const uint32_t nameIndex = U32(entry + Offsets::OFF_MODF_NAME_INDEX);
+            if (nameIndex >= t.objectNameCount)
+                continue;
+            const uint32_t nameOffset = t.objectOffsets[nameIndex];
+            if (nameOffset >= t.objectNamesSize ||
+                std::memchr(t.objectNames + nameOffset, 0, t.objectNamesSize - nameOffset) == nullptr)
+                continue;
+            World::TileDef def;
+            def.path = t.objectNames + nameOffset;
+            std::memcpy(def.entry, entry, sizeof def.entry);
+            defs.push_back(std::move(def));
+        }
+    }
+    return defs;
+}
+
+namespace {
 
 void AttachBuffers(Land &land) {
     for (size_t i = 0; i < land.chunks.size(); ++i) {

@@ -4313,8 +4313,9 @@ embedded load-on-demand addon. Layers:
 - L5 follow camera, unit list, raids built on terrain.
 Maps (probe 2026-11-16, `SetWorldModelByMapID`): only Onyxia 249 and MC
 409 are single WMOs. BWL 469, ZG 309, AQ 509/531 and Naxx 533 need
-terrain plus the WMOs placed on tiles (MODF), which `SetWorldTerrain`
-does not draw yet.
+terrain plus the WMOs placed on tiles (MODF). DONE (2026-11-16):
+`SetWorldTerrain` places its tiles' MODF WMOs in the scene's WMO set
+(Stormwind checked in game in /replay); the raids not checked yet.
 
 **Layer 1: advanced combat logging (the `advancedCombatLogging` cvar).**
 Our combat log file (`combatlog/File.cpp`) writes 4.3.4's PackEvent line.

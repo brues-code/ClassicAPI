@@ -1087,7 +1087,7 @@ void __fastcall OnFrameUpdate(void *self, void *, float elapsedSec) {
     World::Backdrop *world = F(self).world;
     Terrain::Land *terrain = F(self).terrain;
     if (world != nullptr)
-        World::Update(*world, self, F(self).playWorldModelSounds, elapsedSec);
+        World::Update(*world, terrain, self, F(self).playWorldModelSounds, elapsedSec);
     if (terrain != nullptr)
         Terrain::Update(*terrain, self, F(self).playWorldModelSounds);
     const uint32_t lastLiquid = F(self).cameraLiquid;
@@ -1585,13 +1585,9 @@ int __fastcall Script_GetGroundTerrain(void *L) {
     return 1;
 }
 
-// The scene's WMO (a ClassicAPI extension, model/SceneWorld.cpp). A set that
-// fails clears it, as an actor's SetModelByPath clears its model.
-void SetWorld(void *frame, World::Backdrop *world) {
-    World::Free(F(frame).world);
-    F(frame).world = world;
-}
-
+// The scene's own WMO (a ClassicAPI extension, model/SceneWorld.cpp), beside
+// the terrain's. A set that fails clears it, as an actor's SetModelByPath
+// clears its model.
 constexpr char kUsageSetWorldModel[] = "SetWorldModel(path [, x, y, z [, yaw [, doodadSet [, mapID]]]])";
 
 int __fastcall Script_SetWorldModel(void *L) {
@@ -1620,8 +1616,7 @@ int __fastcall Script_SetWorldModel(void *L) {
     const uint32_t mapID = given(8) ? static_cast<uint32_t>(Game::Lua::ToNumber(L, 8)) : World::kNoMap;
     float placement[16];
     World::Placement(position, yaw, placement);
-    SetWorld(frame, World::Load(Game::Lua::ToString(L, 2), placement, doodadSet, mapID));
-    Game::Lua::PushBool(L, F(frame).world != nullptr);
+    Game::Lua::PushBool(L, World::SetModel(F(frame).world, Game::Lua::ToString(L, 2), placement, doodadSet, mapID));
     return 1;
 }
 
@@ -1630,22 +1625,23 @@ int __fastcall Script_SetWorldModelByMapID(void *L) {
     if (frame == nullptr ||
         !NumberArgs(L, 2, 1, Game::Lua::ObjectDisplayName(frame), "SetWorldModelByMapID(mapID)"))
         return 0;
-    SetWorld(frame, World::LoadMap(static_cast<uint32_t>(Game::Lua::ToNumber(L, 2))));
-    Game::Lua::PushBool(L, F(frame).world != nullptr);
+    Game::Lua::PushBool(L, World::SetMapModel(F(frame).world, static_cast<uint32_t>(Game::Lua::ToNumber(L, 2))));
     return 1;
 }
 
 int __fastcall Script_ClearWorldModel(void *L) {
     if (void *frame = Self(L))
-        SetWorld(frame, nullptr);
+        World::ClearModel(F(frame).world);
     return 0;
 }
 
-// The scene's terrain (a ClassicAPI extension, model/SceneTerrain.cpp). A
-// set that fails clears it, as SetWorldModel does.
+// The scene's terrain (a ClassicAPI extension, model/SceneTerrain.cpp), with
+// the WMOs its tiles place. A set that fails clears it, as SetWorldModel does.
 void SetTerrain(void *frame, Terrain::Land *terrain) {
     Terrain::Free(F(frame).terrain);
     F(frame).terrain = terrain;
+    World::SetTileObjects(F(frame).world, terrain != nullptr ? Terrain::MapObjects(*terrain) : std::vector<World::TileDef>{},
+                          terrain != nullptr ? Terrain::MapOf(*terrain) : World::kNoMap);
 }
 
 constexpr char kUsageSetWorldTerrain[] = "SetWorldTerrain(mapID, x, y [, radius])";
@@ -2207,8 +2203,9 @@ const Game::Doc::Field kWorldTerrainArgs[] = {
 const Game::Doc::Function kSetWorldTerrain{
     "Shows the map's ground around a point the way the world draws it, with its textures, shadows and "
     "level of detail, in map coordinates. The scene's light stands in for the sun, and its fog for the "
-    "zone's. Without a WMO, the map's sky shows behind it. Actors walk on it, and TraceSegment and SweepCollider find it; past the radius there is no "
-    "ground. The map's props on it (trees, plants, rocks) show too, and actors collide with them; its "
+    "zone's. The map's sky shows behind it. Actors walk on it, and TraceSegment and SweepCollider find it; past the radius there is no "
+    "ground. The WMOs the map places on it (buildings, cities) show too, each as SetWorldModel shows one. "
+    "The map's props on it (trees, plants, rocks) show too, and actors collide with them; its "
     "grass shows near the camera, and its water and lava show; actors swim in the water, and under it the "
     "camera takes the map's underwater fog. Returns false, and shows no terrain, when no ground lies within the "
     "radius.",

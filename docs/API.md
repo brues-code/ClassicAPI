@@ -19337,13 +19337,18 @@ width of one map tile.
 
 The ground looks as it does in the world: the same textures, the same
 shadows and the same level of detail. The light of the scene stands in for
-the sun, and the fog of the scene stands in for the fog of the zone. In a
-scene without a WMO, the sky of the map shows behind the ground: its
-colors, the sun and the moons, the stars, the clouds and the skybox, in the
-light of the map at the camera and at the time of day of the world. The
-sky hides the background of the scene. A WMO from
+the sun, and the fog of the scene stands in for the fog of the zone. When
+the camera is not inside a WMO, the sky of the map shows behind the ground:
+its colors, the sun and the moons, the stars, the clouds and the skybox, in
+the light of the map at the camera and at the time of day of the world. The
+sky hides the background of the scene.
+
+The WMOs that the map puts on that ground also show, for example the
+buildings of a town or a whole city. Each one shows as
 [`scene:SetWorldModel`](#scenesetworldmodelpath--x-y-z--yaw--doodadset--mapid)
-stands on the ground when you give it its position on the same map.
+shows a WMO: its light, its fog, its props, its water, and collision for the
+actors. A WMO that you set with `scene:SetWorldModel` shows together with
+them. To put it on the ground, give it its position on the same map.
 
 The function returns `false` and shows no ground when the map has no
 ground within the radius. A new call replaces the ground of the scene.
@@ -19371,9 +19376,7 @@ liquid around the camera, with the `waterParticulates` setting. This is a Classi
 extension.
 
 ```lua
--- The Gurubashi Arena: the arena WMO where the map puts it, on its ground.
-scene:SetWorldModel("World\\wmo\\Azeroth\\Collidable Doodads\\Stranglethorn\\StranglethornArena\\StrangleGladiatorArena.wmo",
-    -13205.914, 271.832, 20.280, math.rad(64) + math.pi, 0, 0)
+-- The Gurubashi Arena: its ground, with the arena WMO that the map puts there.
 scene:SetWorldTerrain(0, -13205.914, 271.832, 250)
 scene:SetCameraFarClip(500)
 ```

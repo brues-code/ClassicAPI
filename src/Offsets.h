@@ -14666,8 +14666,19 @@ enum Offsets {
     WDT_MPHD_SIZE = 0x20,
     WDT_FLAG_MAP_OBJECT = 0x1,
     MODF_SIZE = 0x40,
+    // An ADT's entry, as CMapChunk::LoadReferences (0x006B00F0) and
+    // PlaceMapObjDef (0x00695650) read it: +0x00 the MWID index, +0x04 the
+    // unique id (one def per id across tiles, the hash 0x00CA7DB4), the
+    // position placed from the map origin (VAR_MAP_ORIGIN - +0x10, origin -
+    // +0x08, +0x0C), and the extents' low and high corners (+0x20, +0x2C),
+    // the def's box until its model loads: min (origin - +0x34, origin -
+    // +0x2C, +0x24), max (origin - +0x28, origin - +0x20, +0x30).
+    OFF_MODF_NAME_INDEX = 0x00,
+    OFF_MODF_UNIQUE_ID = 0x04,
     OFF_MODF_POSITION = 0x08,
     OFF_MODF_ROTATION = 0x14,
+    OFF_MODF_EXTENTS_LOW = 0x20,
+    OFF_MODF_EXTENTS_HIGH = 0x2C,
     OFF_MODF_DOODAD_SET = 0x3A,
     // Map.dbc +0x04: the map's directory name (World\Maps\<dir>\<dir>.wdt;
     // CMap::Load 0x006941F0). Verified: map 249 is "OnyxiaLairInstance".
@@ -16585,6 +16596,12 @@ enum Offsets {
     OFF_MHDR_MMDX = 0x0C,
     OFF_MHDR_MMID = 0x10,
     OFF_MHDR_MDDF = 0x1C,
+    // ParseAreaFile's map object tables: MWMO names +0x14 (area +0x69C), MWID
+    // name offsets +0x18 (+0x6A4), MODF placements +0x20 (+0x68C, the count
+    // size >> 6).
+    OFF_MHDR_MWMO = 0x14,
+    OFF_MHDR_MWID = 0x18,
+    OFF_MHDR_MODF = 0x20,
     // An MDDF entry as PlaceDoodadDef (0x00694BC0) reads it: +0x00 the MMID
     // index, +0x04 the unique id (one def per id, the hash 0x00CA7DDC), +0x08
     // position (x = origin - +0x10, y = origin - +0x08, z = +0x0C), +0x14 /
