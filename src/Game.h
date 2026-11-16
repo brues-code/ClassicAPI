@@ -508,6 +508,12 @@ int FrameScriptTypeId(uintptr_t typeIdVar);
 // The object's `IsA(typeId)` vmethod for a class's `VAR_*_LUA_TYPE_ID`.
 bool IsA(void *object, uintptr_t typeIdVar);
 
+// Pushes the engine's script error handler (the seterrorhandler function,
+// held at registry ref VAR_FRAMESCRIPT_ERROR_HANDLER_REF) and returns its
+// absolute stack index, the errfunc for PCall. Returns 0, with nothing
+// pushed, before the engine has set one.
+int PushErrorHandler(void *L);
+
 // Per-type sugar over `ResolveTypedObject`, so a call site cannot pair a
 // method with the wrong class's id. `idx` defaults to the `self` slot.
 void *ResolveTooltip(void *L, int idx = 1, bool raiseError = true);

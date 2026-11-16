@@ -217,6 +217,14 @@ int FrameScriptTypeId(uintptr_t typeIdVar) {
     return typeId;
 }
 
+int PushErrorHandler(void *L) {
+    const int ref = Read<int>(static_cast<uintptr_t>(Offsets::VAR_FRAMESCRIPT_ERROR_HANDLER_REF));
+    if (ref <= 0)
+        return 0;
+    RawGetI(L, REGISTRY_INDEX, ref);
+    return GetTop(L);
+}
+
 bool IsA(void *object, uintptr_t typeIdVar) {
     auto **vtable = *reinterpret_cast<void ***>(object);
     auto isA = reinterpret_cast<FrameScriptIsA_t>(

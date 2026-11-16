@@ -67,13 +67,8 @@ void RunCallbacks(void *smf) {
     RawGet(L, -2);
     const int callbacks = GetTop(L);
     if (Type(L, callbacks) == TYPE_TABLE) {
-        const int errRef = Game::Read<int>(static_cast<uintptr_t>(Offsets::VAR_FRAMESCRIPT_ERROR_HANDLER_REF));
         for (int i = 1;; ++i) {
-            int errIdx = 0;
-            if (errRef > 0) {
-                RawGetI(L, REGISTRY_INDEX, errRef);
-                errIdx = GetTop(L);
-            }
+            const int errIdx = Game::Lua::PushErrorHandler(L);
             RawGetI(L, callbacks, i);
             if (Type(L, -1) == TYPE_NIL)
                 break;

@@ -40,22 +40,12 @@ namespace BaseLib::SecureCall {
 
 namespace {
 
-// Pushes the engine's script error handler; false (nothing pushed) before
-// the engine has set one.
-bool PushErrorHandler(void *L) {
-    const int ref = Game::Read<int>(static_cast<uintptr_t>(Offsets::VAR_FRAMESCRIPT_ERROR_HANDLER_REF));
-    if (ref <= 0)
-        return false;
-    Game::Lua::RawGetI(L, Game::Lua::REGISTRY_INDEX, ref);
-    return true;
-}
-
 // Calls the function at stack index 1 with the values above it, under the
 // error handler. Returns the result count, 0 after an error.
 int CallProtected(void *L) {
     const int nargs = Game::Lua::GetTop(L) - 1;
     int errIdx = 0;
-    if (PushErrorHandler(L)) {
+    if (Game::Lua::PushErrorHandler(L) != 0) {
         Game::Lua::Insert(L, 1); // [handler, func, args...]
         errIdx = 1;
     }
@@ -97,7 +87,7 @@ int __fastcall Script_secureexecuterange(void *L) {
     Game::Lua::PushNil(L);
     while (Game::Lua::Next(L, 1) != 0) { // [.., key, value]
         int errIdx = 0;
-        if (PushErrorHandler(L))
+        if (Game::Lua::PushErrorHandler(L) != 0)
             errIdx = n + 3;
         Game::Lua::PushValue(L, 2);
         Game::Lua::PushValue(L, n + 1);

@@ -90,10 +90,7 @@ int __fastcall Wrapper(void *L) {
     Game::Lua::PushValue(L, Game::Lua::UpvalueIndex(2));
     Game::Lua::Insert(L, nresults + 1);
     int errIdx = 0;
-    const int errRef = Game::Read<int>(
-        static_cast<uintptr_t>(Offsets::VAR_FRAMESCRIPT_ERROR_HANDLER_REF));
-    if (errRef > 0) {
-        Game::Lua::RawGetI(L, Game::Lua::REGISTRY_INDEX, errRef);
+    if (Game::Lua::PushErrorHandler(L) != 0) {
         Game::Lua::Insert(L, nresults + 1);
         errIdx = nresults + 1;
     }

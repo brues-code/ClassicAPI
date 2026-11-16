@@ -403,13 +403,7 @@ std::string ModifiedUnit(void *L, void *frame) {
     const int fi = Game::Lua::GetTop(L);
     if (PushSub(L, fi, /*create*/ false)) {               // [frame, attrs]
         Game::Lua::SetTop(L, fi);
-        int errIdx = 0;
-        const int errRef = Game::Read<int>(
-            static_cast<uintptr_t>(Offsets::VAR_FRAMESCRIPT_ERROR_HANDLER_REF));
-        if (errRef > 0) {
-            Game::Lua::RawGetI(L, Game::Lua::REGISTRY_INDEX, errRef);
-            errIdx = Game::Lua::GetTop(L);
-        }
+        const int errIdx = Game::Lua::PushErrorHandler(L);
         Game::Lua::PushString(L, "SecureButton_GetModifiedUnit");
         Game::Lua::RawGet(L, Game::Lua::GLOBALS_INDEX);
         if (Game::Lua::Type(L, -1) == Game::Lua::TYPE_FUNCTION) {

@@ -276,17 +276,12 @@ const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 // under the engine's script error handler.
 int __fastcall Dispatcher(void *L) {
     const int nargs = Game::Lua::GetTop(L);
-    const int errRef = Game::Read<int>(static_cast<uintptr_t>(Offsets::VAR_FRAMESCRIPT_ERROR_HANDLER_REF));
     auto &context = Game::Ref<uint32_t>(Offsets::VAR_FRAMESCRIPT_EXEC_CONTEXT);
     auto &depth = Game::Ref<int32_t>(Offsets::VAR_FRAMESCRIPT_EXEC_CONTEXT_DEPTH);
     for (int b = 0; b < BINDING_COUNT; ++b) {
         if (Game::Lua::Type(L, Game::Lua::UpvalueIndex(b + 1)) != Game::Lua::TYPE_FUNCTION)
             continue;
-        int errIdx = 0;
-        if (errRef > 0) {
-            Game::Lua::RawGetI(L, Game::Lua::REGISTRY_INDEX, errRef);
-            errIdx = nargs + 1;
-        }
+        const int errIdx = Game::Lua::PushErrorHandler(L);
         Game::Lua::PushValue(L, Game::Lua::UpvalueIndex(b + 1));
         for (int i = 1; i <= nargs; ++i)
             Game::Lua::PushValue(L, i);

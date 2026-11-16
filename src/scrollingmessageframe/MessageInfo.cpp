@@ -414,12 +414,7 @@ int __fastcall Script_RemoveMessagesByPredicate(void *L) {
     const int top = GetTop(L);
 
     // The predicate over every message, through the engine's error handler.
-    int errIdx = 0;
-    const int errRef = Game::Read<int>(static_cast<uintptr_t>(Offsets::VAR_FRAMESCRIPT_ERROR_HANDLER_REF));
-    if (errRef > 0) {
-        RawGetI(L, REGISTRY_INDEX, errRef);
-        errIdx = GetTop(L);
-    }
+    const int errIdx = Game::Lua::PushErrorHandler(L);
     std::vector<uint8_t> remove(static_cast<size_t>(count), 0);
     int kept = count;
     for (int i = 0; i < count; ++i) {
