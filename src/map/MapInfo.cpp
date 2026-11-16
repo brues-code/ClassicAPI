@@ -50,6 +50,7 @@
 #include "dbc/Lookup.h"
 #include "dbc/Names.h"
 #include "map/Area.h"
+#include "map/Instance.h"
 #include "storm/File.h"
 
 #include <cstdint>
@@ -73,15 +74,6 @@ const uint8_t *MapRecord(int mapID) {
 // Localized `Map.dbc` display name ("Eastern Kingdoms", "Deadmines"), or null.
 const char *MapName(int mapID) {
     return DBC::LocalizedString(MapRecord(mapID), Offsets::OFF_MAP_NAME);
-}
-
-// `Map.dbc` instance type (0 = world map, 1 = dungeon, 2 = raid, 3 = BG).
-// -1 when the map has no row.
-int MapInstanceType(int mapID) {
-    const uint8_t *rec = MapRecord(mapID);
-    if (rec == nullptr)
-        return -1;
-    return Game::Read<int>(rec, Offsets::OFF_MAP_INSTANCE_TYPE);
 }
 
 // The WorldMapArea directory name of a row ("Kalimdor", "World", ""), or null.
@@ -153,7 +145,7 @@ bool PushMapInfo(void *L, int uiMapID) {
         name = MapName(mapID);
         if (name == nullptr)
             name = RowName(row); // custom map with no Map.dbc row
-        const int instanceType = MapInstanceType(mapID);
+        const int instanceType = Map::Instance::Type(mapID);
         if (instanceType == 0) {
             mapType = kMapTypeContinent;
             const int worldRow = WorldRow();
@@ -216,7 +208,7 @@ int __fastcall Script_GetMapChildrenInfo(void *L) {
         int childID = 0;
         if (wantContinents) {
             // Continent-spanning rows of real world maps, minus the World row.
-            if (areaID != 0 || id == row || MapInstanceType(mapID) != 0)
+            if (areaID != 0 || id == row || Map::Instance::Type(mapID) != 0)
                 continue;
             if (Map::Area::ContinentRowForMapID(mapID) != id)
                 continue; // skip the stray zero-rect duplicate

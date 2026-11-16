@@ -14,6 +14,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "dbc/Lookup.h"
+#include "map/Instance.h"
 
 #include <cstdint>
 
@@ -86,8 +87,7 @@ static int __fastcall Script_GetInstanceInfo(void *L) {
         return 9;
     }
 
-    const uint32_t type = *reinterpret_cast<const uint32_t *>(
-        rec + Offsets::OFF_MAP_INSTANCE_TYPE);
+    const uint32_t type = static_cast<uint32_t>(Map::Instance::Type(static_cast<int>(mapID)));
     const char *name = DBC::LocalizedString(rec, Offsets::OFF_MAP_NAME);
 
     const char *typeName =

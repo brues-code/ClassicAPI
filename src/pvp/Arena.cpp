@@ -14,6 +14,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "dbc/Lookup.h"
+#include "map/Instance.h"
 
 #include <cstdint>
 
@@ -45,7 +46,7 @@ namespace PvP::Arena {
 
 namespace {
 
-constexpr uint32_t MAP_INSTANCE_TYPE_PVP = 3;
+constexpr int MAP_INSTANCE_TYPE_PVP = 3;
 
 bool IsArenaArea(uint32_t areaID) {
     const uint8_t *rec = DBC::Record(Offsets::VAR_AREATABLE_RECORDS,
@@ -58,15 +59,7 @@ bool IsArenaArea(uint32_t areaID) {
 }
 
 bool InArena() {
-    const uint32_t mapID = *reinterpret_cast<const uint32_t *>(
-        static_cast<uintptr_t>(Offsets::VAR_CURRENT_MAP_ID));
-    const uint8_t *map =
-        DBC::Record(Offsets::VAR_MAP_RECORDS, Offsets::VAR_MAP_COUNT, mapID);
-    if (map == nullptr)
-        return false;
-    const uint32_t type =
-        *reinterpret_cast<const uint32_t *>(map + Offsets::OFF_MAP_INSTANCE_TYPE);
-    if (type != MAP_INSTANCE_TYPE_PVP)
+    if (Map::Instance::CurrentType() != MAP_INSTANCE_TYPE_PVP)
         return false;
 
     const uint32_t zone = *reinterpret_cast<const uint32_t *>(
