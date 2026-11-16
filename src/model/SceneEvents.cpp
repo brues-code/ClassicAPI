@@ -58,6 +58,7 @@
 #include "Offsets.h"
 #include "cvar/Factory.h"
 #include "dbc/Lookup.h"
+#include "model/DisplayInfo.h"
 #include "model/M2.h"
 #include "sound/Play.h"
 #include "time/Clock.h"
@@ -104,8 +105,7 @@ bool g_standPlayed = false;
 
 // The display's sound data row, else its model data's.
 const uint8_t *SoundData(uint32_t displayID) {
-    const uint8_t *display = DBC::Record(Offsets::VAR_CREATUREDISPLAYINFO_RECORDS,
-                                         Offsets::VAR_CREATUREDISPLAYINFO_COUNT, displayID);
+    const uint8_t *display = Model::DisplayInfo::Record(displayID);
     if (display == nullptr)
         return nullptr;
     auto row = [](uint32_t id) {
@@ -114,9 +114,7 @@ const uint8_t *SoundData(uint32_t displayID) {
     };
     if (const uint8_t *own = row(Game::Read<uint32_t>(display, Offsets::OFF_CREATUREDISPLAYINFO_SOUND_ID)))
         return own;
-    const uint8_t *modelData =
-        DBC::Record(Offsets::VAR_CREATUREMODELDATA_RECORDS, Offsets::VAR_CREATUREMODELDATA_COUNT,
-                    Game::Read<uint32_t>(display, Offsets::OFF_CREATUREDISPLAYINFO_MODEL_ID));
+    const uint8_t *modelData = Model::DisplayInfo::ModelData(display);
     return modelData != nullptr
                ? row(Game::Read<uint32_t>(modelData, Offsets::OFF_CREATUREMODELDATA_SOUND_ID))
                : nullptr;
@@ -125,16 +123,13 @@ const uint8_t *SoundData(uint32_t displayID) {
 // GetUnitSoundSize: the display's size class unless -1, else its model
 // data's; -1 when neither is known.
 int SizeClass(uint32_t displayID) {
-    const uint8_t *display = DBC::Record(Offsets::VAR_CREATUREDISPLAYINFO_RECORDS,
-                                         Offsets::VAR_CREATUREDISPLAYINFO_COUNT, displayID);
+    const uint8_t *display = Model::DisplayInfo::Record(displayID);
     if (display == nullptr)
         return -1;
     const auto size = Game::Read<int32_t>(display, Offsets::OFF_CREATUREDISPLAYINFO_SIZE_CLASS);
     if (size != -1)
         return size;
-    const uint8_t *modelData =
-        DBC::Record(Offsets::VAR_CREATUREMODELDATA_RECORDS, Offsets::VAR_CREATUREMODELDATA_COUNT,
-                    Game::Read<uint32_t>(display, Offsets::OFF_CREATUREDISPLAYINFO_MODEL_ID));
+    const uint8_t *modelData = Model::DisplayInfo::ModelData(display);
     return modelData != nullptr
                ? Game::Read<int32_t>(modelData, Offsets::OFF_CREATUREMODELDATA_SIZE_CLASS)
                : -1;

@@ -283,9 +283,20 @@ const Game::ReloadAutoRegister _reloadReg{&PrepareForReload};
 
 // The engine's own early-out: an Extra record with no bake name gets no
 // customization at all (FUN_005fb200 returns before creating the builder).
+const uint8_t *Record(uint32_t displayID) {
+    return DBC::Record(Offsets::VAR_CREATUREDISPLAYINFO_RECORDS,
+                       Offsets::VAR_CREATUREDISPLAYINFO_COUNT, displayID);
+}
+
+const uint8_t *ModelData(const uint8_t *display) {
+    if (display == nullptr)
+        return nullptr;
+    return DBC::Record(Offsets::VAR_CREATUREMODELDATA_RECORDS, Offsets::VAR_CREATUREMODELDATA_COUNT,
+                       Game::Read<uint32_t>(display, Offsets::OFF_CREATUREDISPLAYINFO_MODEL_ID));
+}
+
 const uint8_t *DressRecord(uint32_t displayID) {
-    const uint8_t *displayRec = DBC::Record(Offsets::VAR_CREATUREDISPLAYINFO_RECORDS,
-                                            Offsets::VAR_CREATUREDISPLAYINFO_COUNT, displayID);
+    const uint8_t *displayRec = Record(displayID);
     if (displayRec == nullptr)
         return nullptr;
     const uint32_t extID =
@@ -304,13 +315,8 @@ const uint8_t *DressRecord(uint32_t displayID) {
 void *CreateDisplayModel(void *scene, uint32_t displayID, const char **path) {
     using ApplyDisplay_t = void(__fastcall *)(void *model, const uint8_t *display,
                                               const uint8_t *modelData);
-    const uint8_t *display = DBC::Record(Offsets::VAR_CREATUREDISPLAYINFO_RECORDS,
-                                         Offsets::VAR_CREATUREDISPLAYINFO_COUNT, displayID);
-    if (display == nullptr)
-        return nullptr;
-    const uint8_t *modelData = DBC::Record(
-        Offsets::VAR_CREATUREMODELDATA_RECORDS, Offsets::VAR_CREATUREMODELDATA_COUNT,
-        Game::Read<uint32_t>(display, Offsets::OFF_CREATUREDISPLAYINFO_MODEL_ID));
+    const uint8_t *display = Record(displayID);
+    const uint8_t *modelData = ModelData(display);
     if (modelData == nullptr)
         return nullptr;
     const char *file = Game::Read<const char *>(modelData, Offsets::OFF_CREATUREMODELDATA_MODEL_PATH);

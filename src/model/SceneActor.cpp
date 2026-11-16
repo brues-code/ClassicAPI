@@ -1358,10 +1358,8 @@ bool ShowCreatureDisplay(Actor &actor, uint32_t displayID) {
     if (model == nullptr)
         return false;
     actor.displayID = displayID;
-    actor.displayScale = Game::Read<float>(
-        DBC::Record(Offsets::VAR_CREATUREDISPLAYINFO_RECORDS,
-                    Offsets::VAR_CREATUREDISPLAYINFO_COUNT, displayID),
-        Offsets::OFF_CREATUREDISPLAYINFO_SCALE);
+    actor.displayScale =
+        Game::Read<float>(Model::DisplayInfo::Record(displayID), Offsets::OFF_CREATUREDISPLAYINFO_SCALE);
     // SetModel keeps these fields: there is no model to clear.
     actor.SetModel(model, path, Model::DisplayInfo::DressRecord(displayID));
     return true;
@@ -2234,13 +2232,8 @@ void SizeMover(Actor &actor) {
     constexpr float kNoBox = 9.5367431640625e-7f; // 2^-20, its NOCOLLISIONBOX bound
     if (actor.displayID == 0)
         return;
-    const uint8_t *display = DBC::Record(Offsets::VAR_CREATUREDISPLAYINFO_RECORDS,
-                                         Offsets::VAR_CREATUREDISPLAYINFO_COUNT, actor.displayID);
-    if (display == nullptr)
-        return;
-    const uint8_t *data =
-        DBC::Record(Offsets::VAR_CREATUREMODELDATA_RECORDS, Offsets::VAR_CREATUREMODELDATA_COUNT,
-                    Game::Read<uint32_t>(display, Offsets::OFF_CREATUREDISPLAYINFO_MODEL_ID));
+    const uint8_t *display = Model::DisplayInfo::Record(actor.displayID);
+    const uint8_t *data = Model::DisplayInfo::ModelData(display);
     if (data == nullptr)
         return;
     const float width = Game::Read<float>(data, Offsets::OFF_CREATUREMODELDATA_COLLISION_WIDTH);

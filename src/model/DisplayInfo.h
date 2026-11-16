@@ -14,6 +14,12 @@
 
 namespace Model::DisplayInfo {
 
+// The CreatureDisplayInfo row of `displayID`, and the CreatureModelData row a
+// display row names (its +0x04 ModelID): the chain the engine's unit-display
+// resolver FUN_0060afb0 walks. Null for a missing row or a null `display`.
+const uint8_t *Record(uint32_t displayID);
+const uint8_t *ModelData(const uint8_t *display);
+
 // The CreatureDisplayInfoExtra record the engine dresses `displayID` from, or
 // null when the display gets no character customization.
 const uint8_t *DressRecord(uint32_t displayID);
