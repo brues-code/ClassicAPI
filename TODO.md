@@ -4237,6 +4237,15 @@ definitions do not shadow ours in a 1.12 workspace.
 
 Two layers. The replay needs the log first.
 
+**Progress (2026-11-16).** Step 1 BUILT, not yet checked in game:
+`combatlog/File.cpp` writes Era's v9 lines with ADVANCED_LOG_ENABLED 0
+(header on open and each world entry, Era stamp, retail GUID strings,
+Name-Realm, ST/AOE tag, overkill -1, power type 27, death `0`). The rules
+and the Era-log evidence are in that file's comments. Next steps: (2) the
+advanced block + `advancedCombatLogging` cvar + Network checkbox +
+SWING_DAMAGE_LANDED; (3) COMBATANT_INFO, ZONE_CHANGE, ENCOUNTER_*;
+(4) the movement file.
+
 **Layer 1: advanced combat logging (the `advancedCombatLogging` cvar).**
 Our combat log file (`combatlog/File.cpp`) writes 4.3.4's PackEvent line.
 Classic Era (1.15.7) writes `COMBAT_LOG_VERSION,9,ADVANCED_LOG_ENABLED,1,
@@ -4248,13 +4257,23 @@ Observed (2026-11-12, BWL log `WoWCombatLog-052425_204021.txt`):
   offset. Our SLogWrite stamp has neither.
 - Advanced block, inserted after the spell prefix on damage / heal /
   cast-success / energize / swing lines:
-  `infoGUID, ownerGUID, curHP, maxHP, 0,0,0,0,0, -1, 0,0,0, X, Y, 0,
-  facing, level`.
-  In Era, the attack power / spell power / armor / absorb slots, the power
-  slots (`-1,0,0,0`) and uiMapID (`0`) are EMPTY. Era fills only what a
-  client can know, so a 1.12 DLL can match it almost field for field
-  (HP from descriptors, position and facing from movement info, level).
-  Era writes player HP as a percent (`93,100`) and creature HP as raw values.
+  `infoGUID, ownerGUID, curHP, maxHP, AP, SP, armor, absorb, 0,
+  powerType, curPower, maxPower, powerCost, X, Y, uiMapID, facing,
+  level`. Slot order verified (2026-11-16) against MoP Classic 5.5.4
+  (`_classic_\Logs\WoWCombatLog-062026_123941.txt`, same
+  COMBAT_LOG_VERSION 9), which fills them. Example: a warrior
+  `100,100,34760,111,32368,0,0,1,0,1000,0`. The slot after absorb is 0
+  in every line of both logs.
+  In Era, AP / SP / armor / absorb, the power slots (`-1,0,0,0`) and
+  uiMapID (`0`) are EMPTY. Era fills only what a client can know, so a
+  1.12 DLL can match it almost field for field (HP from descriptors,
+  position and facing from movement info).
+  Era and MoP write player HP as a percent (`93,100`) and creature HP as
+  raw values.
+- The last slot is NOT always the level. For players it is the item level
+  (Era BWL raiders show 62 to 68 at level 60; MoP players show 518 to
+  543). For creatures it is the level (62, 90, 1). The player ilvl can be
+  computed from the visible items plus the item cache.
 - The info unit depends on the event: SPELL_DAMAGE → the DEST,
   SWING_DAMAGE → the source, SWING_DAMAGE_LANDED → the dest. Map each
   subevent from the log before coding. Do not guess.
@@ -4262,16 +4281,78 @@ Observed (2026-11-12, BWL log `WoWCombatLog-052425_204021.txt`):
   `ENCOUNTER_START,610,"Razorgore the Untamed",9,40,469,2`,
   `ENCOUNTER_END,…,1` and `COMBATANT_INFO` (stats, talents, gear, auras).
   Encounter IDs come from a DBC that 1.12 does not have, so how to detect
-  an engage is OPEN. COMBATANT_INFO is possible only for players we can
-  inspect.
+  an engage is OPEN.
+- COMBATANT_INFO needs no inspect. In 1.12, CMSG_INSPECT carries no data:
+  the server replies SMSG_INSPECT with the GUID only, and the client
+  handler `0x5E7D70` discards it. The 10-yard rule is the client's
+  `CanReadUnitInventory` (`0x4944A0`) gate on the stock getters. The data
+  itself is broadcast for every visible player (tortoise
+  `Player.cpp` `updateVisualBits`, around line 5150):
+  - Gear: 19 visible-item blocks (entry, PERM + TEMP enchant, random
+    property + suffix), read through `FUN_UNIT_GET_VISIBLE_ITEM` with no
+    range gate (as `GetInventoryItemID` does). This fills Era's
+    `[(itemID, ilvl, (enchants), (), ())…]`. ilvl needs the item record,
+    so an uncached item needs a query first. The engine's visible-item
+    watcher `0x5DEE30` runs for any player, so the log can write gear
+    changes without polling.
+  - Auras, HP, level, power and max power.
+  - Not sent for other players: stats, armor, attack/spell power and
+    talents. Those COMBATANT_INFO fields can be filled for the local
+    player only; write 0 / `()` for everyone else.
+- DECIDED (2026-11-16): fill the advanced block's power slots, as MoP
+  Classic does and Era does not. Verified 2026-11-16:
+  - Who: in the MoP log, the slots are filled for 50,571 player info
+    blocks and empty for 9. They are empty for all 92,057 creature,
+    2,347 pet and 5,278 vehicle blocks. In the Era log they are empty
+    everywhere. So fill them for players only.
+  - Values: MoP writes the stored value, not the display value. Rage
+    is `0..1000`, stored in tenths, as 1.12 stores it. So write the
+    descriptor value without `Unit::Power::DisplayDivisor`.
+  - Reads: powerType from `OFF_UNIT_DESCRIPTOR_POWER_TYPE_BYTE` (+0x7B),
+    current/max from `OFF_UNIT_FIELD_POWER1` (+0x44) /
+    `OFF_UNIT_FIELD_MAXPOWER1` (+0x5C) + type*4. These are the same reads
+    as the engine's `UnitPowerType` / `UnitMana` / `UnitManaMax`
+    (benilla-re `ui/party.md`). Tortoise sends POWER1..5 and
+    MAXPOWER1..5 to every viewer (`updateVisualBits`).
+  - powerCost: MoP fills it (3000 for Power Word: Fortitude, 0 for a
+    proc). Write 0 until a 1.12 source is verified.
 - If the format matches Era, existing classic log parsers may read
   Turtle logs. Not checked.
 
 **Layer 2: replay in a ModelScene.** Density from the same log
 (Razorgore, 398 s, 57 units): median 150 position samples per unit, about
 one every 2.6 s, and at most about 2 per second. That is enough for a
-Warcraft Logs-style replay and too coarse for a smooth 3D one. OPEN: add
-a client-side position sampler (a ClassicAPI-only line type or a separate
-recording), or interpolate as WCL does. The viewer needs map geometry:
-there is already a WMO backdrop (ModelScene) and the `feat/scene-terrain`
-branch.
+Warcraft Logs-style replay and too coarse for a smooth 3D one. The viewer
+needs map geometry: there is already a WMO backdrop (ModelScene) and the
+`feat/scene-terrain` branch.
+
+DECIDED (2026-11-16): positions stay at retail frequency by default (only
+the advanced block's X/Y). High-frequency movement is opt-in:
+- Setting: retail puts `advancedCombatLogging` in a Network category
+  (`_forever_` `Blizzard_SettingsDefinitions_Shared/Network.lua`, a
+  `Settings.SetupCVarCheckbox`). Our Settings backport has no Network
+  category yet. Port it with that checkbox, and add a ClassicAPI
+  extension checkbox under it for movement logging. Make it a child of
+  the advanced checkbox, enabled only while advanced logging is on.
+  Default off.
+- Do not sample positions at a fixed rate. That only records the client's
+  own prediction between messages. Log the messages the client receives,
+  through `Net::PacketDispatch` subscribers (no new hook):
+  - `SMSG_MONSTER_MOVE` 0xDD / `_TRANSPORT` 0x2AE (`0x6018F0`): one line
+    per path, with the points, duration, spline flags and facing. A replay
+    then has creature positions at any time, not just near samples.
+  - The 30 relayed player moves (`0x603BB0`: start, stop, strafe, jump,
+    turn, heartbeat every 500 ms while moving): one line each with the
+    time, flags, position and facing.
+  - Speed changes (`0x603C10` spline speeds, `0x603F90` forced changes),
+    because player prediction needs the current speed.
+  - The local player's own moves are sends, not receives: use
+    `Net::SendObserver`.
+  benilla-re `objectlayer/unitmovement.md` has all the handlers.
+- Write a separate file next to the combat log, with the same timestamp
+  format, so the main log stays Era-compatible. (Unchecked whether Era
+  parsers skip unknown line types.)
+- Size, measured on Era logs: 115-164 MB per 40-player night
+  (BWL+MC+Ony), gzip about 12:1. Movement, NOT measured: an estimated
+  50-100 lines/s, 45-90 MB per night. Nobody can test a raid right now.
+  Measure the real rate with an opcode counter once someone can.

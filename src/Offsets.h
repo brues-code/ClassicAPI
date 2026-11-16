@@ -2252,21 +2252,6 @@ enum Offsets {
     // nonzero while the combat log is written to a file. Cleared by the chat
     // teardown (0x00498700). Disassembled, 0x0049FE70 / 0x0049B1D3.
     VAR_COMBAT_LOGGING = 0x00B4FDB8,
-    // Storm SLogCreate — `bool __stdcall(const char *path, uint32_t flags,
-    // uint32_t *log)`. Flag 4 appends; the file is opened (and its folders
-    // made) on the first write. LoggingCombat opens Logs\WoWCombatLog.txt with
-    // it (0x0049FEA2). Storm closes every open log at exit (0x0065A4B0).
-    // benilla-re storm/log.
-    FUN_SLOG_CREATE = 0x0065A0C0,
-    // Storm SLogWrite — `void __cdecl(uint32_t log, const char *format, ...)`:
-    // one line, prefixed with "M/D HH:MM:SS.mmm  " and ended with "\r\n". The
-    // combat log's own line writer (0x0049B1E8) calls it with "%s".
-    // benilla-re storm/log.
-    FUN_SLOG_WRITE = 0x0065ACE0,
-    // Storm SLogClose — `void __stdcall(uint32_t log)`: writes the buffered
-    // lines to the file, flushes and closes it. The chat teardown closes the
-    // chat and combat logs with it (0x0049871B). benilla-re storm/log.
-    FUN_SLOG_CLOSE = 0x00659EC0,
     // A unit's death — `void __fastcall(CGUnit *unit)`: writes the death
     // line (0x0062C160), shows the pending XP gain, plays the death animation
     // and sound. Its one caller is CGUnit_C::OnDied (0x006058AE), from the
@@ -11271,6 +11256,12 @@ enum Offsets {
     // FUN_GET_LOGIN_ACCOUNT_NAME, whose label is a misnomer — it returns the
     // 0x00C27D88 buffer, NULL until a character is logged in.)
     FUN_GET_REALM_NAME = 0x005AB7D0,
+
+    // The client's version string, `GetBuildInfo()`'s first return: the
+    // `mov edx, 0x837C04` at 0x004884A1 ahead of its lua_pushstring. Read
+    // from both exes' bytes: "1.12.1" in stock 1.12.1, "1.18.1" in Octo's
+    // Turtle build (patched in place, same address). NUL-terminated.
+    VAR_BUILD_VERSION_STRING = 0x00837C04,
 
     // AddOn scan — `void __cdecl()`, no args, plain RET (benilla-re
     // `ScanAddOns`). Registers the archives' listfile addons, then the

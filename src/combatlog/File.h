@@ -13,17 +13,16 @@
 
 #pragma once
 
-// The combat log file — 4.3.4's WoWCombatLog.txt line, written while
-// LoggingCombat is on to a file per logging session named as retail names it
-// (Logs\WoWCombatLog-MMDDYY_HHMMSS.txt). 1.12's own WoWCombatLog.txt keeps
-// its chat-text lines.
+// The combat log file — Classic Era's COMBAT_LOG_VERSION 9 lines, written
+// while LoggingCombat is on to a file per logging session named as retail
+// names it (Logs\WoWCombatLog-MMDDYY_HHMMSS.txt). 1.12's own WoWCombatLog.txt
+// keeps its chat-text lines.
 
 #include "combatlog/Entry.h"
 
 namespace CombatLog::File {
 
-// SendCombatLogEvents' write: CombatLogEntry::PackEvent's line, through
-// CGChat::AddCombatMessage's SLogWrite, while combat logging is on.
+// The entry's line, while combat logging is on.
 void Write(const Entry &entry);
 
 } // namespace CombatLog::File

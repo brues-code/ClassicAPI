@@ -11,25 +11,42 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// The combat log file — 4.3.4's CombatLogEntry::PackEvent line, written as
-// SendCombatLogEvents writes it while LoggingCombat is on.
+// The combat log file, in Classic Era's COMBAT_LOG_VERSION 9 layout, written
+// while LoggingCombat is on.
 //
-// The engine pieces:
+// The oracle is a real Era 1.15.7 raid log (40 players, BWL + MC + Onyxia):
+// every line shape below was taken from it, subevent by subevent, not from a
+// format description. Era writes advanced logging on; with it off, retail
+// writes the same lines without the advanced block, which is what this file
+// writes until that block exists.
+//
+// The pieces:
 //   - the switch is LoggingCombat's own flag, so /combatlog and
 //     LoggingCombat() turn both files on and off, and logging out (the chat
 //     teardown in CGGameUI::ShutdownGame, 0x00498700, clears the flag) stops
-//     both;
+//     both. 1.12's own Logs\WoWCombatLog.txt keeps its chat-text lines, which
+//     1.12 log readers parse;
 //   - each time the flag turns on, a new file starts, named as retail names
-//     it: Logs\WoWCombatLog-MMDDYY_HHMMSS.txt, the local time logging started.
-//     1.12's own Logs\WoWCombatLog.txt keeps its chat-text lines, which 1.12
-//     log readers parse;
-//   - the file is a Storm log, opened as LoggingCombat opens its own (append)
-//     and written with SLogWrite (which stamps "M/D HH:MM:SS.mmm  " on each
-//     line, as in 4.3.4's file). When the flag turns off it is closed, which
-//     writes its buffered lines. Storm closes what is still open at exit;
-//   - the line is PackEvent's: no hideCaster, flags as hex, the spell school
-//     as a hex mask (the extra spell's in decimal), damage values as numbers,
-//     flags as 1 or nil, no isOffHand and no alternate power type.
+//     it: Logs\WoWCombatLog-MMDDYY_HHMMSS.txt, the local time logging started;
+//   - the file is written through the CRT, not Storm's SLogWrite: Storm stamps
+//     every line with "M/D HH:MM:SS.mmm" and keeps no API to turn that off,
+//     and Era's stamp carries the year and the UTC offset
+//     ("5/24/2025 20:40:21.890-5  "). The buffer is flushed once a second, so
+//     a crash loses at most that much;
+//   - the header line (COMBAT_LOG_VERSION, ADVANCED_LOG_ENABLED, BUILD_VERSION,
+//     PROJECT_ID) starts the file and is written again on every world entry,
+//     as Era writes it after each loading screen. BUILD_VERSION is the
+//     client's GetBuildInfo version (VAR_BUILD_VERSION_STRING); PROJECT_ID is
+//     Era's 2, WOW_PROJECT_CLASSIC;
+//   - GUIDs are written as retail's strings (Player-0-0000ABCD,
+//     Creature-0-0-<map>-0-<npc id>-<spawn>), with 0 for the server and
+//     instance numbers 1.12 does not have. Player names carry "-<realm>"; the
+//     region retail adds after it is unknown to a 1.12 client and left off.
+//
+// Values a 1.12 client is never sent, and what is written for them:
+//   - baseAmount (damage and heals, and the second ABSORB amount): the
+//     amount itself. Era's value is the server's pre-mitigation amount;
+//   - overEnergize: 0.
 //
 // The flag is read once a frame (FrameTick, which also runs on the glue
 // screen, so a logout's cleared flag is seen there) and before each line.
@@ -39,64 +56,164 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "event/EnteringWorld.h"
 #include "guid/Guid.h"
-#include "tick/FrameTick.h"
+#include "object/Resolve.h"
 #include "spell/Lookup.h"
+#include "tick/FrameTick.h"
+#include "time/Clock.h"
+#include "unit/CreatureID.h"
 
+#include <cstdint>
 #include <cstdio>
+#include <share.h>
 #include <ctime>
 #include <string>
+#include <windows.h>
 
 namespace CombatLog::File {
 
 namespace {
 
-constexpr uint32_t kAppend = 4; // SLogCreate: open at the end of the file
+constexpr int kLogVersion = 9;
+constexpr int kProjectId = 2; // WOW_PROJECT_CLASSIC, as Era writes it
+constexpr std::size_t kBufferSize = 0x10000;
+constexpr uint32_t kFlushMs = 1000;
+constexpr int kSpellEffects = 3;
+constexpr int kPowerTypes = 5;
+// 1.12 stores pet happiness as power type 4; the file writes retail's
+// Enum.PowerType.Happiness, as Era does.
+constexpr int kHappiness = 4;
+constexpr int kHappinessModern = 27;
 
-uint32_t g_log = 0;
+// Implicit targets that name one unit. A damage effect with a radius is AOE
+// unless it aims at one of these. Checked against the Era log: of the 300
+// damage spells it tags, all 300 match this rule over the 1.12 Spell.dbc
+// (Effect, EffectImplicitTargetA, EffectRadiusIndex). The radius alone gets
+// one wrong: 19632, radius 13 at TARGET_UNIT_ENEMY, which Era tags ST.
+constexpr int kSingleUnitTargets[] = {
+    5,  // TARGET_UNIT_CASTER_PET
+    6,  // TARGET_UNIT_ENEMY
+    21, // TARGET_UNIT_FRIEND
+    25, // TARGET_UNIT
+    27, // TARGET_UNIT_CASTER_MASTER
+    35, // TARGET_UNIT_PARTY
+    45, // TARGET_UNIT_FRIEND_CHAIN_HEAL
+    57, // TARGET_UNIT_RAID
+};
+
+// Era's environmental type names (its ENVIRONMENTAL_DAMAGE lines: Falling,
+// Lava, Fire), in the server's type order.
+constexpr const char *kEnvironmentalNames[] = {"Fatigue", "Drowning", "Falling",
+                                               "Lava",    "Slime",    "Fire"};
+
+std::FILE *g_file = nullptr;
+uint32_t g_flushedMs = 0;
 
 bool Logging() { return Game::Read<int>(Offsets::VAR_COMBAT_LOGGING) != 0; }
 
-// A new log named for the local time now. True when it is open.
+int64_t Ticks(const FILETIME &t) {
+    return (static_cast<int64_t>(t.dwHighDateTime) << 32) | t.dwLowDateTime;
+}
+
+// Era's stamp: "M/D/YYYY HH:MM:SS.mmm" in local time, the offset from UTC in
+// hours, then two spaces.
+void Stamp(std::string &line) {
+    FILETIME utc, local;
+    SYSTEMTIME t;
+    GetSystemTimeAsFileTime(&utc);
+    if (!FileTimeToLocalFileTime(&utc, &local) || !FileTimeToSystemTime(&local, &t)) {
+        local = utc;
+        FileTimeToSystemTime(&utc, &t);
+    }
+    const int64_t offsetMinutes = (Ticks(local) - Ticks(utc)) / 600000000; // 100 ns units
+    char text[64];
+    int n = std::snprintf(text, sizeof text, "%u/%u/%u %02u:%02u:%02u.%03u", t.wMonth, t.wDay,
+                          t.wYear, t.wHour, t.wMinute, t.wSecond, t.wMilliseconds);
+    if (offsetMinutes % 60 == 0)
+        std::snprintf(text + n, sizeof text - n, "%+d  ", static_cast<int>(offsetMinutes / 60));
+    else
+        std::snprintf(text + n, sizeof text - n, "%+g  ", static_cast<double>(offsetMinutes) / 60);
+    line += text;
+}
+
+void Emit(const std::string &body) {
+    std::string line;
+    Stamp(line);
+    line += body;
+    line += "\r\n";
+    std::fwrite(line.data(), 1, line.size(), g_file);
+}
+
+void Header() {
+    const char *version = reinterpret_cast<const char *>(
+        static_cast<uintptr_t>(Offsets::VAR_BUILD_VERSION_STRING));
+    char text[128];
+    std::snprintf(text, sizeof text,
+                  "COMBAT_LOG_VERSION,%d,ADVANCED_LOG_ENABLED,0,BUILD_VERSION,%s,PROJECT_ID,%d",
+                  kLogVersion, version, kProjectId);
+    Emit(text);
+}
+
+// A new log named for the local time now, and its header. True when it is open.
 bool Open() {
     const std::time_t now = std::time(nullptr);
     std::tm local{};
     if (localtime_s(&local, &now) != 0)
         return false;
+    CreateDirectoryA("Logs", nullptr); // fails harmlessly when it exists
     char path[64];
     std::strftime(path, sizeof path, "Logs\\WoWCombatLog-%m%d%y_%H%M%S.txt", &local);
-    using Create_t = int(__stdcall *)(const char *path, uint32_t flags, uint32_t *log);
-    const auto create = reinterpret_cast<Create_t>(static_cast<uintptr_t>(Offsets::FUN_SLOG_CREATE));
-    if (create(path, kAppend, &g_log) == 0)
-        g_log = 0;
-    return g_log != 0;
+    // Shared for reading and writing, as Storm opens its logs: live log
+    // readers tail the file while the game writes it. (fopen_s shares
+    // nothing, which locked every reader out.)
+    g_file = _fsopen(path, "ab", _SH_DENYNO);
+    if (g_file == nullptr)
+        return false;
+    std::setvbuf(g_file, nullptr, _IOFBF, kBufferSize);
+    g_flushedMs = Time::Clock::NowMs();
+    Header();
+    return true;
 }
 
 void Close() {
-    using Close_t = void(__stdcall *)(uint32_t log);
-    reinterpret_cast<Close_t>(static_cast<uintptr_t>(Offsets::FUN_SLOG_CLOSE))(g_log);
-    g_log = 0;
+    std::fclose(g_file);
+    g_file = nullptr;
 }
 
 // Follows the flag: a new file when it turns on, the file closed when it
-// turns off.
+// turns off, and the buffer flushed once a second in between.
 void OnFrame() {
     const bool logging = Logging();
-    if (logging && g_log == 0)
+    if (logging && g_file == nullptr) {
         Open();
-    else if (!logging && g_log != 0)
+    } else if (!logging && g_file != nullptr) {
         Close();
+    } else if (g_file != nullptr) {
+        const uint32_t now = Time::Clock::NowMs();
+        if (Time::Clock::Elapsed(g_flushedMs, now) >= kFlushMs) {
+            std::fflush(g_file);
+            g_flushedMs = now;
+        }
+    }
 }
 
 const Tick::FrameTick::AutoSubscribe _frame{&OnFrame};
 
-// PackString
+// Era writes the header again after each loading screen.
+void OnEnterWorld() {
+    if (g_file != nullptr)
+        Header();
+}
+
+const Event::EnteringWorld::AutoObserve _enterWorld{&OnEnterWorld};
+
 void Plain(std::string &line, const char *text) {
     line += ',';
     line += text;
 }
 
-// PackQuotedString, or PackString "nil" when there is no text.
+// A quoted string, or nil when there is no text.
 void Quoted(std::string &line, const char *text) {
     if (text == nullptr) {
         Plain(line, "nil");
@@ -111,7 +228,6 @@ void Quoted(std::string &line, const char *text) {
     line += '"';
 }
 
-// PackHex
 void Hex(std::string &line, uint32_t value) {
     char text[16];
     std::snprintf(text, sizeof text, ",0x%x", value);
@@ -124,26 +240,184 @@ void Number(std::string &line, int value) {
     line += text;
 }
 
-// PackBool
+// Energize amounts: Era writes them with four decimals ("737.0000").
+void Decimal(std::string &line, int value) {
+    char text[24];
+    std::snprintf(text, sizeof text, ",%d.0000", value);
+    line += text;
+}
+
 void Flag(std::string &line, bool value) { line += value ? ",1" : ",nil"; }
 
-void Unit(std::string &line, uint64_t guid, bool named, const std::string &name, uint32_t flags,
-          uint32_t raidFlags) {
-    char text[Guid::STRING_SIZE];
-    line += ',';
-    line += Guid::FormatAsString(guid, text, sizeof text);
-    Quoted(line, named ? name.c_str() : nullptr);
+// The creature or game-object template id: the live object's when it is in
+// view, else the one the GUID packs.
+uint32_t GameObjectEntry(uint64_t guid) {
+    if (void *object = Object::ByGuid(Offsets::TYPEMASK_GAMEOBJECT, guid))
+        return Object::Entry(object);
+    return static_cast<uint32_t>(guid >> 24) & 0xFFFFFF;
+}
+
+// Retail's GUID strings. 1.12 has no server, instance or zone numbers, so
+// those parts are 0; the map is the one the player is on, which every object
+// in view shares. The spawn part is the GUID's per-spawn counter.
+void GuidPart(std::string &line, uint64_t guid) {
+    const uint32_t low = static_cast<uint32_t>(guid);
+    const uint32_t spawn = low & 0xFFFFFF;
+    const int map = Game::Read<int>(Offsets::VAR_CURRENT_MAP_ID);
+    char text[64];
+    switch (::Guid::Classify(guid)) {
+    case ::Guid::Type::Player:
+        std::snprintf(text, sizeof text, ",Player-0-%08X", low);
+        break;
+    case ::Guid::Type::Creature:
+        std::snprintf(text, sizeof text, ",Creature-0-0-%d-0-%u-%010X", map,
+                      Unit::CreatureID::ForGuid(guid), spawn);
+        break;
+    case ::Guid::Type::Pet:
+        std::snprintf(text, sizeof text, ",Pet-0-0-%d-0-%u-%010X", map,
+                      Unit::CreatureID::ForGuid(guid), spawn);
+        break;
+    case ::Guid::Type::GameObject:
+        std::snprintf(text, sizeof text, ",GameObject-0-0-%d-0-%u-%010X", map,
+                      GameObjectEntry(guid), spawn);
+        break;
+    default:
+        std::snprintf(text, sizeof text, ",%016llX", static_cast<unsigned long long>(guid));
+        break;
+    }
+    line += text;
+}
+
+using RealmName_t = const char *(*)();
+
+// A player's name with "-<realm>", as retail writes it (without the region).
+void UnitName(std::string &line, uint64_t guid, bool named, const std::string &name) {
+    if (!named) {
+        Plain(line, "nil");
+        return;
+    }
+    if (!::Guid::IsPlayer(guid)) {
+        Quoted(line, name.c_str());
+        return;
+    }
+    std::string full = name;
+    const char *realm =
+        reinterpret_cast<RealmName_t>(static_cast<uintptr_t>(Offsets::FUN_GET_REALM_NAME))();
+    if (realm != nullptr && *realm != '\0') {
+        full += '-';
+        full += realm;
+    }
+    Quoted(line, full.c_str());
+}
+
+void UnitPart(std::string &line, uint64_t guid, bool named, const std::string &name,
+              uint32_t flags, uint32_t raidFlags) {
+    GuidPart(line, guid);
+    UnitName(line, guid, named, name);
     Hex(line, flags);
     Hex(line, raidFlags);
 }
 
-// CombatLogEntry::PackEvent, the blocks 1.12 fills.
+bool SingleUnitTarget(int target) {
+    for (const int t : kSingleUnitTargets) {
+        if (t == target)
+            return true;
+    }
+    return false;
+}
+
+// Era's ST / AOE tag on spell damage and misses.
+const char *DamageTag(const uint8_t *spell) {
+    if (spell == nullptr)
+        return "ST";
+    for (int i = 0; i < kSpellEffects; ++i) {
+        const int offset = i * 4;
+        if (Game::Read<int>(spell, Offsets::OFF_SPELL_RECORD_EFFECT + offset) == 0 ||
+            Game::Read<int>(spell, Offsets::OFF_SPELL_RECORD_EFFECT_RADIUS_INDEX + offset) == 0)
+            continue;
+        if (!SingleUnitTarget(
+                Game::Read<int>(spell, Offsets::OFF_SPELL_RECORD_EFFECT_IMPLICIT_TARGET_A + offset)))
+            return "AOE";
+    }
+    return "ST";
+}
+
+bool Tagged(int event) {
+    switch (event) {
+    case SPELL_DAMAGE:
+    case SPELL_PERIODIC_DAMAGE:
+    case RANGE_DAMAGE:
+    case DAMAGE_SHIELD:
+    case DAMAGE_SPLIT:
+    case SPELL_MISSED:
+    case SPELL_PERIODIC_MISSED:
+    case DAMAGE_SHIELD_MISSED:
+        return true;
+    default:
+        return false;
+    }
+}
+
+// UNIT_DIED and its kin end with unconsciousOnDeath, always 0 in 1.12.
+bool Death(int event) {
+    return event == UNIT_DIED || event == UNIT_DESTROYED || event == PARTY_KILL ||
+           event == SPELL_INSTAKILL;
+}
+
+int PowerType(int type) { return type == kHappiness ? kHappinessModern : type; }
+
+// The stored maximum of a power on the unit, 0 when it is out of view.
+int MaxPower(uint64_t guid, int type) {
+    if (type < 0 || type >= kPowerTypes)
+        return 0;
+    const uint8_t *fields = Object::Fields(Object::ByGuid(Offsets::TYPEMASK_UNIT, guid));
+    return fields != nullptr
+               ? Game::Read<int>(fields, Offsets::OFF_UNIT_FIELD_MAXPOWER1 + type * 4)
+               : 0;
+}
+
+const char *EnvironmentalTitle(int type) {
+    return (type >= 0 && type < 6) ? kEnvironmentalNames[type] : kEnvironmentalNames[0];
+}
+
+// amount, baseAmount, overkill, school, resisted, blocked, absorbed,
+// critical, glancing, crushing. Era writes overkill -1 when the hit does not
+// kill (no 0 in 108,000 damage lines) and 0 on every environmental line.
+void Damage(std::string &line, const Entry &e) {
+    Number(line, e.v[1]);
+    Number(line, e.v[1]);
+    Number(line, e.v[2] > 0 ? e.v[2] : (e.event == ENVIRONMENTAL_DAMAGE ? 0 : -1));
+    Number(line, e.v[3]);
+    Number(line, e.v[5]);
+    Number(line, e.v[6]);
+    Number(line, e.v[4]);
+    Flag(line, e.critical);
+    Flag(line, e.glancing);
+    Flag(line, e.crushing);
+}
+
+// missType, isOffHand, then the amount for a resist or block, and the amount
+// and baseAmount for an absorb.
+void Miss(std::string &line, const Entry &e) {
+    Plain(line, MissName(e.v[0]));
+    Flag(line, e.offHand);
+    if (e.info & INFO_MISS_RESISTED)
+        Number(line, e.v[5]);
+    if (e.info & INFO_MISS_BLOCKED)
+        Number(line, e.v[6]);
+    if (e.info & INFO_MISS_ABSORBED) {
+        Number(line, e.v[4]);
+        Number(line, e.v[4]);
+    }
+}
+
 std::string Pack(const Entry &e) {
     std::string line = Name(e.event);
-    Unit(line, e.source, e.sourceNamed, e.sourceName, e.sourceFlags, e.sourceRaidFlags);
-    Unit(line, e.dest, e.destNamed, e.destName, e.destFlags, e.destRaidFlags);
+    UnitPart(line, e.source, e.sourceNamed, e.sourceName, e.sourceFlags, e.sourceRaidFlags);
+    UnitPart(line, e.dest, e.destNamed, e.destName, e.destFlags, e.destRaidFlags);
+    const uint8_t *spell = nullptr;
     if (e.spellPrefix) {
-        const uint8_t *spell = SpellRecord(e.spellId);
+        spell = SpellRecord(e.spellId);
         Number(line, e.spellId);
         Quoted(line, Spell::Lookup::Name(spell));
         Hex(line, spell != nullptr ? SpellSchoolMask(spell) : e.spellSchool);
@@ -153,34 +427,32 @@ std::string Pack(const Entry &e) {
     if (e.info & INFO_TEXT)
         Quoted(line, e.text.c_str());
     if (e.info & INFO_MISS)
-        Plain(line, MissName(e.v[0]));
+        Miss(line, e);
     if (e.info & INFO_ENVIRONMENTAL)
-        Plain(line, EnvironmentalName(e.v[0]));
-    if (e.info & INFO_DAMAGE) {
-        for (const int slot : {1, 2, 3, 5, 6, 4})
-            Number(line, e.v[slot]);
-        Flag(line, e.critical);
-        Flag(line, e.glancing);
-        Flag(line, e.crushing);
-    }
-    if (e.info & INFO_MISS_ABSORBED)
-        Number(line, e.v[4]);
-    if (e.info & INFO_MISS_RESISTED)
-        Number(line, e.v[5]);
-    if (e.info & INFO_MISS_BLOCKED)
-        Number(line, e.v[6]);
+        Plain(line, EnvironmentalTitle(e.v[0]));
+    if (e.info & INFO_DAMAGE)
+        Damage(line, e);
     if (e.info & INFO_HEAL) {
-        for (int i = 0; i < 3; ++i)
-            Number(line, e.v[i]);
+        // amount, baseAmount, overhealing, absorbed, critical
+        Number(line, e.v[0]);
+        Number(line, e.v[0]);
+        Number(line, e.v[1]);
+        Number(line, e.v[2]);
         Flag(line, e.critical);
     }
     if (e.info & INFO_ENERGIZE) {
-        for (int i = 0; i < 2; ++i)
-            Number(line, e.v[i]);
+        // amount, overEnergize, powerType, maxPower
+        Decimal(line, e.v[0]);
+        Decimal(line, 0);
+        Number(line, PowerType(e.v[1]));
+        Number(line, MaxPower(e.dest, e.v[1]));
     }
     if (e.info & INFO_DRAIN) {
-        for (int i = 0; i < 3; ++i)
-            Number(line, e.v[i]);
+        // amount, powerType, extraAmount, maxPower
+        Number(line, e.v[0]);
+        Number(line, PowerType(e.v[1]));
+        Number(line, e.v[2]);
+        Number(line, MaxPower(e.dest, e.v[1]));
     }
     if (e.info & INFO_EXTRA_SPELL) {
         const uint8_t *extra = SpellRecord(e.v[0]);
@@ -196,6 +468,10 @@ std::string Pack(const Entry &e) {
         Plain(line, e.harmful ? "DEBUFF" : "BUFF");
     if (e.info & INFO_AURA_AMOUNT)
         Number(line, e.v[2]);
+    if (Tagged(e.event))
+        Plain(line, DamageTag(spell));
+    if (Death(e.event))
+        Number(line, 0);
     return line;
 }
 
@@ -203,11 +479,9 @@ std::string Pack(const Entry &e) {
 
 void Write(const Entry &entry) {
     // A line in the frame logging turned on comes before the frame's check.
-    if (!Logging() || (g_log == 0 && !Open()))
+    if (!Logging() || (g_file == nullptr && !Open()))
         return;
-    using Write_t = void(__cdecl *)(uint32_t log, const char *format, ...);
-    reinterpret_cast<Write_t>(static_cast<uintptr_t>(Offsets::FUN_SLOG_WRITE))(
-        g_log, "%s", Pack(entry).c_str());
+    Emit(Pack(entry));
 }
 
 } // namespace CombatLog::File
