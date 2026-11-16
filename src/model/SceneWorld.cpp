@@ -366,18 +366,6 @@ bool KeepGroup(void *object, uint32_t index, void *group) {
     return false;
 }
 
-using SetFog_t = void(__thiscall *)(void *record, const float *rgb, float start, float end);
-
-void AddLight(void *record, const void *light) {
-    reinterpret_cast<void(__thiscall *)(void *, const void *)>(Offsets::FUN_M2LIGHTING_ADD_LIGHT)(record, light);
-}
-
-// The frame's light callback: the scene fog, then the scene light.
-void FrameLightAndFog(void *record, void *frame) {
-    using Callback_t = void(__fastcall *)(void *instance, void *record, void *frame);
-    reinterpret_cast<Callback_t>(Offsets::FUN_SIMPLEMODELFFX_LIGHT_FOG_CB)(nullptr, record, frame);
-}
-
 // The callback's fog half alone (0x0076D68A..0x0076D7C1).
 void SceneFog(void *record, void *frame) {
     if ((Game::Read<uint32_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_FLAGS) & Offsets::SIMPLEMODEL_FOG_ARMED) == 0)
@@ -385,9 +373,8 @@ void SceneFog(void *record, void *frame) {
     float rgb[3];
     reinterpret_cast<void(__thiscall *)(const void *, float *)>(Offsets::FUN_UNPACK_COLOR_BYTES)(
         Game::Ptr<uint8_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_COLOR), rgb);
-    reinterpret_cast<SetFog_t>(Offsets::FUN_M2LIGHTING_SET_FOG)(
-        record, rgb, Game::Read<float>(frame, Offsets::OFF_SIMPLEMODEL_FOG_NEAR),
-        Game::Read<float>(frame, Offsets::OFF_SIMPLEMODEL_FOG_FAR));
+    M2::SetLightingFog(record, rgb, Game::Read<float>(frame, Offsets::OFF_SIMPLEMODEL_FOG_NEAR),
+                       Game::Read<float>(frame, Offsets::OFF_SIMPLEMODEL_FOG_FAR));
 }
 
 bool HasOwnFog(const Backdrop &b) { return Game::Read<uint32_t>(b.object, Offsets::OFF_CMAPOBJ_FOG_COUNT) > 1; }
@@ -401,7 +388,7 @@ void SetFog(void *record, const FogValues &fog) {
     const float rgb[3] = {static_cast<float>((fog.color >> 16) & 0xFF) / 255.0f,
                           static_cast<float>((fog.color >> 8) & 0xFF) / 255.0f,
                           static_cast<float>(fog.color & 0xFF) / 255.0f};
-    reinterpret_cast<SetFog_t>(Offsets::FUN_M2LIGHTING_SET_FOG)(record, rgb, fog.start, fog.end);
+    M2::SetLightingFog(record, rgb, fog.start, fog.end);
 }
 
 // The camera's WMO fog has a weight: the world then draws the WMO and the
@@ -439,10 +426,10 @@ void WmoFog(const Backdrop &b, void *record, void *frame) { SetFog(record, Drawn
 // frame's callback (the scene fog and light, as a scene model gets them).
 void StageLightAndFog(const Backdrop &b, void *record, void *frame) {
     if (!WmoFogShown(b)) {
-        FrameLightAndFog(record, frame);
+        M2::FrameLightAndFog(record, frame);
         return;
     }
-    AddLight(record, Game::Ptr<uint8_t>(frame, Offsets::OFF_SIMPLEMODEL_LIGHT));
+    M2::AddLight(record, Game::Ptr<uint8_t>(frame, Offsets::OFF_SIMPLEMODEL_LIGHT));
     WmoFog(b, record, frame);
 }
 
@@ -455,13 +442,10 @@ void CommitLighting(const Backdrop &b, void *frame, const float (&eye)[3]) {
     const float centre[4] = {sphere[0] * m[0] + sphere[1] * m[4] + sphere[2] * m[8] + m[12],
                              sphere[0] * m[1] + sphere[1] * m[5] + sphere[2] * m[9] + m[13],
                              sphere[0] * m[2] + sphere[1] * m[6] + sphere[2] * m[10] + m[14], sphere[3]};
-    reinterpret_cast<void(__thiscall *)(void *, void *, const float *)>(Offsets::FUN_M2LIGHTING_INIT)(
-        record, nullptr, centre);
-    reinterpret_cast<void(__thiscall *)(void *, void *)>(Offsets::FUN_M2SCENE_ADD_LIGHTS_FOR_POINT)(
-        Model::Pane::Scene(frame), record);
+    M2::InitLighting(record, centre);
+    M2::AddSceneLights(Model::Pane::Scene(frame), record);
     StageLightAndFog(b, record, frame);
-    using Commit_t = void(__thiscall *)(void *record, const float *origin, int fog);
-    reinterpret_cast<Commit_t>(Offsets::FUN_M2LIGHTING_SET_DEVICE_LIGHTS)(record, eye, 1);
+    M2::CommitLighting(record, eye);
     // A record without fog turns the device fog off and leaves its range,
     // but the group drawers turn the fog back on for every material without
     // flag 0x2: the world always commits a fog first. With the device's own
@@ -606,12 +590,12 @@ void InteriorLight(const Backdrop &b, void *record, void *frame, uint32_t ambien
 // slots.
 void __fastcall DoodadLighting(void * /*instance*/, void *record, Doodad *d) {
     if (d->exterior)
-        FrameLightAndFog(record, d->frame);
+        M2::FrameLightAndFog(record, d->frame);
     else
         InteriorLight(*d->backdrop, record, d->frame, d->ambient, d->directional, MapLightDirection(),
                       EngineFloat(Offsets::VAR_ONE));
     for (const Light &light : d->lights)
-        AddLight(record, light.bytes);
+        M2::AddLight(record, light.bytes);
 }
 
 // ---- sounds ---------------------------------------------------------------------------
@@ -1458,11 +1442,11 @@ void Settle(const Backdrop *b, const Terrain::Land *terrain, Ambience &a, void *
 // ApplyMapLighting (0x006A7300).
 void ActorLight(const Backdrop *b, const Ambience &a, void *frame, void *record) {
     if (b == nullptr || a.serial != b->serial) {
-        FrameLightAndFog(record, frame);
+        M2::FrameLightAndFog(record, frame);
         return;
     }
     if (!a.interior) {
-        FrameLightAndFog(record, frame);
+        M2::FrameLightAndFog(record, frame);
     } else {
         float direction[3] = {MapLightDirection()[0], MapLightDirection()[1], MapLightDirection()[2]};
         if (a.dayWeight != 0) {
@@ -1480,7 +1464,7 @@ void ActorLight(const Backdrop *b, const Ambience &a, void *frame, void *record)
         InteriorLight(*b, record, frame, a.ambient, a.directional, direction, a.intensity);
     }
     for (const Light &light : a.lights)
-        AddLight(record, light.bytes);
+        M2::AddLight(record, light.bytes);
 }
 
 namespace {
@@ -2022,11 +2006,9 @@ void CommitDecalFog(const Backdrop *b, void *frame, const float (&point)[3], con
     }
     alignas(16) uint8_t record[Offsets::M2_LIGHTING_RECORD_SIZE];
     const float sphere[4] = {point[0], point[1], point[2], 0.0f};
-    reinterpret_cast<void(__thiscall *)(void *, void *, const float *)>(Offsets::FUN_M2LIGHTING_INIT)(record, nullptr,
-                                                                                                     sphere);
-    FrameLightAndFog(record, frame);
-    using Commit_t = void(__thiscall *)(void *record, const float *origin, int fog);
-    reinterpret_cast<Commit_t>(Offsets::FUN_M2LIGHTING_SET_DEVICE_LIGHTS)(record, eye, 1);
+    M2::InitLighting(record, sphere);
+    M2::FrameLightAndFog(record, frame);
+    M2::CommitLighting(record, eye);
 }
 
 void Update(Backdrop &b, void *frame, bool sounds, float elapsed) {
@@ -2076,12 +2058,11 @@ void Draw(Backdrop &b, void *frame, const float (&eye)[3], const ViewVolume &vol
     // last until it ends.
     const Gx::SavedStates states;
     PushObjectSpace(b, eye);
-    reinterpret_cast<Fn_t>(Offsets::FUN_FRUSTUM_PUSH)();
-    reinterpret_cast<void(__thiscall *)(const void *)>(Offsets::FUN_FRUSTUM_STORE)(volume.bytes);
+    PushFrustum(volume);
     reinterpret_cast<void(__fastcall *)(const float *)>(Offsets::FUN_FRUSTUM_TRANSFORM)(b.inverse);
     CommitLighting(b, frame, eye);
     DrawGroups(b, frame);
-    reinterpret_cast<Fn_t>(Offsets::FUN_FRUSTUM_POP)();
+    PopFrustum();
     PopObjectSpace();
 }
 
@@ -2473,7 +2454,7 @@ PortalSky WalkFromCamera(const Backdrop &b, const float (&eye)[3], const ViewVol
     const auto walkExteriors = [&](const float *window) {
         const float rect[4] = {window[0] * 2.0f - 1.0f, window[1] * 2.0f - 1.0f, window[2] * 2.0f - 1.0f,
                                window[3] * 2.0f - 1.0f};
-        reinterpret_cast<Fn_t>(Offsets::FUN_FRUSTUM_PUSH)();
+        PushFrustum();
         reinterpret_cast<Volume_t>(Offsets::FUN_BUILD_PORTAL_VOLUME)(corners, window);
         const auto *infos = Game::Read<const uint8_t *>(object, Offsets::OFF_CMAPOBJ_GROUP_INFOS);
         const uint32_t count = Game::Read<uint32_t>(object, Offsets::OFF_CMAPOBJ_GROUP_COUNT);
@@ -2486,11 +2467,11 @@ PortalSky WalkFromCamera(const Backdrop &b, const float (&eye)[3], const ViewVol
                     Game::Ptr<float>(info, Offsets::OFF_MOGI_BOUNDS), basis, position) == 0)
                 walk(object, i, Offsets::MAPOBJ_PORTAL_FROM_NONE, rect, 0, nullptr);
         }
-        reinterpret_cast<Fn_t>(Offsets::FUN_FRUSTUM_POP)();
+        PopFrustum();
     };
     if (inside) {
         const float screen[4] = {-1.0f, -1.0f, 1.0f, 1.0f};
-        reinterpret_cast<Fn_t>(Offsets::FUN_FRUSTUM_PUSH)();
+        PushFrustum();
         Game::Ref<uint32_t>(Offsets::VAR_LIQUID_GROUP_SEEN) = 0;
         for (uint32_t i = 0; i < b.cameraGroupCount; ++i) {
             void *group = LoadedGroup(object, b.cameraGroups[i]);
@@ -2500,7 +2481,7 @@ PortalSky WalkFromCamera(const Backdrop &b, const float (&eye)[3], const ViewVol
                 group = nullptr;
             walk(object, b.cameraGroups[i], Offsets::MAPOBJ_PORTAL_FROM_NONE, screen, 0, group);
         }
-        reinterpret_cast<Fn_t>(Offsets::FUN_FRUSTUM_POP)();
+        PopFrustum();
         Game::Ref<uint32_t>(Offsets::VAR_PORTAL_INSIDE_LEG) = 0;
         const uint32_t windows = Game::Read<uint32_t>(Offsets::VAR_PORTAL_WINDOW_COUNT);
         for (uint32_t w = 0; w < windows; ++w)

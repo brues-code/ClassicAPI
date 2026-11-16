@@ -401,6 +401,39 @@ inline void SetLightPosition(void *light, const float *v) {
     reinterpret_cast<void(__thiscall *)(void *, const float *)>(Offsets::FUN_M2LIGHT_SET_POSITION)(light, v);
 }
 
+// ---- a lighting record (M2_LIGHTING_RECORD_SIZE bytes, 16-aligned) ---------------
+
+// Zeroes `record` for the lit sphere {x, y, z, radius}.
+inline void InitLighting(void *record, const float *sphere) {
+    reinterpret_cast<void(__thiscall *)(void *, void *, const float *)>(Offsets::FUN_M2LIGHTING_INIT)(
+        record, nullptr, sphere);
+}
+// Adds the scene's global and grid lights around the record's sphere.
+inline void AddSceneLights(void *scene, void *record) {
+    reinterpret_cast<void(__thiscall *)(void *, void *)>(Offsets::FUN_M2SCENE_ADD_LIGHTS_FOR_POINT)(scene,
+                                                                                                record);
+}
+// Adds one M2 light (skipped when disabled).
+inline void AddLight(void *record, const void *light) {
+    reinterpret_cast<void(__thiscall *)(void *, const void *)>(Offsets::FUN_M2LIGHTING_ADD_LIGHT)(record, light);
+}
+inline void SetLightingFog(void *record, const float *rgb, float start, float end) {
+    reinterpret_cast<void(__thiscall *)(void *, const float *, float, float)>(Offsets::FUN_M2LIGHTING_SET_FOG)(
+        record, rgb, start, end);
+}
+// The model frame's light callback (FUN_SIMPLEMODELFFX_LIGHT_FOG_CB): the
+// frame's fog, then its light, on `record`.
+inline void FrameLightAndFog(void *record, void *frame) {
+    reinterpret_cast<void(__fastcall *)(void *, void *, void *)>(Offsets::FUN_SIMPLEMODELFFX_LIGHT_FOG_CB)(
+        nullptr, record, frame);
+}
+// Commits `record` to the device: its four lights (point lights at their
+// position less `origin`) and its fog states.
+inline void CommitLighting(void *record, const float *origin) {
+    reinterpret_cast<void(__thiscall *)(void *, const float *, int)>(Offsets::FUN_M2LIGHTING_SET_DEVICE_LIGHTS)(
+        record, origin, 1);
+}
+
 // ---- animation classes (Offsets::FUN_IS_*_ANIMATION) -----------------------------
 // The unit's tests of an AnimationData ID. The death test is __stdcall, the
 // others __fastcall.

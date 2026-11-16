@@ -734,13 +734,12 @@ class Staged {
         }
         savedFogEnd_ = worldFogEnd;
         worldFogEnd = fogEnd;
-        reinterpret_cast<void(__cdecl *)()>(Offsets::FUN_FRUSTUM_PUSH)();
-        reinterpret_cast<void(__thiscall *)(const void *)>(Offsets::FUN_FRUSTUM_STORE)(volume.bytes);
+        World::PushFrustum(volume);
         Gx::PushTransform(Offsets::GX_XFORM_WORLD);
     }
     ~Staged() {
         Gx::PopTransform(Offsets::GX_XFORM_WORLD);
-        reinterpret_cast<void(__cdecl *)()>(Offsets::FUN_FRUSTUM_POP)();
+        World::PopFrustum();
         float *camera = &Game::Ref<float>(Offsets::VAR_CAMERA_POSITION);
         for (int i = 0; i < 3; ++i)
             camera[i] = savedCamera_[i];
@@ -777,18 +776,14 @@ class Staged {
 // A lighting record committed at the eye: the scene's lights at the sphere,
 // the scene's fog, and its light (the sun's stand-in) when `lit`.
 void CommitRecord(void *frame, const float (&sphere)[4], bool lit, const float (&eye)[3]) {
-    using Init_t = void(__thiscall *)(void *record, void *unused, const float *sphere);
-    using Lights_t = void(__thiscall *)(void *scene, void *record);
-    using Commit_t = void(__thiscall *)(void *record, const float *origin, int fog);
-    using Callback_t = void(__fastcall *)(void *instance, void *record, void *frame);
     alignas(16) uint8_t record[Offsets::M2_LIGHTING_RECORD_SIZE] = {};
-    reinterpret_cast<Init_t>(Offsets::FUN_M2LIGHTING_INIT)(record, nullptr, sphere);
-    reinterpret_cast<Lights_t>(Offsets::FUN_M2SCENE_ADD_LIGHTS_FOR_POINT)(Model::Pane::Scene(frame), record);
+    M2::InitLighting(record, sphere);
+    M2::AddSceneLights(Model::Pane::Scene(frame), record);
     if (lit)
-        reinterpret_cast<Callback_t>(Offsets::FUN_SIMPLEMODELFFX_LIGHT_FOG_CB)(nullptr, record, frame);
+        M2::FrameLightAndFog(record, frame);
     else
         World::FrameFog(record, frame);
-    reinterpret_cast<Commit_t>(Offsets::FUN_M2LIGHTING_SET_DEVICE_LIGHTS)(record, eye, 1);
+    M2::CommitLighting(record, eye);
 }
 
 } // namespace

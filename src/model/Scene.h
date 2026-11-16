@@ -631,6 +631,14 @@ struct ViewVolume {
     alignas(16) uint8_t bytes[Offsets::FRUSTUM_VOLUME_SIZE] = {};
 };
 void BuildViewVolume(ViewVolume &volume, const float (&eye)[3]);
+// The world's frustum stack: a push copies the top (the volume form then
+// stores `volume` on it), a pop restores the one below.
+inline void PushFrustum() { reinterpret_cast<void(__cdecl *)()>(Offsets::FUN_FRUSTUM_PUSH)(); }
+inline void PushFrustum(const ViewVolume &volume) {
+    PushFrustum();
+    reinterpret_cast<void(__thiscall *)(const void *)>(Offsets::FUN_FRUSTUM_STORE)(volume.bytes);
+}
+inline void PopFrustum() { reinterpret_cast<void(__cdecl *)()>(Offsets::FUN_FRUSTUM_POP)(); }
 // Whether `path` names a WMO (ends in ".wmo"), which only the scene shows.
 bool IsWmoPath(const char *path);
 // Null when the engine cannot read `path` safely: it is not a WMO, a file
