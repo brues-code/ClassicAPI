@@ -53,6 +53,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "event/Custom.h"
+#include "group/Roster.h"
 #include "unit/Identity.h"
 #include "unit/PowerEvents.h"
 
@@ -168,30 +169,12 @@ struct Presence {
 
 // The raid slots' GUIDs and online bits.
 int RaidPresence(Presence (&out)[Offsets::RAID_MAX_SLOTS]) {
-    int count = Game::Read<int>(Offsets::VAR_RAID_MEMBER_COUNT);
-    if (count > Offsets::RAID_MAX_SLOTS)
-        count = Offsets::RAID_MAX_SLOTS;
-    const auto *slots = reinterpret_cast<const uint8_t *const *>(
-        static_cast<uintptr_t>(Offsets::VAR_RAID_MEMBER_PTRS));
-    int n = 0;
-    for (int i = 0; i < count; ++i) {
-        if (slots[i] == nullptr)
-            continue;
-        const uint8_t flags = Game::Read<uint8_t>(slots[i], Offsets::OFF_RAID_SLOT_FLAGS);
-        out[n++] = {Game::Read<uint64_t>(slots[i], 0),
-                    (flags & Offsets::RAID_SLOT_FLAG_ONLINE) != 0};
-    }
+    const int n = Group::Roster::RaidCount();
+    for (int i = 0; i < n; ++i)
+        out[i] = {Group::Roster::RaidGuid(i), Group::Roster::RaidMemberOnline(Group::Roster::RaidMember(i))};
     return n;
 }
 
-bool IsPartyMember(uint64_t guid) {
-    const auto *party =
-        reinterpret_cast<const uint64_t *>(static_cast<uintptr_t>(Offsets::VAR_PARTY_GUIDS));
-    for (int i = 0; i < Offsets::PARTY_MAX_SLOTS; ++i)
-        if (party[i] == guid)
-            return true;
-    return false;
-}
 
 void __fastcall RaidRosterSite(const uint64_t *guids, const uint32_t *flags,
                                const uint8_t *online, uint32_t count) {
@@ -203,7 +186,7 @@ void __fastcall RaidRosterSite(const uint64_t *guids, const uint32_t *flags,
     Presence after[Offsets::RAID_MAX_SLOTS];
     const int now = RaidPresence(after);
     for (int i = 0; i < now; ++i) {
-        if (IsPartyMember(after[i].guid))
+        if (Group::Roster::IsPartyMember(after[i].guid))
             continue;
         for (int j = 0; j < was; ++j) {
             if (before[j].guid == after[i].guid) {

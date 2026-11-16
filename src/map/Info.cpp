@@ -13,6 +13,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "group/Roster.h"
 #include "unit/Identity.h"
 
 #include <cstdint>
@@ -41,33 +42,6 @@ int ParseSlot(const char *s, int max) {
     return value >= 1 ? value - 1 : -1;
 }
 
-// Look up the GUID stored in the party member slot directly. Slots are
-// 0..3 in the parallel GUID table at `VAR_PARTY_GUIDS` (8-byte
-// stride). Returns 0 if the slot is empty (no party member there).
-uint64_t PartySlotGUID(int slot) {
-    if (slot < 0 || slot >= 4)
-        return 0;
-    auto *guids = reinterpret_cast<const uint64_t *>(
-        static_cast<uintptr_t>(Offsets::VAR_PARTY_GUIDS));
-    return guids[slot];
-}
-
-// Raid slot storage at `0x00B712A8` is an array of 40 `RaidMember *`
-// pointers; the GUID sits at `*member + 0` (lo) and `*member + 4`
-// (hi). Verified from `FUN_004bb0f0`'s disassembly:
-//   MOV EAX, [ECX*4 + 0xb712a8]   ; entry = arr[i]
-//   MOV EDI, [EAX]                 ; guid_lo
-//   MOV EAX, [EAX + 4]             ; guid_hi
-uint64_t RaidSlotGUID(int slot) {
-    if (slot < 0 || slot >= 40)
-        return 0;
-    auto *const *arr = reinterpret_cast<const uint8_t *const *>(
-        static_cast<uintptr_t>(Offsets::VAR_RAID_MEMBER_PTRS));
-    const uint8_t *entry = arr[slot];
-    if (entry == nullptr)
-        return 0;
-    return *reinterpret_cast<const uint64_t *>(entry);
-}
 
 uint16_t LocalPlayerArea() {
     return static_cast<uint16_t>(*reinterpret_cast<const uint32_t *>(
@@ -132,9 +106,9 @@ static int __fastcall Script_GetBestMapForUnit(void *L) {
     // continuously by party/raid sync regardless of sync range.
     uint64_t guid = 0;
     if (std::strncmp(token, "party", 5) == 0) {
-        guid = PartySlotGUID(ParseSlot(token + 5, 4));
+        guid = Group::Roster::PartyGuid(ParseSlot(token + 5, 4));
     } else if (std::strncmp(token, "raid", 4) == 0) {
-        guid = RaidSlotGUID(ParseSlot(token + 4, 40));
+        guid = Group::Roster::RaidGuid(ParseSlot(token + 4, 40));
     } else {
         // Use TokenToGUID directly so we get the GUID for tokens like
         // "target" / "mouseover" even when the unit has no local CGUnit

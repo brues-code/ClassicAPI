@@ -33,6 +33,7 @@
 #include "Offsets.h"
 #include "event/Custom.h"
 #include "frame/UnitEvent.h"
+#include "group/Roster.h"
 #include "tick/WorldTick.h"
 #include "unit/Range.h"
 #include "unit/TokenResolve.h"
@@ -94,20 +95,15 @@ void Want(const char *token) {
 void WantGroup() {
     char token[16];
     Want("pet");
-    const auto *party =
-        reinterpret_cast<const uint64_t *>(static_cast<uintptr_t>(Offsets::VAR_PARTY_GUIDS));
     for (int i = 0; i < Offsets::PARTY_MAX_SLOTS; ++i) {
-        if (party[i] == 0)
+        if (Group::Roster::PartyGuid(i) == 0)
             continue;
         std::snprintf(token, sizeof token, "party%d", i + 1);
         Want(token);
         std::snprintf(token, sizeof token, "partypet%d", i + 1);
         Want(token);
     }
-    int count = Game::Read<int>(Offsets::VAR_RAID_MEMBER_COUNT);
-    if (count > Offsets::RAID_MAX_SLOTS)
-        count = Offsets::RAID_MAX_SLOTS;
-    for (int i = 1; i <= count; ++i) {
+    for (int i = 1, count = Group::Roster::RaidCount(); i <= count; ++i) {
         std::snprintf(token, sizeof token, "raid%d", i);
         Want(token);
         std::snprintf(token, sizeof token, "raidpet%d", i);

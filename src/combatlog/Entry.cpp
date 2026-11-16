@@ -40,6 +40,7 @@
 #include "combatlog/History.h"
 #include "Offsets.h"
 #include "event/Custom.h"
+#include "group/Roster.h"
 #include "guid/Guid.h"
 #include "object/Resolve.h"
 #include "spell/Lookup.h"
@@ -166,34 +167,6 @@ uint64_t ReadGuidField(const void *object, int offset) {
     return fields == nullptr ? 0 : Game::Read<uint64_t>(fields, offset);
 }
 
-bool InParty(uint64_t guid) {
-    for (int i = 0; i < Offsets::PARTY_MAX_SLOTS; ++i) {
-        const uint64_t member =
-            Game::Read<uint64_t>(Offsets::VAR_PARTY_GUIDS + i * sizeof(uint64_t));
-        if (member != 0 && member == guid)
-            return true;
-    }
-    return false;
-}
-
-bool HasParty() {
-    for (int i = 0; i < Offsets::PARTY_MAX_SLOTS; ++i) {
-        if (Game::Read<uint64_t>(Offsets::VAR_PARTY_GUIDS + i * sizeof(uint64_t)) != 0)
-            return true;
-    }
-    return false;
-}
-
-bool InRaid(uint64_t guid) {
-    for (int i = 0; i < Offsets::RAID_MAX_SLOTS; ++i) {
-        const auto *member =
-            Game::Read<const uint8_t *>(Offsets::VAR_RAID_MEMBER_PTRS + i * sizeof(void *));
-        if (member != nullptr && Game::Read<uint64_t>(member, 0) == guid)
-            return true;
-    }
-    return false;
-}
-
 int Reaction(void *unit, void *other) {
     using Reaction_t = int(__thiscall *)(void *unit, void *other);
     return reinterpret_cast<Reaction_t>(static_cast<uintptr_t>(Offsets::FUN_UNIT_REACTION))(
@@ -203,8 +176,8 @@ int Reaction(void *unit, void *other) {
 uint32_t ObjectFlags(uint64_t guid) {
     if (guid == 0)
         return NONE;
-    const bool inRaid = Game::Read<int>(Offsets::VAR_RAID_MEMBER_COUNT) != 0;
-    const bool inGroup = inRaid || HasParty();
+    const bool inRaid = Group::Roster::RaidCount() != 0;
+    const bool inGroup = inRaid || Group::Roster::PartyCount() != 0;
     const uint64_t player = Unit::Identity::PlayerGuid();
 
     uint64_t owner = guid;
@@ -258,9 +231,9 @@ uint32_t ObjectFlags(uint64_t guid) {
             }
         }
         if (!hostile && inGroup) {
-            if (InParty(owner))
+            if (Group::Roster::IsPartyMember(owner))
                 flags |= AFFILIATION_PARTY | REACTION_FRIENDLY;
-            else if (inRaid && InRaid(owner))
+            else if (inRaid && Group::Roster::IsRaidMember(owner))
                 flags |= AFFILIATION_RAID | REACTION_FRIENDLY;
         }
         if ((flags & AFFILIATION_MASK) == 0)
@@ -282,7 +255,7 @@ uint32_t ObjectFlags(uint64_t guid) {
 uint32_t RaidFlags(uint64_t guid) {
     if (guid == 0)
         return NONE;
-    if (Game::Read<int>(Offsets::VAR_RAID_MEMBER_COUNT) == 0 && !HasParty())
+    if (Group::Roster::RaidCount() == 0 && Group::Roster::PartyCount() == 0)
         return 0;
     for (int i = 0; i < 8; ++i) {
         if (Game::Read<uint64_t>(Offsets::VAR_RAID_TARGET_GUIDS + i * sizeof(uint64_t)) == guid)

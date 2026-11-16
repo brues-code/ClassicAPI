@@ -59,6 +59,7 @@
 #include "cvar/Factory.h"
 #include "friendlist/FriendList.h"
 #include "group/MemberStats.h"
+#include "group/Roster.h"
 #include "guid/Guid.h"
 #include "text/Utf8.h"
 #include "unit/Identity.h"
@@ -148,27 +149,17 @@ std::vector<Entry> Collect(Match match) {
         found.push_back({guid, name, flag, listed, online, order});
     };
 
-    const auto *party =
-        reinterpret_cast<const uint64_t *>(static_cast<uintptr_t>(Offsets::VAR_PARTY_GUIDS));
     for (int i = 0; i < Offsets::PARTY_MAX_SLOTS; ++i) {
-        const uint64_t guid = party[i];
+        const uint64_t guid = Group::Roster::PartyGuid(i);
         if (guid != 0)
             add(guid, Unit::Identity::NameForGuid(guid), FLAG_IN_GROUP, true,
                 Group::MemberStats::Lookup(guid).online, 0);
     }
 
-    int raidCount = Game::Read<int>(Offsets::VAR_RAID_MEMBER_COUNT);
-    if (raidCount > Offsets::RAID_MAX_SLOTS)
-        raidCount = Offsets::RAID_MAX_SLOTS;
-    const auto *slots = reinterpret_cast<const uint8_t *const *>(
-        static_cast<uintptr_t>(Offsets::VAR_RAID_MEMBER_PTRS));
-    for (int i = 0; i < raidCount; ++i) {
-        if (slots[i] == nullptr)
-            continue;
-        const uint64_t guid = Game::Read<uint64_t>(slots[i], 0);
-        const uint32_t flags = Game::Read<uint32_t>(slots[i], Offsets::OFF_RAID_SLOT_FLAGS);
+    for (int i = 0, n = Group::Roster::RaidCount(); i < n; ++i) {
+        const uint64_t guid = Group::Roster::RaidGuid(i);
         add(guid, Unit::Identity::NameForGuid(guid), FLAG_IN_GROUP, true,
-            (flags & Offsets::RAID_SLOT_FLAG_ONLINE) != 0, 0);
+            Group::Roster::RaidMemberOnline(Group::Roster::RaidMember(i)), 0);
     }
 
     if (InGuild()) {

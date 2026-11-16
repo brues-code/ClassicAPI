@@ -9580,7 +9580,9 @@ enum Offsets {
     //
     // Raid: 40 entries × 4 bytes — each is a `RaidMember *`. GUID is
     // at `*member + 0` (lo) and `*member + 4` (hi). Verified from
-    // `FUN_004bb0f0`. Slot may be NULL (empty / offline raid member).
+    // `FUN_004bb0f0`. InitializeGame allocates all 40 records (0x004BA114),
+    // so no slot is null; only slots below VAR_RAID_MEMBER_COUNT are the
+    // roster, and a slot past it keeps its last member (Group::Roster).
     VAR_RAID_MEMBER_PTRS = 0x00B712A8,
 
     // Raid-target-marker GUID table — 8 contiguous `uint64` slots, one

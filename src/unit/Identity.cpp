@@ -12,6 +12,7 @@
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
 #include "cache/Record.h"
+#include "group/Roster.h"
 #include "storm/List.h"
 #include "unit/Identity.h"
 
@@ -307,16 +308,8 @@ const char *TokenFromGUID(uint64_t target, char *buf, size_t bufSize) {
     // Party count = number of non-zero GUIDs in the 4-slot party
     // GUID array. Same walk `Script_GetNumPartyMembers` does
     // internally (`FUN_004E86D0`), inlined here.
-    const auto *partyGuids = reinterpret_cast<const uint64_t *>(
-        static_cast<uintptr_t>(Offsets::VAR_PARTY_GUIDS));
-    int partyCount = 0;
-    for (int i = 0; i < Offsets::PARTY_MAX_SLOTS; ++i) {
-        if (partyGuids[i] != 0)
-            ++partyCount;
-    }
-    int raidCount = Game::Read<int>(Offsets::VAR_RAID_MEMBER_COUNT);
-    if (raidCount > Offsets::RAID_MAX_SLOTS)
-        raidCount = Offsets::RAID_MAX_SLOTS;
+    const int partyCount = Group::Roster::PartyCount();
+    const int raidCount = Group::Roster::RaidCount();
 
     for (int i = 1; i <= partyCount; ++i) {
         std::snprintf(buf, bufSize, "party%d", i);

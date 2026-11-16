@@ -13,6 +13,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "group/Roster.h"
 
 #include <cstdint>
 
@@ -20,20 +21,9 @@ namespace Group::Info {
 
 namespace {
 
-bool InRaid() {
-    return *reinterpret_cast<const int *>(
-               static_cast<uintptr_t>(Offsets::VAR_RAID_MEMBER_COUNT)) > 0;
-}
+bool InRaid() { return Group::Roster::RaidCount() > 0; }
 
-bool InParty() {
-    auto *guids = reinterpret_cast<const uint64_t *>(
-        static_cast<uintptr_t>(Offsets::VAR_PARTY_GUIDS));
-    for (int i = 0; i < Offsets::PARTY_MAX_SLOTS; ++i) {
-        if (guids[i] != 0)
-            return true;
-    }
-    return false;
-}
+bool InParty() { return Group::Roster::PartyCount() > 0; }
 
 } // namespace
 
