@@ -47,4 +47,11 @@ int ResolveSpellID(void *L, int idx);
 // spellbook (the engine's own answer), else 0.
 int NameToSpellID(const char *name, int *outIsPet = nullptr);
 
+// The engine's name → spellbook-slot resolver (FUN_RESOLVE_SPELL_NAME_TO_SLOT,
+// the one under CastSpellByName and NameToSpellID): the 0-based slot, or -1.
+// Takes a trailing "(Rank N)" (highest rank without one) and, through the
+// Spell::NameResolve co-hook, a spellID or a "!Name". Writes the matching
+// book (0 player, 1 pet) to `*outBookType`.
+int NameToSlot(const char *name, int *outBookType);
+
 } // namespace Spell::Arg

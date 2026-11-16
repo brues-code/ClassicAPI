@@ -61,7 +61,6 @@ namespace {
 
 
 using CastSpellByName_t = int(__fastcall *)(void *L);
-using NameToSlot_t = int(__fastcall *)(const char *name, int *outBookType);
 using IsToggleAuraActive_t = int(__fastcall *)(unsigned slot, int bookType);
 
 const CastSpellByName_t Script_CastSpellByName_Engine =
@@ -99,17 +98,6 @@ bool NameMatches(const char *userInput, const char *spellName) {
     while (*userInput == ' ')
         ++userInput;
     return (*userInput == '\0' || *userInput == '(') && *spellName == '\0';
-}
-
-// Resolves `name` to a (slot, bookType) pair via the engine's name
-// resolver. Goes through `Spell::NameResolve`'s hook so numeric input
-// like `"5019"` is accepted in addition to spell names. Returns -1 on
-// resolution failure.
-int ResolveSlot(const char *name, int *outBookType) {
-    auto fn = reinterpret_cast<NameToSlot_t>(
-        static_cast<uintptr_t>(Offsets::FUN_RESOLVE_SPELL_NAME_TO_SLOT));
-    *outBookType = 0;
-    return fn(name, outBookType);
 }
 
 bool IsAuraToggleActive(int slot, int bookType) {
@@ -218,7 +206,7 @@ int __fastcall Script_CastSpellNoToggle(void *L) {
     // Check 2 — self-aura (shapeshift / stance / aspect / blessing /
     // seal / etc.). Resolve name → slot, then ask the engine.
     int bookType = 0;
-    const int slot = ResolveSlot(nameBuf, &bookType);
+    const int slot = Spell::Arg::NameToSlot(nameBuf, &bookType);
     if (IsAuraToggleActive(slot, bookType)) {
         Game::Lua::PushBool(L, true); // already active — no-op
         return 1;

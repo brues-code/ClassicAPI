@@ -76,6 +76,7 @@
 #include "item/ID.h"
 #include "item/Icon.h"
 #include "item/Location.h"
+#include "spell/Arg.h"
 #include "spell/Lookup.h"
 #include "spell/MacroPrimarySpell.h"
 #include "storm/String.h"
@@ -205,7 +206,6 @@ bool g_slashNamesLoaded = false;
 
 using MacroIDToEntry_t = uint8_t *(__fastcall *)(uint32_t macroID);
 using MacroParse_t = void(__fastcall *)(int macroEntry);
-using ResolveSpellName_t = int(__fastcall *)(const char *name, int *outIsPet);
 using SlotChangedNotify_t = void(__fastcall *)(uint32_t slot0, int sendToServer, int quiet);
 
 uint8_t *EntryForID(uint32_t macroID) {
@@ -691,8 +691,7 @@ void ResolveValue(const char *value, Resolution *r, bool explicitValue, bool ite
     if (itemOnly)
         return;
     int isPet = 0;
-    const int spellID = reinterpret_cast<ResolveSpellName_t>(
-        Offsets::FUN_RESOLVE_SPELL_NAME_TO_BOOK_ID)(value, &isPet);
+    const int spellID = Spell::Arg::NameToSpellID(value, &isPet);
     if (spellID > 0) {
         r->target = Target::Spell;
         r->spellID = static_cast<uint32_t>(spellID);
@@ -715,8 +714,7 @@ void ResolveSpell(const char *value, Resolution *r) {
         return;
     }
     int isPet = 0;
-    const int spellID = reinterpret_cast<ResolveSpellName_t>(
-        Offsets::FUN_RESOLVE_SPELL_NAME_TO_BOOK_ID)(value, &isPet);
+    const int spellID = Spell::Arg::NameToSpellID(value, &isPet);
     if (spellID > 0) {
         r->target = Target::Spell;
         r->spellID = static_cast<uint32_t>(spellID);

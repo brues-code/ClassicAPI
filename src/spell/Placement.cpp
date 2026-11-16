@@ -25,6 +25,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "spell/Arg.h"
 #include "spell/Lookup.h"
 #include "unit/Identity.h"
 
@@ -43,7 +44,6 @@ using StopPlacement_t = void(__fastcall *)();
 // selection's high dword when 0); `unsigned` puts the correct 4 bytes there.
 using CastDispatch_t = void(__fastcall *)(unsigned slot, int bookType,
                                            unsigned targetGuidLo, unsigned targetGuidHi);
-using NameToSlot_t = int(__fastcall *)(const char *name, void *out);
 
 uint32_t State() {
     return *reinterpret_cast<const uint32_t *>(Offsets::VAR_SPELL_TARGETING_FLAGS);
@@ -184,10 +184,8 @@ bool DispatchSpellCastByName(const char *name, uint64_t targetGuid) {
     // The engine's resolver strips a trailing `(Rank N)` and returns the
     // 0-based spellbook slot (highest rank when no rank is given). This is the
     // by-name path — for an exact rank prefer the numeric spellID overload.
-    auto nameToSlot = reinterpret_cast<NameToSlot_t>(
-        Offsets::FUN_RESOLVE_SPELL_NAME_TO_SLOT);
     int bookType = 0;
-    const int slot = nameToSlot(name, &bookType);
+    const int slot = Spell::Arg::NameToSlot(name, &bookType);
     if (slot < 0)
         return false; // not in the player's spellbook
 

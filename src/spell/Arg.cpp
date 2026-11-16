@@ -22,6 +22,7 @@ namespace Spell::Arg {
 namespace {
 
 using NameToSpellID_t = int(__fastcall *)(const char *name, int *outIsPet);
+using NameToSlot_t = int(__fastcall *)(const char *name, int *outBookType);
 
 } // namespace
 
@@ -63,6 +64,12 @@ int NameToSpellID(const char *name, int *outIsPet) {
     if (outIsPet != nullptr)
         *outIsPet = isPet;
     return spellID;
+}
+
+int NameToSlot(const char *name, int *outBookType) {
+    *outBookType = 0;
+    return reinterpret_cast<NameToSlot_t>(Offsets::FUN_RESOLVE_SPELL_NAME_TO_SLOT)(name,
+                                                                                outBookType);
 }
 
 int ResolveSpellID(void *L, int idx) {
