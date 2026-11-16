@@ -66,6 +66,7 @@
 // 3.3.5's LoadXML / LoadXMLInheritance set `lua_gctag` per template;
 // `Xml::TemplateTag` pins the single-name engine path the same way.
 
+#include "storm/String.h"
 #include "xml/Inherits.h"
 
 #include "Game.h"
@@ -83,8 +84,6 @@ namespace Xml::Inherits {
 
 namespace {
 
-using Tokenize_t = void(__stdcall *)(const char **cursor, char *out, unsigned outSize,
-                                     const char *delims, int *outQuoted);
 using ChildFrames_t = void(__fastcall *)(void *frame, void *edx, const void *node, void *status);
 using Build_t = void *(__fastcall *)(const void *node, void *parent, void *status);
 using GetChild_t = const void *(__thiscall *)(const void *node, const char *tag);
@@ -234,7 +233,7 @@ bool IsList(const char *inherits) {
 }
 
 void NextName(const char **cursor, char *out) {
-    reinterpret_cast<Tokenize_t>(Offsets::FUN_STORM_STR_TOKENIZE)(cursor, out, kTokenSize,
+    Storm::Tokenize(cursor, out, kTokenSize,
                                                                     kSeparators, nullptr);
 }
 

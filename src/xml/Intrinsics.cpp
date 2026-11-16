@@ -41,6 +41,7 @@
 // The engine's frame-type table lasts the process, so a name registers once;
 // the definitions are dropped with the Lua state and loaded again.
 
+#include "storm/String.h"
 #include "xml/Intrinsics.h"
 
 #include "Game.h"
@@ -59,7 +60,6 @@ namespace {
 
 using Factory_t = void *(__fastcall *)(void *parent);
 using RegisterFactory_t = int(__fastcall *)(const char *type, Factory_t factory, int unique);
-using Hash_t = uint32_t(__stdcall *)(const char *s);
 using NodeOp_t = void(__fastcall *)(void *node);
 
 struct Def {
@@ -89,7 +89,7 @@ Factory_t FactoryFor(const char *type) {
     const uint8_t *base = Game::Read<const uint8_t *>(Offsets::VAR_FRAME_FACTORY_TABLE);
     if (type == nullptr || mask == 0xFFFFFFFFu || base == nullptr)
         return nullptr;
-    const uint32_t hash = reinterpret_cast<Hash_t>(Offsets::FUN_SSTR_HASH_HT)(type);
+    const uint32_t hash = Storm::HashHT(type);
     const uint8_t *bucket = base + (hash & mask) * Offsets::XML_TEMPLATE_BUCKET_STRIDE;
     const int linkOff = Game::Read<int>(bucket, Offsets::OFF_XML_TEMPLATE_BUCKET_LINKOFF);
     for (const uint8_t *node = Game::Read<const uint8_t *>(bucket, Offsets::OFF_XML_TEMPLATE_BUCKET_HEAD);

@@ -52,13 +52,12 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "event/Custom.h"
+#include "storm/String.h"
 
 namespace Macro::RunBody {
 
 namespace {
 
-using Tokenize_t = void(__stdcall *)(const char **cursor, char *out, unsigned outSize,
-                                     const char *delims, int *outQuoted);
 
 constexpr unsigned kLineBufferSize = Offsets::MACRO_LINE_BUFFER_SIZE;
 
@@ -83,7 +82,6 @@ void __fastcall RunBody_h(int macroEntry) {
     if (macroEntry == 0)
         return;
 
-    auto tokenize = reinterpret_cast<Tokenize_t>(Offsets::FUN_STORM_STR_TOKENIZE);
     const char *delims = reinterpret_cast<const char *>(Offsets::VAR_MACRO_LINE_DELIMS);
     const char *cursor = reinterpret_cast<const char *>(macroEntry + Offsets::OFF_MACRO_BODY);
 
@@ -97,7 +95,7 @@ void __fastcall RunBody_h(int macroEntry) {
 
     char line[kLineBufferSize];
     while (cursor != nullptr && *cursor != '\0') {
-        tokenize(&cursor, line, kLineBufferSize, delims, nullptr);
+        Storm::Tokenize(&cursor, line, kLineBufferSize, delims, nullptr);
         // The tokenizer splits on `\r\n` only, so a directive typed with a
         // leading space still arrives with it. Find the first real character
         // before deciding the line is a comment — otherwise ` #showtooltip`

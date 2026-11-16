@@ -89,6 +89,7 @@
 #include "frame/RenderBatch.h"
 #include "frame/ScriptArgs.h"
 #include "frame/Subclass.h"
+#include "storm/String.h"
 #include "text/NumericFormatter.h"
 #include "texture/Load.h"
 #include "time/Clock.h"
@@ -780,8 +781,7 @@ uintptr_t __fastcall LoadXML(void *layout, void *, const void *node, void *statu
         f.minCountdownDuration = ClampMs(std::strtod(minimum, nullptr));
     // Degrees in XML (rotation="180" in the later clients' FrameXML), radians in Lua.
     if (const char *rotation = Xml::Attr(node, "rotation")) {
-        using ToFloat_t = float(__stdcall *)(const char *text);
-        f.rotation = reinterpret_cast<ToFloat_t>(Offsets::FUN_SSTR_TO_FLOAT)(rotation) *
+        f.rotation = Storm::ToFloat(rotation) *
                      (3.14159265f / 180.0f);
     }
     for (const void *c = Xml::FirstChild(node); c != nullptr; c = Xml::NextSibling(c)) {

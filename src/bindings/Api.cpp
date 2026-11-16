@@ -49,6 +49,7 @@
 #include "Offsets.h"
 #include "bindings/Command.h"
 #include "input/Modifier.h"
+#include "storm/String.h"
 
 #include <cstdint>
 #include <cstring>
@@ -130,12 +131,11 @@ const char *SavedCommand(void *mgr, const char *key) {
 // Whether the command table has `command` — the walk the engine inlines in
 // FUN_BINDING_COMMAND_EXECUTE (see OFF_BINDINGS_COMMAND_TABLE).
 bool IsKnownCommand(void *mgr, const char *command) {
-    using HashHT_t = uint32_t(__stdcall *)(const char *);
     const uintptr_t table = reinterpret_cast<uintptr_t>(mgr) + Offsets::OFF_BINDINGS_COMMAND_TABLE;
     const uint32_t mask = Game::Read<uint32_t>(table + Offsets::OFF_HASHTABLE_MASK);
     if (*command == '\0' || mask == 0xFFFFFFFF)
         return false;
-    const uint32_t hash = reinterpret_cast<HashHT_t>(Offsets::FUN_SSTR_HASH_HT)(command);
+    const uint32_t hash = Storm::HashHT(command);
     const uintptr_t bucket =
         Game::Read<uintptr_t>(table + Offsets::OFF_HASHTABLE_SLOTS) + (hash & mask) * 12;
     const uint32_t link = Game::Read<uint32_t>(bucket);

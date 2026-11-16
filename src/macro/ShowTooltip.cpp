@@ -78,6 +78,7 @@
 #include "item/Location.h"
 #include "spell/Lookup.h"
 #include "spell/MacroPrimarySpell.h"
+#include "storm/String.h"
 #include "tick/WorldTick.h"
 #include "time/Clock.h"
 #include "unit/Identity.h"
@@ -204,8 +205,6 @@ bool g_slashNamesLoaded = false;
 
 using MacroIDToEntry_t = uint8_t *(__fastcall *)(uint32_t macroID);
 using MacroParse_t = void(__fastcall *)(int macroEntry);
-using Tokenize_t = void(__stdcall *)(const char **cursor, char *out, unsigned outSize,
-                                     const char *delims, int *outQuoted);
 using ResolveSpellName_t = int(__fastcall *)(const char *name, int *outIsPet);
 using SlotChangedNotify_t = void(__fastcall *)(uint32_t slot0, int sendToServer, int quiet);
 
@@ -216,7 +215,7 @@ uint8_t *EntryForID(uint32_t macroID) {
 }
 
 void NextLine(const char **cursor, char *out, unsigned outSize) {
-    reinterpret_cast<Tokenize_t>(Offsets::FUN_STORM_STR_TOKENIZE)(
+    Storm::Tokenize(
         cursor, out, outSize,
         reinterpret_cast<const char *>(Offsets::VAR_MACRO_LINE_DELIMS), nullptr);
 }

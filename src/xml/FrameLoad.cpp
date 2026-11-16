@@ -11,6 +11,7 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
+#include "storm/String.h"
 #include "xml/FrameLoad.h"
 
 #include "Game.h"
@@ -26,9 +27,7 @@ namespace {
 
 using GetAttr_t = const char *(__thiscall *)(const void *node, const char *name);
 using TemplateLookup_t = const void *(__fastcall *)(const char *name);
-using Hash_t = uint32_t(__stdcall *)(const char *s);
 using StatusAdd_t = void(__cdecl *)(void *status, int level, const char *fmt, ...);
-using ToFloat_t = float(__stdcall *)(const char *s);
 
 void Report(void *status, int level, const char *fmt, const char *a, const char *b, const char *c) {
     if (status == nullptr)
@@ -72,7 +71,7 @@ const char *TemplateContext(const char *name) {
     const uint8_t *base = Game::Read<const uint8_t *>(Offsets::VAR_XML_TEMPLATE_TABLE);
     if (name == nullptr || mask == 0xFFFFFFFFu || base == nullptr)
         return nullptr;
-    const uint32_t hash = reinterpret_cast<Hash_t>(Offsets::FUN_SSTR_HASH_HT)(name);
+    const uint32_t hash = Storm::HashHT(name);
     const uint8_t *bucket = base + (hash & mask) * Offsets::XML_TEMPLATE_BUCKET_STRIDE;
     const int linkOff = Game::Read<int>(bucket, Offsets::OFF_XML_TEMPLATE_BUCKET_LINKOFF);
     for (const uint8_t *node = Game::Read<const uint8_t *>(bucket, Offsets::OFF_XML_TEMPLATE_BUCKET_HEAD);
@@ -97,7 +96,7 @@ bool FloatAttr(const void *node, const char *name, float &out) {
     const char *value = Attr(node, name);
     if (value == nullptr || *value == '\0')
         return false;
-    out = reinterpret_cast<ToFloat_t>(Offsets::FUN_SSTR_TO_FLOAT)(value);
+    out = Storm::ToFloat(value);
     return true;
 }
 

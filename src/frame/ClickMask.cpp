@@ -55,6 +55,7 @@
 #include "Offsets.h"
 #include "baselib/Ascii.h"
 #include "frame/MouseRegistration.h"
+#include "storm/String.h"
 #include "xml/FrameLoad.h"
 #include "xml/TypeLoad.h"
 
@@ -64,8 +65,6 @@ namespace Frame::ClickMask {
 
 namespace {
 
-using Tokenize_t = void(__stdcall *)(const char **cursor, char *out, unsigned outSize,
-                                     const char *delims, int *outQuoted);
 using SetClickMask_t = void(__thiscall *)(void *button, uint32_t mask);
 
 // The engine's own click-type names, in mask-bit order.
@@ -125,13 +124,12 @@ void OnButtonNode(void *object, const void *node, void * /*status*/) {
     const char *value = Xml::Attr(node, "registerForClicks");
     if (value == nullptr || *value == '\0')
         return;
-    auto tokenize = reinterpret_cast<Tokenize_t>(Offsets::FUN_STORM_STR_TOKENIZE);
     uint32_t mask = 0;
     char token[1024];
     const char *cursor = value;
     while (cursor != nullptr && *cursor != '\0') {
         token[0] = '\0';
-        tokenize(&cursor, token, sizeof token, " ,", nullptr);
+        Storm::Tokenize(&cursor, token, sizeof token, " ,", nullptr);
         mask |= Frame::MouseRegistration::MaskForName(token);
     }
     reinterpret_cast<SetClickMask_t>(Offsets::FUN_BUTTON_SET_CLICK_MASK)(object, mask);

@@ -36,6 +36,7 @@
 #include "Offsets.h"
 #include "cvar/Factory.h"
 #include "spell/Lookup.h"
+#include "storm/String.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -79,8 +80,6 @@ constexpr int kDefaultRetention = 300;
 // The longest retention, in seconds, that the wrap-safe age test can measure.
 constexpr int kMaxRetention = 0x7FFFFFFF / 1000;
 
-using Tokenize_t = void(__stdcall *)(char **cursor, char *out, unsigned outSize,
-                                     const char *delims, int *outQuoted);
 
 
 bool Complete(uint32_t matched) {
@@ -124,12 +123,12 @@ uint64_t EventBits(const char *events) {
     if (events == nullptr)
         return ~0ull;
     std::string buffer = events;
-    char *cursor = buffer.data();
+    const char *cursor = buffer.data();
     uint64_t bits = 0;
     char token[kMaxToken];
     do {
         token[0] = '\0';
-        reinterpret_cast<Tokenize_t>(static_cast<uintptr_t>(Offsets::FUN_STORM_STR_TOKENIZE))(
+        Storm::Tokenize(
             &cursor, token, sizeof token, " ,", nullptr);
         if (token[0] == '\0')
             break;

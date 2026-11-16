@@ -26,18 +26,18 @@
 #include "Common.h"
 #include "Game.h"
 #include "Offsets.h"
+#include "storm/String.h"
 
 namespace Camera::PitchLimit {
 
 namespace {
 
-using ToFloat_t = float(__stdcall *)(const char *);
 
 constexpr float kDegreesToRadians = 0.017453292f; // 4.3.4's own constant
 
 int __fastcall Console_PitchLimit(const char * /*command*/, const char *args) {
     const float limit =
-        reinterpret_cast<ToFloat_t>(Offsets::FUN_SSTR_TO_FLOAT)(args) * kDegreesToRadians;
+        Storm::ToFloat(args) * kDegreesToRadians;
     const float max = limit;
     const float min = -limit;
     Common::PatchBytes(reinterpret_cast<void *>(Offsets::VAR_CAMERA_MAX_PITCH), &max,

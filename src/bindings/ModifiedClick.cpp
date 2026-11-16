@@ -47,6 +47,7 @@
 #include "frame/ClickEvents.h"
 #include "input/Modifier.h"
 #include "storm/Memory.h"
+#include "storm/String.h"
 #include "xml/FrameLoad.h"
 
 #include <cstdint>
@@ -282,8 +283,6 @@ int __fastcall LoadFile_h(void *mgr, void *edx, const char *path, void *md5, voi
 using LoadSet_t = void(__fastcall *)(int set, const char *text);
 LoadSet_t g_loadSetOriginal = nullptr;
 
-using Tokenize_t = void(__stdcall *)(const char **cursor, char *out, unsigned outSize,
-                                     const char *delims, int *outQuoted);
 
 // The modified-click half of 4.3.4's LoadBindings: start from the defaults,
 // then apply `modifiedclick BINDING ACTION` lines.
@@ -295,21 +294,20 @@ void __fastcall LoadSet_h(int set, const char *text) {
         for (Click &click : g_clicks)
             click.data[set] = click.data[Offsets::BINDING_SET_DEFAULT];
 
-    auto tokenize = reinterpret_cast<Tokenize_t>(Offsets::FUN_STORM_STR_TOKENIZE);
     const char *lineDelims = reinterpret_cast<const char *>(Offsets::VAR_MACRO_LINE_DELIMS);
     const char *spaceDelims = reinterpret_cast<const char *>(Offsets::VAR_STR_SPACE_DELIM);
     char line[1024];
     char key[32];
     const char *cursor = text;
     while (cursor != nullptr && *cursor != '\0') {
-        tokenize(&cursor, line, sizeof line, lineDelims, nullptr);
+        Storm::Tokenize(&cursor, line, sizeof line, lineDelims, nullptr);
         const char *p = line;
         while (*p == ' ' || *p == '\t')
             ++p;
         if (!PrefixIs(p, "modifiedclick "))
             continue;
         const char *action = p + 14;
-        tokenize(&action, key, sizeof key, spaceDelims, nullptr);
+        Storm::Tokenize(&action, key, sizeof key, spaceDelims, nullptr);
         if (action != nullptr)
             if (Click *click = Find(action))
                 SetBinding(*click, set, key);

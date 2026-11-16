@@ -118,6 +118,7 @@
 #include "object/Resolve.h"
 #include "spell/AtUnit.h"
 #include "spell/Placement.h"
+#include "storm/String.h"
 #include "tick/WorldTick.h"
 #include "unit/Focus.h"
 #include "unit/Identity.h"
@@ -1082,7 +1083,6 @@ int __fastcall Script_GetAttribute(void *L) {
 // inherited templates are loaded first, so the frame's own values win.
 // Problems are the engine's load warnings, with 4.3.4's texts.
 void LoadXmlAttributes(void *L, void *frame, const void *attributes, void *status) {
-    using ToFloat_t = float(__stdcall *)(const char *);
 
     const int top = Game::Lua::GetTop(L);
     int frameIdx = 0;
@@ -1121,7 +1121,7 @@ void LoadXmlAttributes(void *L, void *frame, const void *attributes, void *statu
         else if (Ascii::EqualCI(type, "boolean"))
             Game::Lua::PushBool(L, Game::StringToFlag(value));
         else if (Ascii::EqualCI(type, "number"))
-            Game::Lua::PushNumber(L, reinterpret_cast<ToFloat_t>(Offsets::FUN_SSTR_TO_FLOAT)(value));
+            Game::Lua::PushNumber(L, Storm::ToFloat(value));
         else
             Game::Lua::PushString(L, value);
         Game::Lua::PCall(L, 3, 0, 0);

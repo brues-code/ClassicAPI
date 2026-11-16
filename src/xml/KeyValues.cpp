@@ -38,6 +38,7 @@
 // so a template's values are set first and the element's own win, and all of
 // them run before the builder's finalize, so OnLoad sees the fields.
 
+#include "storm/String.h"
 #include "xml/KeyValues.h"
 
 #include "Game.h"
@@ -69,13 +70,12 @@ Kind KindOf(const char *type) {
 }
 
 void Push(void *L, Kind kind, const char *text) {
-    using ToFloat_t = float(__stdcall *)(const char *);
     switch (kind) {
     case Kind::Boolean:
         Game::Lua::PushBool(L, Game::StringToFlag(text));
         break;
     case Kind::Number:
-        Game::Lua::PushNumber(L, reinterpret_cast<ToFloat_t>(Offsets::FUN_SSTR_TO_FLOAT)(text));
+        Game::Lua::PushNumber(L, Storm::ToFloat(text));
         break;
     case Kind::String:
         Game::Lua::PushString(L, text);
