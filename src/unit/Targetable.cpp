@@ -44,10 +44,7 @@ void OnFlags(void *unit, uint32_t oldFlags, uint32_t flags) {
     if (((flags ^ oldFlags) & Offsets::UNIT_FLAG_NOT_SELECTABLE) == 0 ||
         !Event::Custom::HasListeners(slot))
         return;
-    char tokens[16][32];
-    const int n = Unit::Identity::TokensForGUID(::Object::Guid(unit), tokens, 16);
-    for (int i = 0; i < n; ++i)
-        Event::Custom::Fire(slot, "%s", tokens[i]);
+    Unit::Identity::ForEachToken(::Object::Guid(unit), [&](const char *token) { Event::Custom::Fire(slot, "%s", token); });
 }
 
 const Unit::FlagsChanged::AutoSubscribe _sub{&OnFlags};

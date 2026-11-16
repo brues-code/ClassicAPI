@@ -81,16 +81,14 @@ void OnWorldTick() {
     if (L == nullptr || !Event::Custom::HasListeners(slot))
         return;
     const int top = Game::Lua::GetTop(L);
-    char tokens[16][32];
     for (const uint64_t guid : changed) {
         const bool inView = Object::ByGuid(Offsets::TYPEMASK_PLAYER, guid) != nullptr;
-        const int n = Unit::Identity::TokensForGUID(guid, tokens, 16);
-        for (int i = 0; i < n; ++i) {
-            Game::Lua::PushString(L, tokens[i]);
+        Unit::Identity::ForEachToken(guid, [&](const char *token) {
+            Game::Lua::PushString(L, token);
             Game::Lua::PushBool(L, inView);
             Event::Custom::FireValues(slot, L, top + 1, 2);
             Game::Lua::SetTop(L, top);
-        }
+        });
     }
 }
 

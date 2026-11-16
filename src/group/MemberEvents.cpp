@@ -101,25 +101,20 @@ void SignalConnection(uint64_t guid, bool connected) {
     void *L = Game::Lua::State();
     if (L == nullptr)
         return;
-    char tokens[16][32];
-    const int n = Unit::Identity::TokensForGUID(guid, tokens, 16);
     const int top = Game::Lua::GetTop(L);
-    for (int i = 0; i < n; ++i) {
-        Game::Lua::PushString(L, tokens[i]);
+    Unit::Identity::ForEachToken(guid, [&](const char *token) {
+        Game::Lua::PushString(L, token);
         Game::Lua::PushBool(L, connected);
         Event::Custom::FireValues(slot, L, top + 1, 2);
         Game::Lua::SetTop(L, top);
-    }
+    });
 }
 
 void SignalArea(uint64_t guid) {
     const int slot = kArea.Slot();
     if (!Event::Custom::HasListeners(slot))
         return;
-    char tokens[16][32];
-    const int n = Unit::Identity::TokensForGUID(guid, tokens, 16);
-    for (int i = 0; i < n; ++i)
-        Event::Custom::Fire(slot, "%s", tokens[i]);
+    Unit::Identity::ForEachToken(guid, [&](const char *token) { Event::Custom::Fire(slot, "%s", token); });
 }
 
 void __fastcall SignalSite(const uint64_t *guid, uint32_t changes, const uint8_t *oldRec,

@@ -114,6 +114,18 @@ const char *TokenFromGUID(uint64_t guid, char *buf, size_t bufSize);
 // fire ClassicAPI's own unit events once per token, as the engine fires its.
 int TokensForGUID(uint64_t guid, char (*out)[32], int maxTokens);
 
+// Room for every token one unit can have at once.
+constexpr int kMaxUnitTokens = 16;
+
+// Calls `fn(token)` for every token naming `guid` (TokensForGUID). The tokens
+// are snapshotted first, so `fn` may fire re-entrant events.
+template <class Fn> void ForEachToken(uint64_t guid, Fn &&fn) {
+    char tokens[kMaxUnitTokens][32];
+    const int n = TokensForGUID(guid, tokens, kMaxUnitTokens);
+    for (int i = 0; i < n; ++i)
+        fn(static_cast<const char *>(tokens[i]));
+}
+
 // The engine's cached player-info record for `guid` — the NameCache data block
 // (name @ `OFF_PLAYER_INFO_NAME`, realm, race @ `_RACE`, sex, class @ `_CLASS`),
 // or null if the GUID isn't cached. Object-independent: it resolves players who

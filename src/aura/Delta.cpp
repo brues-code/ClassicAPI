@@ -111,8 +111,8 @@ void SetList(void *L, const char *key, int &ref, const uint32_t *ids, int count)
 }
 
 void Fire(const Aura::Instance::Delta &d) {
-    char tokens[16][32];
-    const int n = Unit::Identity::TokensForGUID(d.guid, tokens, 16);
+    char tokens[Unit::Identity::kMaxUnitTokens][32];
+    const int n = Unit::Identity::TokensForGUID(d.guid, tokens, Unit::Identity::kMaxUnitTokens);
     void *L = Game::Lua::State();
     if (n == 0 || L == nullptr)
         return;

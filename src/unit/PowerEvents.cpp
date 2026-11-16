@@ -77,8 +77,8 @@ void Signal(uint64_t guid, int powerType, const int *slots, int count) {
         listened = listened || Event::Custom::HasListeners(slots[i]);
     if (!listened)
         return;
-    char tokens[16][32];
-    const int n = Unit::Identity::TokensForGUID(guid, tokens, 16);
+    char tokens[Unit::Identity::kMaxUnitTokens][32];
+    const int n = Unit::Identity::TokensForGUID(guid, tokens, Unit::Identity::kMaxUnitTokens);
     const char *type = Unit::Power::PowerTypeToken(powerType);
     for (int i = 0; i < count; ++i)
         for (int t = 0; t < n; ++t)

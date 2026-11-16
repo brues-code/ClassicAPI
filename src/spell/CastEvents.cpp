@@ -459,8 +459,8 @@ void FireRemote(const Event::Custom::AutoReserve &event, uint64_t casterGuid,
     const uint8_t *rec = Spell::Lookup::RecordForID(spellID);
     if (rec == nullptr)
         return;
-    char tokens[16][32];
-    const int n = Unit::Identity::TokensForGUID(casterGuid, tokens, 16);
+    char tokens[Unit::Identity::kMaxUnitTokens][32];
+    const int n = Unit::Identity::TokensForGUID(casterGuid, tokens, Unit::Identity::kMaxUnitTokens);
     if (n == 0)
         return;
     char castGuid[48];
@@ -687,10 +687,7 @@ void OnInterruptibleChanged(uint64_t casterGuid, bool notInterruptible) {
     if (casterGuid == 0 || !Event::Custom::HasListeners(slot))
         return;
     // Every token naming the unit, as 4.3.4's Script_SendUnitSignal does.
-    char tokens[16][32];
-    const int n = Unit::Identity::TokensForGUID(casterGuid, tokens, 16);
-    for (int i = 0; i < n; ++i)
-        Event::Custom::Fire(slot, "%s", tokens[i]);
+    Unit::Identity::ForEachToken(casterGuid, [&](const char *token) { Event::Custom::Fire(slot, "%s", token); });
 }
 
 // ---- Remote unit entry points ------------------------------------------

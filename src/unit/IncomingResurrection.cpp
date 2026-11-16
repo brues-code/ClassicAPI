@@ -85,10 +85,7 @@ void Signal(uint64_t unit) {
     const int slot = kChanged.Slot();
     if (!Event::Custom::HasListeners(slot))
         return;
-    char tokens[16][32];
-    const int n = Unit::Identity::TokensForGUID(unit, tokens, 16);
-    for (int i = 0; i < n; ++i)
-        Event::Custom::Fire(slot, "%s", tokens[i]);
+    Unit::Identity::ForEachToken(unit, [&](const char *token) { Event::Custom::Fire(slot, "%s", token); });
 }
 
 // Ends `caster`'s resurrection: of `spellID`, or any for 0.
