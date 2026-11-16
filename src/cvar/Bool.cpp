@@ -20,8 +20,7 @@ namespace CVar::Bool {
 namespace {
 
 // Case-insensitive "true" check for the string-form match. Bounded
-// 4-char comparison + null terminator — same shape `BookTypeIsPet`
-// uses in spell/Info.cpp.
+// 4-char comparison + null terminator.
 bool IsTrueString(const char *s) {
     if (s == nullptr)
         return false;

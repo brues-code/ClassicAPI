@@ -15,6 +15,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "baselib/Ascii.h"
 #include "dbc/Lookup.h"
 
 #include <cstring>
@@ -110,6 +111,12 @@ int SpellbookSlotToID(int slot1Based, int bookType) {
                                       : Offsets::VAR_PLAYER_SPELLBOOK;
     auto *array = reinterpret_cast<const int *>(static_cast<uintptr_t>(base));
     return array[slot];
+}
+
+int BookTypeArg(void *L, int idx) {
+    if (!Game::Lua::IsString(L, idx))
+        return 0;
+    return Ascii::EqualCI(Game::Lua::ToString(L, idx), "pet") ? 1 : 0;
 }
 
 int SpellBankArgToBookType(void *L, int idx) {

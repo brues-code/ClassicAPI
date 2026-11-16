@@ -142,13 +142,7 @@ int ResolveSpellArg(void *L, int *outBookType) {
         return 0;
     const int arg1 = static_cast<int>(Game::Lua::ToNumber(L, 1));
     if (Game::Lua::Type(L, 2) == Game::Lua::TYPE_STRING) {
-        const char *book = Game::Lua::ToString(L, 2);
-        const int bookType = static_cast<int>(
-            book != nullptr &&
-            (book[0] == 'p' || book[0] == 'P') &&
-            (book[1] == 'e' || book[1] == 'E') &&
-            (book[2] == 't' || book[2] == 'T') &&
-            book[3] == 0);
+        const int bookType = Spell::Lookup::BookTypeArg(L, 2);
         *outBookType = bookType;
         return Spell::Lookup::SpellbookSlotToID(arg1, bookType);
     }

@@ -158,19 +158,6 @@ static bool ReadSpellInfo(int spellID, int pet, SpellInfoData &out) {
     return true;
 }
 
-// Case-insensitive match against the literal string "pet". Anything else
-// (including the explicit "spell") maps to the player spellbook —
-// matches 1.12's `Script_GetSpellName` behavior, which `SStrCmpI`s the
-// input against "pet" and treats every other value as the player book.
-static bool BookTypeIsPet(const char *s) {
-    if (s == nullptr)
-        return false;
-    auto lc = [](char c) -> char {
-        return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + 32) : c;
-    };
-    return lc(s[0]) == 'p' && lc(s[1]) == 'e' && lc(s[2]) == 't' && s[3] == '\0';
-}
-
 // Parses a spellID out of a spell hyperlink ("…|Hspell:<id>[:…]…").
 // Returns 0 when `s` isn't a spell link, so the caller can fall through
 // to a plain-name lookup.
@@ -216,8 +203,7 @@ static int ResolveLuaArgsToSpellID(void *L, int *outPet = nullptr) {
     const int arg1 = static_cast<int>(Game::Lua::ToNumber(L, 1));
 
     if (Game::Lua::Type(L, 2) == Game::Lua::TYPE_STRING) {
-        const char *book = Game::Lua::ToString(L, 2);
-        const int bookType = static_cast<int>(BookTypeIsPet(book));
+        const int bookType = Spell::Lookup::BookTypeArg(L, 2);
         if (outPet != nullptr)
             *outPet = bookType;
         return Spell::Lookup::SpellbookSlotToID(arg1, bookType);

@@ -29,7 +29,6 @@
 
 #include "Game.h"
 
-#include <cstring>
 
 namespace Spell::HasRange {
 
@@ -49,13 +48,7 @@ static int __fastcall Script_SpellHasRange(void *L) {
         return 1;
     }
     const int slot = static_cast<int>(Game::Lua::ToNumber(L, 1));
-    int bookType = 0;
-    if (Game::Lua::IsString(L, 2)) {
-        const char *s = Game::Lua::ToString(L, 2);
-        if (s != nullptr && _stricmp(s, "pet") == 0)
-            bookType = 1;
-    }
-    const int spellID = Spell::Lookup::SpellbookSlotToID(slot, bookType);
+    const int spellID = Spell::Lookup::SpellbookSlotToID(slot, Spell::Lookup::BookTypeArg(L, 2));
     Game::Lua::PushBool(L, Spell::Range::SpellIDHasRange(spellID));
     return 1;
 }

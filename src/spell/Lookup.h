@@ -77,6 +77,11 @@ bool HasAuraEffect(const uint8_t *spellRecord, int aura);
 //   - "pet"                          → 1 (pet)
 int SpellbookSlotToID(int slot1Based, int bookType);
 
+// The 1.12 `bookType` string at Lua stack `idx` → the engine bookType above:
+// 1 when it is "pet", case-insensitive and whole (the SStrCmpI test in the
+// engine's FUN_READ_BOOK_SLOT_ARGS); 0 for any other value or no argument.
+int BookTypeArg(void *L, int idx);
+
 // Modern `Enum.SpellBookSpellBank` argument at Lua stack `idx` → the engine
 // bookType above. `1` (Pet) selects the pet book; a missing arg, a
 // non-number, or any other value reads as the player book — the same

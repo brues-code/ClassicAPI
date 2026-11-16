@@ -52,7 +52,6 @@
 #include "spell/Mod.h"
 
 #include <cstdint>
-#include <cstring>
 
 namespace Spell::Radius {
 
@@ -100,13 +99,8 @@ static int __fastcall Script_GetSpellRadius(void *L) {
     if (!Game::Lua::IsNumber(L, 1))
         return 0; // nil
     const int slot = static_cast<int>(Game::Lua::ToNumber(L, 1));
-    int bookType = 0;
-    if (Game::Lua::IsString(L, 2)) {
-        const char *s = Game::Lua::ToString(L, 2);
-        if (s != nullptr && _stricmp(s, "pet") == 0)
-            bookType = 1;
-    }
-    return PushRadiusForSpellID(L, Spell::Lookup::SpellbookSlotToID(slot, bookType));
+    return PushRadiusForSpellID(
+        L, Spell::Lookup::SpellbookSlotToID(slot, Spell::Lookup::BookTypeArg(L, 2)));
 }
 
 // --- Documentation ----------------------------------------------------------

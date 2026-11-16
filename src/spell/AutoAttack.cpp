@@ -35,7 +35,6 @@
 #include "dbc/Lookup.h"
 
 #include <cstdint>
-#include <cstring>
 
 namespace Spell::AutoAttack {
 
@@ -68,14 +67,9 @@ int ReadSpellBookSlotID(void *L) {
     if (!Game::Lua::IsNumber(L, 1))
         return 0;
     const int slot = static_cast<int>(Game::Lua::ToNumber(L, 1));
-    int bookType = 0;
-    if (Game::Lua::IsString(L, 2)) {
-        const char *s = Game::Lua::ToString(L, 2);
-        if (s != nullptr && _stricmp(s, "pet") == 0)
-            bookType = 1;
-    } else if (Game::Lua::IsNumber(L, 2)) {
-        bookType = static_cast<int>(Game::Lua::ToNumber(L, 2));
-    }
+    const int bookType = Game::Lua::Type(L, 2) == Game::Lua::TYPE_NUMBER
+                             ? Spell::Lookup::SpellBankArgToBookType(L, 2)
+                             : Spell::Lookup::BookTypeArg(L, 2);
     return Spell::Lookup::SpellbookSlotToID(slot, bookType);
 }
 
