@@ -11915,6 +11915,10 @@ enum Offsets {
     // tortoise-wow MovementInfo::Read). The 0x2000 bit above is the one that
     // adds the status's four jump floats (0x0047EC5B).
     MOVEFLAG_ONTRANSPORT = 0x2000000,
+    // Slow fall (Feather Fall, Levitate; vmangos MOVEFLAG_SAFE_FALL): the
+    // fall's speed caps at VAR_MOVER_TERMINAL_SPEED_SLOW instead
+    // (CMovement::GetFallDistance 0x007C5E70, through the cap at 0x007C5D40).
+    MOVEFLAG_SAFE_FALL = 0x20000000,
     // The player-movement bits that drop an in-progress cast — the exact mask
     // the engine's CheckCast (FUN_006094f0) tests (0x200f). Spell::Cast uses it
     // to tell a spurious movement drop of a movement-immune cast (grenades)

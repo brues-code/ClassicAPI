@@ -284,7 +284,9 @@ int __fastcall Script_GetUnitPosition(void *L) {
     Lua::PushNumber(L, place.z);
     Lua::PushNumber(L, place.facing);
     Lua::PushNumber(L, place.speed);
-    return 5;
+    Lua::PushBool(L, place.falling);
+    Lua::PushBool(L, place.jumped);
+    return 7;
 }
 
 int __fastcall Script_GetUnitLook(void *L) {
@@ -434,7 +436,9 @@ const Game::Doc::Field kGetUnitPositionRets[] = {
     Opt("y", "number"),
     Opt("z", "number"),
     Opt("facing", "number", nullptr, "In radians."),
-    Opt("speed", "number", nullptr, "In yards a second; 0 while it stands."),
+    Opt("speed", "number", nullptr, "In yards a second over the ground; 0 while it stands."),
+    Opt("isFalling", "bool", nullptr, "In the air: jumping or falling."),
+    Opt("isJumping", "bool", nullptr, "In the air from a jump, not a fall."),
 };
 const Game::Doc::Function kGetUnitPosition{"Returns where a replay unit is at a time.",
                                            kUnitTimeArgs, kGetUnitPositionRets, nullptr, true};

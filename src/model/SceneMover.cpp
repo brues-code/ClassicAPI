@@ -34,6 +34,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "model/ScenePrecision.h"
+#include "unit/Fall.h"
 
 #include <cfloat>
 #include <cmath>
@@ -463,13 +464,7 @@ double CappedFallSpeed(const Body &b) {
 
 // GetFallDistance (0x007C5E70).
 double FallDistance(const Body &b, float t) {
-    const double cap = Terminal(b), v = CappedFallSpeed(b), dt = t;
-    const double end = dt * kG + v;
-    if (end > cap || std::isnan(end)) {
-        const double tT = (cap - v) * kInvG;
-        return (v + D(kHalfG) * tT) * tT + (dt - tT) * cap;
-    }
-    return (dt * kHalfG + v) * dt;
+    return ::Unit::Fall::Distance(t, b.fallSpeed, (b.flags & 0x20000000) != 0);
 }
 
 double FallDistanceMs(const Body &b, uint32_t ms) {

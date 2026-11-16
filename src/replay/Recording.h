@@ -76,11 +76,13 @@ struct Key {
     float x = 0, y = 0, z = 0, facing = 0;
     int32_t spline = -1;
     // A UNIT_MOVE's status: its clock, movement flags and fall time. The
-    // loader times the unit's moves from them.
+    // loader times the unit's moves from them. In the air (flag 0x2000) the
+    // fall began `fallTime` ms before at `fallSpeed` (a jump's is negative).
     bool clocked = false;
     uint32_t clock = 0;
     uint32_t flags = 0;
     uint32_t fallTime = 0;
+    float fallSpeed = 0;
 };
 
 // While the unit was in view: from `from` until before `to`.
@@ -113,9 +115,11 @@ struct Recording {
 };
 
 // Where a unit is, which way it faces, and how fast it moves, in yards a
-// second.
+// second; and whether it is in the air, and got there by a jump.
 struct Place {
     float x, y, z, facing, speed;
+    bool falling = false;
+    bool jumped = false;
 };
 
 // The unit's place at `t`. False while it is not in view, or not yet placed.

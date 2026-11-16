@@ -15,10 +15,14 @@
 // message to the next: the client sends one at each start, stop and turn and
 // a heartbeat every 500 ms while moving, so the line between two is the path
 // to within a few yards. A server-driven unit walks its MONSTER_MOVE path at
-// one speed over the path's duration, as the client moves it. Jumps are
-// lines too for now (the arc is in the jump fields).
+// one speed over the path's duration, as the client moves it. In the air
+// the line is the client's fall arc (Unit::Fall) from the move's fall time
+// and speed, bent to land where the next move is.
 
 #include "replay/Recording.h"
+
+#include "Offsets.h"
+#include "unit/Fall.h"
 
 #include <algorithm>
 #include <cmath>
@@ -85,6 +89,24 @@ bool KeyPlace(const Recording &recording, const Unit &unit, int32_t t, int depth
     place.z = key.z + (next.z - key.z) * f;
     place.facing = LerpAngle(key.facing, next.facing, f);
     const float dx = next.x - key.x, dy = next.y - key.y, dz = next.z - key.z;
+    if (key.clocked && (key.flags & Offsets::MOVEFLAG_FALLING)) {
+        // The client moves an airborne unit at one ground speed along its
+        // jump's heading (the line) while it falls the arc. The arc's start
+        // is where the key's fall time puts it; the error at the next key
+        // is spread along the way, so the unit lands where that key is.
+        const bool slow = (key.flags & Offsets::MOVEFLAG_SAFE_FALL) != 0;
+        auto drop = [&](int32_t ms) {
+            return static_cast<float>(::Unit::Fall::Distance(
+                static_cast<float>(key.fallTime + ms) / 1000.0f, key.fallSpeed, slow));
+        };
+        const float start = key.z + drop(0);
+        const float miss = next.z - (start - drop(next.t - key.t));
+        place.z = start - drop(t - key.t) + miss * f;
+        place.falling = true;
+        place.jumped = key.fallSpeed < 0.0f;
+        place.speed = std::sqrt(dx * dx + dy * dy) * 1000.0f / static_cast<float>(next.t - key.t);
+        return true;
+    }
     place.speed = std::sqrt(dx * dx + dy * dy + dz * dz) * 1000.0f / static_cast<float>(next.t - key.t);
     return true;
 }

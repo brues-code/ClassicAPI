@@ -4,13 +4,15 @@
 -- window picks a log and a stretch of it (the whole log or one encounter),
 -- shows the map, and puts an actor where each unit was at the replay's time:
 -- its display (a player in its own display as its own body, wearing what it
--- wore), its mount, walking or running at its speed, its weapons drawn or
--- sheathed, and its stand state's animation (sitting, sleeping, dead,
--- kneeling). Scene positions are
+-- wore), its mount, walking or running at its speed, jumping and falling
+-- along the client's arc, its weapons drawn or sheathed, and its stand
+-- state's animation (sitting, sleeping, dead, kneeling). Scene positions are
 -- map positions. Click a unit to follow it with the camera; click the ground
 -- to stop. /replay toggles the window.
 
 local ANIM_STAND, ANIM_WALK, ANIM_RUN, ANIM_MOUNT = 0, 4, 5, 91
+-- In the air (Offsets.h ANIM_JUMP, ANIM_FALL): from a jump, or off a ledge.
+local ANIM_JUMP, ANIM_FALL = 38, 40;
 -- The animation a stand state shows, as the client's follow camera reads it
 -- (Offsets.h ANIM_*): sit, sleep, the three chairs, dead, kneel.
 local STAND_ANIMATION = { [1] = 97, [3] = 100, [4] = 102, [5] = 103, [6] = 104, [7] = 6, [8] = 115 };
@@ -170,8 +172,8 @@ local function Dress(actor, appearance)
 	end
 end
 
-local function ShowUnit(u, time, x, y, z, facing, speed, display, nativeDisplay, mountDisplay,
-		scale, standState, sheathState)
+local function ShowUnit(u, time, x, y, z, facing, speed, falling, jumping, display, nativeDisplay,
+		mountDisplay, scale, standState, sheathState)
 	local actor = u.actor;
 	if not actor then
 		actor = Acquire(u);
@@ -210,7 +212,9 @@ local function ShowUnit(u, time, x, y, z, facing, speed, display, nativeDisplay,
 	body:SetPosition(x, y, z);
 	body:SetYaw(facing);
 	local animation;
-	if speed > MOVING_SPEED then
+	if falling then
+		animation = jumping and ANIM_JUMP or ANIM_FALL;
+	elseif speed > MOVING_SPEED then
 		animation = speed >= RUN_SPEED and ANIM_RUN or ANIM_WALK;
 	else
 		animation = STAND_ANIMATION[standState] or ANIM_STAND;
@@ -227,15 +231,15 @@ local function Apply(time)
 	local GetUnitLook = C_CombatLogReplay.GetUnitLook;
 	for i = 1, #units do
 		local u = units[i];
-		local x, y, z, facing, speed = GetUnitPosition(i, time);
+		local x, y, z, facing, speed, falling, jumping = GetUnitPosition(i, time);
 		local display, nativeDisplay, mountDisplay, scale, standState, sheathState, _;
 		if x then
 			display, nativeDisplay, mountDisplay, scale, standState, _, _, sheathState =
 				GetUnitLook(i, time);
 		end
 		if display and display > 0 then
-			ShowUnit(u, time, x, y, z, facing, speed, display, nativeDisplay, mountDisplay, scale,
-				standState, sheathState);
+			ShowUnit(u, time, x, y, z, facing, speed, falling, jumping, display, nativeDisplay,
+				mountDisplay, scale, standState, sheathState);
 		else
 			HideUnit(u);
 		end

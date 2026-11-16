@@ -245,6 +245,7 @@ void Loader::UnitMove(const Line::Fields &f, int32_t t) {
     std::from_chars(clock.data(), clock.data() + clock.size(), key.clock);
     key.flags = f.Hex(3);
     key.fallTime = static_cast<uint32_t>(f.Int(10));
+    key.fallSpeed = f.Float(11);
     key.x = f.Float(5);
     key.y = f.Float(6);
     key.z = f.Float(7);
