@@ -88,7 +88,7 @@ include(cmake/embed_resources.cmake)
 embed_resources(
     TARGET ${PROJECT_NAME}
     ADDONS_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/src/embed/AddOns"
-    ADDONS "!!!ClassicAPI" "ClassicAPI_DebugTools" "ClassicAPI_EventTrace"
+    ADDONS "!!!ClassicAPI" "ClassicAPI_DebugTools" "ClassicAPI_EventTrace" "ClassicAPI_Replay"
     ADDON_VERSION "${CLASSICAPI_TOC_VERSION}"
     BINDINGS_XML "${CMAKE_CURRENT_SOURCE_DIR}/src/bindings/Bindings.xml"
     TEXTURES_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/src/embed/Textures"

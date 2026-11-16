@@ -4290,8 +4290,13 @@ embedded load-on-demand addon. Layers:
   auras and events (L4 needs them); spline facing type 3 uses the target's
   place only at the path's end. All of the API checked in game
   (2026-11-16).
-- L2 viewer v1: map, actors at interpolated positions, run/stand,
-  play/pause/scrub/speed, orbit camera. Players as bare race models.
+- L2 viewer v1. DONE (2026-11-16): embedded load-on-demand addon
+  `ClassicAPI_Replay` (`/replay`): log and encounter menus, the map's WMO
+  or its terrain around the units' median place, an actor per unit while
+  in view (mounts seated with AttachToMount, walk/run by speed, the stand
+  state's animation), play/pause/speed/timeline, click a unit to follow
+  it. Checked in game on a Stormwind log: players show as white bare
+  race models (L3) and stand on the missing city WMO (L5).
 - L3 player models built from PLAYER_INFO (needs a DLL extension: build a
   character from data, on the character component / `model/Outfit`).
 - L4 combat: cast visuals and missiles, auras, swings, deaths, health bars,

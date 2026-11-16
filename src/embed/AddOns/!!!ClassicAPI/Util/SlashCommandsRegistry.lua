@@ -1047,6 +1047,15 @@ SlashCmdList["EVENTTRACE"] = function(msg)
 	end
 end
 
+-- Combat log replay (a ClassicAPI extension): loads on first use.
+SlashCmdList["CLASSICAPI_REPLAY"] = function(msg)
+	UIParentLoadAddOn("ClassicAPI_Replay");
+	if ( IsAddOnLoaded("ClassicAPI_Replay") ) then
+		ClassicAPIReplay_Toggle();
+	end
+end
+SLASH_CLASSICAPI_REPLAY1 = "/replay";
+
 SlashCmdList["TINSPECT"] = function(msg)
 	if ( not LoadDebugTools() ) then
 		return;

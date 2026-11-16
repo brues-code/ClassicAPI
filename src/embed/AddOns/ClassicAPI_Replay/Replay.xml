@@ -1,0 +1,97 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/
+..\FrameXML\UI.xsd">
+	<Frame name="ClassicAPIReplayFrame" parent="UIParent" toplevel="true" movable="true" enableMouse="true" hidden="true" frameStrata="DIALOG">
+		<Size x="960" y="640"/>
+		<Anchors>
+			<Anchor point="CENTER"/>
+		</Anchors>
+		<Backdrop bgFile="Interface\DialogFrame\UI-DialogBox-Background" edgeFile="Interface\DialogFrame\UI-DialogBox-Border" tile="true">
+			<EdgeSize>
+				<AbsValue val="32"/>
+			</EdgeSize>
+			<TileSize>
+				<AbsValue val="32"/>
+			</TileSize>
+			<BackgroundInsets>
+				<AbsInset left="11" right="12" top="12" bottom="11"/>
+			</BackgroundInsets>
+		</Backdrop>
+		<Layers>
+			<Layer level="ARTWORK">
+				<FontString parentKey="Title" inherits="GameFontNormal">
+					<Anchors>
+						<Anchor point="TOP" x="0" y="-18"/>
+					</Anchors>
+				</FontString>
+				<FontString parentKey="Status" inherits="GameFontHighlightSmall" justifyH="RIGHT">
+					<Size x="300" y="20"/>
+					<Anchors>
+						<Anchor point="TOPRIGHT" x="-40" y="-42"/>
+					</Anchors>
+				</FontString>
+				<FontString parentKey="Time" inherits="GameFontHighlightSmall" justifyH="RIGHT">
+					<Size x="110" y="20"/>
+					<Anchors>
+						<Anchor point="BOTTOMRIGHT" x="-22" y="19"/>
+					</Anchors>
+				</FontString>
+			</Layer>
+		</Layers>
+		<Frames>
+			<Button parentKey="CloseButton" inherits="UIPanelCloseButton">
+				<Anchors>
+					<Anchor point="TOPRIGHT" x="-6" y="-6"/>
+				</Anchors>
+			</Button>
+			<DropdownButton parentKey="LogDropdown" inherits="WowStyle1DropdownTemplate">
+				<Size x="260" y="26"/>
+				<Anchors>
+					<Anchor point="TOPLEFT" x="22" y="-38"/>
+				</Anchors>
+			</DropdownButton>
+			<DropdownButton parentKey="SegmentDropdown" inherits="WowStyle1DropdownTemplate">
+				<Size x="320" y="26"/>
+				<Anchors>
+					<Anchor point="TOPLEFT" x="292" y="-38"/>
+				</Anchors>
+			</DropdownButton>
+			<ModelScene parentKey="Scene" inherits="ModelSceneMixinTemplate">
+				<Anchors>
+					<Anchor point="TOPLEFT" x="16" y="-72"/>
+					<Anchor point="BOTTOMRIGHT" x="-16" y="50"/>
+				</Anchors>
+				<Frames>
+					<Frame parentKey="ControlFrame" inherits="ModelSceneControlFrameTemplate">
+						<Anchors>
+							<Anchor point="TOP" x="0" y="-10"/>
+						</Anchors>
+					</Frame>
+				</Frames>
+			</ModelScene>
+			<Button parentKey="PlayButton" inherits="UIPanelButtonTemplate">
+				<Size x="80" y="22"/>
+				<Anchors>
+					<Anchor point="BOTTOMLEFT" x="20" y="18"/>
+				</Anchors>
+			</Button>
+			<Button parentKey="SpeedButton" inherits="UIPanelButtonTemplate">
+				<Size x="56" y="22"/>
+				<Anchors>
+					<Anchor point="BOTTOMLEFT" x="104" y="18"/>
+				</Anchors>
+			</Button>
+			<Slider parentKey="Timeline" inherits="MinimalSliderTemplate">
+				<Size x="10" y="17"/>
+				<Anchors>
+					<Anchor point="BOTTOMLEFT" x="172" y="20"/>
+					<Anchor point="BOTTOMRIGHT" x="-140" y="20"/>
+				</Anchors>
+			</Slider>
+		</Frames>
+		<Scripts>
+			<OnLoad>
+				ClassicAPIReplay_OnLoad(this);
+			</OnLoad>
+		</Scripts>
+	</Frame>
+</Ui>

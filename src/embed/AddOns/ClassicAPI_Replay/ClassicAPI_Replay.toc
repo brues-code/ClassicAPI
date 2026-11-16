@@ -1,0 +1,9 @@
+## Interface: 11200
+## Title: ClassicAPI Replay
+## Notes: Plays back the units of a combat log in 3D (/replay)
+## Author: ClassicAPI
+## Version: DEV
+## LoadOnDemand: 1
+locales\enUS.lua
+Replay.lua
+Replay.xml
