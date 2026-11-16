@@ -38,6 +38,7 @@
 // excludes ability-based generation; an off-GCD proc is the one uncovered case.
 
 #include "aura/Source.h"
+#include "player/Combo.h"
 #include "spell/CastPacket.h"
 #include "turtle/Detect.h"
 
@@ -90,28 +91,14 @@ uint8_t g_lastCp = 0;    // last combo-point value seen since arming
 
 using Time::Clock::NowMs;
 
-// The CGPlayer +0xE68 sub-struct that holds combo points + combo target
-// (Script_GetComboPoints, 0x0051A190). Null pre-world.
-const uint8_t *ComboInfo() {
-    const uint8_t *player = Unit::Identity::PlayerObject();
-    if (player == nullptr)
-        return nullptr;
-    return *reinterpret_cast<const uint8_t *const *>(
-        player + Offsets::OFF_CGPLAYER_INFO);
-}
-
 // Arm on a Ferocious Bite send. The combo-target GUID is where the points live
 // and where Rip/Rake sit — the authoritative unit this finisher applies to, so
 // it survives a target swap in the window.
 void OnSend(const Spell::CastPacket::Sent &s) {
     if (!Turtle::Detected() || !IsFerociousBite(s.spellId))
         return;
-    const uint8_t *info = ComboInfo();
-    if (info == nullptr)
-        return;
-    g_target = *reinterpret_cast<const uint64_t *>(
-        info + Offsets::OFF_CGPLAYER_COMBO_TARGET);
-    g_lastCp = *(info + Offsets::OFF_CGPLAYER_COMBO_POINTS); // pre-spend
+    g_target = Player::Combo::Target();
+    g_lastCp = Player::Combo::Points(); // pre-spend
     g_untilMs = NowMs() + kWindowMs;
 }
 
@@ -126,10 +113,9 @@ void OnTick() {
         g_target = 0;
         return;
     }
-    const uint8_t *info = ComboInfo();
-    if (info == nullptr)
-        return;
-    const uint8_t cp = *(info + Offsets::OFF_CGPLAYER_COMBO_POINTS);
+    if (Unit::Identity::PlayerObject() == nullptr)
+        return; // between worlds: no points to read yet
+    const uint8_t cp = Player::Combo::Points();
     if (cp == g_lastCp)
         return; // no change yet
     g_lastCp = cp;

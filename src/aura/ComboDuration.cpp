@@ -21,6 +21,7 @@
 #include "Offsets.h"
 #include "dbc/Lookup.h"
 #include "net/PacketReader.h"
+#include "player/Combo.h"
 #include "spell/CastPacket.h"
 #include "spell/Mod.h"
 #include "time/Clock.h"
@@ -36,22 +37,6 @@ using Net::CDataStore;
 using Time::Clock::NowMs;
 
 // ---- Combo-point snapshot (NetClient send co-hook) ------------------------
-
-// The player's live combo points, read the same way Script_GetComboPoints
-// (0x0051A190) does: the CP byte on the CGPlayer +0xE68 sub-struct. The player
-// comes from the shared Unit::Identity::PlayerObject() (the object-manager GUID
-// resolve, our fastest player-object path — returns null pre-world rather than
-// throwing), so this stays safe from any context the send hook can fire in.
-uint8_t CurrentComboPoints() {
-    const uint8_t *player = Unit::Identity::PlayerObject();
-    if (player == nullptr)
-        return 0;
-    const uint8_t *info = *reinterpret_cast<const uint8_t *const *>(
-        player + Offsets::OFF_CGPLAYER_INFO);
-    if (info == nullptr)
-        return 0;
-    return *(info + Offsets::OFF_CGPLAYER_COMBO_POINTS);
-}
 
 // Keyed by spellID, because a finisher's own SMSG_SPELL_GO is not reliably
 // the next one to arrive after its cast. A talent that procs an aura on the
@@ -110,7 +95,7 @@ int ConsumeCapturedCP(uint32_t spellId) {
 // SpellGo time is too late. We watch sends through the shared
 // `Spell::CastPacket` decoder rather than owning the funnel hook ourselves.
 void OnSend(const Spell::CastPacket::Sent &s) {
-    RememberCapture(s.spellId, CurrentComboPoints(), NowMs());
+    RememberCapture(s.spellId, Player::Combo::Points(), NowMs());
 }
 
 const Spell::CastPacket::AutoSent _sendSub{&OnSend};
