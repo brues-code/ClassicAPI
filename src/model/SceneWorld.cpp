@@ -1835,7 +1835,6 @@ void FromEye(Matrix &m, const float (&eye)[3]) {
 // texture matrices, and the vertex colour (the material instead while
 // lighting is on; red and blue swapped where the device wants them).
 template <typename Draw> void WithDecalStates(uint32_t argb, Draw draw) {
-    using Caps_t = const uint8_t *(__fastcall *)();
     Gx::PushStates();
     const int blend = Gx::GetState(Offsets::GXRS_BLEND);
     if (blend == Offsets::GXRS_BLEND_MODULATE) {
@@ -1855,8 +1854,7 @@ template <typename Draw> void WithDecalStates(uint32_t argb, Draw draw) {
     const int lighting = Gx::GetState(Offsets::GXRS_LIGHTING);
     if (lighting == 1) {
         Gx::SetStateWord(Offsets::GXRS_MATERIAL, argb);
-    } else if (Game::Read<int>(reinterpret_cast<Caps_t>(Offsets::FUN_GX_DEVICE_CAPS)(),
-                               Offsets::OFF_GXCAPS_COLOR_SWAP) == 1) {
+    } else if (Gx::ColorSwap()) {
         color = (argb & 0xFF00FF00u) | (argb & 0xFFu) << 16 | (argb >> 16 & 0xFFu);
     }
     draw(color, lighting);
@@ -1868,11 +1866,6 @@ void DrawFacetBatches(uint32_t color, int lighting, const float (&eye)[3]) {
     using WriteColored_t = void(__fastcall *)(const void *batch);
     using Write_t = void(__thiscall *)(const void *batch, uint32_t color);
     using Indices_t = void(__fastcall *)(const void *batch);
-    struct Prim {
-        uint32_t type, base;
-        uint16_t count, min, max, unused;
-    };
-    using Render_t = void(__fastcall *)(const Prim *prim, int count);
     Matrix toEye;
     Identity(toEye);
     Translate(toEye, {-eye[0], -eye[1], -eye[2]});
@@ -1894,8 +1887,7 @@ void DrawFacetBatches(uint32_t color, int lighting, const float (&eye)[3]) {
         else
             reinterpret_cast<Write_t>(Offsets::FUN_WRITE_DECAL_VERTICES)(batch, color);
         reinterpret_cast<Indices_t>(Offsets::FUN_WRITE_DECAL_INDICES)(batch);
-        const Prim prim{Offsets::GX_PRIM_TRIANGLES, 0, indices, 0, static_cast<uint16_t>(indices - 1), 0};
-        reinterpret_cast<Render_t>(Offsets::FUN_GX_PRIM_RENDER_ONE)(&prim, 1);
+        Gx::RenderPrim({Offsets::GX_PRIM_TRIANGLES, 0, indices, 0, static_cast<uint16_t>(indices - 1), 0});
     }
     Gx::PopTransform(Offsets::GX_XFORM_WORLD);
 }
@@ -1969,11 +1961,6 @@ void DrawDecal(const Backdrop *b, const Terrain::Land *terrain, const float (&bo
 // `z`, texgen placing the texture on it as on any face.
 void DrawDecalOnPlane(const float (&box)[6], uint32_t argb, const float (&m)[16], float fade, float z,
                       const float (&eye)[3]) {
-    using PrimStreams_t = void(__fastcall *)(int count, const void *pos, int posStride, const void *normal,
-                                             int normalStride, const void *colors, int colorStride, int unused8,
-                                             int unused9, const void *uv0, int uv0Stride, const void *uv1,
-                                             int uv1Stride);
-    using PrimIndexed_t = void(__fastcall *)(int primType, int indexCount, const uint16_t *indices);
     WithDecalTransforms(box, m, fade, eye, [&] {
         WithDecalStates(argb, [&](uint32_t color, int) {
             const float corners[4][2] = {{box[0], box[1]}, {box[3], box[1]}, {box[0], box[4]}, {box[3], box[4]}};
@@ -1985,10 +1972,8 @@ void DrawDecalOnPlane(const float (&box)[6], uint32_t argb, const float (&m)[16]
             }
             const uint32_t colors[4] = {color, color, color, color};
             static const uint16_t kStrip[4] = {0, 1, 2, 3};
-            reinterpret_cast<PrimStreams_t>(Offsets::FUN_GX_PRIM_STREAMS)(4, pos, 12, nullptr, 0, colors, 4, 0, 0,
-                                                                         nullptr, 0, nullptr, 0);
-            reinterpret_cast<PrimIndexed_t>(Offsets::FUN_GX_PRIM_INDEXED)(Offsets::GX_PRIM_TRIANGLE_STRIP, 4,
-                                                                          kStrip);
+            Gx::PrimStreams(4, pos, 12, nullptr, 0, colors, 4, nullptr, 0, nullptr, 0);
+            Gx::PrimIndexed(Offsets::GX_PRIM_TRIANGLE_STRIP, 4, kStrip);
         });
     });
 }

@@ -154,4 +154,39 @@ class SavedTransforms {
     Viewport viewport_;
 };
 
+// ---- drawing ----------------------------------------------------------------
+
+// The vertex streams the next indexed draw reads (FUN_GX_PRIM_STREAMS);
+// strides in bytes, a null stream is absent.
+inline void PrimStreams(int count, const void *pos, int posStride, const void *normal, int normalStride,
+                        const void *colors, int colorStride, const void *uv0, int uv0Stride, const void *uv1,
+                        int uv1Stride) {
+    using Fn = void(__fastcall *)(int, const void *, int, const void *, int, const void *, int, int, int,
+                                  const void *, int, const void *, int);
+    reinterpret_cast<Fn>(Offsets::FUN_GX_PRIM_STREAMS)(count, pos, posStride, normal, normalStride, colors,
+                                                       colorStride, 0, 0, uv0, uv0Stride, uv1, uv1Stride);
+}
+// Draws `indexCount` indices of `primType` (GX_PRIM_*) over those streams
+// (FUN_GX_PRIM_INDEXED).
+inline void PrimIndexed(int primType, int indexCount, const uint16_t *indices) {
+    reinterpret_cast<void(__fastcall *)(int, int, const uint16_t *)>(Offsets::FUN_GX_PRIM_INDEXED)(
+        primType, indexCount, indices);
+}
+
+// One batch over the bound vertex and index buffers (FUN_GX_PRIM_RENDER_ONE).
+struct Prim {
+    uint32_t type, base;
+    uint16_t count, min, max, unused;
+};
+inline void RenderPrim(const Prim &prim) {
+    reinterpret_cast<void(__fastcall *)(const Prim *, int)>(Offsets::FUN_GX_PRIM_RENDER_ONE)(&prim, 1);
+}
+
+// Whether the device takes vertex colours with red and blue swapped (its caps'
+// colour-swap flag, FUN_GX_DEVICE_CAPS + OFF_GXCAPS_COLOR_SWAP).
+inline bool ColorSwap() {
+    const auto *caps = reinterpret_cast<const uint8_t *(__fastcall *)()>(Offsets::FUN_GX_DEVICE_CAPS)();
+    return *reinterpret_cast<const int32_t *>(caps + Offsets::OFF_GXCAPS_COLOR_SWAP) == 1;
+}
+
 } // namespace Gx

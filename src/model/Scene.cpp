@@ -399,12 +399,6 @@ void CameraTransforms(void *frame, void *camera, const float (&rect)[4]) {
 // without depth writes: each model then draws over the shadows, its own
 // included.
 
-using PrimStreams_t = void(__fastcall *)(int count, const void *pos, int posStride, const void *normal,
-                                         int normalStride, const void *colors, int colorStride,
-                                         int unused8, int unused9, const void *uv0, int uv0Stride,
-                                         const void *uv1, int uv1Stride);
-using PrimIndexed_t = void(__fastcall *)(int primType, int indexCount, const uint16_t *indices);
-
 // DrawBlobShadow's part from the model, up to the decal draw.
 struct Blob {
     float bounds[6];  // the sequence bounds, clamped and scaled
@@ -488,10 +482,8 @@ void DrawQuad(const Blob &blob, const float (&eye)[3]) {
     }
     const uint32_t colors[4] = {blob.color, blob.color, blob.color, blob.color};
     static const uint16_t kStrip[4] = {0, 1, 2, 3};
-    reinterpret_cast<PrimStreams_t>(Offsets::FUN_GX_PRIM_STREAMS)(4, pos, 12, nullptr, 0, colors, 4, 0, 0,
-                                                                 uv, 8, nullptr, 0);
-    reinterpret_cast<PrimIndexed_t>(Offsets::FUN_GX_PRIM_INDEXED)(Offsets::GX_PRIM_TRIANGLE_STRIP, 4,
-                                                                  kStrip);
+    Gx::PrimStreams(4, pos, 12, nullptr, 0, colors, 4, uv, 8, nullptr, 0);
+    Gx::PrimIndexed(Offsets::GX_PRIM_TRIANGLE_STRIP, 4, kStrip);
 }
 
 // The ground the paint lays decals on: the WMO and the terrain it draws.

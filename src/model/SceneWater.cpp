@@ -320,11 +320,6 @@ void DrawRipples(const Effects *effects, const float (&eye)[3]) {
     using Texture_t = void *(__fastcall *)(void *handle, int load, void *callback);
     using Build_t = void(__fastcall *)(float *tex0, float *tex1, const float *box, const float *m, float fade,
                                        int absolute);
-    struct Prim {
-        uint32_t type, base;
-        uint16_t count, min, max, unused;
-    };
-    using Render_t = void(__fastcall *)(const Prim *prim, int count);
     if (effects == nullptr)
         return;
     // UpdateRipples' draw (0x0068FCB1): the vertices of each category's live
@@ -349,8 +344,7 @@ void DrawRipples(const Effects *effects, const float (&eye)[3]) {
     Gx::Identity(world);
     Gx::Translate(world, {-eye[0], -eye[1], -eye[2]});
     Gx::PushTransform(Offsets::GX_XFORM_WORLD, world);
-    const bool swap = Game::Read<int32_t>(reinterpret_cast<void *(__fastcall *)()>(Offsets::FUN_GX_DEVICE_CAPS)(),
-                                          Offsets::OFF_GXCAPS_COLOR_SWAP) == 1;
+    const bool swap = Gx::ColorSwap();
     for (uint32_t category = 0; category < 2; ++category) {
         if (counts[category] == 0)
             continue;
@@ -420,8 +414,7 @@ void DrawRipples(const Effects *effects, const float (&eye)[3]) {
         reinterpret_cast<VertexBind_t>(Offsets::FUN_GX_VERTEX_BUF_BIND)(vertices, Offsets::GX_FORMAT_PNCT);
         reinterpret_cast<IndexBind_t>(Offsets::FUN_GX_INDEX_BUF_BIND)(indices);
         Gx::SetState(Offsets::GXRS_TEXTURE0, texture);
-        const Prim prim{Offsets::GX_PRIM_TRIANGLES, 0, written, 0, static_cast<uint16_t>(written - 1), 0};
-        reinterpret_cast<Render_t>(Offsets::FUN_GX_PRIM_RENDER_ONE)(&prim, 1);
+        Gx::RenderPrim({Offsets::GX_PRIM_TRIANGLES, 0, written, 0, static_cast<uint16_t>(written - 1), 0});
     }
     Gx::PopTransform(Offsets::GX_XFORM_WORLD);
     Gx::PopStates();
