@@ -36,4 +36,8 @@ bool PlayerRank(const uint8_t *player, uint32_t skillLine, Rank *out);
 // race/class pair (FUN_SKILL_LINE_ABILITY_LOOKUP), or nullptr.
 const uint8_t *AbilityFor(uint32_t race, uint32_t classId, uint32_t spellID);
 
+// AbilityFor with the race and class of the unit whose descriptor block
+// (`Object::Fields`) is `fields`. nullptr for a null block.
+const uint8_t *AbilityForUnit(const uint8_t *fields, uint32_t spellID);
+
 } // namespace Spell::SkillLine

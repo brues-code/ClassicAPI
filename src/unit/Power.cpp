@@ -60,6 +60,14 @@ const char *PowerTypeToken(int type) {
     return "UNKNOWN";
 }
 
+uint32_t Stored(const uint8_t *fields, int type) {
+    return Game::Read<uint32_t>(fields, Offsets::OFF_UNIT_FIELD_POWER1 + type * 4);
+}
+
+uint32_t StoredMax(const uint8_t *fields, int type) {
+    return Game::Read<uint32_t>(fields, Offsets::OFF_UNIT_FIELD_MAXPOWER1 + type * 4);
+}
+
 unsigned int DisplayDivisor(int type) {
     using Divisor_t = unsigned int(__fastcall *)(int powerType);
     return reinterpret_cast<Divisor_t>(
@@ -185,8 +193,7 @@ static int __fastcall Script_UnitPower(void *L) {
         Game::Lua::PushNumber(L, RosterPowerFallback(L, RosterKind::Current));
         return 1;
     }
-    const uint32_t raw = *reinterpret_cast<const uint32_t *>(
-        desc + Offsets::OFF_UNIT_FIELD_POWER1 + type * 4);
+    const uint32_t raw = Stored(desc, type);
     // `unmodified` (arg 3, truthy) returns the raw internal value; otherwise
     // apply the per-type display divisor. Matches retail's third UnitPower arg.
     const uint32_t divisor = Game::Lua::ToBoolean(L, 3) ? 1u : DisplayDivisor(type);
@@ -208,8 +215,7 @@ static int __fastcall Script_UnitPowerMax(void *L) {
         Game::Lua::PushNumber(L, RosterPowerFallback(L, RosterKind::Max));
         return 1;
     }
-    const uint32_t raw = *reinterpret_cast<const uint32_t *>(
-        desc + Offsets::OFF_UNIT_FIELD_MAXPOWER1 + type * 4);
+    const uint32_t raw = StoredMax(desc, type);
     const uint32_t divisor = Game::Lua::ToBoolean(L, 3) ? 1u : DisplayDivisor(type);
     Game::Lua::PushNumber(L, static_cast<double>(raw / divisor));
     return 1;
@@ -238,10 +244,8 @@ static int __fastcall Script_UnitPowerMissing(void *L) {
         Game::Lua::PushNumber(L, RosterPowerFallback(L, RosterKind::Missing));
         return 1;
     }
-    const uint32_t cur = *reinterpret_cast<const uint32_t *>(
-        desc + Offsets::OFF_UNIT_FIELD_POWER1 + type * 4);
-    const uint32_t max = *reinterpret_cast<const uint32_t *>(
-        desc + Offsets::OFF_UNIT_FIELD_MAXPOWER1 + type * 4);
+    const uint32_t cur = Stored(desc, type);
+    const uint32_t max = StoredMax(desc, type);
     const uint32_t divisor = Game::Lua::ToBoolean(L, 3) ? 1u : DisplayDivisor(type);
     const uint32_t curDisp = cur / divisor;
     const uint32_t maxDisp = max / divisor;

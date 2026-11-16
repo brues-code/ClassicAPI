@@ -75,13 +75,8 @@ const uint8_t *PlayerSkillLineFor(int spellID) {
         Object::ByGuid(Offsets::TYPEMASK_PLAYER, Unit::Identity::PlayerGuid()));
     if (player == nullptr)
         return nullptr;
-    auto *desc = Object::Fields(player);
-    if (desc == nullptr)
-        return nullptr;
-
-    const uint8_t *ability = Spell::SkillLine::AbilityFor(
-        desc[Offsets::OFF_UNIT_DESCRIPTOR_RACE_BYTE], desc[Offsets::OFF_UNIT_DESCRIPTOR_CLASS_BYTE],
-        static_cast<uint32_t>(spellID));
+    const uint8_t *ability =
+        Spell::SkillLine::AbilityForUnit(Object::Fields(player), static_cast<uint32_t>(spellID));
     if (ability == nullptr)
         return nullptr;
     return DBC::Record(Offsets::VAR_SKILL_LINE_RECORDS, Offsets::VAR_SKILL_LINE_COUNT,

@@ -312,4 +312,12 @@ const uint8_t *AbilityFor(uint32_t race, uint32_t classId, uint32_t spellID) {
         static_cast<char>(race), static_cast<char>(classId), spellID);
 }
 
+const uint8_t *AbilityForUnit(const uint8_t *fields, uint32_t spellID) {
+    if (fields == nullptr)
+        return nullptr;
+    return AbilityFor(Game::Read<uint8_t>(fields, Offsets::OFF_UNIT_DESCRIPTOR_RACE_BYTE),
+                      Game::Read<uint8_t>(fields, Offsets::OFF_UNIT_DESCRIPTOR_CLASS_BYTE),
+                      spellID);
+}
+
 } // namespace Spell::SkillLine

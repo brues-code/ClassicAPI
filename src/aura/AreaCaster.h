@@ -15,13 +15,14 @@
 
 #include <cstdint>
 
-// Who cast a player's party area aura (Leader of the Pack, the paladin auras,
-// Trueshot Aura, Moonkin Aura). No packet names it. See AreaCaster.cpp.
+// Who cast a party area aura: a totem's (Strength of Earth), attributed to
+// the totem's owner, or a player's (Leader of the Pack, the paladin auras).
+// No packet names it. See AreaCaster.cpp.
 namespace Aura::AreaCaster {
 
-// The player whose party area aura put `spellId` on the unit `targetGuid`, or
-// 0 when the spell is not a party area aura or no player in view could have
-// cast it.
+// The caster whose party area aura put `spellId` on the unit `targetGuid` (a
+// totem's owner for a totem's aura), or 0 when the spell is not a party area
+// aura or no unit in view could have cast it.
 uint64_t OfPartyAura(uint64_t targetGuid, uint32_t spellId);
 
 } // namespace Aura::AreaCaster

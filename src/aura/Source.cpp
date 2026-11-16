@@ -1743,17 +1743,10 @@ void StampApplication(void *unit, uint32_t spellId, int slot) {
         if (caster == 0 && IsJudgementSpell(rec))
             caster = ConsumeJudgementAttribution(unitGuid, NowMs());
     }
-    // A totem's party area aura reaches the owner's group with no packet that
-    // names its caster; the visible totem carrying it does. Attributed to the
-    // totem's owner, as every totem aura is (see the SpellGo path).
-    if (caster == 0) {
-        caster = Totem::Owner::OfAreaAura(unitGuid, spellId);
-        if (caster != 0)
-            durationMs = SpellDurationMs(rec, caster == Unit::Identity::PlayerGuid());
-    }
-    // A player's party area aura (Leader of the Pack, the paladin auras) has
-    // no totem to ask: the caster is the player in view who could have cast
-    // it and carries it.
+    // A party area aura reaches the caster's group with no packet that names
+    // its caster: a totem's (attributed to its owner, as every totem aura is;
+    // see the SpellGo path) or a player's (Leader of the Pack, the paladin
+    // auras). The visible unit that carries it names it.
     if (caster == 0) {
         caster = AreaCaster::OfPartyAura(unitGuid, spellId);
         if (caster != 0)

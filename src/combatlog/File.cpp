@@ -63,6 +63,7 @@
 #include "tick/FrameTick.h"
 #include "time/Clock.h"
 #include "unit/CreatureID.h"
+#include "unit/Power.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -371,9 +372,7 @@ int MaxPower(uint64_t guid, int type) {
     if (type < 0 || type >= kPowerTypes)
         return 0;
     const uint8_t *fields = Object::Fields(Object::ByGuid(Offsets::TYPEMASK_UNIT, guid));
-    return fields != nullptr
-               ? Game::Read<int>(fields, Offsets::OFF_UNIT_FIELD_MAXPOWER1 + type * 4)
-               : 0;
+    return fields != nullptr ? static_cast<int>(Unit::Power::StoredMax(fields, type)) : 0;
 }
 
 const char *EnvironmentalTitle(int type) {

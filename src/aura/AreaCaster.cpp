@@ -11,38 +11,44 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// Who cast a player's party area aura.
+// Who cast a party area aura.
 //
-// A party area aura (Spell.dbc effect APPLY_AREA_AURA_PARTY at the caster:
-// Leader of the Pack, the paladin auras, Trueshot Aura, Moonkin Aura) is put
-// on the caster, and the server copies it onto the caster's group members in
-// range. A 1.12 aura slot holds only the spell ID, so neither copy names the
-// caster, and Leader of the Pack has no SMSG_SPELL_GO at all (the server casts
-// it from the shapeshift; Era's log has no cast line for it either). Classic
-// Era names the druid on every copy, its own included.
+// A party area aura (Spell.dbc effect APPLY_AREA_AURA_PARTY at the caster) is
+// put on the caster, and the server copies it onto the caster's group members
+// in range (vmangos AreaAura::Update). A 1.12 aura slot holds only the spell
+// ID, so no copy names the caster. The caster keeps its own copy in a visible
+// slot, so the search is over the visible units that carry the aura, matched
+// by its localized name: a target below the spell's level gets a lower rank of
+// the same line (SelectAuraRankForLevel), and every rank shares the name.
 //
-// Who could be the caster:
-//   - the local player, exactly: it knows the spell (its known-spell bitmap)
-//     and carries the aura, and the aura is on itself or a party member
-//     (party1-4, which in a raid are the player's own subgroup, the reach of
-//     a party aura);
-//   - another player, by class: its race and class can learn the spell
-//     (the engine's SkillLineAbility lookup, which also applies
+// Two kinds of caster, the totems first:
+//   - a totem (Strength of Earth, the resistance totems), attributed to its
+//     owner as every totem aura is (Totem::Owner). The totem keeps its copy:
+//     IsNeedVisibleSlot's "passive auras (except totem auras) do not get
+//     placed in caster slot", on both vmangos and tortoise-wow;
+//   - a player (Leader of the Pack, the paladin auras, Trueshot Aura, Moonkin
+//     Aura). Leader of the Pack has no SMSG_SPELL_GO at all: the server casts
+//     it from the shapeshift, and Era's log has no cast line for it either.
+//     Classic Era names the druid on every copy, its own included. The local
+//     player is the caster when it knows the spell (its known-spell bitmap),
+//     carries the aura, and the aura is on itself or a party member (party1-4,
+//     which in a raid are its own subgroup, the reach of a party aura).
+//     Another player can be the caster when its race and class can learn the
+//     spell (the engine's SkillLineAbility lookup, which also applies
 //     SkillRaceClassInfo, so Trueshot Aura's class-less row still resolves to
-//     hunters) and it carries the aura. The target itself wins, then the
-//     nearest, as the totem rule does (Totem::Owner::OfAreaAura).
+//     hunters).
+// Of the candidates of a kind, the target's own wins, then the nearest. The
+// client cannot see a stranger's group, so two groups' identical totems side
+// by side, or two players of a class carrying the same aura (two paladins on
+// one aura, a druid without the talent beside one with it), are told apart
+// only by that order.
 //
 // A spell can learn through a spell of the same name: Leader of the Pack's
 // aura (24932) has no SkillLineAbility row, but the druid talent that grants
-// it (17007) shares its name, as Talent::SpellSet already matches talents to
-// their spells. Of the 181 party area auras in the 1.12 Spell.dbc, 35 have
-// their own row and 19 more match one by name (Leader of the Pack, Devotion
-// and Retribution Aura ranks); the rest are totem, item and creature auras,
-// which this rule leaves alone.
-//
-// The class rule guesses when two players of the class carry the same aura:
-// two paladins on the same aura, or a druid without the talent beside one with
-// it. The client cannot tell their copies apart.
+// it (17007) shares its name. Of the 181 party area auras in the 1.12
+// Spell.dbc, 35 have their own row and 19 more match one by name (Leader of
+// the Pack, Devotion and Retribution Aura ranks); the rest are totem, item
+// and creature auras.
 
 #include "AreaCaster.h"
 
@@ -55,6 +61,7 @@
 #include "spell/Known.h"
 #include "spell/Lookup.h"
 #include "spell/SkillLine.h"
+#include "totem/Owner.h"
 #include "unit/Identity.h"
 #include "unit/Position.h"
 
@@ -112,12 +119,8 @@ bool PlayerKnows(const std::vector<uint32_t> &teachers) {
 
 bool ClassCanLearn(const void *unit, const std::vector<uint32_t> &teachers) {
     const uint8_t *fields = Object::Fields(unit);
-    if (fields == nullptr)
-        return false;
-    const uint32_t race = Game::Read<uint8_t>(fields, Offsets::OFF_UNIT_DESCRIPTOR_RACE_BYTE);
-    const uint32_t classId = Game::Read<uint8_t>(fields, Offsets::OFF_UNIT_DESCRIPTOR_CLASS_BYTE);
     for (const uint32_t s : teachers) {
-        if (Spell::SkillLine::AbilityFor(race, classId, s) != nullptr)
+        if (Spell::SkillLine::AbilityForUnit(fields, s) != nullptr)
             return true;
     }
     return false;
@@ -126,6 +129,31 @@ bool ClassCanLearn(const void *unit, const std::vector<uint32_t> &teachers) {
 bool Carries(const void *unit, const char *name) {
     return Data::FindSlotBySpellName(static_cast<const uint8_t *>(unit), name, nullptr) >= 0;
 }
+
+// The best candidate of one kind: the target's own, else the nearest.
+struct Best {
+    uint64_t caster = 0;
+    float distSq = FLT_MAX;
+    bool own = false;
+
+    void Offer(uint64_t candidate, const void *unit, uint64_t target, const float targetPos[3]) {
+        if (own)
+            return;
+        if (candidate == target) {
+            caster = candidate;
+            own = true;
+            return;
+        }
+        float pos[3];
+        if (!Unit::Position::Read(const_cast<void *>(unit), pos))
+            return;
+        const float d = Game::DistanceSq(pos, targetPos);
+        if (d < distSq) {
+            caster = candidate;
+            distSq = d;
+        }
+    }
+};
 
 } // namespace
 
@@ -137,43 +165,41 @@ uint64_t OfPartyAura(uint64_t targetGuid, uint32_t spellId) {
     const char *name = Spell::Lookup::Name(rec);
     if (name == nullptr)
         return 0;
-    const std::vector<uint32_t> &teachers = Teachers(spellId, name);
-    if (teachers.empty())
-        return 0;
-
-    const uint64_t player = Unit::Identity::PlayerGuid();
-    if ((targetGuid == player || Group::Roster::IsPartyMember(targetGuid)) &&
-        PlayerKnows(teachers) && Carries(Unit::Identity::PlayerObject(), name))
-        return player;
-
     float targetPos[3];
     if (!Unit::Position::Read(Object::ByGuid(Offsets::TYPEMASK_UNIT, targetGuid, nullptr, 0),
                               targetPos))
         return 0;
-    uint64_t best = 0;
-    float bestDistSq = FLT_MAX;
+    const std::vector<uint32_t> &teachers = Teachers(spellId, name);
+    const uint64_t player = Unit::Identity::PlayerGuid();
+
+    Best totems, players;
     Object::ForEachVisible([&](uint64_t guid) {
-        // The local player was decided above, from what it knows.
-        if (!Guid::IsPlayer(guid) || guid == player)
+        uint64_t caster = 0;
+        if (Guid::IsCreature(guid)) {
+            caster = Totem::Owner::OfTotem(guid);
+        } else if (Guid::IsPlayer(guid) && guid != player && !teachers.empty()) {
+            // The local player is decided below, from what it knows.
+            caster = guid;
+        }
+        if (caster == 0)
             return true;
         void *unit = Object::ByGuid(Offsets::TYPEMASK_UNIT, guid, nullptr, 0);
-        if (unit == nullptr || !Carries(unit, name) || !ClassCanLearn(unit, teachers))
+        if (unit == nullptr)
             return true;
-        if (guid == targetGuid) {
-            best = guid;
-            return false; // the target's own aura: nothing beats it
-        }
-        float pos[3];
-        if (!Unit::Position::Read(unit, pos))
+        const bool totem = caster != guid;
+        if (!totem && !ClassCanLearn(unit, teachers))
             return true;
-        const float distSq = Game::DistanceSq(pos, targetPos);
-        if (distSq < bestDistSq) {
-            best = guid;
-            bestDistSq = distSq;
-        }
-        return true;
+        if (!Carries(unit, name))
+            return true;
+        (totem ? totems : players).Offer(caster, unit, targetGuid, targetPos);
+        return !totems.own; // the target's own totem: nothing beats it
     });
-    return best;
+    if (totems.caster != 0)
+        return totems.caster;
+    if ((targetGuid == player || Group::Roster::IsPartyMember(targetGuid)) &&
+        PlayerKnows(teachers) && Carries(Unit::Identity::PlayerObject(), name))
+        return player;
+    return players.caster;
 }
 
 } // namespace Aura::AreaCaster

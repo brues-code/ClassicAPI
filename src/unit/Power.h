@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 namespace Unit::Power {
 
 // Modern power-type token for a PowerType value: 0 MANA, 1 RAGE, 2 FOCUS,
@@ -25,5 +27,11 @@ const char *PowerTypeToken(int type);
 // Every power amount surfaced to Lua — unit power, spell costs, combat-log
 // amounts — goes through this.
 unsigned int DisplayDivisor(int type);
+
+// A unit's stored power and max power of `type` (0..4), from its descriptor
+// block (`Object::Fields`): UNIT_FIELD_POWER1 / MAXPOWER1 + type * 4. Stored
+// means before DisplayDivisor: rage in tenths, happiness at 1000x.
+uint32_t Stored(const uint8_t *fields, int type);
+uint32_t StoredMax(const uint8_t *fields, int type);
 
 } // namespace Unit::Power
