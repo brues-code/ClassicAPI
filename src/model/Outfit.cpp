@@ -39,6 +39,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "dbc/Lookup.h"
+#include "item/ID.h"
 #include "model/DisplayInfo.h"
 #include "model/ItemDisplay.h"
 #include "model/M2.h"
@@ -57,7 +58,6 @@ using AttachItemModel_t = int(__fastcall *)(void *model, const void *record, uin
                                             bool ranged);
 using GetHeldItemDisplay_t = const void *(__thiscall *)(void *unit, uint32_t hand);
 using GetHeldItemLane_t = const HeldLane *(__thiscall *)(void *unit, uint32_t hand, int one);
-using GetVisibleItem_t = const void *(__thiscall *)(void *player, uint32_t slot);
 using GetDescVisual_t = int(__thiscall *)(const void *visibleItem);
 using CanHoldBoth_t = bool(__fastcall *)(uint32_t mainType, uint32_t offType, bool dualWield);
 
@@ -176,9 +176,7 @@ void ReadWeapons(uint64_t guid, Weapons &weapons) {
     if (player == nullptr)
         return;
     for (int i = 0; i < 2; ++i) {
-        const void *item =
-            reinterpret_cast<GetVisibleItem_t>(Offsets::FUN_UNIT_GET_VISIBLE_ITEM)(player,
-                                                                                kBodySlots[i]);
+        const uint8_t *item = Item::ID::VisibleEntry(player, static_cast<int>(kBodySlots[i]));
         if (item == nullptr || Game::Read<uint32_t>(item, Offsets::OFF_VISIBLE_ITEM_ITEM_ID) == 0)
             continue;
         const int visual =
@@ -392,11 +390,7 @@ void ReadWorn(void *unit, uint64_t guid, const Weapons &weapons, Worn &worn) {
     void *player = Object::ByGuid(Offsets::TYPEMASK_PLAYER, guid);
     if (unit == nullptr || player == nullptr)
         return;
-    const auto visibleItem = reinterpret_cast<GetVisibleItem_t>(Offsets::FUN_UNIT_GET_VISIBLE_ITEM);
-    const auto itemOf = [&](int invSlot) -> const uint8_t * {
-        const void *item = visibleItem(player, static_cast<uint32_t>(invSlot - 1));
-        return static_cast<const uint8_t *>(item);
-    };
+    const auto itemOf = [&](int invSlot) { return Item::ID::VisibleEntry(player, invSlot - 1); };
     void *component = Game::Read<void *>(unit, Offsets::OFF_CGUNIT_CHARACTER_COMPONENT);
     if (component != nullptr) {
         for (uint32_t slot = 0; slot < std::size(kInvSlotOfComponent); ++slot) {
@@ -467,9 +461,7 @@ void ReadRanged(void *unit, uint64_t guid, HeldLane &lane, const void *&display,
     void *player = Object::ByGuid(Offsets::TYPEMASK_PLAYER, guid);
     if (player == nullptr)
         return;
-    if (const void *item = reinterpret_cast<GetVisibleItem_t>(Offsets::FUN_UNIT_GET_VISIBLE_ITEM)(
-            player, static_cast<uint32_t>(Offsets::INVSLOT_RANGED - 1)))
-        worn.item = Game::Read<uint32_t>(item, Offsets::OFF_VISIBLE_ITEM_ITEM_ID);
+    worn.item = Item::ID::Visible(player, Offsets::INVSLOT_RANGED - 1);
 }
 
 void Undress(void *model, void *component, Lanes &lanes, bool weapons) {

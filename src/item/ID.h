@@ -22,4 +22,14 @@ namespace Item::ID {
 // short-circuit to a nil push.
 int FromCGItem(const uint8_t *item);
 
+// A player's visible-item entry for equipment slot `slot0` (0..18, INVSLOT - 1):
+// the broadcast block every player in view carries (FUN_UNIT_GET_VISIBLE_ITEM),
+// with the itemID at OFF_VISIBLE_ITEM_ITEM_ID and the enchants after it.
+// nullptr for a slot out of range. `player` must be a player object: a
+// creature's table is not initialized and the engine call reads garbage.
+const uint8_t *VisibleEntry(void *player, int slot0);
+
+// The itemID in that entry, 0 for an empty slot or one out of range.
+uint32_t Visible(void *player, int slot0);
+
 } // namespace Item::ID

@@ -26,6 +26,16 @@ int FromCGItem(const uint8_t *item) {
     return static_cast<int>(::Object::Entry(item));
 }
 
+const uint8_t *VisibleEntry(void *player, int slot0) {
+    using GetVisibleItem_t = const uint8_t *(__thiscall *)(void *unit, int slot);
+    return reinterpret_cast<GetVisibleItem_t>(Offsets::FUN_UNIT_GET_VISIBLE_ITEM)(player, slot0);
+}
+
+uint32_t Visible(void *player, int slot0) {
+    const uint8_t *entry = VisibleEntry(player, slot0);
+    return entry != nullptr ? Game::Read<uint32_t>(entry, Offsets::OFF_VISIBLE_ITEM_ITEM_ID) : 0;
+}
+
 static int __fastcall Script_GetItemID(void *L) {
     if (!Item::Location::IsLocationArg(L, 1)) {
         Game::Lua::Error(L, "Usage: C_Item.GetItemID(itemLocation)");

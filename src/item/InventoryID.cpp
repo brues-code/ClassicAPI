@@ -24,8 +24,6 @@ namespace Item::InventoryID {
 
 namespace {
 
-using GetVisibleItem_t = void *(__thiscall *)(void *unit, int slot);
-
 // Walks the local player's private inventory manager — the same path
 // `C_Item.GetItemID({equipmentSlotIndex=N})` uses. Bag/bank slots also
 // resolve here; we don't bound the slot up front since the engine's
@@ -46,13 +44,7 @@ int ItemIDForLocalPlayer(void *playerPtr, int slot1Based) {
 // — the engine helper assumes a valid visible-items array and crashes
 // otherwise.
 int ItemIDForOtherUnit(void *unitPtr, int slot1Based) {
-    auto getVisibleItem = reinterpret_cast<GetVisibleItem_t>(
-        Offsets::FUN_UNIT_GET_VISIBLE_ITEM);
-    auto *entry = static_cast<uint8_t *>(getVisibleItem(unitPtr, slot1Based - 1));
-    if (entry == nullptr)
-        return 0;
-    return static_cast<int>(*reinterpret_cast<const uint32_t *>(
-        entry + Offsets::OFF_VISIBLE_ITEM_ITEM_ID));
+    return static_cast<int>(Item::ID::Visible(unitPtr, slot1Based - 1));
 }
 
 } // namespace
