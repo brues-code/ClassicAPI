@@ -22773,8 +22773,8 @@ Opening a bag or taking a step puts a file in it.
 > - **`|Hspell:N|h` hyperlink** — extracted by parsing for the
 >   embedded `spell:N` payload, so
 >   `C_Spell.X(GetSpellLink(id))` round-trips cleanly.
-> - **spell name** — case-sensitive lookup, with the same name rules as
->   `CastSpellByName`. Accepts `(Rank N)` suffixes. Bounded to spells in the **player's known
+> - **spell name** — the same name rules as `CastSpellByName`, so the
+>   lookup is not case-sensitive. Accepts `(Rank N)` suffixes. Bounded to spells in the **player's known
 >   spellbook** — not arbitrary Spell.dbc rows.
 >
 > Unrecognized identifiers (garbage strings, nil, tables, etc.) return
@@ -22896,15 +22896,17 @@ Four input forms are accepted:
   `nil` for empty / out-of-range slots.
 - **`GetSpellInfo("name")`** — looks the name up in the player's, then
   the pet's, spellbook and returns the highest rank you know. The match
-  is exact and case-sensitive. The name must be a spell you have. A name
+  is the one `CastSpellByName` makes, and it is not case-sensitive. The
+  name must be a spell you have. A name
   you do not know returns `nil` (it does not
   raise an error). It is not a database-wide search — a name shared by
   many ranks or by NPC spells has no single answer, so only your own
   spellbook is used.
 - **`GetSpellInfo("name(Rank N)")`** — a rank in parentheses pins that
   exact rank instead of the highest, the same `SpellName(Rank N)` form
-  `CastSpellByName` accepts. A space before the parenthesis is allowed
-  (`"Mind Blast (Rank 8)"`). A rank you do not know returns `nil`.
+  `CastSpellByName` accepts. Put no space before the parenthesis:
+  `"Mind Blast (Rank 8)"` does not match. A rank you do not know returns
+  `nil`.
 - **`GetSpellInfo("|Hspell:ID|h[Name]|h")`** — a spell hyperlink. The
   `spellID` inside the link is used directly, so this works for any
   spell, learned or not.
@@ -22919,7 +22921,7 @@ local _, _, _, _, _, _, _, _, _, id = GetSpellInfo(1, "spell")
 
 -- by name (highest rank you know), a specific rank, and a link
 local name = GetSpellInfo("Fireball")
-local _, rank = GetSpellInfo("Mind Blast (Rank 8)")  -- rank="Rank 8"
+local _, rank = GetSpellInfo("Mind Blast(Rank 8)")  -- rank="Rank 8"
 local _, _, _, _, _, _, _, _, _, id = GetSpellInfo(GetSpellLink(133))
 ```
 

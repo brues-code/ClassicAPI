@@ -108,7 +108,7 @@ const std::unordered_set<int> &LineSet() {
 // 0 in that column, so `LineSet` holds only rank 1). The engine's own
 // notion of a rank set is "same name in the spellbook": a name-cast
 // resolves to the highest same-named spell in the book
-// (`Spell::Lookup::SpellNameToID` mirrors it), so a book spell that shares
+// (FUN_RESOLVE_SPELL_NAME_TO_BOOK_ID), so a book spell that shares
 // a talent rank's name is a rank of that talent.
 const std::unordered_set<std::string> &NameSet() {
     static std::unordered_set<std::string> set;

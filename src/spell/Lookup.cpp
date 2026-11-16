@@ -18,8 +18,6 @@
 #include "baselib/Ascii.h"
 #include "dbc/Lookup.h"
 
-#include <cstring>
-
 namespace Spell::Lookup {
 
 const uint8_t *RecordForID(int spellID) {
@@ -189,68 +187,6 @@ int FindSpellbookSlot(int spellID, int *outBookType) {
                 *outBookType = bookType;
             return slot;
         }
-    }
-    return 0;
-}
-
-int SpellNameToID(const char *name) {
-    if (name == nullptr || *name == '\0')
-        return 0;
-    // A trailing "(subtext)" pins a specific rank — the vanilla
-    // "SpellName(Rank N)" addressing that CastSpellByName and friends use
-    // (a space before the paren is tolerated: "Mind Blast (Rank 8)"). The
-    // subtext is matched against the record's localized Rank field. With no
-    // subtext, we return the highest known rank of the base name.
-    char base[256];
-    char wantRank[64];
-    bool haveRank = false;
-    {
-        const char *open = std::strrchr(name, '(');
-        const char *close = (open != nullptr) ? std::strrchr(name, ')') : nullptr;
-        size_t baseLen;
-        if (open != nullptr && close != nullptr && close > open + 1) {
-            baseLen = static_cast<size_t>(open - name);
-            size_t rankLen = static_cast<size_t>(close - open - 1);
-            if (rankLen >= sizeof(wantRank))
-                rankLen = sizeof(wantRank) - 1;
-            std::memcpy(wantRank, open + 1, rankLen);
-            wantRank[rankLen] = '\0';
-            haveRank = true;
-        } else {
-            baseLen = std::strlen(name);
-        }
-        while (baseLen > 0 &&
-               (name[baseLen - 1] == ' ' || name[baseLen - 1] == '\t'))
-            --baseLen; // trim any space between the name and the paren
-        if (baseLen == 0 || baseLen >= sizeof(base))
-            return 0;
-        std::memcpy(base, name, baseLen);
-        base[baseLen] = '\0';
-    }
-
-    // Player book first, then pet — retail's precedence. For a plain name we
-    // keep the LAST matching slot: a spell's ranks are stored in ascending
-    // order, so the final match is the highest rank the player knows. For a
-    // rank subtext we return the exact name+rank match.
-    for (int bookType = 0; bookType <= 1; ++bookType) {
-        int found = 0;
-        ForEachBookSpell(bookType, [&](int, int spellID) {
-            const uint8_t *record = RecordForID(spellID);
-            const char *sname = Name(record);
-            if (sname == nullptr || std::strcmp(sname, base) != 0)
-                return true;
-            if (!haveRank) {
-                found = spellID; // highest rank (last match)
-                return true;
-            }
-            const char *srank = Rank(record);
-            if (srank == nullptr || std::strcmp(srank, wantRank) != 0)
-                return true;
-            found = spellID; // exact name + rank
-            return false;
-        });
-        if (found != 0)
-            return found;
     }
     return 0;
 }

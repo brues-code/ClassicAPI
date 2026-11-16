@@ -193,7 +193,7 @@ static int ResolveLuaArgsToSpellID(void *L, int *outPet = nullptr) {
     if (Game::Lua::Type(L, 1) == Game::Lua::TYPE_STRING) {
         const char *s = Game::Lua::ToString(L, 1);
         const int fromLink = SpellIDFromLink(s);
-        return fromLink > 0 ? fromLink : Spell::Lookup::SpellNameToID(s);
+        return fromLink > 0 ? fromLink : Spell::Arg::NameToSpellID(s);
     }
     if (!Game::Lua::IsNumber(L, 1)) {
         Game::Lua::Error(L, "Usage: GetSpellInfo(spellID | \"name\" | link) "
