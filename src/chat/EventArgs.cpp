@@ -220,18 +220,10 @@ void Apply() {
     if (g_applied)
         return;
     g_applied = true;
-    auto *site = reinterpret_cast<uint8_t *>(Offsets::PATCH_CHAT_EVENT_FIRE_CALL);
-    int32_t rel;
-    std::memcpy(&rel, site + 1, sizeof rel);
-    if (site[0] != 0xE8 ||
-        reinterpret_cast<uintptr_t>(site) + 5 + rel != Offsets::FUN_FIRE_EVENT) {
+    if (!Common::RedirectCall(Offsets::PATCH_CHAT_EVENT_FIRE_CALL, Offsets::FUN_FIRE_EVENT,
+                              reinterpret_cast<const void *>(&FireSite)))
         Debug::Log::Printf("Chat::EventArgs: chat event fire call is not the stock CALL; "
                            "CHAT_MSG_* events keep 10 arguments");
-        return;
-    }
-    rel = static_cast<int32_t>(reinterpret_cast<uintptr_t>(&FireSite) -
-                               (reinterpret_cast<uintptr_t>(site) + 5));
-    Common::PatchBytes(site + 1, &rel, sizeof rel);
 }
 
 void RegisterLuaFunctions() {

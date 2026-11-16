@@ -29,7 +29,6 @@
 #include "debug/Log.h"
 
 #include <cstdint>
-#include <cstring>
 
 namespace ChatBubble::RaidIcons {
 
@@ -55,18 +54,10 @@ void Apply() {
     if (g_applied)
         return;
     g_applied = true;
-    auto *site = reinterpret_cast<uint8_t *>(Offsets::PATCH_CHAT_BUBBLE_SET_TEXT_CALL);
-    int32_t rel;
-    std::memcpy(&rel, site + 1, sizeof rel);
-    if (site[0] != 0xE8 ||
-        reinterpret_cast<uintptr_t>(site) + 5 + rel != Offsets::FUN_FONTSTRING_SET_TEXT) {
+    if (!Common::RedirectCall(Offsets::PATCH_CHAT_BUBBLE_SET_TEXT_CALL, Offsets::FUN_FONTSTRING_SET_TEXT,
+                              reinterpret_cast<const void *>(&SetBubbleText)))
         Debug::Log::Printf("ChatBubble::RaidIcons: the bubble SetText call is not the stock "
                            "CALL; bubbles keep raid tags as text");
-        return;
-    }
-    rel = static_cast<int32_t>(reinterpret_cast<uintptr_t>(&SetBubbleText) -
-                               (reinterpret_cast<uintptr_t>(site) + 5));
-    Common::PatchBytes(site + 1, &rel, sizeof rel);
 }
 
 const Game::ModuleAutoRegister _autoreg{&Apply};
