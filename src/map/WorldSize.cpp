@@ -35,7 +35,6 @@
 
 #include "Game.h"
 #include "Offsets.h"
-#include "dbc/Lookup.h"
 #include "map/Area.h"
 
 #include <cstdint>
@@ -54,19 +53,12 @@ int __fastcall Script_GetMapWorldSize(void *L) {
     if (row <= 0)
         return 0; // no values -> nil, nil
 
-    const uint8_t *rec = DBC::Record(Offsets::VAR_WORLDMAP_AREA_RECORDS,
-                                     Offsets::VAR_WORLDMAP_AREA_COUNT,
-                                     static_cast<uint32_t>(row));
-    if (rec == nullptr)
+    Map::Area::Rect rect;
+    if (!Map::Area::RowRect(row, &rect, nullptr))
         return 0;
 
-    const float left = Game::Read<float>(rec, Offsets::OFF_WMA_LOC_LEFT);
-    const float right = Game::Read<float>(rec, Offsets::OFF_WMA_LOC_RIGHT);
-    const float top = Game::Read<float>(rec, Offsets::OFF_WMA_LOC_TOP);
-    const float bottom = Game::Read<float>(rec, Offsets::OFF_WMA_LOC_BOTTOM);
-
-    Game::Lua::PushNumber(L, static_cast<double>(left) - right);   // width  (world Y span)
-    Game::Lua::PushNumber(L, static_cast<double>(top) - bottom);   // height (world X span)
+    Game::Lua::PushNumber(L, rect.left - rect.right); // width  (world Y span)
+    Game::Lua::PushNumber(L, rect.top - rect.bottom); // height (world X span)
     return 2;
 }
 

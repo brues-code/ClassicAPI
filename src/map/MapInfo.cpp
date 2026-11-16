@@ -135,8 +135,7 @@ bool PushMapInfo(void *L, int uiMapID) {
                              /*resolveToParent=*/false);
         mapType = kMapTypeZone;
         int continentID = 0;
-        if (Map::Area::RowRect(row, nullptr, nullptr, nullptr, nullptr,
-                               &continentID)) {
+        if (Map::Area::RowRect(row, nullptr, &continentID)) {
             const int contRow = Map::Area::ContinentRowForMapID(continentID);
             if (contRow > 0)
                 parentMapID = -contRow;
@@ -150,7 +149,7 @@ bool PushMapInfo(void *L, int uiMapID) {
         // A continent or instance map: Map.dbc supplies the display name and
         // the type; continents hang off the world map.
         int mapID = 0;
-        Map::Area::RowRect(row, nullptr, nullptr, nullptr, nullptr, &mapID);
+        Map::Area::RowRect(row, nullptr, &mapID);
         name = MapName(mapID);
         if (name == nullptr)
             name = RowName(row); // custom map with no Map.dbc row
@@ -196,8 +195,7 @@ int __fastcall Script_GetMapChildrenInfo(void *L) {
     const bool wantContinents = (row > 0) && IsWorldRow(row);
     int parentMapDbcID = 0;
     const bool wantZones = (row > 0) && uiMapID < 0 && !wantContinents &&
-                           Map::Area::RowRect(row, nullptr, nullptr, nullptr,
-                                              nullptr, &parentMapDbcID);
+                           Map::Area::RowRect(row, nullptr, &parentMapDbcID);
 
     Game::Lua::SetTop(L, 0);
     Game::Lua::NewTable(L);
@@ -258,7 +256,7 @@ int __fastcall Script_GetMapInfoAtPosition(void *L) {
     double mapX = 0.0, mapY = 0.0;
     const bool have =
         row > 0 &&
-        Map::Area::RowRect(row, nullptr, nullptr, nullptr, nullptr, &mapID) &&
+        Map::Area::RowRect(row, nullptr, &mapID) &&
         Map::Area::WorldFromRow(row, px, py, &worldX, &worldY) &&
         Map::Area::ZonePercent(mapID, static_cast<float>(worldX),
                                static_cast<float>(worldY), &areaID, &mapX, &mapY);

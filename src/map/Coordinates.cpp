@@ -108,8 +108,7 @@ int __fastcall Script_GetWorldPosFromMapPos(void *L) {
     double worldX = 0.0, worldY = 0.0;
     int continentID = 0;
     const bool have = ok && ReadXY(L, 2, &mx, &my) && row > 0 &&
-                      Map::Area::RowRect(row, nullptr, nullptr, nullptr, nullptr,
-                                         &continentID) &&
+                      Map::Area::RowRect(row, nullptr, &continentID) &&
                       Map::Area::WorldFromRow(row, mx, my, &worldX, &worldY);
 
     Game::Lua::SetTop(L, 0);
@@ -181,11 +180,10 @@ int __fastcall Script_GetMapRectOnMap(void *L) {
     const int topID = Game::Lua::IsNumber(L, 2) ? static_cast<int>(Game::Lua::ToNumber(L, 2)) : 0;
 
     const int row = Map::Area::RowForUiMapID(areaID);
-    double left = 0.0, right = 0.0, top = 0.0, bottom = 0.0;
+    Map::Area::Rect rect;
     int continentID = 0;
     double aPx = 0.0, aPy = 0.0, bPx = 0.0, bPy = 0.0;
-    bool have = row > 0 && Map::Area::RowRect(row, &left, &right, &top, &bottom,
-                                              &continentID);
+    bool have = row > 0 && Map::Area::RowRect(row, &rect, &continentID);
     if (have) {
         // `topUiMapID` names the map to measure against; fall back to the
         // zone's own continent when it isn't a usable map.
@@ -195,10 +193,10 @@ int __fastcall Script_GetMapRectOnMap(void *L) {
         // Project the rect's two extreme world corners onto that map.
         // Corner A = (world X=top, Y=left); B = (bottom, right).
         have = topRow > 0 &&
-               Map::Area::PercentInRow(topRow, static_cast<float>(top),
-                                       static_cast<float>(left), &aPx, &aPy) &&
-               Map::Area::PercentInRow(topRow, static_cast<float>(bottom),
-                                       static_cast<float>(right), &bPx, &bPy);
+               Map::Area::PercentInRow(topRow, static_cast<float>(rect.top),
+                                       static_cast<float>(rect.left), &aPx, &aPy) &&
+               Map::Area::PercentInRow(topRow, static_cast<float>(rect.bottom),
+                                       static_cast<float>(rect.right), &bPx, &bPy);
     }
 
     Game::Lua::SetTop(L, 0);

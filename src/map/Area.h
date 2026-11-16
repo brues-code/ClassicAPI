@@ -126,11 +126,26 @@ int UiMapIDForRow(int row);
 // makes, so the stray zero-rect "World" row never wins). -1 when none.
 int ContinentRowForMapID(int mapID);
 
-// Reads WorldMapArea row `row`'s placement rect and its `Map.dbc` map id.
-// Every out-parameter is optional (pass null to skip it). False when the row
-// is unreadable.
-bool RowRect(int row, double *outLeft, double *outRight, double *outTop,
-             double *outBottom, int *outMapID);
+// A WorldMapArea row's world rect. The map's horizontal runs along world Y
+// (left edge at the larger Y), its vertical along world X (top edge at the
+// larger X) -- the WoW/pfQuest convention.
+struct Rect {
+    double left = 0.0, right = 0.0, top = 0.0, bottom = 0.0;
+    // A real rect: the world map's own row and stray continent rows are zero.
+    bool Valid() const { return left - right > 0.0 && top - bottom > 0.0; }
+    bool Contains(double x, double y) const {
+        return x >= bottom && x <= top && y >= right && y <= left;
+    }
+    // World (x, y) to 0..1 on the rect (no containment gate), and back.
+    double Px(double y) const { return (left - y) / (left - right); }
+    double Py(double x) const { return (top - x) / (top - bottom); }
+    double WorldY(double px) const { return left - px * (left - right); }
+    double WorldX(double py) const { return top - py * (top - bottom); }
+};
+
+// Reads WorldMapArea row `row`'s rect and its `Map.dbc` map id. Either
+// out-parameter may be null. False when the row is unreadable.
+bool RowRect(int row, Rect *outRect, int *outMapID);
 
 // Projects world (x, y) into row `row`'s rect as 0..1 (`outPx` horizontal off
 // world Y, `outPy` vertical off world X). Unlike `PercentInZone` there is NO

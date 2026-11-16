@@ -50,8 +50,13 @@ int CurrentViewRow() {
 }
 
 namespace {
-double FloatField(const uint8_t *rec, int off) {
-    return *reinterpret_cast<const float *>(rec + off);
+Rect ReadRect(const uint8_t *rec) {
+    Rect r;
+    r.left = Game::Read<float>(rec, Offsets::OFF_WMA_LOC_LEFT);
+    r.right = Game::Read<float>(rec, Offsets::OFF_WMA_LOC_RIGHT);
+    r.top = Game::Read<float>(rec, Offsets::OFF_WMA_LOC_TOP);
+    r.bottom = Game::Read<float>(rec, Offsets::OFF_WMA_LOC_BOTTOM);
+    return r;
 }
 
 // Zone world-map canvas size (WorldMapDetailFrame); WorldMapOverlay hit
@@ -133,23 +138,17 @@ bool ZonePercent(int mapID, float x, float y, int *outAreaID, double *outMapX,
         if (areaID == 0)
             continue; // continent-spanning row, not a zone
 
-        const double left = FloatField(rec, Offsets::OFF_WMA_LOC_LEFT);
-        const double right = FloatField(rec, Offsets::OFF_WMA_LOC_RIGHT);
-        const double top = FloatField(rec, Offsets::OFF_WMA_LOC_TOP);
-        const double bottom = FloatField(rec, Offsets::OFF_WMA_LOC_BOTTOM);
-        const double spanX = top - bottom; // > 0
-        const double spanY = left - right; // > 0
-        if (spanX <= 0.0 || spanY <= 0.0)
+        const Rect r = ReadRect(rec);
+        if (!r.Valid())
             continue; // degenerate / unmapped zone
-
-        if (x < bottom || x > top || y < right || y > left)
+        if (!r.Contains(x, y))
             continue; // point outside this zone's rect
 
         // mapX = horizontal (world Y), mapY = vertical (world X).
-        const double mapX = (left - y) / spanY * 100.0;
-        const double mapY = (top - x) / spanX * 100.0;
-        const double marginX = (x - bottom < top - x ? x - bottom : top - x) / spanX;
-        const double marginY = (y - right < left - y ? y - right : left - y) / spanY;
+        const double mapX = r.Px(y) * 100.0;
+        const double mapY = r.Py(x) * 100.0;
+        const double marginX = (x - r.bottom < r.top - x ? x - r.bottom : r.top - x) / (r.top - r.bottom);
+        const double marginY = (y - r.right < r.left - y ? y - r.right : r.left - y) / (r.left - r.right);
         const double margin = marginX < marginY ? marginX : marginY;
 
         if (!haveBox || margin > boxMargin) {
@@ -194,18 +193,13 @@ bool PercentInZone(int areaID, float x, float y, double *outMapX, double *outMap
             continue;
         if (Game::Read<int>(rec, Offsets::OFF_WMA_AREA_ID) != areaID)
             continue;
-        const double left = FloatField(rec, Offsets::OFF_WMA_LOC_LEFT);
-        const double right = FloatField(rec, Offsets::OFF_WMA_LOC_RIGHT);
-        const double top = FloatField(rec, Offsets::OFF_WMA_LOC_TOP);
-        const double bottom = FloatField(rec, Offsets::OFF_WMA_LOC_BOTTOM);
-        const double spanX = top - bottom;
-        const double spanY = left - right;
-        if (spanX <= 0.0 || spanY <= 0.0)
+        const Rect r = ReadRect(rec);
+        if (!r.Valid())
             continue; // degenerate row — keep scanning for a usable one
-        if (x < bottom || x > top || y < right || y > left)
+        if (!r.Contains(x, y))
             return false; // point outside this zone's rect — not in this zone
-        *outMapX = (left - y) / spanY * 100.0; // horizontal (world Y)
-        *outMapY = (top - x) / spanX * 100.0;  // vertical (world X)
+        *outMapX = r.Px(y) * 100.0; // horizontal (world Y)
+        *outMapY = r.Py(x) * 100.0; // vertical (world X)
         return true;
     }
     return false;
@@ -248,19 +242,14 @@ int ContinentRowForMapID(int mapID) {
             continue;
         if (Game::Read<int>(rec, Offsets::OFF_WMA_AREA_ID) != 0)
             continue; // a zone row, not the continent-spanning one
-        const double left = FloatField(rec, Offsets::OFF_WMA_LOC_LEFT);
-        const double right = FloatField(rec, Offsets::OFF_WMA_LOC_RIGHT);
-        const double top = FloatField(rec, Offsets::OFF_WMA_LOC_TOP);
-        const double bottom = FloatField(rec, Offsets::OFF_WMA_LOC_BOTTOM);
-        if (left - right <= 0.0 || top - bottom <= 0.0)
+        if (!ReadRect(rec).Valid())
             continue; // stray zero-rect continent row (the "World" row)
         return id;
     }
     return -1;
 }
 
-bool RowRect(int row, double *outLeft, double *outRight, double *outTop,
-             double *outBottom, int *outMapID) {
+bool RowRect(int row, Rect *outRect, int *outMapID) {
     if (row <= 0)
         return false;
     const uint8_t *rec = DBC::Record(Offsets::VAR_WORLDMAP_AREA_RECORDS,
@@ -268,72 +257,34 @@ bool RowRect(int row, double *outLeft, double *outRight, double *outTop,
                                      static_cast<uint32_t>(row));
     if (rec == nullptr)
         return false;
-    if (outLeft != nullptr)
-        *outLeft = FloatField(rec, Offsets::OFF_WMA_LOC_LEFT);
-    if (outRight != nullptr)
-        *outRight = FloatField(rec, Offsets::OFF_WMA_LOC_RIGHT);
-    if (outTop != nullptr)
-        *outTop = FloatField(rec, Offsets::OFF_WMA_LOC_TOP);
-    if (outBottom != nullptr)
-        *outBottom = FloatField(rec, Offsets::OFF_WMA_LOC_BOTTOM);
+    if (outRect != nullptr)
+        *outRect = ReadRect(rec);
     if (outMapID != nullptr)
         *outMapID = Game::Read<int>(rec, Offsets::OFF_WMA_MAP_ID);
     return true;
 }
 
 bool PercentInRow(int row, float x, float y, double *outPx, double *outPy) {
-    double left, right, top, bottom;
-    if (!RowRect(row, &left, &right, &top, &bottom, nullptr))
+    Rect r;
+    if (!RowRect(row, &r, nullptr) || !r.Valid())
         return false;
-    const double spanY = left - right; // horizontal (world Y)
-    const double spanX = top - bottom; // vertical (world X)
-    if (spanX <= 0.0 || spanY <= 0.0)
-        return false;
-    *outPx = (left - y) / spanY;
-    *outPy = (top - x) / spanX;
+    *outPx = r.Px(y);
+    *outPy = r.Py(x);
     return true;
 }
 
 bool WorldFromRow(int row, double px, double py, double *outX, double *outY) {
-    double left, right, top, bottom;
-    if (!RowRect(row, &left, &right, &top, &bottom, nullptr))
+    Rect r;
+    if (!RowRect(row, &r, nullptr) || !r.Valid())
         return false;
-    const double spanY = left - right;
-    const double spanX = top - bottom;
-    if (spanX <= 0.0 || spanY <= 0.0)
-        return false;
-    *outY = left - px * spanY;
-    *outX = top - py * spanX;
+    *outY = r.WorldY(px);
+    *outX = r.WorldX(py);
     return true;
 }
 
 bool ContinentPercent(int mapID, float x, float y, double *outPx, double *outPy) {
-    const int count = Game::Read<int>(Offsets::VAR_WORLDMAP_AREA_COUNT);
-    for (int id = 1; id <= count; ++id) {
-        const uint8_t *rec = DBC::Record(Offsets::VAR_WORLDMAP_AREA_RECORDS,
-                                         Offsets::VAR_WORLDMAP_AREA_COUNT,
-                                         static_cast<uint32_t>(id));
-        if (rec == nullptr)
-            continue;
-        if (Game::Read<int>(rec, Offsets::OFF_WMA_MAP_ID) != mapID)
-            continue;
-        if (Game::Read<int>(rec, Offsets::OFF_WMA_AREA_ID) != 0)
-            continue; // want the continent-spanning row
-
-        const double left = FloatField(rec, Offsets::OFF_WMA_LOC_LEFT);
-        const double right = FloatField(rec, Offsets::OFF_WMA_LOC_RIGHT);
-        const double top = FloatField(rec, Offsets::OFF_WMA_LOC_TOP);
-        const double bottom = FloatField(rec, Offsets::OFF_WMA_LOC_BOTTOM);
-        const double spanX = top - bottom;
-        const double spanY = left - right;
-        if (spanX <= 0.0 || spanY <= 0.0)
-            continue; // stray zero-rect continent row (e.g. "World") — skip
-
-        *outPx = (left - y) / spanY; // horizontal (world Y)
-        *outPy = (top - x) / spanX;  // vertical (world X)
-        return true;
-    }
-    return false;
+    const int row = ContinentRowForMapID(mapID);
+    return row > 0 && PercentInRow(row, x, y, outPx, outPy);
 }
 
 } // namespace Map::Area

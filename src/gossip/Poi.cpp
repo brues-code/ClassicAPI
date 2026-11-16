@@ -89,7 +89,7 @@ bool ProjectOnMap(int uiMapID, double *outPx, double *outPy) {
     const int row = Map::Area::RowForUiMapID(uiMapID);
     int rowMapID = 0;
     return row > 0 &&
-           Map::Area::RowRect(row, nullptr, nullptr, nullptr, nullptr, &rowMapID) &&
+           Map::Area::RowRect(row, nullptr, &rowMapID) &&
            rowMapID == BlipField<int32_t>(Offsets::OFF_STATIC_BLIP_MAP) &&
            Map::Area::PercentInRow(row, x, y, outPx, outPy) &&
            *outPx >= 0.0 && *outPx <= 1.0 && *outPy >= 0.0 && *outPy <= 1.0;

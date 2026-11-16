@@ -69,10 +69,8 @@ void FireUpdated() { Event::Custom::Fire(_evtUpdated.Slot(), ""); }
 // row carries an all-zero rect, so it correctly reports false.
 bool MapSupportsWaypoint(int uiMapID) {
     const int row = Map::Area::RowForUiMapID(uiMapID);
-    double left, right, top, bottom;
-    if (row <= 0 || !Map::Area::RowRect(row, &left, &right, &top, &bottom, nullptr))
-        return false;
-    return (left - right) > 0.0 && (top - bottom) > 0.0;
+    Map::Area::Rect rect;
+    return row > 0 && Map::Area::RowRect(row, &rect, nullptr) && rect.Valid();
 }
 
 // Pushes a UiMapPoint table: { uiMapID, position (vector2), z? }.
