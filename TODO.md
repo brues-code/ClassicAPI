@@ -4275,11 +4275,21 @@ path a unit is on when it comes into view (its next move is logged).
 **Replay plan (scoped 2026-11-16).** In game, on ModelScene, as an
 embedded load-on-demand addon. Layers:
 - L0 record the look (above).
-- L1 a reader in the DLL: index encounters in `WoWCombatLog-*` files
-  (ENCOUNTER_START/END offsets), load one encounter from both files into
-  per-unit tracks (positions, splines, HP, auras as intervals, events),
-  and a `C_*` extension API for Lua. Lua cannot read files, and a night's
-  log is 115-164 MB.
+- L1 a reader in the DLL. BUILT (2026-11-16): `src/replay/` (Line,
+  Catalog, Load, Recording, Api) and `C_CombatLogReplay` (GetLogs,
+  GetEncounters, LoadReplay for any time range, GetReplayInfo, GetUnits,
+  GetUnitPosition, GetUnitLook, two events). Reads run on a worker thread.
+  Movement file v4 adds the status clock to UNIT_MOVE and the unit's five
+  speeds to UNIT_INFO. Player timing: stamps AND clocks are bunched (only
+  ever late); positions are exact, so each moving stretch is timed by
+  distance over the speed `CMovement::GetCurrentSpeed` (0x007C4C90) picks
+  (ground distance: 6.99-7.01 yd/s at run 7), or by fallTime in the air,
+  and anchored by its soonest move; a long stretch corrects a stale client
+  speed from its clocks. Checked offline on a 2-minute Stormwind log: step
+  durations / clock steps median 0.998 (p5 0.93, p95 1.04). Not yet: HP,
+  auras and events (L4 needs them); spline facing type 3 uses the target's
+  place only at the path's end. All of the API checked in game
+  (2026-11-16).
 - L2 viewer v1: map, actors at interpolated positions, run/stand,
   play/pause/scrub/speed, orbit camera. Players as bare race models.
 - L3 player models built from PLAYER_INFO (needs a DLL extension: build a

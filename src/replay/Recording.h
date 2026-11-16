@@ -1,0 +1,119 @@
+// This file is part of ClassicAPI.
+//
+// ClassicAPI is free software: you can redistribute it and/or modify it under the terms
+// of the GNU General Public License as published by the Free Software Foundation, either
+// version 3 of the License, or (at your option) any later version.
+//
+// ClassicAPI is distributed in the hope that it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
+// PURPOSE. See the GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License along with
+// ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
+
+#pragma once
+
+// A stretch of a combat log, loaded for replay: each unit in it, where it was
+// and what it looked like at any time. Times are milliseconds from the
+// stretch's start (negative before it). The units come from the movement file
+// (combatlog/Movement.cpp documents its lines) and the combat log's names.
+
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
+
+namespace Replay {
+
+// UNIT_INFO's look.
+struct Look {
+    uint32_t display = 0;
+    uint32_t nativeDisplay = 0;
+    uint32_t mountDisplay = 0;
+    float scale = 1.0f;
+    uint32_t bytes1 = 0; // UNIT_FIELD_BYTES_1: stand state, form, stealth
+    uint32_t bytes2 = 0; // UNIT_FIELD_BYTES_2: sheath state
+};
+
+// The speeds the client moves a unit at (UNIT_INFO, then UNIT_SPEED).
+struct Speeds {
+    float walk = 0, run = 0, runBack = 0, swim = 0, swimBack = 0;
+};
+
+// A MONSTER_MOVE path: the unit walks its points at one speed over the
+// duration, the way the client moves it.
+struct Spline {
+    int32_t durationMs = 0;
+    int faceType = 0; // the server's: 2 a point, 3 a unit, 4 an angle
+    float facePoint[3] = {};
+    float faceAngle = 0.0f;
+    int32_t faceUnit = -1; // index of the unit faced, for type 3
+    std::vector<float> points; // x, y, z of each point, the start first
+    std::vector<float> lengths; // the distance along the path to each point
+};
+
+enum class KeyKind : uint8_t {
+    Sample, // a player's move: the unit goes on to a next Sample in a line
+    Snap,   // a place the unit is put at (into view, a teleport, a stop)
+    Spline, // the start of a path (Unit::splines)
+};
+
+struct Key {
+    int32_t t = 0;
+    KeyKind kind = KeyKind::Sample;
+    float x = 0, y = 0, z = 0, facing = 0;
+    int32_t spline = -1;
+    // A UNIT_MOVE's status: its clock, movement flags and fall time. The
+    // loader times the unit's moves from them.
+    bool clocked = false;
+    uint32_t clock = 0;
+    uint32_t flags = 0;
+    uint32_t fallTime = 0;
+};
+
+// While the unit was in view: from `from` until before `to`.
+struct Span {
+    int32_t from = 0;
+    int32_t to = INT32_MAX;
+};
+
+struct Unit {
+    std::string guid; // as the logs write it
+    std::string name; // from the combat log, empty when it is not in it
+    bool player = false;
+    uint32_t creatureID = 0;
+    std::vector<Key> keys;
+    std::vector<Spline> splines;
+    std::vector<Span> spans; // empty when the movement file has no UNIT_INFO for it
+    std::vector<std::pair<int32_t, Look>> looks;
+    std::vector<std::pair<int32_t, Speeds>> speeds;
+};
+
+struct Recording {
+    std::string log;
+    int64_t logStartMs = 0; // the log's first stamp
+    int64_t startMs = 0; // the stretch, as stamps
+    int64_t endMs = 0;
+    int map = -1;
+    bool movement = false; // a movement file was read
+    std::vector<Unit> units;
+};
+
+// Where a unit is, which way it faces, and how fast it moves, in yards a
+// second.
+struct Place {
+    float x, y, z, facing, speed;
+};
+
+// The unit's place at `t`. False while it is not in view, or not yet placed.
+bool PlaceAt(const Recording &recording, const Unit &unit, int32_t t, Place &place);
+
+// The unit's look at `t`, null before its first.
+const Look *LookAt(const Unit &unit, int32_t t);
+
+// Loads the stretch [startMs, endMs] (stamps) of a log (a Catalog name). Null
+// when the combat log cannot be read. Worker thread safe.
+std::unique_ptr<Recording> Load(const std::string &log, int64_t startMs, int64_t endMs);
+
+} // namespace Replay

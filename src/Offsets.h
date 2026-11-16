@@ -11890,6 +11890,9 @@ enum Offsets {
     // 0x10 / 0x20 are TURN_LEFT / TURN_RIGHT — turn-in-place, not
     // translational movement. Excluded from "moving" semantics
     // because modern `PLAYER_STARTED_MOVING` doesn't fire for them.
+    // Walk mode: CMovement::GetCurrentSpeed (0x007C4C90) moves the unit at the
+    // lower of its walk and run speeds while it is set.
+    MOVEFLAG_WALK_MODE = 0x100,
     MOVEFLAG_JUMPING = 0x1000,
     MOVEFLAG_FALLING = 0x2000,
     MOVEFLAG_FALLING_FAR = 0x4000,
