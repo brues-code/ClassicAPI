@@ -110,6 +110,11 @@ void *ResolveUnitToken(const char *token);
 float PixelToInternal(float px);
 double InternalToPixel(float internal);
 
+// Drops one reference on an engine handle (FUN_HANDLE_RELEASE,
+// `__fastcall(handle)`): textures, text blocks, cameras and the rest of the
+// ref-counted HANDLE objects. Null is a no-op.
+void ReleaseHandle(void *handle);
+
 using FrameScript_Initialize_t = bool(__fastcall *)();
 using LoadScriptFunctions_t = void(__fastcall *)();
 

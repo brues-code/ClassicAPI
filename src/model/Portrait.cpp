@@ -302,7 +302,7 @@ void ClearOnLogout() {
         ReleaseModel(*p);
     g_loading.clear();
     for (auto &entry : g_portraits)
-        Texture::ReleaseHandle(entry.second->texture);
+        Game::ReleaseHandle(entry.second->texture);
     g_portraits.clear();
 }
 

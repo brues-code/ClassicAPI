@@ -38,9 +38,6 @@ uint32_t SetFile(void *texture, const char *path);
 // drops it with ReleaseHandle.
 void *LoadByPath(const char *path, uint32_t flags = DefaultFlags());
 
-// Drops one reference on a handle (FUN_HANDLE_RELEASE). Null is a no-op.
-void ReleaseHandle(void *handle);
-
 // The handle's device texture (FUN_TEXTURE_GET_RENDERABLE), what a render
 // state binds. The texture is finished loading first, so null means it has
 // none.

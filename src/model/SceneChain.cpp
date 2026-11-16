@@ -275,7 +275,7 @@ void Destroy(void *frame) {
     reinterpret_cast<void(__thiscall *)(void *)>(Offsets::FUN_LIGHTNING_DESTROY)(state.renderer);
     for (const auto &[id, texture] : state.textures)
         if (texture != nullptr)
-            ::Texture::ReleaseHandle(texture);
+            ::Game::ReleaseHandle(texture);
     g_states.erase(it);
 }
 

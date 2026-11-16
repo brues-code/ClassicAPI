@@ -107,14 +107,14 @@ std::unordered_set<void *> g_maskRegions;
 
 
 using Texture::LoadByPath;
-using Texture::ReleaseHandle;
+using Game::ReleaseHandle;
 
 // Drops a region's path mask and its handle reference.
 void ClearPathMask(void *region) {
     auto it = g_regionMask.find(region);
     if (it == g_regionMask.end())
         return;
-    ReleaseHandle(it->second.handle);
+    Game::ReleaseHandle(it->second.handle);
     g_regionMask.erase(it);
 }
 
@@ -629,7 +629,7 @@ void PrepareForReload() {
     // /reload frees every region; forget the mask maps so a recycled address
     // can't be mistaken for a still-masked region before its ctor re-clears it.
     for (auto &entry : g_regionMask)
-        ReleaseHandle(entry.second.handle);
+        Game::ReleaseHandle(entry.second.handle);
     g_regionMask.clear();
     g_baseMasks.clear();
     g_maskRegions.clear();

@@ -45,6 +45,14 @@ struct AutoRegister {
 
 void ForEach(void *frame, Visit visit, void *ctx);
 
+// Releases the handler ref in `slot` when one is set (FrameScriptReleaseScript,
+// FUN_SCRIPT_RELEASE, `__stdcall(slot)`), as a frame's destructor does. The
+// slot keeps its value; a caller that reuses it writes the new one.
+inline void Release(uint32_t *slot) {
+    using Fn = void(__stdcall *)(uint32_t *slot);
+    reinterpret_cast<Fn>(Offsets::FUN_SCRIPT_RELEASE)(slot);
+}
+
 // Fires the handler in `slot` (a {handler ref, exec context} pair, or null)
 // the way the engine fires its input scripts: through its variadic front
 // FUN_FRAME_RUN_SCRIPT_VARIADIC (`__cdecl(frame, slot, fmt, ...)`), so the

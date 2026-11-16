@@ -327,7 +327,7 @@ void CloseTextures(Tile &t) {
     for (uint32_t i = 0; i < count; ++i) {
         void *&handle = Game::Ref<void *>(area, Offsets::OFF_CMAPAREA_TEXTURES + i * 4);
         if (handle != nullptr) {
-            reinterpret_cast<void(__fastcall *)(void *)>(Offsets::FUN_HANDLE_RELEASE)(handle);
+            Game::ReleaseHandle(handle);
             handle = nullptr;
         }
     }

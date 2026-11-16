@@ -106,7 +106,7 @@ uint32_t Load(void *texture, const char *name, bool repeatH, bool repeatV, uint3
     if (!sameFile)
         Game::Ref<void *>(texture, Offsets::OFF_SIMPLETEXTURE_SHADER) =
             reinterpret_cast<GetUiPixelShader_t>(Offsets::FUN_UI_GET_PIXEL_SHADER)(shader);
-    Texture::ReleaseHandle(held);
+    Game::ReleaseHandle(held);
     Game::Ref<void *>(texture, Offsets::OFF_SIMPLETEXTURE_HTEXTURE) = image;
     Frame::LayerChange::NotifyRegion(texture);
     return 1;

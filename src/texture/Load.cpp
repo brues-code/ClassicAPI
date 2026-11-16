@@ -22,7 +22,6 @@ namespace Texture {
 
 namespace {
 
-using HandleRelease_t = void(__fastcall *)(void *handle);
 using SysMsgAdd_t = int(__fastcall *)(void *status, uint32_t level);
 using StatusDestroy_t = void(__thiscall *)(void *status);
 using TexFlagsInit_t = void *(__thiscall *)(void *self, uint32_t blend, int, int, int, int, int,
@@ -73,11 +72,6 @@ uint32_t SetFile(void *texture, const char *path) {
         texture, path, 0, Game::Read<uint32_t>(Offsets::VAR_TEXTURE_BLEND_DEFAULT), 0);
 }
 
-void ReleaseHandle(void *handle) {
-    if (handle != nullptr)
-        reinterpret_cast<HandleRelease_t>(Offsets::FUN_HANDLE_RELEASE)(handle);
-}
-
 void *DeviceTexture(void *handle) {
     using Fn = void *(__fastcall *)(void *handle, int load, void *callback);
     return reinterpret_cast<Fn>(Offsets::FUN_TEXTURE_GET_RENDERABLE)(handle, 1, nullptr);
@@ -96,7 +90,7 @@ void *LoadByPath(const char *path, uint32_t flags) {
     void *handle = reinterpret_cast<void *>(reinterpret_cast<TextureLoad_t>(
         Offsets::FUN_TEXTURE_LOAD_BY_PATH)(path, &desc, flags, 0, 1));
     if (desc.field10 >= 2) {
-        ReleaseHandle(handle);
+        Game::ReleaseHandle(handle);
         handle = nullptr;
         reinterpret_cast<SysMsgAdd_t>(Offsets::FUN_SYSMSG_ADD_STATUS)(&desc, 4);
     }

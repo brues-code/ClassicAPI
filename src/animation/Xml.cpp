@@ -30,6 +30,7 @@
 #include "Offsets.h"
 #include "baselib/Ascii.h"
 #include "frame/Layout.h"
+#include "frame/ScriptSlots.h"
 #include "xml/FrameLoad.h"
 #include "xml/KeyValues.h"
 #include "xml/Mixin.h"
@@ -124,7 +125,7 @@ void LoadScripts(Object *object, const void *node) {
                 Game::Lua::SetTop(L, -2);
                 continue;
             }
-            reinterpret_cast<void(__stdcall *)(uint32_t *)>(Offsets::FUN_SCRIPT_RELEASE)(slot);
+            Frame::ScriptSlots::Release(slot);
             slot[0] = static_cast<uint32_t>(Game::Lua::Ref(L, Game::Lua::REGISTRY_INDEX));
             slot[1] = 0;
             continue;

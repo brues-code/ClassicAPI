@@ -17,6 +17,7 @@
 #include "Offsets.h"
 #include "baselib/Ascii.h"
 #include "frame/ScriptArgs.h"
+#include "frame/ScriptSlots.h"
 
 #include <cstring>
 
@@ -29,7 +30,6 @@ using Destruct_t = void(__fastcall *)(void *object);
 using Lock_t = void(__fastcall *)(void *object, void *edx, const char *name);
 using Unlock_t = void(__fastcall *)(void *object, void *edx, const char *name);
 using BaseResolve_t = uint32_t *(__fastcall *)(void *object, void *edx, const char *name);
-using Release_t = void(__stdcall *)(uint32_t *slot);
 using GetName_t = const char *(__fastcall *)(const void *object);
 
 // 4.3.4's CScriptObject type name, which every class's IsA(name) accepts.
@@ -117,7 +117,7 @@ Object::~Object() {
     if (s_detached)
         return;
     for (auto &slot : scripts)
-        reinterpret_cast<Release_t>(Offsets::FUN_SCRIPT_RELEASE)(slot);
+        Frame::ScriptSlots::Release(slot);
     while (holders > 1)
         reinterpret_cast<Unlock_t>(Offsets::FUN_SCRIPT_OBJECT_UNLOCK)(this, nullptr, nullptr);
     if (holders > 0)
@@ -296,7 +296,7 @@ int __fastcall Script_SetScript(void *L) {
         Game::Lua::Error(L, "%s doesn't have a \"%s\" script", object->DisplayName(), Game::Lua::ToString(L, 2));
         return 0;
     }
-    reinterpret_cast<Release_t>(Offsets::FUN_SCRIPT_RELEASE)(slot);
+    Frame::ScriptSlots::Release(slot);
     Game::Lua::SetTop(L, 3);
     const int ref = Game::Lua::Ref(L, Game::Lua::REGISTRY_INDEX);
     slot[0] = ref > 0 ? static_cast<uint32_t>(ref) : 0;

@@ -235,12 +235,11 @@ void SetOrientation(Fields &f, float yaw, float pitch, float roll) {
 void InstallCamera(void *frame) {
     using CameraCreate_t = void *(__cdecl *)();
     using Install_t = void(__thiscall *)(void *frame, void *camera);
-    using Release_t = void(__fastcall *)(void *handle);
     void *camera = reinterpret_cast<CameraCreate_t>(Offsets::FUN_CAMERA_CREATE)();
     if (camera == nullptr)
         return;
     reinterpret_cast<Install_t>(Offsets::FUN_SIMPLEMODEL_INSTALL_CAMERA)(frame, camera);
-    reinterpret_cast<Release_t>(Offsets::FUN_HANDLE_RELEASE)(camera);
+    Game::ReleaseHandle(camera);
     ApplyCamera(frame);
 }
 

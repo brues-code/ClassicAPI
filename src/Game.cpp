@@ -34,6 +34,12 @@ float PixelToInternal(float px) {
     return px * mul / (div * Read<float>(Offsets::FLOAT_SCRIPT_COORD_SCALE));
 }
 
+void ReleaseHandle(void *handle) {
+    using Fn = void(__fastcall *)(void *handle);
+    if (handle != nullptr)
+        reinterpret_cast<Fn>(Offsets::FUN_HANDLE_RELEASE)(handle);
+}
+
 double InternalToPixel(float internal) {
     using GetScaledScreenAspect_t = float(__cdecl *)();
     // Declared double so the quotient is read from ST0, as the engine's

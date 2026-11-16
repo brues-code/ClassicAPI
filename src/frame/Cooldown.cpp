@@ -232,7 +232,7 @@ uint32_t ColorByte(double c) {
 void Destroy(void *frame) {
     Fields &f = F(frame);
     for (Slot &s : f.slots) {
-        Texture::ReleaseHandle(s.texture);
+        Game::ReleaseHandle(s.texture);
         s.texture = nullptr;
     }
     Text::NumericFormatter::Release(f.countdownFormatter);
@@ -475,7 +475,7 @@ void UpdateColors(void *frame) {
 void SetSlotTexture(void *frame, TextureSlot slot, const char *file, const uint32_t *base) {
     Fields &f = F(frame);
     Slot &s = f.slots[slot];
-    Texture::ReleaseHandle(s.texture);
+    Game::ReleaseHandle(s.texture);
     s.texture = LoadSlotTexture(file);
     if (base != nullptr)
         s.base = *base;

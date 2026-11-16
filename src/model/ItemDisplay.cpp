@@ -173,7 +173,7 @@ void *CreateItemModel(void *pane, const ItemRecord &rec) {
         }
         reinterpret_cast<ReplaceTexture_t>(Offsets::FUN_M2MODEL_REPLACE_TEXTURE)(
             model, kItemSkinTexture, handle);
-        Texture::ReleaseHandle(handle);
+        Game::ReleaseHandle(handle);
     }
 
     const uint32_t own = OwnVisual(display);

@@ -61,7 +61,6 @@ namespace Frame::Defaults {
 namespace {
 
 using GetScriptMethod_t = int(__fastcall *)(void *self, void *edx, void *L, const char *name);
-using Release_t = void(__stdcall *)(uint32_t *slot);
 using SetText_t = void(__thiscall *)(void *fs, const char *text, int expand);
 using LinkFont_t = void(__thiscall *)(void *holder, void *fontObject);
 using SetFont_t = uint32_t(__thiscall *)(void *fs, const char *path, float height, uint32_t flags, uint8_t force);
@@ -107,7 +106,7 @@ void Method(void *L, void *obj, const char *name, std::initializer_list<Arg> arg
 
 void ReleaseSlot(const uint32_t *slot, void * /*ctx*/) {
     auto *s = const_cast<uint32_t *>(slot);
-    reinterpret_cast<Release_t>(Offsets::FUN_SCRIPT_RELEASE)(s);
+    Frame::ScriptSlots::Release(s);
     s[0] = 0;
 }
 
