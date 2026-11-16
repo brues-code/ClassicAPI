@@ -255,6 +255,19 @@ local function RegisterTextToSpeech()
 end
 
 -- ---------------------------------------------------------------------------
+-- Network
+-- ---------------------------------------------------------------------------
+
+-- Retail's own page (Blizzard_SettingsDefinitions_Shared\Network.lua), with the
+-- one control 1.12 can back.
+local function RegisterNetwork()
+	local category = Settings.RegisterVerticalLayoutCategory(NETWORK_LABEL);
+	Settings.RegisterCategory(category);
+
+	AddCVarCheckbox(category, "advancedCombatLogging", ADVANCED_COMBAT_LOGGING, OPTION_TOOLTIP_ADVANCED_COMBAT_LOGGING);
+end
+
+-- ---------------------------------------------------------------------------
 -- Advanced
 -- ---------------------------------------------------------------------------
 
@@ -285,5 +298,6 @@ SettingsRegistrar:AddRegistrant(function()
 	RegisterInterface();
 	RegisterSocial();
 	RegisterTextToSpeech();
+	RegisterNetwork();
 	RegisterAdvanced();
 end);

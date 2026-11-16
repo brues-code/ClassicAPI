@@ -17,8 +17,7 @@
 // The oracle is a real Era 1.15.7 raid log (40 players, BWL + MC + Onyxia):
 // every line shape below was taken from it, subevent by subevent, not from a
 // format description. Era writes advanced logging on; with it off, retail
-// writes the same lines without the advanced block, which is what this file
-// writes until that block exists.
+// writes the same lines without the advanced block.
 //
 // The pieces:
 //   - the switch is LoggingCombat's own flag, so /combatlog and
@@ -48,6 +47,37 @@
 //     amount itself. Era's value is the server's pre-mitigation amount;
 //   - overEnergize: 0.
 //
+// Advanced logging (the advancedCombatLogging cvar, retail's name, help,
+// category and default) adds Era's advanced block after the spell prefix:
+//   infoGUID, ownerGUID, currentHP, maxHP, attackPower, spellPower, armor,
+//   absorb, 0, powerType, currentPower, maxPower, powerCost, positionX,
+//   positionY, uiMapID, facing, level
+// on the subevents Era gives it, and a SWING_DAMAGE_LANDED line after each
+// SWING_DAMAGE. The unit it describes is the source for SPELL_CAST_SUCCESS and
+// SWING_DAMAGE and the dest for every other one, SWING_DAMAGE_LANDED
+// included: in the Era log every line with distinct source and dest follows
+// that rule, and a unit the client cannot resolve gets a block of zeros, as
+// Era writes for one it cannot. Field by field:
+//   - ownerGUID: the unit's charmer, creator or summoner (Era sets it on pets,
+//     guardians and totems);
+//   - HP: a player's as a percent of 100, by the server's own rule for a
+//     player outside the group (floor(health * 100 / max), at least 1 while
+//     alive); a creature's raw. Era writes both that way;
+//   - attack power, spell power, armor, absorb: 0, as Era writes them;
+//   - power: a player's power type, current and max in stored units (rage in
+//     tenths), as MoP Classic 5.5.4's log writes them. Era leaves them empty
+//     (-1,0,0,0) and writes that for every other unit, as MoP does. powerCost
+//     stays 0: no 1.12 source for it is verified;
+//   - position: the world x and y with two decimals; uiMapID 0, as Era writes
+//     it; facing in radians with four decimals;
+//   - level: a creature's level; for a player, the average item level Era
+//     writes there: 16 equipment slots (all but shirt, tabard and ranged),
+//     with an empty off hand counting the main hand again, rounded down. This
+//     matched 682 of the 756 COMBATANT_INFO gear lists in the Era log against
+//     the same player's next advanced line (4.3.4's GetAverageItemLevel rule,
+//     with the ranged slot, matched 351). While an item's record is missing
+//     the level is 0 and the record is requested.
+//
 // The flag is read once a frame (FrameTick, which also runs on the glue
 // screen, so a logout's cleared flag is seen there) and before each line.
 // LoggingCombat itself is not hooked: other DLLs add their own logs to it.
@@ -56,13 +86,19 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "cvar/Factory.h"
 #include "event/EnteringWorld.h"
 #include "guid/Guid.h"
+#include "item/Data.h"
+#include "item/ID.h"
+#include "item/Record.h"
 #include "object/Resolve.h"
 #include "spell/Lookup.h"
 #include "tick/FrameTick.h"
 #include "time/Clock.h"
 #include "unit/CreatureID.h"
+#include "unit/Identity.h"
+#include "unit/Position.h"
 #include "unit/Power.h"
 
 #include <cstdint>
@@ -110,8 +146,21 @@ constexpr const char *kEnvironmentalNames[] = {"Fatigue", "Drowning", "Falling",
 
 std::FILE *g_file = nullptr;
 uint32_t g_flushedMs = 0;
+CVar::Factory::Handle g_advancedCvar = nullptr;
+// ADVANCED_LOG_ENABLED of the last header written.
+bool g_headerAdvanced = false;
 
 bool Logging() { return Game::Read<int>(Offsets::VAR_COMBAT_LOGGING) != 0; }
+
+bool Advanced() { return CVar::Factory::GetInt(g_advancedCvar) != 0; }
+
+void RegisterCVars() {
+    g_advancedCvar = CVar::Factory::Register(
+        "advancedCombatLogging", "Whether we want advanced combat log data sent from the server",
+        Offsets::CVAR_CATEGORY_GAME, "0");
+}
+
+const Game::ModuleAutoRegister _autoreg{&RegisterCVars};
 
 int64_t Ticks(const FILETIME &t) {
     return (static_cast<int64_t>(t.dwHighDateTime) << 32) | t.dwLowDateTime;
@@ -149,10 +198,11 @@ void Emit(const std::string &body) {
 void Header() {
     const char *version = reinterpret_cast<const char *>(
         static_cast<uintptr_t>(Offsets::VAR_BUILD_VERSION_STRING));
+    g_headerAdvanced = Advanced();
     char text[128];
     std::snprintf(text, sizeof text,
-                  "COMBAT_LOG_VERSION,%d,ADVANCED_LOG_ENABLED,0,BUILD_VERSION,%s,PROJECT_ID,%d",
-                  kLogVersion, version, kProjectId);
+                  "COMBAT_LOG_VERSION,%d,ADVANCED_LOG_ENABLED,%d,BUILD_VERSION,%s,PROJECT_ID,%d",
+                  kLogVersion, g_headerAdvanced ? 1 : 0, version, kProjectId);
     Emit(text);
 }
 
@@ -395,6 +445,116 @@ void Damage(std::string &line, const Entry &e) {
     Flag(line, e.crushing);
 }
 
+// The subevents with an advanced block, and which unit it describes.
+enum class Info { None, Source, Dest };
+
+Info InfoUnit(int event) {
+    switch (event) {
+    case SPELL_CAST_SUCCESS:
+    case SWING_DAMAGE:
+        return Info::Source;
+    case SPELL_DAMAGE:
+    case SPELL_PERIODIC_DAMAGE:
+    case RANGE_DAMAGE:
+    case DAMAGE_SHIELD:
+    case ENVIRONMENTAL_DAMAGE:
+    case SPELL_HEAL:
+    case SPELL_PERIODIC_HEAL:
+    case SPELL_ENERGIZE:
+    case SPELL_PERIODIC_ENERGIZE:
+    case SPELL_DRAIN:
+    case SPELL_PERIODIC_DRAIN:
+    // Era logs no leech; retail's leech carries the drain's block.
+    case SPELL_LEECH:
+    case SPELL_PERIODIC_LEECH:
+        return Info::Dest;
+    default:
+        return Info::None;
+    }
+}
+
+void Fixed(std::string &line, float value, int decimals) {
+    char text[32];
+    std::snprintf(text, sizeof text, ",%.*f", decimals, static_cast<double>(value));
+    line += text;
+}
+
+// The server's percent for a player outside the group (tortoise-wow
+// Object::BuildValuesUpdate): floor(health * 100 / max), at most 100, at
+// least 1 while alive.
+int HealthPercent(uint32_t health, uint32_t max) {
+    if (health == 0 || max == 0)
+        return 0;
+    const auto pct = static_cast<uint32_t>(static_cast<float>(health) * 100.0f / max);
+    return pct > 100 ? 100 : (pct == 0 ? 1 : static_cast<int>(pct));
+}
+
+// The average item level Era writes for a player (see the file's comment), or
+// 0 while an item's record is missing, after requesting it.
+int ItemLevel(void *player) {
+    uint32_t sum = 0;
+    bool complete = true;
+    const auto level = [&](int invSlot) -> uint32_t {
+        const uint32_t itemId = Item::ID::Visible(player, invSlot - 1);
+        if (itemId == 0)
+            return 0;
+        const uint8_t *record = Item::PeekRecord(itemId);
+        if (record == nullptr) {
+            Item::Data::WarmCache(itemId);
+            complete = false;
+            return 0;
+        }
+        return Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_ITEM_LEVEL);
+    };
+    for (int slot = Offsets::EQUIPMENT_SLOT_FIRST; slot <= Offsets::EQUIPMENT_SLOT_LAST; ++slot) {
+        if (slot == Offsets::INVSLOT_BODY || slot == Offsets::INVSLOT_TABARD ||
+            slot == Offsets::INVSLOT_RANGED || slot == Offsets::INVSLOT_OFFHAND)
+            continue;
+        sum += level(slot);
+    }
+    const bool offHand = Item::ID::Visible(player, Offsets::INVSLOT_OFFHAND - 1) != 0;
+    sum += offHand ? level(Offsets::INVSLOT_OFFHAND) : level(Offsets::INVSLOT_MAINHAND);
+    return complete ? static_cast<int>(sum / 16) : 0;
+}
+
+// Era's advanced block for the unit `guid`.
+void AdvancedBlock(std::string &line, uint64_t guid) {
+    void *unit = guid != 0 ? Object::ByGuid(Offsets::TYPEMASK_UNIT, guid) : nullptr;
+    const uint8_t *fields = Object::Fields(unit);
+    float pos[3];
+    if (fields == nullptr || !Unit::Position::Read(unit, pos)) {
+        line += ",0000000000000000,0000000000000000,0,0,0,0,0,0,0,-1,0,0,0,0.00,0.00,0,0.0000,0";
+        return;
+    }
+    const bool player = ::Guid::IsPlayer(guid);
+    GuidPart(line, guid);
+    GuidPart(line, Unit::Identity::OwnerGuid(unit));
+    const auto health = Game::Read<uint32_t>(fields, Offsets::OFF_UNIT_FIELD_HEALTH);
+    const auto maxHealth = Game::Read<uint32_t>(fields, Offsets::OFF_UNIT_FIELD_MAXHEALTH);
+    if (player) {
+        Number(line, HealthPercent(health, maxHealth));
+        Number(line, 100);
+    } else {
+        Number(line, static_cast<int>(health));
+        Number(line, static_cast<int>(maxHealth));
+    }
+    line += ",0,0,0,0,0"; // attack power, spell power, armor, absorb, and the slot after it
+    const int powerType = Game::Read<uint8_t>(fields, Offsets::OFF_UNIT_DESCRIPTOR_POWER_TYPE_BYTE);
+    if (player && powerType < kPowerTypes) {
+        Number(line, PowerType(powerType));
+        Number(line, static_cast<int>(Unit::Power::Stored(fields, powerType)));
+        Number(line, static_cast<int>(Unit::Power::StoredMax(fields, powerType)));
+        Number(line, 0);
+    } else {
+        line += ",-1,0,0,0";
+    }
+    Fixed(line, pos[0], 2);
+    Fixed(line, pos[1], 2);
+    Number(line, 0); // uiMapID
+    Fixed(line, Unit::Position::Facing(unit), 4);
+    Number(line, player ? ItemLevel(unit) : Game::Read<int>(fields, Offsets::OFF_UNIT_FIELD_LEVEL));
+}
+
 // missType, isOffHand, then the amount for a resist or block, and the amount
 // and baseAmount for an absorb.
 void Miss(std::string &line, const Entry &e) {
@@ -410,8 +570,10 @@ void Miss(std::string &line, const Entry &e) {
     }
 }
 
-std::string Pack(const Entry &e) {
-    std::string line = Name(e.event);
+// The entry's line. `landed` makes the SWING_DAMAGE_LANDED twin of a
+// SWING_DAMAGE, whose advanced block describes the dest.
+std::string Pack(const Entry &e, bool advanced, bool landed) {
+    std::string line = landed ? "SWING_DAMAGE_LANDED" : Name(e.event);
     UnitPart(line, e.source, e.sourceNamed, e.sourceName, e.sourceFlags, e.sourceRaidFlags);
     UnitPart(line, e.dest, e.destNamed, e.destName, e.destFlags, e.destRaidFlags);
     const uint8_t *spell = nullptr;
@@ -421,6 +583,9 @@ std::string Pack(const Entry &e) {
         Quoted(line, Spell::Lookup::Name(spell));
         Hex(line, spell != nullptr ? SpellSchoolMask(spell) : e.spellSchool);
     }
+    const Info info = landed ? Info::Dest : InfoUnit(e.event);
+    if (advanced && info != Info::None)
+        AdvancedBlock(line, info == Info::Source ? e.source : e.dest);
     if (e.info & INFO_COUNT)
         Number(line, e.v[0]);
     if (e.info & INFO_TEXT)
@@ -480,7 +645,13 @@ void Write(const Entry &entry) {
     // A line in the frame logging turned on comes before the frame's check.
     if (!Logging() || (g_file == nullptr && !Open()))
         return;
-    Emit(Pack(entry));
+    // The setting changed since the last header: say so before the line.
+    const bool advanced = Advanced();
+    if (advanced != g_headerAdvanced)
+        Header();
+    Emit(Pack(entry, advanced, false));
+    if (advanced && entry.event == SWING_DAMAGE)
+        Emit(Pack(entry, advanced, true));
 }
 
 } // namespace CombatLog::File

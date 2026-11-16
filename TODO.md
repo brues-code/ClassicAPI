@@ -4237,14 +4237,15 @@ definitions do not shadow ours in a 1.12 workspace.
 
 Two layers. The replay needs the log first.
 
-**Progress (2026-11-16).** Step 1 BUILT, not yet checked in game:
-`combatlog/File.cpp` writes Era's v9 lines with ADVANCED_LOG_ENABLED 0
-(header on open and each world entry, Era stamp, retail GUID strings,
-Name-Realm, ST/AOE tag, overkill -1, power type 27, death `0`). The rules
-and the Era-log evidence are in that file's comments. Next steps: (2) the
-advanced block + `advancedCombatLogging` cvar + Network checkbox +
-SWING_DAMAGE_LANDED; (3) COMBATANT_INFO, ZONE_CHANGE, ENCOUNTER_*;
-(4) the movement file.
+**Progress (2026-11-16).** Steps 1 and 2 DONE and checked in game:
+`combatlog/File.cpp` writes Era's v9 lines (header on open and each world
+entry, Era stamp, retail GUID strings, Name-Realm, ST/AOE tag, overkill -1,
+power type 27, death `0`), and with `advancedCombatLogging` on (Settings >
+Network) Era's advanced block plus SWING_DAMAGE_LANDED. Every finished cast
+now logs SPELL_CAST_SUCCESS, as Era and retail do. The rules and the
+Era-log evidence are in that file's comments. Not yet seen in game:
+energize and drain lines. Next steps: (3) COMBATANT_INFO, ZONE_CHANGE,
+ENCOUNTER_*; (4) the movement file.
 
 **Layer 1: advanced combat logging (the `advancedCombatLogging` cvar).**
 Our combat log file (`combatlog/File.cpp`) writes 4.3.4's PackEvent line.

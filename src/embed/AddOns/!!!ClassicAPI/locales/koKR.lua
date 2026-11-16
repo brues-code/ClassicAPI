@@ -1,10 +1,13 @@
 if GetLocale() ~= "koKR" then return end
 
+ADVANCED_COMBAT_LOGGING = "고급 전투 메시지 기록";
 LARGE_NUMBER_SEPERATOR = ",";
 DECIMAL_SEPERATOR = ".";
 FIRST_NUMBER = "천";
 FIRST_NUMBER_CAP = "만";
 FIRST_NUMBER_CAP_NO_SPACE = "만";
+NETWORK_LABEL = "네트워크";
+OPTION_TOOLTIP_ADVANCED_COMBAT_LOGGING = "전투 메시지를 텍스트 파일에 쓸 때 추가 로그 데이터를 허용합니다. 채팅 명령어 \"combatlog\"를 사용할 때 추가적인 네트워크 랙이 발생할 수 있습니다.";
 RESET_POSITION = "위치 초기화";
 ROTATE_LEFT = "왼쪽으로 회전";
 ROTATE_RIGHT = "오른쪽으로 회전";

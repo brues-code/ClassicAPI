@@ -11926,6 +11926,8 @@ enum Offsets {
     // off-hand weapons, and held items via `ItemMgr::GetItemBySlot`.
     INVSLOT_OFFHAND = 17,
     INVSLOT_MAINHAND = 16,
+    INVSLOT_BODY = 4,    // the shirt
+    INVSLOT_TABARD = 19,
 
     // Character-pane equipment slot range: 1..19 (head=1, neck=2, …,
     // tabard=19). Used by `C_Item.IsEquippedItem` to walk every slot
