@@ -36,6 +36,7 @@
 #include "combatlog/Entry.h"
 
 #include "Game.h"
+#include "combatlog/Encounter.h"
 #include "combatlog/File.h"
 #include "combatlog/History.h"
 #include "Offsets.h"
@@ -633,6 +634,7 @@ void Queue(Entry &e) {
         g_startTimeMs = e.timeMs;
     }
     History::Record(e);
+    Encounter::Observe(e);
     File::Write(e);
     Send(e);
 }

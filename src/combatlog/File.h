@@ -20,9 +20,23 @@
 
 #include "combatlog/Entry.h"
 
+#include <string>
+
 namespace CombatLog::File {
 
 // The entry's line, while combat logging is on.
 void Write(const Entry &entry);
+
+// A line that is not an entry's (ENCOUNTER_START and the like), given without
+// its stamp, while combat logging is on.
+void WriteLine(const std::string &body);
+
+// The number of the open log file, counting each one this session opens; 0
+// while combat logging is off. A line pair that must land in one file (an
+// encounter's start and end) compares it.
+uint32_t Session();
+
+// Appends `,"text"` with the file's quoting, or `,nil` for no text.
+void AppendQuoted(std::string &line, const char *text);
 
 } // namespace CombatLog::File

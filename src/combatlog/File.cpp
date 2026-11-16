@@ -146,6 +146,7 @@ constexpr const char *kEnvironmentalNames[] = {"Fatigue", "Drowning", "Falling",
 
 std::FILE *g_file = nullptr;
 uint32_t g_flushedMs = 0;
+uint32_t g_session = 0; // files opened this session
 CVar::Factory::Handle g_advancedCvar = nullptr;
 // ADVANCED_LOG_ENABLED of the last header written.
 bool g_headerAdvanced = false;
@@ -223,6 +224,7 @@ bool Open() {
         return false;
     std::setvbuf(g_file, nullptr, _IOFBF, kBufferSize);
     g_flushedMs = Time::Clock::NowMs();
+    ++g_session;
     Header();
     return true;
 }
@@ -264,20 +266,7 @@ void Plain(std::string &line, const char *text) {
     line += text;
 }
 
-// A quoted string, or nil when there is no text.
-void Quoted(std::string &line, const char *text) {
-    if (text == nullptr) {
-        Plain(line, "nil");
-        return;
-    }
-    line += ",\"";
-    for (const char *c = text; *c != '\0'; ++c) {
-        if (*c == '"' || *c == '\\')
-            line += '\\';
-        line += *c;
-    }
-    line += '"';
-}
+void Quoted(std::string &line, const char *text) { AppendQuoted(line, text); }
 
 void Hex(std::string &line, uint32_t value) {
     char text[16];
@@ -641,17 +630,50 @@ std::string Pack(const Entry &e, bool advanced, bool landed) {
 
 } // namespace
 
-void Write(const Entry &entry) {
+namespace {
+
+// The file is open for a line, with a header that says whether advanced
+// logging is on. False while combat logging is off.
+bool Ready() {
     // A line in the frame logging turned on comes before the frame's check.
     if (!Logging() || (g_file == nullptr && !Open()))
-        return;
+        return false;
     // The setting changed since the last header: say so before the line.
-    const bool advanced = Advanced();
-    if (advanced != g_headerAdvanced)
+    if (Advanced() != g_headerAdvanced)
         Header();
+    return true;
+}
+
+} // namespace
+
+void Write(const Entry &entry) {
+    if (!Ready())
+        return;
+    const bool advanced = g_headerAdvanced;
     Emit(Pack(entry, advanced, false));
     if (advanced && entry.event == SWING_DAMAGE)
         Emit(Pack(entry, advanced, true));
+}
+
+void WriteLine(const std::string &body) {
+    if (Ready())
+        Emit(body);
+}
+
+uint32_t Session() { return Logging() && g_file != nullptr ? g_session : 0; }
+
+void AppendQuoted(std::string &line, const char *text) {
+    if (text == nullptr) {
+        line += ",nil";
+        return;
+    }
+    line += ",\"";
+    for (const char *c = text; *c != '\0'; ++c) {
+        if (*c == '"' || *c == '\\')
+            line += '\\';
+        line += *c;
+    }
+    line += '"';
 }
 
 } // namespace CombatLog::File
