@@ -78,7 +78,7 @@ float BoundingRadius(void *obj) {
 // member outside the client's sync range). This false is exactly the
 // `checkedPosition = false` case retail flags.
 bool ReadPosAndReach(const char *token, float pos[3], float *reach) {
-    void *obj = Unit::Position::ResolveToken(token);
+    void *obj = Game::ResolveUnitToken(token);
     if (!Unit::Position::Read(obj, pos))
         return false;
     *reach = BoundingRadius(obj);

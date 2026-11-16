@@ -28,6 +28,7 @@
 #include "Offsets.h"
 #include "target/SoftAttack.h"
 #include "unit/Identity.h"
+#include "unit/TokenResolve.h"
 
 #include <cstdint>
 
@@ -38,35 +39,11 @@ namespace {
 using Start_t = void(__thiscall *)(void *player, const uint64_t *targetGuid);
 using Stop_t = void(__fastcall *)(void *player);
 
-// Resolve an optional unit-token argument to a GUID without raising.
-// `Unit::Identity::GuidForToken` raises for non-token strings (a name or
-// garbage — 1.12 has no name->GUID resolver), so run it under `pcall`; a raise
-// or an empty token yields 0, which the caller treats as "use current target".
-int __fastcall ResolveTokenThunk(void *L) {
-    using namespace Game::Lua;
-    const char *token = ToString(L, 1);
-    const uint64_t g = (token && *token) ? Unit::Identity::GuidForToken(token) : 0;
-    PushNumber(L, static_cast<double>(static_cast<uint32_t>(g)));
-    PushNumber(L, static_cast<double>(static_cast<uint32_t>(g >> 32)));
-    return 2;
-}
-
-uint64_t SafeResolveToken(void *L, const char *token) {
-    using namespace Game::Lua;
-    if (token == nullptr || *token == '\0')
-        return 0;
-
-    const int base = GetTop(L);
-    PushCClosure(L, &ResolveTokenThunk, 0);
-    PushString(L, token);
-    uint64_t guid = 0;
-    if (PCall(L, 1, 2, 0) == 0) {
-        const uint32_t lo = static_cast<uint32_t>(ToNumber(L, -2));
-        const uint32_t hi = static_cast<uint32_t>(ToNumber(L, -1));
-        guid = (static_cast<uint64_t>(hi) << 32) | lo;
-    }
-    SetTop(L, base); // drop the results (or the caught error message)
-    return guid;
+// Resolve an optional unit-token argument to a GUID without raising: a name or
+// garbage is no token (Unit::TokenResolve), and yields 0, which the caller
+// treats as "use current target".
+uint64_t SafeResolveToken(const char *token) {
+    return Unit::TokenResolve::IsUnitToken(token) ? Unit::Identity::GuidForToken(token) : 0;
 }
 
 } // namespace
@@ -76,7 +53,7 @@ static int __fastcall Script_StartAttack(void *L) {
     if (player == nullptr)
         return 0;
 
-    uint64_t target = SafeResolveToken(L, Game::Lua::ToString(L, 1));
+    uint64_t target = SafeResolveToken(Game::Lua::ToString(L, 1));
     if (target == 0) {
         // No explicit target given (or unresolvable): validate and take the
         // current target, or with none the soft enemy (action targeting).

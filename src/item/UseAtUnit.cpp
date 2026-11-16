@@ -66,7 +66,7 @@ int __fastcall Script_C_Item_UseAtUnit(void *L) {
     // Resolve the unit first — fail fast before firing the item if the unit
     // is absent. A string that is no unit token raises "Unknown unit", as
     // `C_Spell.CastAtUnit` does.
-    void *unitObj = Unit::Position::ResolveToken(Game::Lua::ToString(L, 2));
+    void *unitObj = Game::ResolveUnitToken(Game::Lua::ToString(L, 2));
     float pos[3];
     if (unitObj == nullptr || !Unit::Position::Read(unitObj, pos)) {
         Game::Lua::PushBool(L, false);

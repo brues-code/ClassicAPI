@@ -25,18 +25,6 @@
 
 namespace Unit::Position {
 
-// Resolves a unit token ("player", "target", "party1", "mouseover",
-// …) to a `CGUnit *`. Returns nullptr for a recognized-but-absent
-// token (e.g. "party5" with no such member). NOTE: the engine's
-// resolver raises a Lua error for genuinely unrecognized token
-// strings — same contract as `UnitHealth("garbage")` — so only feed
-// it real unit tokens, or strings you're willing to let error.
-inline void *ResolveToken(const char *token) {
-    if (token == nullptr)
-        return nullptr;
-    return Game::ResolveUnitToken(token);
-}
-
 // Reads `obj`'s world position into `out[3]` (x, y, z). Calls
 // `obj->vtable[5](outBuf)`; the returned float* may equal `outBuf`
 // (object filled it) or point at a cached position field — either
@@ -75,7 +63,7 @@ inline float Facing(void *obj) {
 
 // Convenience: resolve a token and read its position in one step.
 inline bool ReadToken(const char *token, float out[3]) {
-    return Read(ResolveToken(token), out);
+    return Read(Game::ResolveUnitToken(token), out);
 }
 
 } // namespace Unit::Position

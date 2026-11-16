@@ -118,8 +118,8 @@ RangeState Evaluate(SwingType type) {
     if (Combat::Swing::AttackTimeMs(type) == 0)
         return RangeState::NoCheck; // no weapon equipped for this swing type
 
-    void *player = Unit::Position::ResolveToken("player");
-    void *target = Unit::Position::ResolveToken("target");
+    void *player = Game::ResolveUnitToken("player");
+    void *target = Game::ResolveUnitToken("target");
     if (player == nullptr || target == nullptr)
         return RangeState::NoCheck; // no current target
 

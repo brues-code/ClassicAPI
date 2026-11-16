@@ -26,10 +26,6 @@ namespace {
 
 using GetVisibleItem_t = void *(__thiscall *)(void *unit, int slot);
 
-void *ResolveUnit(const char *token) {
-    return Game::ResolveUnitToken(token);
-}
-
 // Walks the local player's private inventory manager — the same path
 // `C_Item.GetItemID({equipmentSlotIndex=N})` uses. Bag/bank slots also
 // resolve here; we don't bound the slot up front since the engine's
@@ -88,11 +84,11 @@ static int __fastcall Script_GetInventoryItemID(void *L) {
     if (unitToken == nullptr || slot < 1)
         return 0;
 
-    void *unitPtr = ResolveUnit(unitToken);
+    void *unitPtr = Game::ResolveUnitToken(unitToken);
     if (unitPtr == nullptr)
         return 0;
 
-    void *playerPtr = ResolveUnit("player");
+    void *playerPtr = Game::ResolveUnitToken("player");
     int itemID = 0;
     if (unitPtr == playerPtr) {
         itemID = ItemIDForLocalPlayer(playerPtr, slot);

@@ -96,9 +96,7 @@ void ForEachFrameListObject(void *frame, uintptr_t listOffset, Fn fn) {
 // has no unit (e.g. `"target"` with nothing targeted). NOTE: the engine
 // RAISES a Lua error for a string that isn't a valid token form (an arbitrary
 // name like `"Bob"`), so only pass real unit tokens — the same contract every
-// stock `Unit*` global carries. Centralizes the
-// `reinterpret_cast<…>(FUN_RESOLVE_UNIT_TOKEN)` idiom that was copy-pasted
-// across a dozen modules.
+// stock `Unit*` global carries. Null for a null token.
 void *ResolveUnitToken(const char *token);
 
 // UI pixels <-> internal layout (anchor) units. Script_SetPoint converts its

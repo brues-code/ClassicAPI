@@ -129,8 +129,8 @@ int __fastcall Script_UnitInLineOfSight(void *L) {
     }
     const char *token = Game::Lua::ToString(L, 1);
 
-    void *player = Unit::Position::ResolveToken("player");
-    void *unit = Unit::Position::ResolveToken(token);
+    void *player = Game::ResolveUnitToken("player");
+    void *unit = Game::ResolveUnitToken(token);
     if (player == nullptr || unit == nullptr || !IsUnitOrPlayer(player) ||
         !IsUnitOrPlayer(unit)) {
         Game::Lua::PushNil(L);

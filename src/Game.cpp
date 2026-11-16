@@ -22,8 +22,9 @@ namespace Game {
 
 void *ResolveUnitToken(const char *token) {
     using ResolveUnitToken_t = void *(__fastcall *)(const char *token);
-    auto fn = reinterpret_cast<ResolveUnitToken_t>(Offsets::FUN_RESOLVE_UNIT_TOKEN);
-    return fn(token);
+    if (token == nullptr)
+        return nullptr;
+    return reinterpret_cast<ResolveUnitToken_t>(Offsets::FUN_RESOLVE_UNIT_TOKEN)(token);
 }
 
 float PixelToInternal(float px) {

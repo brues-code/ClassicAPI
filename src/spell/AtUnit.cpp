@@ -69,7 +69,7 @@ namespace {
 // the engine mid-cast.
 bool CastCore(const char *token, bool byNumber, int spellID, const char *spellName,
               bool allowGroundPlacement) {
-    void *unitObj = Unit::Position::ResolveToken(token);
+    void *unitObj = Game::ResolveUnitToken(token);
     float pos[3];
     if (unitObj == nullptr || !Unit::Position::Read(unitObj, pos))
         return false;

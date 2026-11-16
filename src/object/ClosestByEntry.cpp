@@ -30,7 +30,7 @@ Result Find(uint32_t typeMask, Guid::Type guidType, uint32_t entry) {
         return r;
 
     float ppos[3];
-    if (!Unit::Position::Read(Unit::Position::ResolveToken("player"), ppos))
+    if (!Unit::Position::Read(Game::ResolveUnitToken("player"), ppos))
         return r;
 
     Object::ForEachVisible([&](uint64_t guid) {

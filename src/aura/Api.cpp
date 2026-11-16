@@ -53,8 +53,6 @@ namespace Aura::Api {
 namespace {
 
 const uint8_t *ResolveUnit(const char *token) {
-    if (token == nullptr)
-        return nullptr;
     return static_cast<const uint8_t *>(Game::ResolveUnitToken(token));
 }
 

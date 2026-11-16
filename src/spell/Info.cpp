@@ -155,7 +155,7 @@ static bool ReadSpellInfo(int spellID, int pet, SpellInfoData &out) {
     if (rangeRec == nullptr ||
         !(Game::Read<uint32_t>(rangeRec, Offsets::OFF_SPELLRANGE_RECORD_FLAGS) &
           SPELLRANGE_FLAG_MELEE))
-        Spell::Range::CasterMinMax(Unit::Position::ResolveToken(pet ? "pet" : "player"),
+        Spell::Range::CasterMinMax(Game::ResolveUnitToken(pet ? "pet" : "player"),
                                    spellID, out.minRange, out.maxRange);
 
     return true;

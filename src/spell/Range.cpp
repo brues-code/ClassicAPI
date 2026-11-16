@@ -270,7 +270,7 @@ bool SpellIDHasRange(int spellID) {
     if (spellID <= 0)
         return false;
     // A null caster zeroes both bounds, which reads as rangeless.
-    return EngineHasRange(Unit::Position::ResolveToken("player"), spellID);
+    return EngineHasRange(Game::ResolveUnitToken("player"), spellID);
 }
 
 void CasterMinMax(void *caster, int spellID, float &minRange, float &maxRange) {
@@ -285,8 +285,8 @@ int PlayerVsUnit(int spellID, const char *unitToken) {
     if (spellID <= 0 || unitToken == nullptr)
         return -1;
 
-    void *caster = Unit::Position::ResolveToken("player");
-    void *target = Unit::Position::ResolveToken(unitToken);
+    void *caster = Game::ResolveUnitToken("player");
+    void *target = Game::ResolveUnitToken(unitToken);
     if (caster == nullptr || target == nullptr)
         return -1;
     // Rangeless spell (self buff, etc.) has no meaningful "in range" answer.
@@ -300,8 +300,8 @@ int CastVsUnit(int spellID, const char *unitToken, bool petCaster) {
     if (spellID <= 0 || unitToken == nullptr)
         return -1;
     const uint8_t *rec = Spell::Lookup::RecordForID(spellID);
-    void *caster = petCaster ? Pet() : Unit::Position::ResolveToken("player");
-    void *target = Unit::Position::ResolveToken(unitToken);
+    void *caster = petCaster ? Pet() : Game::ResolveUnitToken("player");
+    void *target = Game::ResolveUnitToken(unitToken);
     if (rec == nullptr || caster == nullptr || target == nullptr)
         return -1;
     if (!EngineHasRange(caster, spellID))

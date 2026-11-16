@@ -28,7 +28,7 @@ namespace Player::Facing {
 namespace {
 
 int __fastcall Script_GetPlayerFacing(void *L) {
-    void *player = Unit::Position::ResolveToken("player");
+    void *player = Game::ResolveUnitToken("player");
     if (player == nullptr)
         return 0;
 

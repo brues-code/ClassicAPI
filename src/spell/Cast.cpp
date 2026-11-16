@@ -238,10 +238,6 @@ void PushMs(void *L, int ms) {
     Game::Lua::PushNumber(L, static_cast<double>(static_cast<uint32_t>(ms)));
 }
 
-void *Resolve(const char *token) {
-    return Game::ResolveUnitToken(token);
-}
-
 // Effective cast time (ms) for the local player, 0 if instant. Uses the
 // engine's own cast-time helper (base + level scaling + cast-time SpellMod
 // op 10 + the caster's haste/cast-speed multiplier), so our end time
@@ -1009,7 +1005,7 @@ static void *UnitArg(void *L, const char *usage) {
         return nullptr;
     }
     const char *token = Game::Lua::ToString(L, 1);
-    return (token != nullptr) ? Resolve(token) : nullptr;
+    return (token != nullptr) ? Game::ResolveUnitToken(token) : nullptr;
 }
 
 // The regular cast unit `u` has, as UnitCastingInfo reports it: the local
@@ -1022,7 +1018,7 @@ struct UnitCast {
     const uint8_t *unit;
 };
 static UnitCast FindUnitCast(void *u) {
-    if (u == Resolve("player"))
+    if (u == Game::ResolveUnitToken("player"))
         return {g_cast, Unit::Identity::PlayerGuid(), Unit::Identity::PlayerObject()};
     const uint64_t guid = ::Object::Guid(u);
     const RemoteCast *rc = FindRemoteCast(guid);
@@ -1079,7 +1075,7 @@ struct UnitChannel {
     const uint8_t *unit;
 };
 static UnitChannel FindUnitChannel(void *u) {
-    if (u == Resolve("player"))
+    if (u == Game::ResolveUnitToken("player"))
         return {g_channel.spellID, g_channel.startMs, g_channel.endMs, true, Unit::Identity::PlayerObject()};
 
     auto *unit = static_cast<const uint8_t *>(u);

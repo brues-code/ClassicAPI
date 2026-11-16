@@ -29,7 +29,7 @@ int __fastcall Script_UnitFacing(void *L) {
         Game::Lua::Error(L, "Usage: UnitFacing(\"unit\")");
         return 0;
     }
-    void *unit = Unit::Position::ResolveToken(Game::Lua::ToString(L, 1));
+    void *unit = Game::ResolveUnitToken(Game::Lua::ToString(L, 1));
     if (unit == nullptr)
         return 0;
 
