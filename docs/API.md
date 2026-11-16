@@ -6216,7 +6216,7 @@ Some values have fixed contents:
 - The `COMBATLOG_OBJECT_MAINTANK` and `COMBATLOG_OBJECT_MAINASSIST` bits are
   never set.
 - `SPELL_CAST_START` fires for a spell with a cast time, and has no target.
-  `SPELL_CAST_SUCCESS` fires for an instant spell. A spell with a cast time
+  `SPELL_CAST_SUCCESS` fires when any cast finishes. An interrupted cast
   gets no `SPELL_CAST_SUCCESS`.
 - `SPELL_CAST_FAILED` fires only for your own casts.
 - A spell that the game hides from the combat log fires no event, except

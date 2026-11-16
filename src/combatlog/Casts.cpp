@@ -16,11 +16,12 @@
 //
 // SPELL_CAST_START and SPELL_CAST_SUCCESS are read from SMSG_SPELL_START and
 // SMSG_SPELL_GO through Net::PacketDispatch (nampower detours both handlers).
-// 4.3.4 logs them from the same two messages. Its two builders read the
-// unit's casting time for the spell with opposite tests — the 3.3.5 binary
-// agrees (0x00751920 and 0x007519E0 call the same vtable slot): a spell with a
-// cast time logs its start, an instant spell its success, and a cast-time
-// spell no success.
+// 4.3.4 logs them from the same two messages. A spell with a cast time logs
+// its start (4.3.4's start builder reads the unit's casting time for the
+// spell, as the 3.3.5 binary does at 0x00751920). Every finished cast logs
+// its success, as retail and Classic Era do: in Era's raid log Frostbolt has
+// 2,540 starts and 2,065 successes, the rest interrupted. 4.3.4's success
+// builder (3.3.5 0x007519E0) still dropped cast-time spells.
 //
 // SPELL_CAST_FAILED is the 1.12 failure line's own moment
 // (FUN_COMBAT_LOG_SPELL_FAIL), which the failure reporter calls with the
@@ -92,7 +93,7 @@ void SpellStart(const Spell::CastPacket::Start &s) {
     Queue(e);
 }
 
-// SMSG_SPELL_GO → UnitCombatLogCastGo: an instant cast, at its target. Every
+// SMSG_SPELL_GO → UnitCombatLogCastGo: a finished cast, at its target. Every
 // cast's hit list also goes to RecentCasts, for the messages that follow it.
 void SpellGo(const Spell::CastPacket::Go &g) {
     const uint64_t caster = g.header.caster;
@@ -101,10 +102,8 @@ void SpellGo(const Spell::CastPacket::Go &g) {
     RecentCasts::Record(caster, g.header.spellId, g.hits, g.hitCount);
     if ((g.header.castFlags & CAST_FLAG_HIDDEN_COMBATLOG) != 0)
         return;
-    void *unit = Object::ByGuid(Offsets::TYPEMASK_UNIT, caster);
     const uint8_t *spell = SpellRecord(spellId);
-    if (unit == nullptr || !Logged(spell) ||
-        Spell::Lookup::HasEffect(spell, SPELL_EFFECT_OPEN_LOCK) || CastingTime(unit, spellId) != 0)
+    if (!Logged(spell) || Spell::Lookup::HasEffect(spell, SPELL_EFFECT_OPEN_LOCK))
         return;
     Entry e = Begin(caster, target, SPELL_CAST_SUCCESS, spell);
     Queue(e);
