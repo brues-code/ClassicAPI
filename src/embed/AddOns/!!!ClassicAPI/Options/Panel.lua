@@ -259,12 +259,15 @@ end
 -- ---------------------------------------------------------------------------
 
 -- Retail's own page (Blizzard_SettingsDefinitions_Shared\Network.lua), with the
--- one control 1.12 can back.
+-- one control 1.12 can back, and the movement file under it.
 local function RegisterNetwork()
 	local category = Settings.RegisterVerticalLayoutCategory(NETWORK_LABEL);
 	Settings.RegisterCategory(category);
 
-	AddCVarCheckbox(category, "advancedCombatLogging", ADVANCED_COMBAT_LOGGING, OPTION_TOOLTIP_ADVANCED_COMBAT_LOGGING);
+	local advanced, advancedInitializer = Settings.SetupCVarCheckbox(category, "advancedCombatLogging", ADVANCED_COMBAT_LOGGING, OPTION_TOOLTIP_ADVANCED_COMBAT_LOGGING);
+	-- The movement file is written only while advanced logging is on.
+	local movement = AddCVarCheckbox(category, "advancedCombatLoggingMovement", CLASSICAPI_LOG_MOVEMENT, CLASSICAPI_LOG_MOVEMENT_TOOLTIP);
+	movement:SetParentInitializer(advancedInitializer, function() return advanced:GetValue(); end);
 end
 
 -- ---------------------------------------------------------------------------

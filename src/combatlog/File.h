@@ -37,6 +37,13 @@ void WriteLine(const std::string &body);
 // encounter's start and end) compares it.
 uint32_t Session();
 
+// The MMDDYY_HHMMSS in the open file's name. The movement file takes the same
+// one, so a reader can pair the two.
+const std::string &FileTime();
+
+// Whether advanced logging (the advancedCombatLogging cvar) is on.
+bool Advanced();
+
 // Appends `,` and the GUID as the file writes it (Player-0-0000ABCD, ...).
 void AppendGuid(std::string &line, uint64_t guid);
 

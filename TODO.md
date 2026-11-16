@@ -4248,7 +4248,19 @@ creature ID as encounterID, no table), with COMBATANT_INFO per group member
 after each start (`combatlog/Combatant.cpp`; stats and talents for the
 player only, all buffs instead of Era's curated list). The rules and the
 Era-log evidence are in those files' comments. Not yet seen in game:
-energize and drain lines. Next: (4) the movement file.
+energize and drain lines.
+
+Step 4 DONE (2026-11-16): `combatlog/Movement.cpp` writes
+`Logs\WoWMovementLog-<combat log's MMDDYY_HHMMSS>.txt` behind
+`advancedCombatLoggingMovement` (Settings > Network, under advanced
+logging, default off): UNIT_MOVE (relayed player moves, the player's own
+sends, TELEPORT_ACK), UNIT_SPEED, MONSTER_MOVE / MONSTER_STOP, and a
+header with the map. Formats are in the file's comment. Checked in game:
+own and another player's moves, creature paths, creature speeds (about 7
+lines/s in Stormwind). Not yet seen: MONSTER_STOP, transport moves,
+teleports, forced speed changes. Open: a unit's position when it comes
+into view (the object update's movement block) is not logged, so a unit
+that never moves or fights has no position. Next: layer 2 (the replay).
 
 **Layer 1: advanced combat logging (the `advancedCombatLogging` cvar).**
 Our combat log file (`combatlog/File.cpp`) writes 4.3.4's PackEvent line.

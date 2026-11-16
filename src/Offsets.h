@@ -11877,6 +11877,11 @@ enum Offsets {
     MOVEFLAG_FALLING = 0x2000,
     MOVEFLAG_FALLING_FAR = 0x4000,
     MOVEFLAG_SWIMMING = 0x200000,
+    // On a transport: a movement status then carries the transport GUID and
+    // the offset on it (the status reader's `test 0x2000000` at 0x0047EBE6;
+    // tortoise-wow MovementInfo::Read). The 0x2000 bit above is the one that
+    // adds the status's four jump floats (0x0047EC5B).
+    MOVEFLAG_ONTRANSPORT = 0x2000000,
     // The player-movement bits that drop an in-progress cast — the exact mask
     // the engine's CheckCast (FUN_006094f0) tests (0x200f). Spell::Cast uses it
     // to tell a spurious movement drop of a movement-immune cast (grenades)

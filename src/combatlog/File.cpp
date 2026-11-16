@@ -27,11 +27,8 @@
 //     1.12 log readers parse;
 //   - each time the flag turns on, a new file starts, named as retail names
 //     it: Logs\WoWCombatLog-MMDDYY_HHMMSS.txt, the local time logging started;
-//   - the file is written through the CRT, not Storm's SLogWrite: Storm stamps
-//     every line with "M/D HH:MM:SS.mmm" and keeps no API to turn that off,
-//     and Era's stamp carries the year and the UTC offset
-//     ("5/24/2025 20:40:21.890-5  "). The buffer is flushed once a second, so
-//     a crash loses at most that much;
+//   - the file is written through LogFile, whose stamp is Era's
+//     ("5/24/2025 20:40:21.890-5  ");
 //   - the header line (COMBAT_LOG_VERSION, ADVANCED_LOG_ENABLED, BUILD_VERSION,
 //     PROJECT_ID) starts the file and is written again on every world entry,
 //     as Era writes it after each loading screen. A ZONE_CHANGE follows each
@@ -91,6 +88,7 @@
 #include "Offsets.h"
 #include "cvar/Factory.h"
 #include "combatlog/Encounter.h"
+#include "combatlog/LogFile.h"
 #include "event/EnteringWorld.h"
 #include "event/SignalHook.h"
 #include "guid/Guid.h"
@@ -99,7 +97,6 @@
 #include "object/Resolve.h"
 #include "spell/Lookup.h"
 #include "tick/FrameTick.h"
-#include "time/Clock.h"
 #include "unit/CreatureID.h"
 #include "unit/Identity.h"
 #include "unit/Position.h"
@@ -107,10 +104,8 @@
 
 #include <cstdint>
 #include <cstdio>
-#include <share.h>
 #include <ctime>
 #include <string>
-#include <windows.h>
 
 namespace CombatLog::File {
 
@@ -118,8 +113,6 @@ namespace {
 
 constexpr int kLogVersion = 9;
 constexpr int kProjectId = 2; // WOW_PROJECT_CLASSIC, as Era writes it
-constexpr std::size_t kBufferSize = 0x10000;
-constexpr uint32_t kFlushMs = 1000;
 constexpr int kSpellEffects = 3;
 constexpr int kPowerTypes = 5;
 // 1.12 stores pet happiness as power type 4; the file writes retail's
@@ -148,16 +141,14 @@ constexpr int kSingleUnitTargets[] = {
 constexpr const char *kEnvironmentalNames[] = {"Fatigue", "Drowning", "Falling",
                                                "Lava",    "Slime",    "Fire"};
 
-std::FILE *g_file = nullptr;
-uint32_t g_flushedMs = 0;
+LogFile g_log;
 uint32_t g_session = 0; // files opened this session
+std::string g_fileTime; // the open file's MMDDYY_HHMMSS
 CVar::Factory::Handle g_advancedCvar = nullptr;
 // ADVANCED_LOG_ENABLED of the last header written.
 bool g_headerAdvanced = false;
 
 bool Logging() { return Game::Read<int>(Offsets::VAR_COMBAT_LOGGING) != 0; }
-
-bool Advanced() { return CVar::Factory::GetInt(g_advancedCvar) != 0; }
 
 void RegisterCVars() {
     g_advancedCvar = CVar::Factory::Register(
@@ -167,38 +158,7 @@ void RegisterCVars() {
 
 const Game::ModuleAutoRegister _autoreg{&RegisterCVars};
 
-int64_t Ticks(const FILETIME &t) {
-    return (static_cast<int64_t>(t.dwHighDateTime) << 32) | t.dwLowDateTime;
-}
-
-// Era's stamp: "M/D/YYYY HH:MM:SS.mmm" in local time, the offset from UTC in
-// hours, then two spaces.
-void Stamp(std::string &line) {
-    FILETIME utc, local;
-    SYSTEMTIME t;
-    GetSystemTimeAsFileTime(&utc);
-    if (!FileTimeToLocalFileTime(&utc, &local) || !FileTimeToSystemTime(&local, &t)) {
-        local = utc;
-        FileTimeToSystemTime(&utc, &t);
-    }
-    const int64_t offsetMinutes = (Ticks(local) - Ticks(utc)) / 600000000; // 100 ns units
-    char text[64];
-    int n = std::snprintf(text, sizeof text, "%u/%u/%u %02u:%02u:%02u.%03u", t.wMonth, t.wDay,
-                          t.wYear, t.wHour, t.wMinute, t.wSecond, t.wMilliseconds);
-    if (offsetMinutes % 60 == 0)
-        std::snprintf(text + n, sizeof text - n, "%+d  ", static_cast<int>(offsetMinutes / 60));
-    else
-        std::snprintf(text + n, sizeof text - n, "%+g  ", static_cast<double>(offsetMinutes) / 60);
-    line += text;
-}
-
-void Emit(const std::string &body) {
-    std::string line;
-    Stamp(line);
-    line += body;
-    line += "\r\n";
-    std::fwrite(line.data(), 1, line.size(), g_file);
-}
+void Emit(const std::string &body) { g_log.Emit(body); }
 
 // The zone the last ZONE_CHANGE named.
 int g_zoneMap = -1;
@@ -243,49 +203,32 @@ bool Open() {
     std::tm local{};
     if (localtime_s(&local, &now) != 0)
         return false;
-    CreateDirectoryA("Logs", nullptr); // fails harmlessly when it exists
-    char path[64];
-    std::strftime(path, sizeof path, "Logs\\WoWCombatLog-%m%d%y_%H%M%S.txt", &local);
-    // Shared for reading and writing, as Storm opens its logs: live log
-    // readers tail the file while the game writes it. (fopen_s shares
-    // nothing, which locked every reader out.)
-    g_file = _fsopen(path, "ab", _SH_DENYNO);
-    if (g_file == nullptr)
+    char fileTime[16];
+    std::strftime(fileTime, sizeof fileTime, "%m%d%y_%H%M%S", &local);
+    if (!g_log.Open("WoWCombatLog", fileTime))
         return false;
-    std::setvbuf(g_file, nullptr, _IOFBF, kBufferSize);
-    g_flushedMs = Time::Clock::NowMs();
+    g_fileTime = fileTime;
     ++g_session;
     Header();
     return true;
-}
-
-void Close() {
-    std::fclose(g_file);
-    g_file = nullptr;
 }
 
 // Follows the flag: a new file when it turns on, the file closed when it
 // turns off, and the buffer flushed once a second in between.
 void OnFrame() {
     const bool logging = Logging();
-    if (logging && g_file == nullptr) {
+    if (logging && !g_log.IsOpen())
         Open();
-    } else if (!logging && g_file != nullptr) {
-        Close();
-    } else if (g_file != nullptr) {
-        const uint32_t now = Time::Clock::NowMs();
-        if (Time::Clock::Elapsed(g_flushedMs, now) >= kFlushMs) {
-            std::fflush(g_file);
-            g_flushedMs = now;
-        }
-    }
+    else if (!logging)
+        g_log.Close();
+    g_log.Tick();
 }
 
 const Tick::FrameTick::AutoSubscribe _frame{&OnFrame};
 
 // Era writes the header again after each loading screen.
 void OnEnterWorld() {
-    if (g_file != nullptr)
+    if (g_log.IsOpen())
         Header();
 }
 
@@ -295,7 +238,7 @@ const Event::EnteringWorld::AutoObserve _enterWorld{&OnEnterWorld};
 // ZONE_CHANGE, as in Era's log. The engine fires ZONE_CHANGED_NEW_AREA after
 // storing the zone names; one the last line already named writes nothing.
 bool OnSignal(int eventID) {
-    if (eventID == Offsets::EVENT_ZONE_CHANGED_NEW_AREA && g_file != nullptr &&
+    if (eventID == Offsets::EVENT_ZONE_CHANGED_NEW_AREA && g_log.IsOpen() &&
         (Game::Read<int>(Offsets::VAR_CURRENT_MAP_ID) != g_zoneMap || ZoneName() != g_zoneName))
         ZoneChange();
     return false;
@@ -677,7 +620,7 @@ namespace {
 // logging is on. False while combat logging is off.
 bool Ready() {
     // A line in the frame logging turned on comes before the frame's check.
-    if (!Logging() || (g_file == nullptr && !Open()))
+    if (!Logging() || (!g_log.IsOpen() && !Open()))
         return false;
     // The setting changed since the last header: say so before the line.
     if (Advanced() != g_headerAdvanced)
@@ -703,7 +646,11 @@ void WriteLine(const std::string &body) {
 
 void AppendGuid(std::string &line, uint64_t guid) { GuidPart(line, guid); }
 
-uint32_t Session() { return Logging() && g_file != nullptr ? g_session : 0; }
+uint32_t Session() { return Logging() && g_log.IsOpen() ? g_session : 0; }
+
+const std::string &FileTime() { return g_fileTime; }
+
+bool Advanced() { return CVar::Factory::GetInt(g_advancedCvar) != 0; }
 
 void AppendQuoted(std::string &line, const char *text) {
     if (text == nullptr) {
