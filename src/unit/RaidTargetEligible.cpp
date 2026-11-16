@@ -34,7 +34,6 @@ namespace Unit::RaidTargetEligible {
 
 namespace {
 
-using TokenToGuid_t = uint64_t(__fastcall *)(const char *token);
 using IsPlayerOrPet_t = int(__fastcall *)(const uint64_t *guid);
 using CanCooperate_t = bool(__fastcall *)(const void *self, void *, const void *other);
 
@@ -64,8 +63,7 @@ int __fastcall Script_CanBeRaidTarget(void *L) {
         Game::Lua::Error(L, "Usage: CanBeRaidTarget(\"unit\")");
         return 0;
     }
-    const uint64_t guid = reinterpret_cast<TokenToGuid_t>(Offsets::FUN_TOKEN_TO_GUID)(
-        Game::Lua::ToString(L, 1));
+    const uint64_t guid = ::Unit::Identity::GuidForToken(Game::Lua::ToString(L, 1));
     Game::Lua::PushBool(L, CanBeRaidTarget(guid));
     return 1;
 }

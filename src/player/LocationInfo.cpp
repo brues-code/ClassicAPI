@@ -61,7 +61,6 @@ namespace Player::LocationInfo {
 
 namespace {
 
-using TokenToGuid_t = uint64_t(__fastcall *)(const char *token);
 using GroupLookup_t = void *(__fastcall *)(const uint64_t *guid);
 
 // Reads a string field `t[field]` at table stack index `locIdx` into `out`.
@@ -91,8 +90,7 @@ bool ReadStringField(void *L, int locIdx, const char *field, char *out, int size
 bool LocationGuid(void *L, int locIdx, uint64_t *out) {
     char token[64];
     if (ReadStringField(L, locIdx, "unit", token, sizeof(token))) {
-        auto toGuid = reinterpret_cast<TokenToGuid_t>(Offsets::FUN_TOKEN_TO_GUID);
-        *out = toGuid(token);
+        *out = ::Unit::Identity::GuidForToken(token);
         return *out != 0;
     }
     char guidStr[40];

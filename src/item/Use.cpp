@@ -50,6 +50,7 @@
 #include "Offsets.h"
 #include "item/Location.h"
 #include "item/Use.h"
+#include "unit/Identity.h"
 #include "unit/TokenResolve.h"
 
 #include <cstdint>
@@ -64,7 +65,6 @@ bool UseItem(const uint8_t *item, uint64_t targetGuid) {
 
 namespace {
 
-using TokenToGUID_t = uint64_t(__fastcall *)(const char *token);
 
 uint64_t ResolveUnitGuid(void *L, int idx) {
     if (!Game::Lua::IsString(L, idx))
@@ -77,8 +77,7 @@ uint64_t ResolveUnitGuid(void *L, int idx) {
     // configured. Probe first so an unusable one is simply no target.
     if (!Unit::TokenResolve::IsUnitToken(token))
         return 0;
-    auto fn = reinterpret_cast<TokenToGUID_t>(Offsets::FUN_TOKEN_TO_GUID);
-    return fn(token);
+    return ::Unit::Identity::GuidForToken(token);
 }
 
 int __fastcall Script_C_Item_UseItemByName(void *L) {

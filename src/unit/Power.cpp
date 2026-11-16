@@ -35,6 +35,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "group/MemberStats.h"
+#include "unit/Identity.h"
 #include "unit/Power.h"
 #include "object/Resolve.h"
 
@@ -140,10 +141,8 @@ enum class RosterKind { Current, Max, Missing };
 double RosterPowerFallback(void *L, RosterKind kind) {
     if (!Game::Lua::IsString(L, 1))
         return 0.0;
-    auto tokenToGuid = reinterpret_cast<uint64_t(__fastcall *)(const char *)>(
-        static_cast<uintptr_t>(Offsets::FUN_TOKEN_TO_GUID));
     const Group::MemberStats::Stats s =
-        Group::MemberStats::Lookup(tokenToGuid(Game::Lua::ToString(L, 1)));
+        Group::MemberStats::Lookup(::Unit::Identity::GuidForToken(Game::Lua::ToString(L, 1)));
     if (!s.valid)
         return 0.0;
 

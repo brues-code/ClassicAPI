@@ -22,7 +22,6 @@ namespace Map::Info {
 
 namespace {
 
-using TokenToGUID_t = uint64_t(__fastcall *)(const char *token);
 using GroupMemberStatsLookup_t = const uint8_t *(__fastcall *)(const uint64_t *guid);
 
 // Parse a positive 1-based decimal integer from `s`. Returns -1 if `s`
@@ -140,9 +139,7 @@ static int __fastcall Script_GetBestMapForUnit(void *L) {
         // Use TokenToGUID directly so we get the GUID for tokens like
         // "target" / "mouseover" even when the unit has no local CGUnit
         // (e.g., name-based /target of a party member in another zone).
-        auto fn = reinterpret_cast<TokenToGUID_t>(
-            static_cast<uintptr_t>(Offsets::FUN_TOKEN_TO_GUID));
-        guid = fn(token);
+        guid = ::Unit::Identity::GuidForToken(token);
     }
     if (guid == 0) {
         Game::Lua::PushNil(L);

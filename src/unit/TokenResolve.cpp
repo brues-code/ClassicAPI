@@ -42,6 +42,7 @@
 // either side to notice. One additive predicate composes with all of them
 // and shadows nothing.
 
+#include "unit/Identity.h"
 #include "unit/TokenResolve.h"
 
 #include "Game.h"
@@ -53,7 +54,6 @@ namespace Unit::TokenResolve {
 
 namespace {
 
-using TokenToGuid_t = uint64_t(__fastcall *)(const char *token);
 
 // Body of the protected call: resolve arg 1 and discard the result. Returns
 // no values — the caller only reads the pcall status, since a token that
@@ -61,7 +61,7 @@ using TokenToGuid_t = uint64_t(__fastcall *)(const char *token);
 int __fastcall ProbeThunk(void *L) {
     const char *token = Game::Lua::ToString(L, 1);
     if (token)
-        reinterpret_cast<TokenToGuid_t>(Offsets::FUN_TOKEN_TO_GUID)(token);
+        ::Unit::Identity::GuidForToken(token);
     return 0;
 }
 

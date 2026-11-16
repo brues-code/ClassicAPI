@@ -90,13 +90,11 @@ int __fastcall FocusTargetFieldCb(uint32_t fieldOffset, uint32_t /*size*/, uint3
     return 1;
 }
 
-using TokenToGUID_t = uint64_t(__fastcall *)(const char *token);
 
 uint64_t ResolveTokenGUID(const char *token) {
     if (token == nullptr || *token == '\0')
         return 0;
-    return reinterpret_cast<TokenToGUID_t>(static_cast<uintptr_t>(Offsets::FUN_TOKEN_TO_GUID))(
-        token);
+    return ::Unit::Identity::GuidForToken(token);
 }
 
 // The live CGUnit for `guid`, or null when it isn't in the object table.

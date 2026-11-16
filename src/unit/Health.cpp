@@ -26,6 +26,7 @@
 #include "Offsets.h"
 #include "group/MemberStats.h"
 #include "object/Resolve.h"
+#include "unit/Identity.h"
 
 #include <cstdint>
 
@@ -53,10 +54,8 @@ static int __fastcall Script_UnitHealthMissing(void *L) {
         // HP (same fallback the engine's UnitHealth uses). Reached only after
         // FUN_RESOLVE_UNIT_TOKEN returned null on an already-valid token, so
         // TokenToGUID can't raise.
-        auto tokenToGuid = reinterpret_cast<uint64_t(__fastcall *)(const char *)>(
-            static_cast<uintptr_t>(Offsets::FUN_TOKEN_TO_GUID));
         const Group::MemberStats::Stats s =
-            Group::MemberStats::Lookup(tokenToGuid(Game::Lua::ToString(L, 1)));
+            Group::MemberStats::Lookup(::Unit::Identity::GuidForToken(Game::Lua::ToString(L, 1)));
         const uint32_t missing =
             (s.valid && s.maxHealth > s.health) ? s.maxHealth - s.health : 0u;
         Game::Lua::PushNumber(L, static_cast<double>(missing));

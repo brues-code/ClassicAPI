@@ -160,7 +160,6 @@ uint32_t ReadGuildKey(const uint8_t *unit) {
     return Game::Read<uint32_t>(info, Offsets::OFF_PLAYER_INFO_GUILD_KEY);
 }
 
-using TokenToGUID_t = uint64_t(__fastcall *)(const char *token);
 using PlayerInfoLookup_t = const uint8_t *(__thiscall *)(
     void *cache, uint32_t guidLo, uint32_t guidHi, uint64_t *cookie,
     void *callback, void *userData, int retryFlag);
@@ -266,8 +265,7 @@ int __fastcall Script_UnitIsInMyGuild(void *L) {
     // 2. A unit token — its name, from the engine NameCache.
     const char *nameToFind = input;
     char nameBuf[64];
-    auto toGuid = reinterpret_cast<TokenToGUID_t>(Offsets::FUN_TOKEN_TO_GUID);
-    if (const char *tokenName = NameFromGuid(toGuid(input), nameBuf))
+    if (const char *tokenName = NameFromGuid(::Unit::Identity::GuidForToken(input), nameBuf))
         nameToFind = tokenName;
 
     // 3. The roster, by name.

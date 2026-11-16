@@ -395,8 +395,7 @@ static int __fastcall Script_GameTooltipIsUnit(void *L) {
     const char *token = Game::Lua::ToString(L, 2);
     uint64_t guid = 0;
     if (Unit::TokenResolve::IsUnitToken(token)) {
-        using TokenToGUID_t = uint64_t(__fastcall *)(const char *token);
-        guid = reinterpret_cast<TokenToGUID_t>(Offsets::FUN_TOKEN_TO_GUID)(token);
+        guid = ::Unit::Identity::GuidForToken(token);
     }
 
     const auto *base = static_cast<const uint8_t *>(tooltipObj);

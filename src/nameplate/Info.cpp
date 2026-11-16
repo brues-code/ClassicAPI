@@ -39,6 +39,7 @@
 #include "guid/Guid.h"
 #include "nameplate/Walk.h"
 #include "object/Resolve.h"
+#include "unit/Identity.h"
 
 #include <cstdint>
 
@@ -48,7 +49,6 @@ namespace {
 
 using NamePlate::Walk::ForEachNamePlatedUnit;
 
-using TokenToGUID_t = uint64_t(__fastcall *)(const char *token);
 
 } // namespace
 
@@ -135,9 +135,7 @@ static int __fastcall Script_GetNamePlateForUnit(void *L) {
         Game::Lua::PushNil(L);
         return 1;
     }
-    auto tokenToGuid = reinterpret_cast<TokenToGUID_t>(
-        static_cast<uintptr_t>(Offsets::FUN_TOKEN_TO_GUID));
-    PushNamePlateForGUID(L, tokenToGuid(token));
+    PushNamePlateForGUID(L, ::Unit::Identity::GuidForToken(token));
     return 1;
 }
 

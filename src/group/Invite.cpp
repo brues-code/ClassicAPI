@@ -48,7 +48,6 @@ namespace Group::Invite {
 
 namespace {
 
-using TokenToGuid_t = uint64_t(__fastcall *)(const char *token);
 using SendName_t = void(__thiscall *)(const void *player, const char *name);
 using SendGuid_t = void(__thiscall *)(const void *player, uint32_t guidLo, uint32_t guidHi);
 using DisplayError_t = void(__cdecl *)(int id, ...);
@@ -60,7 +59,7 @@ constexpr int kPromoteMatchMode = 2;
 constexpr size_t kMaxInviteName = 48;
 
 uint64_t TokenGuid(const char *token) {
-    return reinterpret_cast<TokenToGuid_t>(Offsets::FUN_TOKEN_TO_GUID)(token);
+    return ::Unit::Identity::GuidForToken(token);
 }
 
 void SendGuid(uintptr_t sender, const uint8_t *player, uint64_t guid) {
