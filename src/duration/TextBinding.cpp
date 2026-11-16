@@ -47,6 +47,7 @@
 // GetFormattedTextColor).
 
 #include "Game.h"
+#include "lua/Boxed.h"
 #include "Offsets.h"
 #include "duration/Object.h"
 #include "frame/RegionDestruction.h"
@@ -270,31 +271,13 @@ const Frame::RegionDestruction::AutoSubscribe _destructionSub{&OnRegionDestroyed
 
 constexpr const char *kMetatableKey = "ClassicAPI.DurationTextBinding";
 
-void PushMetatable(void *L) {
-    Lua::PushString(L, kMetatableKey);
-    Lua::RawGet(L, Lua::REGISTRY_INDEX);
-}
-
-int AbsIndex(void *L, int idx) { return idx > 0 ? idx : Lua::GetTop(L) + idx + 1; }
-
 Binding *ToBinding(void *L, int idx) {
-    if (Lua::Type(L, idx) != Lua::TYPE_USERDATA)
-        return nullptr;
-    idx = AbsIndex(L, idx);
-    if (!Lua::GetMetatable(L, idx))
-        return nullptr;
-    PushMetatable(L);
-    const bool ours = Lua::ToPointer(L, -1) == Lua::ToPointer(L, -2);
-    Lua::SetTop(L, -3);
-    return ours ? *static_cast<Binding **>(Lua::ToUserdata(L, idx)) : nullptr;
+    return static_cast<Binding *>(Lua::Boxed::To(L, idx, kMetatableKey));
 }
 
 void Push(void *L, Binding *b) {
-    auto **block = static_cast<Binding **>(Lua::NewUserdata(L, sizeof(Binding *)));
-    *block = b;
     Retain(b);
-    PushMetatable(L);
-    Lua::SetMetatable(L, -2);
+    Lua::Boxed::Push(L, kMetatableKey, b);
 }
 
 void Usage(void *L, int arg, const char *usage) { Lua::Error(L, "bad argument #%d to '?' (Usage: %s)", arg, usage); }
@@ -698,10 +681,7 @@ int __fastcall Script_CreateDurationTextBinding(void *L) {
     return 1;
 }
 
-struct Method {
-    const char *name;
-    Lua::CFunction fn;
-};
+using Lua::Boxed::Method;
 const Method kMethods[] = {
     {"Assign", &Script_Assign},
     {"CanFormatText", &Script_CanFormatText},
@@ -731,32 +711,9 @@ const Method kMethods[] = {
     {"UpdateFontString", &Script_UpdateFontString},
 };
 
-void SetFunction(void *L, const char *key, Lua::CFunction fn) {
-    Lua::PushString(L, key);
-    Lua::PushCClosure(L, fn, 0);
-    Lua::SetTable(L, -3);
-}
-
 // registry[kMetatableKey] = {__index = methods, __gc, __tostring, __metatable = false}
 void CreateMetatable(void *L) {
-    PushMetatable(L);
-    const bool exists = Lua::Type(L, -1) == Lua::TYPE_TABLE;
-    Lua::SetTop(L, -2);
-    if (exists)
-        return;
-    Lua::PushString(L, kMetatableKey);
-    Lua::NewTable(L);
-    Lua::PushString(L, "__index");
-    Lua::NewTable(L);
-    for (const Method &m : kMethods)
-        SetFunction(L, m.name, m.fn);
-    Lua::SetTable(L, -3);
-    SetFunction(L, "__gc", &Meta_gc);
-    SetFunction(L, "__tostring", &Meta_tostring);
-    Lua::PushString(L, "__metatable");
-    Lua::PushBool(L, false);
-    Lua::SetTable(L, -3);
-    Lua::RawSet(L, Lua::REGISTRY_INDEX);
+    Lua::Boxed::CreateMetatable(L, kMetatableKey, kMethods, &Meta_gc, &Meta_tostring);
 }
 
 const Lua::EnumIntegerEntry kProperties[] = {

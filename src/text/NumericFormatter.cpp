@@ -47,6 +47,7 @@
 #include "text/NumericFormatter.h"
 
 #include "Game.h"
+#include "lua/Boxed.h"
 #include "Offsets.h"
 
 #include <algorithm>
@@ -106,11 +107,6 @@ constexpr const char *kMetatableKey = "ClassicAPI.NumericRuleFormatter";
 // closure on each push.
 constexpr const char *kFormatKey = "ClassicAPI.NumericRuleFormatter.format";
 
-void PushMetatable(void *L) {
-    Lua::PushString(L, kMetatableKey);
-    Lua::RawGet(L, Lua::REGISTRY_INDEX);
-}
-
 void PushFormat(void *L) {
     Lua::PushString(L, kFormatKey);
     Lua::RawGet(L, Lua::REGISTRY_INDEX);
@@ -151,8 +147,6 @@ double Apply(const Component &c, double v) {
         v = std::fmod(v, c.mod);
     return Snap(v, c.step, c.rounding);
 }
-
-int AbsIndex(void *L, int idx) { return idx > 0 ? idx : Lua::GetTop(L) + idx + 1; }
 
 // ---- reading breakpoints ------------------------------------------------------
 
@@ -439,42 +433,16 @@ int __fastcall Script_CreateNumericRuleFormatter(void *L) {
     return 1;
 }
 
-struct Method {
-    const char *name;
-    Lua::CFunction fn;
-};
+using Lua::Boxed::Method;
 const Method kMethods[] = {
     {"AddBreakpoint", &Script_AddBreakpoint},     {"SetBreakpoints", &Script_SetBreakpoints},
     {"GetBreakpoints", &Script_GetBreakpoints},   {"ClearBreakpoints", &Script_ClearBreakpoints},
     {"Copy", &Script_Copy},                       {"FormatNumber", &Script_FormatNumber},
 };
 
-void SetFunction(void *L, const char *key, Lua::CFunction fn) {
-    Lua::PushString(L, key);
-    Lua::PushCClosure(L, fn, 0);
-    Lua::SetTable(L, -3);
-}
-
 // registry[kMetatableKey] = {__index = methods, __gc, __tostring, __metatable = false}
 void CreateMetatable(void *L) {
-    PushMetatable(L);
-    const bool exists = Lua::Type(L, -1) == Lua::TYPE_TABLE;
-    Lua::SetTop(L, -2);
-    if (exists)
-        return;
-    Lua::PushString(L, kMetatableKey);
-    Lua::NewTable(L);
-    Lua::PushString(L, "__index");
-    Lua::NewTable(L);
-    for (const Method &m : kMethods)
-        SetFunction(L, m.name, m.fn);
-    Lua::SetTable(L, -3);
-    SetFunction(L, "__gc", &Meta_gc);
-    SetFunction(L, "__tostring", &Meta_tostring);
-    Lua::PushString(L, "__metatable");
-    Lua::PushBool(L, false);
-    Lua::SetTable(L, -3);
-    Lua::RawSet(L, Lua::REGISTRY_INDEX);
+    Lua::Boxed::CreateMetatable(L, kMetatableKey, kMethods, &Meta_gc, &Meta_tostring);
     Lua::PushString(L, kFormatKey);
     Lua::PushCClosure(L, reinterpret_cast<Lua::CFunction>(Offsets::FUN_LUA_STR_FORMAT), 0);
     Lua::RawSet(L, Lua::REGISTRY_INDEX);
@@ -529,23 +497,12 @@ const Game::GlueModuleAutoRegister _autoregGlue{&RegisterLuaFunctions};
 } // namespace
 
 Formatter *ToFormatter(void *L, int idx) {
-    if (Lua::Type(L, idx) != Lua::TYPE_USERDATA)
-        return nullptr;
-    idx = AbsIndex(L, idx);
-    if (!Lua::GetMetatable(L, idx))
-        return nullptr;
-    PushMetatable(L);
-    const bool ours = Lua::ToPointer(L, -1) == Lua::ToPointer(L, -2);
-    Lua::SetTop(L, -3);
-    return ours ? *static_cast<Formatter **>(Lua::ToUserdata(L, idx)) : nullptr;
+    return static_cast<Formatter *>(Lua::Boxed::To(L, idx, kMetatableKey));
 }
 
 void Push(void *L, Formatter *f) {
-    auto **block = static_cast<Formatter **>(Lua::NewUserdata(L, sizeof(Formatter *)));
-    *block = f;
     Retain(f);
-    PushMetatable(L);
-    Lua::SetMetatable(L, -2);
+    Lua::Boxed::Push(L, kMetatableKey, f);
 }
 
 // No addon code can run while this reads `f`: 1.12 has no newproxy, so the

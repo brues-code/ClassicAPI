@@ -42,6 +42,7 @@
 #include "duration/Object.h"
 
 #include "Game.h"
+#include "lua/Boxed.h"
 #include "text/NumericFormatter.h"
 #include "time/Clock.h"
 
@@ -75,13 +76,6 @@ enum Modifier : int {
 };
 
 constexpr const char *kMetatableKey = "ClassicAPI.LuaDurationObject";
-
-void PushMetatable(void *L) {
-    Lua::PushString(L, kMetatableKey);
-    Lua::RawGet(L, Lua::REGISTRY_INDEX);
-}
-
-int AbsIndex(void *L, int idx) { return idx > 0 ? idx : Lua::GetTop(L) + idx + 1; }
 
 double Total(const Span &s, int m) { return m == MODIFIER_BASE_TIME ? s.total / s.modRate : s.total; }
 
@@ -376,10 +370,7 @@ int __fastcall Script_CreateDuration(void *L) {
     return 1;
 }
 
-struct Method {
-    const char *name;
-    Lua::CFunction fn;
-};
+using Lua::Boxed::Method;
 const Method kMethods[] = {
     {"Assign", &Script_Assign},
     {"Copy", &Script_Copy},
@@ -408,32 +399,9 @@ const Method kMethods[] = {
     {"SetToDefaults", &Script_SetToDefaults},
 };
 
-void SetFunction(void *L, const char *key, Lua::CFunction fn) {
-    Lua::PushString(L, key);
-    Lua::PushCClosure(L, fn, 0);
-    Lua::SetTable(L, -3);
-}
-
 // registry[kMetatableKey] = {__index = methods, __gc, __tostring, __metatable = false}
 void CreateMetatable(void *L) {
-    PushMetatable(L);
-    const bool exists = Lua::Type(L, -1) == Lua::TYPE_TABLE;
-    Lua::SetTop(L, -2);
-    if (exists)
-        return;
-    Lua::PushString(L, kMetatableKey);
-    Lua::NewTable(L);
-    Lua::PushString(L, "__index");
-    Lua::NewTable(L);
-    for (const Method &m : kMethods)
-        SetFunction(L, m.name, m.fn);
-    Lua::SetTable(L, -3);
-    SetFunction(L, "__gc", &Meta_gc);
-    SetFunction(L, "__tostring", &Meta_tostring);
-    Lua::PushString(L, "__metatable");
-    Lua::PushBool(L, false);
-    Lua::SetTable(L, -3);
-    Lua::RawSet(L, Lua::REGISTRY_INDEX);
+    Lua::Boxed::CreateMetatable(L, kMetatableKey, kMethods, &Meta_gc, &Meta_tostring);
 }
 
 const Lua::EnumIntegerEntry kModifiers[] = {
@@ -459,23 +427,12 @@ const Game::GlueModuleAutoRegister _autoregGlue{&RegisterLuaFunctions};
 } // namespace
 
 Span *ToSpan(void *L, int idx) {
-    if (Lua::Type(L, idx) != Lua::TYPE_USERDATA)
-        return nullptr;
-    idx = AbsIndex(L, idx);
-    if (!Lua::GetMetatable(L, idx))
-        return nullptr;
-    PushMetatable(L);
-    const bool ours = Lua::ToPointer(L, -1) == Lua::ToPointer(L, -2);
-    Lua::SetTop(L, -3);
-    return ours ? *static_cast<Span **>(Lua::ToUserdata(L, idx)) : nullptr;
+    return static_cast<Span *>(Lua::Boxed::To(L, idx, kMetatableKey));
 }
 
 void Push(void *L, Span *s) {
-    auto **block = static_cast<Span **>(Lua::NewUserdata(L, sizeof(Span *)));
-    *block = s;
     Retain(s);
-    PushMetatable(L);
-    Lua::SetMetatable(L, -2);
+    Lua::Boxed::Push(L, kMetatableKey, s);
 }
 
 void PushFromStart(void *L, double startSec, double totalSec) {
