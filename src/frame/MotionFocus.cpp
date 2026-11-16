@@ -51,7 +51,6 @@
 #include "baselib/Ascii.h"
 #include "frame/Destruction.h"
 #include "frame/MouseInput.h"
-#include "ui/FrameObject.h"
 #include "xml/FrameLoad.h"
 
 #include <algorithm>
@@ -333,7 +332,7 @@ int __fastcall Script_GetMouseFoci(void *L) {
     Sync(ctx);
     for (size_t i = 0; i < g_list.size(); ++i) {
         Game::Lua::PushNumber(L, static_cast<double>(i + 1));
-        UI::FrameObject::Push(L, g_list[i]);
+        Game::Lua::PushObject(L, g_list[i]);
         Game::Lua::RawSet(L, 1);
     }
     return 1;

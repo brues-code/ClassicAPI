@@ -20,9 +20,8 @@
 // lazily on first push. Both end at `rawgeti(REGISTRY, frame + 0x08)`,
 // the engine's canonical wrapper, so identity is stable across calls
 // and addon fields set on it (pfUI's `plate.nameplate`) survive every
-// roundtrip. `UI::FrameObject::Push` owns that — see its note for the
-// pfUI-divergence story that motivated delegating to the engine, and
-// for the CObject refcount `ScriptRegister` bumps.
+// roundtrip. `Game::Lua::PushObject` owns that, as the engine's own
+// pushers do; its note covers the CObject refcount `ScriptRegister` bumps.
 //
 // `C_NamePlate.GetNamePlateGUIDs()` — companion returning the GUID
 // strings of the same set of units. Cheapest enumeration when an addon
@@ -40,7 +39,6 @@
 #include "guid/Guid.h"
 #include "nameplate/Walk.h"
 #include "object/Resolve.h"
-#include "ui/FrameObject.h"
 
 #include <cstdint>
 
@@ -88,13 +86,11 @@ static int __fastcall Script_GetNamePlateGUIDs(void *L) {
 // frame-push path. Internal callers (Script_GetNamePlates etc.) call
 // it through the unqualified name (they live in the same namespace).
 //
-// Thin wrapper over the shared `UI::FrameObject::Push` — nameplates and
-// chat bubbles are both engine-created-in-C++ `CSimpleFrame`s that need
-// the same lazy `ScriptRegister` → `rawgeti` push so addons get the
-// engine's canonical wrapper (see that helper for the pfUI-divergence
-// rationale that motivated delegating to the engine).
+// Nameplates and chat bubbles are both engine-created-in-C++
+// `CSimpleFrame`s; `Game::Lua::PushObject` gives them the engine's
+// canonical wrapper.
 void PushNamePlateFrame(void *L, void *nameplate) {
-    UI::FrameObject::Push(L, nameplate);
+    Game::Lua::PushObject(L, nameplate);
 }
 
 // GUID → nameplate Frame pushed on stack. Pushes nil if the GUID

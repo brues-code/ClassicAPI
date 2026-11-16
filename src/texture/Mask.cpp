@@ -64,7 +64,6 @@
 #include "texture/Load.h"
 #include "texture/Mask.h"
 #include "texture/Transform.h"
-#include "ui/FrameObject.h"
 #include "xml/FrameLoad.h"
 #include "xml/TypeLoad.h"
 
@@ -521,7 +520,7 @@ int __fastcall Script_GetMaskTexture(void *L) {
     if (base != nullptr && index >= 1) {
         auto it = g_baseMasks.find(base);
         if (it != g_baseMasks.end() && static_cast<size_t>(index) <= it->second.size()) {
-            UI::FrameObject::Push(L, it->second[index - 1]);
+            Game::Lua::PushObject(L, it->second[index - 1]);
             return 1;
         }
     }

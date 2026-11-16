@@ -19,10 +19,9 @@
 // Vanilla 1.12 chat bubbles are `CGChatBubbleFrame`s — full
 // `CSimpleFrame`s created purely in C++ (never via `CreateFrame`), so
 // they have no name and no Lua wrapper until something pushes them. This
-// is exactly the default-nameplate case: we push each via the shared
-// `UI::FrameObject::Push`, which delegates to the engine's own
-// `FrameScript_Object::ScriptRegister` to lazily build the canonical
-// wrapper. The returned frames respond to real frame methods — the
+// is exactly the default-nameplate case: we push each via
+// `Game::Lua::PushObject`, which, as the engine does, lets
+// `FrameScript_Object::ScriptRegister` lazily build the canonical wrapper. The returned frames respond to real frame methods — the
 // FontString holding the spoken text (bubble + 0x31c, created with the
 // bubble as its parent) shows up in `bubble:GetRegions()`, so the modern
 // "iterate GetRegions, find the FontString, read GetText()" idiom works
@@ -42,7 +41,6 @@
 
 #include "Game.h"
 #include "Offsets.h"
-#include "ui/FrameObject.h"
 
 #include <cstdint>
 
@@ -56,7 +54,7 @@ static int __fastcall Script_GetAllChatBubbles(void *L) {
     int nextIndex = 1;
     while (node != 0 && (node & 1) == 0) {
         Game::Lua::PushNumber(L, static_cast<double>(nextIndex++));
-        UI::FrameObject::Push(L, reinterpret_cast<void *>(node));
+        Game::Lua::PushObject(L, reinterpret_cast<void *>(node));
         Game::Lua::SetTable(L, -3);
         node = *reinterpret_cast<const uintptr_t *>(node + Offsets::OFF_CHAT_BUBBLE_LINK_NEXT);
     }

@@ -461,7 +461,13 @@ void *ResolveObject(void *L, int idx);
 // the engine does it (GetMouseFocus and the script runners register an
 // object with FUN_FRAMESCRIPT_OBJECT_SCRIPT_REGISTER when its refcount is 0).
 int ObjectLuaRef(void *object);
-// Pushes the object's Lua table (registry[ObjectLuaRef(object)]).
+// Pushes the object's Lua table (registry[ObjectLuaRef(object)]), as the
+// engine's own pushers do (GetRegions 0x0077404C). Every path that pushes an
+// object gets that one table, so fields an addon sets on it survive (pfUI's
+// `plate.nameplate`). A frame the engine built in C++ without CreateFrame
+// (nameplates, chat bubbles) gets its table on the first push.
+// ScriptRegister bumps the refcount, which pins the object against GC: benign
+// for those pooled, permanent frames.
 void PushObject(void *L, void *object);
 
 // The object's global name (VTBL_SCRIPTOBJECT_GET_NAME), or nullptr when it

@@ -22,7 +22,7 @@
 // walks), then walk the chain the same way `Frame::RegisterEvent`
 // (`FUN_00702140`) does — node next at `+0x04`, subscriber frame at
 // `+0x08`, with a low-bit-set / null value marking the end sentinel — and
-// push each frame via the shared `UI::FrameObject::Push` so callers get
+// push each frame via `Game::Lua::PushObject` so callers get
 // the canonical wrapper table (real frame methods, `:GetName()`, etc.).
 //
 // Event names resolve through `Event::Custom::LookupByName`, so this also
@@ -31,7 +31,6 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "event/Custom.h"
-#include "ui/FrameObject.h"
 
 #include <cstdint>
 
@@ -75,7 +74,7 @@ int __fastcall Script_GetFramesRegisteredForEvent(void *L) {
          node = Game::Read<uintptr_t>(node + Offsets::OFF_EVENT_NODE_NEXT)) {
         void *frame = Game::Read<void *>(node + Offsets::OFF_EVENT_NODE_FRAME);
         if (frame != nullptr) {
-            UI::FrameObject::Push(L, frame);
+            Game::Lua::PushObject(L, frame);
             ++pushed;
         }
     }
