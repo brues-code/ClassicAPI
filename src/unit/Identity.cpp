@@ -135,6 +135,21 @@ const uint8_t *PlayerDescriptor() {
     return Object::Fields(player);
 }
 
+uint8_t Race(const uint8_t *fields) {
+    return fields != nullptr ? Game::Read<uint8_t>(fields, Offsets::OFF_UNIT_DESCRIPTOR_RACE_BYTE)
+                             : 0;
+}
+
+uint8_t Class(const uint8_t *fields) {
+    return fields != nullptr ? Game::Read<uint8_t>(fields, Offsets::OFF_UNIT_DESCRIPTOR_CLASS_BYTE)
+                             : 0;
+}
+
+uint8_t Sex(const uint8_t *fields) {
+    return fields != nullptr ? Game::Read<uint8_t>(fields, Offsets::OFF_UNIT_DESCRIPTOR_SEX_BYTE)
+                             : 0;
+}
+
 
 uint64_t OwnerGuid(const void *unitObject) {
     if (unitObject == nullptr)

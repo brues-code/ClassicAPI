@@ -108,7 +108,7 @@ const uint8_t *ResolveUnit(uint64_t guid) {
 // Reads a UNIT_FIELD_BYTES_0 byte: the login-time mirror global when `guid` is
 // the local player (works before the descriptor spawns), otherwise the
 // resolved unit's descriptor byte. Returns -1 when the unit isn't resident.
-int UnitByte(uint64_t guid, uintptr_t playerMirror, uint32_t descByteOffset) {
+int UnitByte(uint64_t guid, uintptr_t playerMirror, uint8_t (*fromFields)(const uint8_t *)) {
     if (guid == Unit::Identity::PlayerGuid())
         return *reinterpret_cast<const uint8_t *>(playerMirror);
     const uint8_t *unit = ResolveUnit(guid);
@@ -117,7 +117,7 @@ int UnitByte(uint64_t guid, uintptr_t playerMirror, uint32_t descByteOffset) {
     auto *desc = Object::Fields(unit);
     if (desc == nullptr)
         return -1;
-    return *reinterpret_cast<const uint8_t *>(desc + descByteOffset);
+    return fromFields(desc);
 }
 
 int __fastcall Script_GetName(void *L) {
@@ -138,8 +138,7 @@ int __fastcall Script_GetRace(void *L) {
     uint64_t guid = 0;
     if (!LocationGuid(L, 1, &guid))
         return 0;
-    const int raceID = UnitByte(guid, Offsets::VAR_PLAYER_RACE_BYTE,
-                                Offsets::OFF_UNIT_DESCRIPTOR_RACE_BYTE);
+    const int raceID = UnitByte(guid, Offsets::VAR_PLAYER_RACE_BYTE, &Unit::Identity::Race);
     if (raceID <= 0)
         return 0;
     Game::Lua::PushNumber(L, static_cast<double>(raceID));
@@ -150,8 +149,7 @@ int __fastcall Script_GetClass(void *L) {
     uint64_t guid = 0;
     if (!LocationGuid(L, 1, &guid))
         return 0;
-    const int classID = UnitByte(guid, Offsets::VAR_PLAYER_CLASS_BYTE,
-                                 Offsets::OFF_UNIT_DESCRIPTOR_CLASS_BYTE);
+    const int classID = UnitByte(guid, Offsets::VAR_PLAYER_CLASS_BYTE, &Unit::Identity::Class);
     if (classID <= 0)
         return 0;
     // className / classFile from ChrClasses.dbc — same reads as
@@ -171,8 +169,7 @@ int __fastcall Script_GetSex(void *L) {
     uint64_t guid = 0;
     if (!LocationGuid(L, 1, &guid))
         return 0;
-    const int gender = UnitByte(guid, Offsets::VAR_PLAYER_SEX_BYTE,
-                                Offsets::OFF_UNIT_DESCRIPTOR_SEX_BYTE);
+    const int gender = UnitByte(guid, Offsets::VAR_PLAYER_SEX_BYTE, &Unit::Identity::Sex);
     if (gender < 0)
         return 0;
     // UNIT_FIELD_BYTES_0 stores 0 = male / 1 = female; the API (and UnitSex)

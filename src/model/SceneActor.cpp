@@ -493,7 +493,7 @@ bool Actor::SetUnitModel(uint64_t guid) {
     const auto *descriptor = ::Object::Fields(unit);
     // PostInit (0x005FB880): the race's splash.
     if (const uint8_t *race = DBC::Record(Offsets::VAR_CHRRACES_RECORDS, Offsets::VAR_CHRRACES_COUNT,
-                                          Game::Read<uint8_t>(descriptor, Offsets::OFF_UNIT_DESCRIPTOR_RACE_BYTE)))
+                                          Unit::Identity::Race(descriptor)))
         splashSound = Game::Read<int32_t>(race, Offsets::OFF_CHRRACES_SPLASH_SOUND);
     armorReady = Game::Read<uint32_t>(descriptor, Offsets::OFF_UNIT_FIELD_DISPLAYID) ==
                  Game::Read<uint32_t>(descriptor, Offsets::OFF_UNIT_FIELD_NATIVEDISPLAYID);

@@ -124,8 +124,8 @@ bool Build(int spellID, char *buf, size_t size) {
     const uint8_t *desc = Unit::Identity::PlayerDescriptor();
     if (desc == nullptr)
         return false;
-    const uint32_t race = desc[Offsets::OFF_UNIT_DESCRIPTOR_RACE_BYTE];
-    const uint32_t classId = desc[Offsets::OFF_UNIT_DESCRIPTOR_CLASS_BYTE];
+    const uint32_t race = Unit::Identity::Race(desc);
+    const uint32_t classId = Unit::Identity::Class(desc);
     const uint8_t *ability =
         Spell::SkillLine::AbilityFor(race, classId, static_cast<uint32_t>(spellID));
     if (ability == nullptr)

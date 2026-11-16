@@ -245,8 +245,8 @@ int __fastcall Script_GetCurrentLevelSpells(void *L) {
     if (desc == nullptr)
         return 1;
 
-    const uint8_t classByte = *(desc + Offsets::OFF_UNIT_DESCRIPTOR_CLASS_BYTE);
-    const uint8_t raceByte = *(desc + Offsets::OFF_UNIT_DESCRIPTOR_RACE_BYTE);
+    const uint8_t classByte = Unit::Identity::Class(desc);
+    const uint8_t raceByte = Unit::Identity::Race(desc);
     const int32_t playerLevel = Game::Read<int32_t>(
         desc, Offsets::OFF_UNIT_FIELD_LEVEL);
     if (classByte == 0 || raceByte == 0 || playerLevel <= 0)

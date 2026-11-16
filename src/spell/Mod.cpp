@@ -30,7 +30,7 @@ uint32_t PlayerSpellFamily() {
     const uint8_t *desc = Unit::Identity::PlayerDescriptor();
     if (desc == nullptr)
         return 0;
-    const uint8_t classByte = *(desc + Offsets::OFF_UNIT_DESCRIPTOR_CLASS_BYTE);
+    const uint8_t classByte = Unit::Identity::Class(desc);
     const uint8_t *cls = DBC::Record(Offsets::VAR_CHRCLASSES_RECORDS,
                                      Offsets::VAR_CHRCLASSES_COUNT, classByte);
     if (cls == nullptr)

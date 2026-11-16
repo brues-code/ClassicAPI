@@ -44,6 +44,13 @@ const uint8_t *PlayerObject();
 // re-deriving the player object + descriptor offset in each module.
 const uint8_t *PlayerDescriptor();
 
+// A unit's race, class and sex (UNIT_FIELD_BYTES_0 bytes 0, 1 and 2) from its
+// descriptor block (`Object::Fields`), or 0 for a null block. Sex is 0 male,
+// 1 female.
+uint8_t Race(const uint8_t *fields);
+uint8_t Class(const uint8_t *fields);
+uint8_t Sex(const uint8_t *fields);
+
 // The local player's inventory manager (`PlayerObject() +
 // OFF_PLAYER_INVENTORY_MANAGER`), or null. Layout: slot count at `+0x00`,
 // flat GUID array at `+OFF_INVMGR_GUID_ARRAY`; it's the `this` that

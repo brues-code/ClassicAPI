@@ -50,9 +50,7 @@ int __fastcall Script_UnitRaceBase(void *L) {
         raceByte = Game::Read<uint8_t>(Offsets::VAR_PLAYER_RACE_BYTE);
     } else if (auto *unit =
                    static_cast<const uint8_t *>(Game::ResolveUnitToken(token))) {
-        auto *desc = Object::Fields(unit);
-        if (desc != nullptr)
-            raceByte = *(desc + Offsets::OFF_UNIT_DESCRIPTOR_RACE_BYTE);
+        raceByte = Unit::Identity::Race(Object::Fields(unit));
     } else {
         // No object held: the NameCache, as UnitRace does. `token` already
         // passed the resolver, so GuidForToken won't raise.

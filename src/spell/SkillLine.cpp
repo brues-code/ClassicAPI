@@ -34,8 +34,8 @@ void ReadPlayerClassRace(uint8_t *outClassByte, uint8_t *outRaceByte) {
     const uint8_t *desc = Unit::Identity::PlayerDescriptor();
     if (desc == nullptr)
         return;
-    *outClassByte = *(desc + Offsets::OFF_UNIT_DESCRIPTOR_CLASS_BYTE);
-    *outRaceByte = *(desc + Offsets::OFF_UNIT_DESCRIPTOR_RACE_BYTE);
+    *outClassByte = Unit::Identity::Class(desc);
+    *outRaceByte = Unit::Identity::Race(desc);
 }
 
 // Walks SkillLineAbility.dbc looking for rows with `spellID`. Returns
@@ -315,9 +315,7 @@ const uint8_t *AbilityFor(uint32_t race, uint32_t classId, uint32_t spellID) {
 const uint8_t *AbilityForUnit(const uint8_t *fields, uint32_t spellID) {
     if (fields == nullptr)
         return nullptr;
-    return AbilityFor(Game::Read<uint8_t>(fields, Offsets::OFF_UNIT_DESCRIPTOR_RACE_BYTE),
-                      Game::Read<uint8_t>(fields, Offsets::OFF_UNIT_DESCRIPTOR_CLASS_BYTE),
-                      spellID);
+    return AbilityFor(Unit::Identity::Race(fields), Unit::Identity::Class(fields), spellID);
 }
 
 } // namespace Spell::SkillLine
