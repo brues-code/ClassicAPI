@@ -144,6 +144,15 @@ void WriteLook(uint64_t guid, void *unit, const Look &look) {
     for (const float v : position)
         AppendFixed(line, v, 2);
     AppendFixed(line, ::Unit::Position::Facing(unit), 4);
+    // The speeds the client moves the unit at (CMovement::GetCurrentSpeed
+    // picks one by its movement flags): walk, run, run back, swim, swim back.
+    // Changes after this come as UNIT_SPEED lines.
+    const auto *mover = Game::Read<const uint8_t *>(unit, Offsets::OFF_UNIT_MOVEMENT_INFO_PTR);
+    for (const uintptr_t offset :
+         {Offsets::OFF_MOVEMENT_WALK_SPEED, Offsets::OFF_MOVEMENT_RUN_SPEED,
+          Offsets::OFF_MOVEMENT_RUN_BACK_SPEED, Offsets::OFF_MOVEMENT_SWIM_SPEED,
+          Offsets::OFF_MOVEMENT_SWIM_BACK_SPEED})
+        AppendFixed(line, mover != nullptr ? Game::Read<float>(mover, offset) : 0.0f, 4);
     AppendUnsigned(line, look.display);
     AppendUnsigned(line, look.nativeDisplay);
     AppendUnsigned(line, look.mountDisplay);

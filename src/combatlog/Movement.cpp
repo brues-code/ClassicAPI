@@ -27,13 +27,18 @@
 // Lines (positions with two decimals, angles and speeds with four):
 //   MOVEMENT_LOG_VERSION,1,BUILD_VERSION,<version>,MAP_ID,<map>
 //     on open and after each loading screen;
-//   UNIT_MOVE,unitGUID,event,flags,x,y,z,facing,pitch,fallTime,
+//   UNIT_MOVE,unitGUID,event,flags,time,x,y,z,facing,pitch,fallTime,
 //     jumpVelocity,jumpCos,jumpSin,jumpSpeed
 //     a player's move: the 30 relayed MSG_MOVE_* the server forwards (event
 //     is the opcode's name without MSG_MOVE_: START_FORWARD, HEARTBEAT, ...),
 //     the player's own sends of the same opcodes, and TELEPORT_ACK, the
-//     server moving the player. flags are the mover's movement flags; pitch
-//     is 0 unless swimming, the jump four 0 unless the 0x2000 flag is set;
+//     server moving the player. flags are the mover's movement flags; time
+//     is the status's clock in milliseconds: on a relayed move the server's
+//     when it got the mover's message (tortoise MovementHandler.cpp
+//     UpdateTime(GetPacketTime())), on the player's own the client's. The
+//     server sends relayed moves in batches, so two sent 500 ms apart can
+//     arrive 1 ms apart: the clock, not the stamp, spaces them. pitch is 0
+//     unless swimming, the jump four 0 unless the 0x2000 flag is set;
 //   UNIT_SPEED,unitGUID,type,speed
 //     type WALK, RUN, RUN_BACK, SWIM, SWIM_BACK or TURN_RATE, in yards (or
 //     radians) a second;
@@ -44,10 +49,12 @@
 //     absolute, transport-relative when transportGUID is not 0. facingType
 //     is the server's 0 (none), 2 (a point), 3 (a unit) or 4 (an angle);
 //   MONSTER_STOP,unitGUID,transportGUID,splineID,x,y,z;
-//   UNIT_INFO,unitGUID,x,y,z,facing,displayID,nativeDisplayID,
-//     mountDisplayID,scale,bytes1,bytes2,heldDisplay1..3,heldInfo1..6
+//   UNIT_INFO,unitGUID,x,y,z,facing,walkSpeed,runSpeed,runBackSpeed,
+//     swimSpeed,swimBackSpeed,displayID,nativeDisplayID,mountDisplayID,scale,
+//     bytes1,bytes2,heldDisplay1..3,heldInfo1..6
 //     what a unit looks like, and where it is, when it comes into view and
-//     each time its look changes (UnitInfo.cpp): bytes1 and bytes2 are
+//     each time its look changes (UnitInfo.cpp): the speeds are the ones
+//     the client moves it at, which UNIT_SPEED changes; bytes1 and bytes2 are
 //     UNIT_FIELD_BYTES_1 (stand state, shapeshift form, stealth) and
 //     UNIT_FIELD_BYTES_2 (sheath state), the held fields the hands a
 //     creature holds (UNIT_VIRTUAL_ITEM_SLOT_DISPLAY, and two
@@ -109,8 +116,6 @@
 namespace CombatLog::Movement {
 
 namespace {
-
-constexpr int kVersion = 2;
 
 constexpr uint32_t MSG_MOVE_TELEPORT_ACK = 0xC7;
 constexpr uint32_t SMSG_MONSTER_MOVE = 0xDD;
@@ -262,7 +267,7 @@ void ReadPoint(Net::CDataStore *packet, float (&p)[3]) {
 // False when the packet ends early.
 bool AppendStatus(std::string &line, Net::CDataStore *packet) {
     const auto flags = Net::Read<uint32_t>(packet);
-    Net::Read<uint32_t>(packet); // the mover's clock
+    const auto time = Net::Read<uint32_t>(packet);
     float position[3];
     ReadPoint(packet, position);
     const auto facing = Net::Read<float>(packet);
@@ -281,6 +286,7 @@ bool AppendStatus(std::string &line, Net::CDataStore *packet) {
     if (Net::Overrun(packet))
         return false;
     AppendHex(line, flags);
+    AppendUnsigned(line, time);
     Point(line, position);
     AppendFixed(line, facing, 4);
     AppendFixed(line, pitch, 4);

@@ -14,12 +14,16 @@
 #pragma once
 
 // The movement file (Logs\WoWMovementLog-<MMDDYY_HHMMSS>.txt), for the other
-// writers of its lines. Movement.cpp documents the file and its lines.
+// writers and the readers of its lines. Movement.cpp documents the file and
+// its lines.
 
 #include <cstdint>
 #include <string>
 
 namespace CombatLog::Movement {
+
+// MOVEMENT_LOG_VERSION: the lines' format, which readers check.
+constexpr int kVersion = 4;
 
 // Whether the movement file is open.
 bool IsOpen();
