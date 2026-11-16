@@ -13,17 +13,33 @@
 
 #pragma once
 
-// The one quest-log lookup by questID. `VAR_QUEST_LOG_ENTRIES` is walked
-// from half a dozen call sites across the codebase; anything that needs
-// "is this quest in the log, and where" goes through here rather than
-// re-deriving the stride and the header-row gate.
+// The quest-log row readers. Every row read goes through the engine's own
+// GetQuestIdOfRow (FUN_QUEST_LOG_ROW_QUEST_ID), so nothing re-derives the
+// row stride or the header gate.
+
+#include "Offsets.h"
+
+#include <cstdint>
 
 namespace Quest::Log {
 
-// 0-based index into `VAR_QUEST_LOG_ENTRIES` of the row holding
-// `questID`, or -1 when the quest is not in the player's log. Header
-// rows are skipped via the `+8` header-pointer gate, so the result is
-// always a real quest row. Non-positive input returns -1.
+// Rows in the log, headers included (VAR_QUEST_LOG_ENTRY_COUNT): the range
+// of the 0-based row numbers below.
+inline int RowCount() {
+    return *reinterpret_cast<const int *>(
+        static_cast<uintptr_t>(Offsets::VAR_QUEST_LOG_ENTRY_COUNT));
+}
+
+// The questID in 0-based `row`: 0 for a header row or a row out of range
+// (the engine's FUN_QUEST_LOG_ROW_QUEST_ID). An in-range 0 is a header.
+inline int QuestIDForRow(int row) {
+    using Fn = uint32_t(__fastcall *)(int row);
+    return static_cast<int>(reinterpret_cast<Fn>(Offsets::FUN_QUEST_LOG_ROW_QUEST_ID)(row));
+}
+
+// 0-based row holding `questID`, or -1 when the quest is not in the
+// player's log. Always a real quest row (a header reads questID 0).
+// Non-positive input returns -1.
 //
 // The index spans the full entry array (headers included), which is the
 // numbering `GetQuestLogTitle` and `GetQuestIDForLogIndex` use — add 1

@@ -8668,16 +8668,18 @@ enum Offsets {
     FUN_MACRO_ICON_CB_DISK_PREFIXED = 0x004F0350,  // pass 2, DISK walk — `__fastcall(FindRecord *r)` (dir bit `r[4] & 0x10`, inline name at `r+8`), prefix + extension filtered
     FUN_MACRO_ICON_CB_DISK_ANY = 0x004F04F0,       // pass 3, DISK walk — same record shape, EXTENSION ONLY (the sole route for a non-`Ability_`/`Spell_` icon)
 
-    // Quest log: 16-byte-stride entry array and active count.
-    // Field +0 of each entry is the questID for real quests (a category index
-    // for headers); field +8 is the header indicator: non-NULL = header,
-    // NULL = real quest. Verified by Script_GetQuestLogTitle's isHeader push
-    // at 0x004DF9A9 and by the helper at 0x004DF150 used by IsUnitOnQuest.
+    // Quest log: 16-byte-stride row array and its row count. Field +0 of each
+    // row is the questID for real quests (a category index for headers);
+    // field +8 is the header indicator: non-NULL = header, NULL = real quest.
+    // Verified by Script_GetQuestLogTitle's isHeader push at 0x004DF9A9 and
+    // by GetQuestIdOfRow below. Read rows only through Quest::Log.
     VAR_QUEST_LOG_ENTRIES = 0x00BB71C0,
+    // GetQuestIdOfRow — `uint32_t __fastcall(int row0)`, plain `ret`: the
+    // questID of an in-range row that is not a header ([+8] == 0), else 0.
+    // IsUnitOnQuest's row reader (disassembled: bounds against
+    // VAR_QUEST_LOG_ENTRY_COUNT, then the +8 gate, then +0).
+    FUN_QUEST_LOG_ROW_QUEST_ID = 0x004DF150,
     VAR_QUEST_LOG_ENTRY_COUNT = 0x00BB7478,
-    OFF_QUEST_LOG_ENTRY_STRIDE = 0x10,
-    OFF_QUEST_LOG_ENTRY_QUEST_ID = 0x0,
-    OFF_QUEST_LOG_ENTRY_HEADER_PTR = 0x8,
     // Script_GetQuestLogTitle — `int __fastcall(lua_State *L)`, the Lua entry
     // itself. Reads L[1] (1-based index into the FULL entry array above) and
     // pushes 6: title, level, questTag, isHeader (1/nil), isCollapsed

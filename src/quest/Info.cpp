@@ -13,6 +13,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "quest/Log.h"
 
 #include <cstdint>
 
@@ -52,9 +53,7 @@ int RunEngineTitle(void *L) {
     if (!Game::Lua::IsNumber(L, 1))
         return -1;
     const int row = static_cast<int>(Game::Lua::ToNumber(L, 1)) - 1;
-    const int total = *reinterpret_cast<const int *>(
-        static_cast<uintptr_t>(Offsets::VAR_QUEST_LOG_ENTRY_COUNT));
-    if (row < 0 || row >= total)
+    if (row < 0 || row >= Quest::Log::RowCount())
         return -1;
 
     Game::Lua::SetTop(L, 0);
@@ -62,18 +61,6 @@ int RunEngineTitle(void *L) {
     reinterpret_cast<ScriptFn>(
         static_cast<uintptr_t>(Offsets::FUN_SCRIPT_GET_QUEST_LOG_TITLE))(L);
     return row;
-}
-
-// questID of the row, 0 for a header (the `+8` header gate, as
-// `C_QuestLog.GetQuestIDForLogIndex`).
-int QuestIDForRow(int row) {
-    auto *entry = reinterpret_cast<const uint8_t *>(
-                      static_cast<uintptr_t>(Offsets::VAR_QUEST_LOG_ENTRIES)) +
-                  row * Offsets::OFF_QUEST_LOG_ENTRY_STRIDE;
-    if (*reinterpret_cast<const void *const *>(
-            entry + Offsets::OFF_QUEST_LOG_ENTRY_HEADER_PTR) != nullptr)
-        return 0;
-    return *reinterpret_cast<const int *>(entry + Offsets::OFF_QUEST_LOG_ENTRY_QUEST_ID);
 }
 
 bool IsSet(void *L, int idx) { return Game::Lua::Type(L, idx) != Game::Lua::TYPE_NIL; }
@@ -92,7 +79,7 @@ static int __fastcall Script_GetInfo(void *L) {
     Game::Lua::NewTable(L);
     Game::Lua::SetFieldString(L, "title", title);
     Game::Lua::SetFieldNumber(L, "questLogIndex", row + 1);
-    Game::Lua::SetFieldNumber(L, "questID", QuestIDForRow(row));
+    Game::Lua::SetFieldNumber(L, "questID", Quest::Log::QuestIDForRow(row));
     Game::Lua::SetFieldNumber(L, "level", level);
     Game::Lua::SetFieldNumber(L, "difficultyLevel", level);
     Game::Lua::SetFieldNumber(L, "suggestedGroup", 0);
@@ -123,7 +110,7 @@ static int __fastcall Script_GetQuestLogTitle(void *L) {
     if (row < 0)
         return 0; // nothing — not a row of the log
 
-    const int questID = QuestIDForRow(row);
+    const int questID = Quest::Log::QuestIDForRow(row);
     Game::Lua::PushValue(L, kTitle);                            // title
     Game::Lua::PushValue(L, kLevel);                            // level
     Game::Lua::PushNumber(L, 0);                                // suggestedGroup

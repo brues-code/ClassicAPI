@@ -26,6 +26,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "quest/Cache.h"
+#include "quest/Log.h"
 
 #include <cstdint>
 
@@ -37,16 +38,8 @@ uint32_t QuestIDArg(void *L) {
     if (!Game::Lua::IsNumber(L, 1))
         return Game::Read<uint32_t>(Offsets::VAR_QUEST_LOG_SELECTED_QUEST_ID);
 
-    const int index = static_cast<int>(Game::Lua::ToNumber(L, 1)) - 1;
-    const int total = Game::Read<int>(Offsets::VAR_QUEST_LOG_ENTRY_COUNT);
-    if (index < 0 || index >= total)
-        return 0;
-    const auto *entry = reinterpret_cast<const uint8_t *>(
-                            static_cast<uintptr_t>(Offsets::VAR_QUEST_LOG_ENTRIES)) +
-                        index * Offsets::OFF_QUEST_LOG_ENTRY_STRIDE;
-    if (Game::Read<const void *>(entry, Offsets::OFF_QUEST_LOG_ENTRY_HEADER_PTR) != nullptr)
-        return 0;
-    return Game::Read<uint32_t>(entry, Offsets::OFF_QUEST_LOG_ENTRY_QUEST_ID);
+    return static_cast<uint32_t>(
+        Quest::Log::QuestIDForRow(static_cast<int>(Game::Lua::ToNumber(L, 1)) - 1));
 }
 
 int __fastcall Script_GetQuestLogCompletionText(void *L) {

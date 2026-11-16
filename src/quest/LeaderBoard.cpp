@@ -12,6 +12,7 @@
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
 #include "Cache.h"
+#include "Log.h"
 #include "Game.h"
 #include "Offsets.h"
 
@@ -59,22 +60,8 @@ static int __fastcall Script_GetQuestLogLeaderBoardID(void *L) {
 
     int questID = 0;
     if (Game::Lua::IsNumber(L, 2)) {
-        const int questIdx = static_cast<int>(Game::Lua::ToNumber(L, 2));
-        if (questIdx < 1)
-            return 0;
-        const int activeCount = *reinterpret_cast<const int *>(
-            static_cast<uintptr_t>(Offsets::VAR_QUEST_LOG_ENTRY_COUNT));
-        if (questIdx > activeCount)
-            return 0;
-        const auto *entry = reinterpret_cast<const uint8_t *>(
-            static_cast<uintptr_t>(Offsets::VAR_QUEST_LOG_ENTRIES)) +
-            (questIdx - 1) * Offsets::OFF_QUEST_LOG_ENTRY_STRIDE;
-        if (*reinterpret_cast<const void *const *>(
-                entry + Offsets::OFF_QUEST_LOG_ENTRY_HEADER_PTR) != nullptr) {
-            return 0; // header row — no objectives
-        }
-        questID = *reinterpret_cast<const int *>(
-            entry + Offsets::OFF_QUEST_LOG_ENTRY_QUEST_ID);
+        // 0 for a header row (no objectives) or an index out of range.
+        questID = Quest::Log::QuestIDForRow(static_cast<int>(Game::Lua::ToNumber(L, 2)) - 1);
     } else {
         // Single-arg form: use whatever quest is currently selected via
         // `SelectQuestLogEntry`. Mirrors the engine's fallback at the
