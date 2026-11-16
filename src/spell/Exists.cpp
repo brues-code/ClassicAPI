@@ -19,6 +19,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "dbc/Lookup.h"
+#include "spell/Lookup.h"
 
 #include <cstdint>
 
@@ -34,9 +35,7 @@ static int __fastcall Script_DoesSpellExist(void *L) {
         Game::Lua::PushBool(L, false);
         return 1;
     }
-    const uint8_t *rec = DBC::Record(Offsets::VAR_SPELL_RECORDS,
-                                     Offsets::VAR_SPELL_RECORD_COUNT,
-                                     static_cast<uint32_t>(spellID));
+    const uint8_t *rec = Spell::Lookup::RecordForID(static_cast<int>(spellID));
     Game::Lua::PushBool(L, rec != nullptr);
     return 1;
 }

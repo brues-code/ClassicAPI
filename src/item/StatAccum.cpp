@@ -56,6 +56,7 @@
 #include "Offsets.h"
 #include "dbc/Lookup.h"
 #include "item/Record.h"
+#include "spell/Lookup.h"
 
 #include <cstring>
 
@@ -183,9 +184,7 @@ long U32(const uint8_t *record, int offset) {
 void AddSpellStatAuras(Accum *acc, int spellID, long sign) {
     if (spellID <= 0)
         return;
-    const uint8_t *sp = DBC::Record(Offsets::VAR_SPELL_RECORDS,
-                                    Offsets::VAR_SPELL_RECORD_COUNT,
-                                    static_cast<uint32_t>(spellID));
+    const uint8_t *sp = Spell::Lookup::RecordForID(static_cast<int>(spellID));
     if (sp == nullptr)
         return;
     auto aura = Game::Ptr<const int32_t>(

@@ -131,7 +131,7 @@ int RequiredTargetLevel(const uint8_t *record) {
     auto *targetA =
         Game::Ptr<const uint32_t>(record, Offsets::OFF_SPELL_RECORD_EFFECT_IMPLICIT_TARGET_A);
     bool positiveAura = false;
-    for (int i = 0; i < 3; ++i) {
+    for (int i = 0; i < Offsets::SPELL_RECORD_EFFECT_COUNT; ++i) {
         if ((effect[i] == Offsets::SPELL_EFFECT_APPLY_AURA &&
              IsPositiveRankTarget(targetA[i])) ||
             effect[i] == Offsets::SPELL_EFFECT_APPLY_AREA_AURA_PARTY) {

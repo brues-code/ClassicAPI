@@ -33,6 +33,7 @@
 #include "Offsets.h"
 #include "dbc/Lookup.h"
 #include "event/Custom.h"
+#include "spell/Lookup.h"
 
 #include <cstdint>
 
@@ -65,8 +66,7 @@ const Game::Doc::Event kLoadResultDoc{
 const Event::Custom::AutoReserve _reserveLoadResult{"SPELL_DATA_LOAD_RESULT", &kLoadResultDoc};
 
 bool HasRecord(int spellID) {
-    return DBC::Record(Offsets::VAR_SPELL_RECORDS, Offsets::VAR_SPELL_RECORD_COUNT,
-                       static_cast<uint32_t>(spellID)) != nullptr;
+    return Spell::Lookup::RecordForID(static_cast<int>(spellID)) != nullptr;
 }
 
 } // namespace

@@ -52,6 +52,7 @@
 #include "net/PacketDispatch.h"
 #include "net/PacketReader.h"
 #include "object/Resolve.h"
+#include "spell/Lookup.h"
 #include "tick/WorldTick.h"
 #include "time/Clock.h"
 #include "unit/Identity.h"
@@ -320,8 +321,7 @@ bool ForcedSwingReset(uint32_t spellId) {
 void OnSpellGo(uint32_t spellId) {
     if (spellId == 0)
         return;
-    const uint8_t *rec = DBC::Record(Offsets::VAR_SPELL_RECORDS,
-                                     Offsets::VAR_SPELL_RECORD_COUNT, spellId);
+    const uint8_t *rec = Spell::Lookup::RecordForID(static_cast<int>(spellId));
     if (rec == nullptr)
         return;
 

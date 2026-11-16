@@ -25,6 +25,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "dbc/Lookup.h"
+#include "spell/Lookup.h"
 
 #include <cstdint>
 
@@ -50,8 +51,7 @@ bool IsSelfOnlyTarget(int target) {
 bool IsSelfBuff(uint32_t spellID) {
     if (spellID == 0)
         return false;
-    const uint8_t *rec = DBC::Record(Offsets::VAR_SPELL_RECORDS,
-                                     Offsets::VAR_SPELL_RECORD_COUNT, spellID);
+    const uint8_t *rec = Spell::Lookup::RecordForID(static_cast<int>(spellID));
     if (rec == nullptr)
         return false;
 

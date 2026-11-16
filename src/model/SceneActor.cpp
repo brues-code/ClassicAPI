@@ -175,6 +175,7 @@
 #include "model/SceneMover.h"
 #include "model/VisualKit.h"
 #include "object/Resolve.h"
+#include "spell/Lookup.h"
 #include "time/Clock.h"
 #include "unit/Identity.h"
 #include "xml/FrameLoad.h"
@@ -1428,8 +1429,7 @@ int __fastcall Script_SetModelBySpellArea(void *L) {
         return 0;
     }
     using GetVisual_t = const uint8_t *(__fastcall *)(const uint8_t *spell);
-    const auto *spell = DBC::Record(Offsets::VAR_SPELL_RECORDS, Offsets::VAR_SPELL_RECORD_COUNT,
-                                    static_cast<uint32_t>(Game::Lua::ToNumber(L, 2)));
+    const auto *spell = Spell::Lookup::RecordForID(static_cast<int>(Game::Lua::ToNumber(L, 2)));
     const uint8_t *visual = spell != nullptr ? reinterpret_cast<GetVisual_t>(Offsets::FUN_GET_SPELL_VISUAL)(spell) : nullptr;
     const uint8_t *effect =
         visual != nullptr && Game::Read<uint32_t>(visual, Offsets::OFF_SPELLVISUAL_HAS_AREA) != 0

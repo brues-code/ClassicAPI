@@ -50,6 +50,7 @@
 #include "dbc/Lookup.h"
 #include "event/Custom.h"
 #include "spell/Known.h"
+#include "spell/Lookup.h"
 #include "spell/Range.h"
 #include "tick/WorldTick.h"
 #include "unit/Position.h"
@@ -101,9 +102,7 @@ int RangedProbeSpellId(void *player) {
         reinterpret_cast<EquippedItemCheck_t>(Offsets::FUN_SPELL_EQUIPPED_ITEM_CHECK);
     int fallback = 0;
     for (const int spellID : kRangedAttackSpells) {
-        const uint8_t *rec = DBC::Record(Offsets::VAR_SPELL_RECORDS,
-                                         Offsets::VAR_SPELL_RECORD_COUNT,
-                                         static_cast<uint32_t>(spellID));
+        const uint8_t *rec = Spell::Lookup::RecordForID(static_cast<int>(spellID));
         if (rec == nullptr || !equipped(player, rec, 0, 0))
             continue;
         if (Spell::Known::IsKnown(static_cast<uint32_t>(spellID)))

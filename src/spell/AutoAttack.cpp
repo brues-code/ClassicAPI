@@ -50,9 +50,7 @@ bool IsMelee(int spellID) {
 bool IsRanged(int spellID) {
     if (spellID <= 0)
         return false;
-    const uint8_t *rec = DBC::Record(Offsets::VAR_SPELL_RECORDS,
-                                     Offsets::VAR_SPELL_RECORD_COUNT,
-                                     static_cast<uint32_t>(spellID));
+    const uint8_t *rec = Spell::Lookup::RecordForID(static_cast<int>(spellID));
     if (rec == nullptr)
         return false;
     const uint32_t attrEx2 = *reinterpret_cast<const uint32_t *>(

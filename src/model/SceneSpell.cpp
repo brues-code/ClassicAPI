@@ -370,7 +370,7 @@ bool CastsRanged(const Actor &actor) {
         if (cast.phase == SpellCast::Phase::Flight)
             continue;
         const uint8_t *spell =
-            DBC::Record(Offsets::VAR_SPELL_RECORDS, Offsets::VAR_SPELL_RECORD_COUNT, cast.spellID);
+            Spell::Lookup::RecordForID(static_cast<int>(cast.spellID));
         if (spell != nullptr && IsRanged(spell))
             return true;
     }
@@ -702,8 +702,7 @@ void StartCast(Actor &caster, SpellCast &cast) {
     PlayKit(caster, Kit(cast.visual, Offsets::OFF_SPELLVISUAL_CAST_KIT), nullptr, nullptr);
     if (cast.target != nullptr)
         Chains::Start(caster, *cast.target, cast.visual, Kit(cast.visual, Offsets::OFF_SPELLVISUAL_CAST_KIT));
-    const auto *spell = DBC::Record(Offsets::VAR_SPELL_RECORDS, Offsets::VAR_SPELL_RECORD_COUNT,
-                                    cast.spellID);
+    const auto *spell = Spell::Lookup::RecordForID(static_cast<int>(cast.spellID));
     cast.speed = spell != nullptr ? Game::Read<float>(spell, Offsets::OFF_SPELL_RECORD_SPEED) : 0.0f;
     const bool missile = (Game::Read<uint32_t>(cast.visual, Offsets::OFF_SPELLVISUAL_HAS_MISSILE) != 0 ||
                           cast.ammoDisplay != 0) &&
@@ -921,7 +920,7 @@ uint32_t Begin(Actor &caster, uint32_t spellID, Actor *target, const float *poin
     using GetCastTime_t = int(__fastcall *)(int spellID, int pet, int allowNegative);
     static uint32_t s_lastCastID = 0;
     const uint8_t *spell =
-        DBC::Record(Offsets::VAR_SPELL_RECORDS, Offsets::VAR_SPELL_RECORD_COUNT, spellID);
+        Spell::Lookup::RecordForID(static_cast<int>(spellID));
     if (spell == nullptr || caster.model == nullptr)
         return 0;
     uint8_t visual[Offsets::SPELL_VISUAL_SIZE];

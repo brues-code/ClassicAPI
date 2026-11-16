@@ -70,6 +70,7 @@
 #include "item/StatAccum.h"
 #include "player/StatSignal.h"
 #include "spell/HealingAura.h"
+#include "spell/Lookup.h"
 #include "tick/WorldTick.h"
 #include "unit/Identity.h"
 
@@ -163,9 +164,7 @@ void AddSpellHealingAuras(long &total, int spellID, int32_t spirit,
                           int32_t armor, bool requirePassive) {
     if (spellID <= 0)
         return;
-    const uint8_t *sp = DBC::Record(Offsets::VAR_SPELL_RECORDS,
-                                    Offsets::VAR_SPELL_RECORD_COUNT,
-                                    static_cast<uint32_t>(spellID));
+    const uint8_t *sp = Spell::Lookup::RecordForID(static_cast<int>(spellID));
     if (sp == nullptr)
         return;
     if (requirePassive &&

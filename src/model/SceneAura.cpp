@@ -55,6 +55,7 @@
 #include "model/M2.h"
 #include "model/VisualKit.h"
 #include "sound/Play.h"
+#include "spell/Lookup.h"
 
 #include <cstdint>
 #include <memory>
@@ -65,7 +66,7 @@ namespace Model::Scene::AuraVisuals {
 namespace {
 
 const uint8_t *Spell(uint32_t spellID) {
-    return DBC::Record(Offsets::VAR_SPELL_RECORDS, Offsets::VAR_SPELL_RECORD_COUNT, spellID);
+    return Spell::Lookup::RecordForID(static_cast<int>(spellID));
 }
 
 // The state kit of the spell's visual (GetSpellVisualRecord), or null.

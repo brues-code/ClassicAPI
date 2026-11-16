@@ -38,8 +38,7 @@ namespace Aura::Data {
 namespace {
 
 const uint8_t *SpellRecord(uint32_t spellID) {
-    return DBC::Record(Offsets::VAR_SPELL_RECORDS,
-                       Offsets::VAR_SPELL_RECORD_COUNT, spellID);
+    return Spell::Lookup::RecordForID(static_cast<int>(spellID));
 }
 
 // True when the spell's locale-resolved name equals `query`, ignoring case:
@@ -705,14 +704,9 @@ static bool PlayerOrPetKnowsSpell(uint32_t spellID) {
 static bool CanApplyAura(const uint8_t *spellRecord, uint32_t spellID) {
     if (spellRecord == nullptr || !PlayerOrPetKnowsSpell(spellID))
         return false;
-    for (int i = 0; i < 3; ++i) {
-        const int effect = Game::Read<int>(spellRecord, Offsets::OFF_SPELL_RECORD_EFFECT + i * 4);
-        if (effect == Offsets::SPELL_EFFECT_APPLY_AURA ||
-            effect == Offsets::SPELL_EFFECT_PERSISTENT_AREA_AURA ||
-            effect == Offsets::SPELL_EFFECT_APPLY_AREA_AURA_PARTY)
-            return true;
-    }
-    return false;
+    return Spell::Lookup::HasEffect(spellRecord, Offsets::SPELL_EFFECT_APPLY_AURA) ||
+           Spell::Lookup::HasEffect(spellRecord, Offsets::SPELL_EFFECT_PERSISTENT_AREA_AURA) ||
+           Spell::Lookup::HasEffect(spellRecord, Offsets::SPELL_EFFECT_APPLY_AREA_AURA_PARTY);
 }
 
 // The dispel types the player can remove from an enemy, as a `1 << type` mask.
@@ -727,7 +721,7 @@ static bool CanApplyAura(const uint8_t *spellRecord, uint32_t spellID) {
 // changes.
 static uint32_t SpellOffensiveDispels(const uint8_t *rec) {
     uint32_t mask = 0;
-    for (int i = 0; i < 3; ++i) {
+    for (int i = 0; i < Offsets::SPELL_RECORD_EFFECT_COUNT; ++i) {
         if (Game::Read<int>(rec, Offsets::OFF_SPELL_RECORD_EFFECT + i * 4) !=
             Offsets::SPELL_EFFECT_DISPEL)
             continue;
@@ -793,12 +787,9 @@ static bool IsStealable(uint64_t unitGuid, const uint8_t *spellRecord, bool isHe
         (Game::Read<uint32_t>(spellRecord, Offsets::OFF_SPELL_RECORD_ATTRIBUTES_EX) &
          Offsets::SPELL_ATTR_EX_CHANNELED) != 0)
         return false;
-    for (int i = 0; i < 3; ++i) {
-        const int effect = Game::Read<int>(spellRecord, Offsets::OFF_SPELL_RECORD_EFFECT + i * 4);
-        if (effect == Offsets::SPELL_EFFECT_PERSISTENT_AREA_AURA ||
-            effect == Offsets::SPELL_EFFECT_APPLY_AREA_AURA_PARTY)
-            return false;
-    }
+    if (Spell::Lookup::HasEffect(spellRecord, Offsets::SPELL_EFFECT_PERSISTENT_AREA_AURA) ||
+        Spell::Lookup::HasEffect(spellRecord, Offsets::SPELL_EFFECT_APPLY_AREA_AURA_PARTY))
+        return false;
     void *player = const_cast<uint8_t *>(Unit::Identity::PlayerObject());
     void *unit = Object::ByGuid(Offsets::TYPEMASK_UNIT, unitGuid);
     if (player == nullptr || unit == nullptr)

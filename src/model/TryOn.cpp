@@ -32,6 +32,7 @@
 #include "item/Location.h"
 #include "item/Record.h"
 #include "model/Outfit.h"
+#include "spell/Lookup.h"
 
 #include <cstdlib>
 #include <cstring>
@@ -69,8 +70,7 @@ uint32_t RecipeItem(const char *link) {
     const long spellID = std::strtol(enchant + 8, nullptr, 10);
     if (spellID <= 0)
         return 0;
-    const uint8_t *spell = DBC::Record(Offsets::VAR_SPELL_RECORDS, Offsets::VAR_SPELL_RECORD_COUNT,
-                                       static_cast<uint32_t>(spellID));
+    const uint8_t *spell = Spell::Lookup::RecordForID(static_cast<int>(spellID));
     if (spell == nullptr ||
         (Game::Read<uint32_t>(spell, Offsets::OFF_SPELL_RECORD_ATTRIBUTES) &
          Offsets::SPELL_ATTR_TRADESPELL) == 0)
