@@ -62,6 +62,8 @@ private:
     int32_t UnitAt(const Line::Fields &f, int i, bool before);
     void Aura(const Line::Fields &f, int32_t t, int32_t dest, bool applied);
     void Revive(int32_t unit, int32_t t);
+    void AddHealth(int32_t unit, int32_t t, const Health &health);
+    void AdvancedBlock(const Line::Fields &f, int32_t t, bool before);
     Unit &Get(std::string_view guid) { return r_.units[IndexOf(guid)]; }
     void AddKey(Unit &unit, Key key, Spline *spline = nullptr);
     void AddLook(Unit &unit, int32_t t, const Look &look);
@@ -82,6 +84,7 @@ private:
     // The SPELL_CAST_START each caster has open, by spell: an index into
     // the events.
     std::unordered_map<uint64_t, size_t> openCasts_;
+    bool advanced_ = false; // COMBAT_LOG_VERSION's ADVANCED_LOG_ENABLED
 };
 
 bool IsUnitGuid(std::string_view guid) {
@@ -205,6 +208,8 @@ void Loader::UnitInfo(const Line::Fields &f, int32_t t) {
     look.scale = f.Float(14);
     look.bytes1 = f.Hex(15);
     look.bytes2 = f.Hex(16);
+    look.heldInfo[0] = f.Hex(20);
+    look.heldInfo[1] = f.Hex(22);
     AddLook(unit, t, look);
 }
 
@@ -387,6 +392,53 @@ void Loader::Aura(const Line::Fields &f, int32_t t, int32_t dest, bool applied) 
     auras.push_back(span);
 }
 
+// Before the stretch only the last sample counts.
+void Loader::AddHealth(int32_t unit, int32_t t, const Health &health) {
+    if (unit < 0)
+        return;
+    auto &samples = r_.units[unit].health;
+    if (t < 0 && !samples.empty() && samples.back().first < 0)
+        samples.back() = {t, health};
+    else
+        samples.emplace_back(t, health);
+}
+
+// The subevents Era gives an advanced block; it follows the spell prefix,
+// or the unit parts on a line without one (a swing, environmental damage).
+bool HasAdvancedBlock(std::string_view type) {
+    static const std::string_view kTypes[] = {
+        "SPELL_CAST_SUCCESS",  "SWING_DAMAGE",          "SWING_DAMAGE_LANDED", "SPELL_DAMAGE",
+        "SPELL_PERIODIC_DAMAGE", "RANGE_DAMAGE",        "DAMAGE_SHIELD",       "ENVIRONMENTAL_DAMAGE",
+        "SPELL_HEAL",          "SPELL_PERIODIC_HEAL",   "SPELL_ENERGIZE",      "SPELL_PERIODIC_ENERGIZE",
+        "SPELL_DRAIN",         "SPELL_PERIODIC_DRAIN",  "SPELL_LEECH",         "SPELL_PERIODIC_LEECH",
+    };
+    return std::find(std::begin(kTypes), std::end(kTypes), type) != std::end(kTypes);
+}
+
+// Where a line's suffix starts: after the unit parts, the spell prefix and
+// the advanced block. Environmental damage puts its type first.
+int SuffixAt(std::string_view type, bool advanced) {
+    const bool spellPrefix = type.rfind("SWING_", 0) != 0 && type.rfind("ENVIRONMENTAL_", 0) != 0;
+    return (spellPrefix ? 12 : 9) + (advanced && HasAdvancedBlock(type) ? 18 : 0) +
+           (type.rfind("ENVIRONMENTAL_", 0) == 0 ? 1 : 0);
+}
+
+bool EndsWith(std::string_view text, std::string_view end) {
+    return text.size() >= end.size() && text.substr(text.size() - end.size()) == end;
+}
+
+// The block's unit (infoGUID) and its current and max health; a unit the
+// writer could not resolve has a block of zeros.
+void Loader::AdvancedBlock(const Line::Fields &f, int32_t t, bool before) {
+    if (!advanced_ || !HasAdvancedBlock(f[0]))
+        return;
+    const int at = f[0].rfind("SWING_", 0) == 0 || f[0].rfind("ENVIRONMENTAL_", 0) == 0 ? 9 : 12;
+    const int32_t unit = UnitAt(f, at, before);
+    const Health health{f.Int(at + 2), f.Int(at + 3)};
+    if (health.max > 0)
+        AddHealth(unit, t, health);
+}
+
 // A dead unit that casts or attacks, or is resurrected, lives again.
 void Loader::Revive(int32_t unit, int32_t t) {
     if (unit < 0)
@@ -403,7 +455,12 @@ void Loader::Combat(std::string_view body, int32_t t) {
             combatMap_ = Line::Fields(body).Int(1);
         return;
     }
-    if (Line::Is(body, "COMBAT_LOG_VERSION") || Line::Is(body, "ENCOUNTER_START") ||
+    if (Line::Is(body, "COMBAT_LOG_VERSION")) {
+        const Line::Fields f(body);
+        advanced_ = f[2] == "ADVANCED_LOG_ENABLED" && f.Int(3) == 1;
+        return;
+    }
+    if (Line::Is(body, "ENCOUNTER_START") ||
         Line::Is(body, "ENCOUNTER_END") || Line::Is(body, "MAP_CHANGE"))
         return;
     const Line::Fields f(body);
@@ -417,10 +474,13 @@ void Loader::Combat(std::string_view body, int32_t t) {
         }
     }
     const std::string_view type = f[0];
+    AdvancedBlock(f, t, before);
     if (type == "UNIT_DIED") {
         if (dest >= 0) {
             Revive(dest, t);
             r_.units[dest].deaths.push_back({t, INT32_MAX});
+            const auto &samples = r_.units[dest].health;
+            AddHealth(dest, t, {0, samples.empty() ? 0 : samples.back().second.max});
         }
     } else if (type == "SPELL_RESURRECT") {
         Revive(dest, t);
@@ -448,6 +508,19 @@ void Loader::Combat(std::string_view body, int32_t t) {
     if (type.rfind("SPELL_", 0) == 0 || type.rfind("RANGE_", 0) == 0 || type.rfind("DAMAGE_", 0) == 0)
         e.spellID = static_cast<uint32_t>(f.Int(9));
     e.debuff = type.rfind("SPELL_AURA_", 0) == 0 && f[12] == "DEBUFF";
+    // Damage: amount, baseAmount, overkill, school, resisted, blocked,
+    // absorbed, critical; heals: amount, baseAmount, overhealing, absorbed,
+    // critical; misses: missType first.
+    const int suffix = SuffixAt(type, advanced_);
+    if (EndsWith(type, "_DAMAGE")) {
+        e.amount = f.Int(suffix);
+        e.critical = f[suffix + 7] == "1";
+    } else if (EndsWith(type, "_HEAL")) {
+        e.amount = f.Int(suffix);
+        e.critical = f[suffix + 4] == "1";
+    } else if (EndsWith(type, "_MISSED")) {
+        e.missType = std::string(f[suffix]);
+    }
     // A cast's start is open until the caster's success or failure of the
     // same spell.
     const uint64_t key = (static_cast<uint64_t>(static_cast<uint32_t>(source)) << 32) | e.spellID;

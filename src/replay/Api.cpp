@@ -25,9 +25,13 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "creature/Info.h"
 #include "event/Custom.h"
+#include "item/Data.h"
+#include "item/Record.h"
 #include "model/Outfit.h"
 #include "model/TryOn.h"
+#include "player/Info.h"
 #include "replay/Catalog.h"
 #include "replay/Recording.h"
 #include "tick/WorldTick.h"
@@ -35,8 +39,10 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <cstdlib>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <unordered_map>
 
@@ -255,6 +261,31 @@ int __fastcall Script_GetReplayInfo(void *L) {
     return 1;
 }
 
+// The unit's name: the log's, else the client's for its GUID (a player's from
+// the name caches, a creature's from the creature cache). A unit only the
+// movement file shows has none in the log. A lookup only: the viewer asks
+// for an uncached creature (C_CreatureInfo.RequestLoadCreatureByID).
+std::string UnitName(const Unit &unit) {
+    if (!unit.name.empty())
+        return unit.name;
+    if (unit.player) {
+        constexpr std::string_view kPrefix = "Player-0-";
+        if (unit.guid.rfind(kPrefix, 0) != 0)
+            return {};
+        const uint64_t guid = std::strtoull(unit.guid.c_str() + kPrefix.size(), nullptr, 16);
+        char name[64];
+        if (guid != 0 && Player::Info::NameFromGuid(guid, name, sizeof name))
+            return name;
+    } else if (unit.creatureID != 0) {
+        const uint8_t *record = Creature::Info::CacheRecord(unit.creatureID);
+        const char *name =
+            record != nullptr ? Game::Read<const char *>(record, Offsets::OFF_CREATURE_NAME) : nullptr;
+        if (name != nullptr)
+            return name;
+    }
+    return {};
+}
+
 int __fastcall Script_GetUnits(void *L) {
     Lua::NewTable(L);
     if (g_recording == nullptr)
@@ -263,8 +294,9 @@ int __fastcall Script_GetUnits(void *L) {
     for (const Unit &unit : g_recording->units) {
         Lua::NewTable(L);
         Lua::SetFieldString(L, "guid", unit.guid.c_str());
-        if (!unit.name.empty())
-            Lua::SetFieldString(L, "name", unit.name.c_str());
+        const std::string name = UnitName(unit);
+        if (!name.empty())
+            Lua::SetFieldString(L, "name", name.c_str());
         Lua::SetFieldBool(L, "isPlayer", unit.player);
         if (unit.creatureID != 0)
             Lua::SetFieldNumber(L, "creatureID", unit.creatureID);
@@ -343,9 +375,77 @@ int __fastcall Script_GetEvents(void *L) {
         }
         if (e.endsCast)
             Lua::SetFieldBool(L, "endsCast", true);
+        const auto endsWith = [&](const char *end, size_t n) {
+            return e.type.size() >= n && e.type.compare(e.type.size() - n, n, end) == 0;
+        };
+        if (endsWith("_DAMAGE", 7) || endsWith("_HEAL", 5)) {
+            Lua::SetFieldNumber(L, "amount", e.amount);
+            Lua::SetFieldBool(L, "critical", e.critical);
+        }
+        if (!e.missType.empty())
+            Lua::SetFieldString(L, "missType", e.missType.c_str());
         Lua::RawSetI(L, -2, ++i);
     }
     return 1;
+}
+
+// The item class and subclass a held item's record gives, or false.
+bool ItemClass(uint32_t itemID, uint32_t &itemClass, uint32_t &subclass) {
+    const uint8_t *record = itemID != 0 ? Item::PeekRecord(itemID) : nullptr;
+    if (record == nullptr) {
+        if (itemID != 0)
+            Item::Data::WarmCache(itemID);
+        return false;
+    }
+    itemClass = Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_CLASS);
+    subclass = Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_SUBCLASS);
+    return true;
+}
+
+// What the unit holds in each hand, as the swing animation reads it: a
+// player's main and off hand items (from the item cache, nil until cached),
+// a creature's held item info.
+int __fastcall Script_GetUnitWeapons(void *L) {
+    const Unit *unit = UnitArg(L, "Usage: C_CombatLogReplay.GetUnitWeapons(unitIndex, time)");
+    if (unit == nullptr)
+        return 0;
+    const int32_t t = TimeArg(L);
+    uint32_t classes[2] = {}, subclasses[2] = {};
+    bool held[2] = {};
+    if (const Appearance *a = AppearanceAt(*unit, t)) {
+        for (int hand = 0; hand < 2; ++hand)
+            held[hand] = ItemClass(a->items[(hand == 0 ? Offsets::INVSLOT_MAINHAND : Offsets::INVSLOT_OFFHAND) - 1],
+                                   classes[hand], subclasses[hand]);
+    } else if (const Look *look = LookAt(*unit, t)) {
+        for (int hand = 0; hand < 2; ++hand) {
+            held[hand] = look->heldInfo[hand] != 0;
+            classes[hand] = look->heldInfo[hand] & 0xFF;
+            subclasses[hand] = (look->heldInfo[hand] >> 8) & 0xFF;
+        }
+    }
+    for (int hand = 0; hand < 2; ++hand) {
+        if (held[hand]) {
+            Lua::PushNumber(L, classes[hand]);
+            Lua::PushNumber(L, subclasses[hand]);
+        } else {
+            Lua::PushNil(L);
+            Lua::PushNil(L);
+        }
+    }
+    return 4;
+}
+
+// The unit's health at the time, as the log gives it.
+int __fastcall Script_GetUnitHealth(void *L) {
+    const Unit *unit = UnitArg(L, "Usage: C_CombatLogReplay.GetUnitHealth(unitIndex, time)");
+    const Health *health = unit != nullptr ? HealthAt(*unit, TimeArg(L)) : nullptr;
+    if (health == nullptr || health->max <= 0) {
+        Lua::PushNil(L);
+        return 1;
+    }
+    Lua::PushNumber(L, health->current);
+    Lua::PushNumber(L, health->max);
+    return 2;
 }
 
 // The auras on the unit at the time.
@@ -478,7 +578,9 @@ const Game::Doc::Function kGetReplayInfo{"Returns the loaded replay.", {}, kGetR
 
 const Game::Doc::Field kUnitFields[] = {
     Req("guid", "WOWGUID", "As the combat log writes it."),
-    Opt("name", "cstring", nullptr, "Nil for a unit the combat log does not name."),
+    Opt("name", "cstring", nullptr,
+        "The combat log's, else the client's for the GUID (its player name or creature cache). Nil when neither has "
+        "one: C_CreatureInfo.RequestLoadCreatureByID loads an uncached creature's."),
     Req("isPlayer", "bool"),
     Opt("creatureID", "number"),
 };
@@ -555,6 +657,9 @@ const Game::Doc::Field kEventFields[] = {
         "For a SPELL_CAST_START: seconds until the caster's SPELL_CAST_SUCCESS or SPELL_CAST_FAILED of that "
         "spell. Nil when the log has neither."),
     Opt("castFailed", "bool", nullptr, "For a SPELL_CAST_START with a castTime: whether the cast failed."),
+    Opt("amount", "number", nullptr, "For a _DAMAGE or _HEAL event."),
+    Opt("critical", "bool", nullptr, "For a _DAMAGE or _HEAL event."),
+    Opt("missType", "cstring", nullptr, "For a _MISSED event: MISS, DODGE, PARRY, BLOCK, RESIST, ABSORB, IMMUNE, ..."),
     Opt("endsCast", "bool", nullptr, "True for a SPELL_CAST_SUCCESS or SPELL_CAST_FAILED that ends a SPELL_CAST_START."),
 };
 const Game::Doc::Structure kEvent{"CombatLogReplayEvent", "CombatLogReplay", kEventFields};
@@ -567,6 +672,26 @@ const Game::Doc::Field kGetEventsRets[] = {
 };
 const Game::Doc::Function kGetEvents{"Returns the combat log events of the loaded replay between two times.",
                                      kTimeRangeArgs, kGetEventsRets, nullptr, true};
+const Game::Doc::Field kGetUnitWeaponsRets[] = {
+    Opt("mainHandClassID", "number", nullptr,
+        "Nil when the hand holds nothing, or for a player's item not yet in the item cache (asked for)."),
+    Opt("mainHandSubclassID", "number"),
+    Opt("offHandClassID", "number"),
+    Opt("offHandSubclassID", "number"),
+};
+const Game::Doc::Function kGetUnitWeapons{
+    "Returns the item class and subclass a replay unit holds in each hand at a time: a player's main and "
+    "off hand items, a creature's held items.",
+    kUnitTimeArgs, kGetUnitWeaponsRets, nullptr, true};
+const Game::Doc::Field kGetUnitHealthRets[] = {
+    Opt("health", "number", nullptr,
+        "Nil before the log first gives it. A player's as a percent of 100, a creature's in hit points, as the "
+        "log's advanced data gives them; 0 from the unit's death."),
+    Opt("maxHealth", "number"),
+};
+const Game::Doc::Function kGetUnitHealth{
+    "Returns a replay unit's health at a time, from the log's advanced data (the advancedCombatLogging setting).",
+    kUnitTimeArgs, kGetUnitHealthRets, nullptr, true};
 const Game::Doc::Field kAuraFields[] = {
     Req("spellID", "number"),
     Req("auraType", "cstring", "BUFF or DEBUFF."),
@@ -598,6 +723,8 @@ void RegisterLuaFunctions() {
                                &kGetUnitAppearances);
     Lua::RegisterTableFunction(kTable, "GetEvents", &Script_GetEvents, &kGetEvents);
     Lua::RegisterTableFunction(kTable, "GetUnitAuras", &Script_GetUnitAuras, &kGetUnitAuras);
+    Lua::RegisterTableFunction(kTable, "GetUnitHealth", &Script_GetUnitHealth, &kGetUnitHealth);
+    Lua::RegisterTableFunction(kTable, "GetUnitWeapons", &Script_GetUnitWeapons, &kGetUnitWeapons);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

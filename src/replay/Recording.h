@@ -34,6 +34,9 @@ struct Look {
     float scale = 1.0f;
     uint32_t bytes1 = 0; // UNIT_FIELD_BYTES_1: stand state, form, stealth
     uint32_t bytes2 = 0; // UNIT_FIELD_BYTES_2: sheath state
+    // UNIT_VIRTUAL_ITEM_INFO's first dword of the main and off hand: byte 0
+    // the item class, byte 1 the subclass (a creature's held items).
+    uint32_t heldInfo[2] = {};
 };
 
 // PLAYER_INFO: a player's own body and what it wears, as the movement file
@@ -91,6 +94,13 @@ struct Span {
     int32_t to = INT32_MAX;
 };
 
+// A unit's health as an advanced block gives it: a player's as a percent of
+// 100, a creature's raw.
+struct Health {
+    int32_t current = 0;
+    int32_t max = 0;
+};
+
 // An aura on a unit, from its SPELL_AURA_APPLIED until before its
 // SPELL_AURA_REMOVED (or the stretch's end).
 struct AuraSpan {
@@ -112,6 +122,9 @@ struct Unit {
     std::vector<std::pair<int32_t, Look>> looks;
     std::vector<std::pair<int32_t, Appearance>> appearances; // a player's
     std::vector<AuraSpan> auras;
+    // Its health at each advanced block that describes it, and 0 at its
+    // UNIT_DIED.
+    std::vector<std::pair<int32_t, Health>> health;
     // While it was dead: from its UNIT_DIED until it next cast or attacked,
     // was resurrected, or left view.
     std::vector<Span> deaths;
@@ -131,6 +144,11 @@ struct CombatEvent {
     int32_t castEnd = -1;
     bool castFailed = false;
     bool endsCast = false; // a SPELL_CAST_SUCCESS or FAILED that ends a SPELL_CAST_START
+    // A _DAMAGE or _HEAL event's amount and whether it was critical; a
+    // _MISSED event's miss type (MISS, DODGE, PARRY, ...).
+    int32_t amount = 0;
+    bool critical = false;
+    std::string missType;
 };
 
 struct Recording {
@@ -158,8 +176,15 @@ bool PlaceAt(const Recording &recording, const Unit &unit, int32_t t, Place &pla
 // The unit's look at `t`, null before its first.
 const Look *LookAt(const Unit &unit, int32_t t);
 
+// The player's appearance at `t`: the last that began by then, else its
+// first; null for a unit with none.
+const Appearance *AppearanceAt(const Unit &unit, int32_t t);
+
 // Whether the unit is dead at `t`.
 bool DeadAt(const Unit &unit, int32_t t);
+
+// The unit's health at `t`, null before the log first gives it.
+const Health *HealthAt(const Unit &unit, int32_t t);
 
 // Loads the stretch [startMs, endMs] (stamps) of a log (a Catalog name). Null
 // when the combat log cannot be read. Worker thread safe.

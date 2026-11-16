@@ -156,6 +156,22 @@ bool PlaceAt(const Recording &recording, const Unit &unit, int32_t t, Place &pla
     return Present(unit, t) && KeyPlace(recording, unit, t, 0, place);
 }
 
+const Appearance *AppearanceAt(const Unit &unit, int32_t t) {
+    if (unit.appearances.empty())
+        return nullptr;
+    const auto it = std::upper_bound(
+        unit.appearances.begin(), unit.appearances.end(), t,
+        [](int32_t time, const std::pair<int32_t, Appearance> &a) { return time < a.first; });
+    return it == unit.appearances.begin() ? &unit.appearances.front().second : &(it - 1)->second;
+}
+
+const Health *HealthAt(const Unit &unit, int32_t t) {
+    const auto it = std::upper_bound(
+        unit.health.begin(), unit.health.end(), t,
+        [](int32_t time, const std::pair<int32_t, Health> &h) { return time < h.first; });
+    return it == unit.health.begin() ? nullptr : &(it - 1)->second;
+}
+
 bool DeadAt(const Unit &unit, int32_t t) {
     return std::any_of(unit.deaths.begin(), unit.deaths.end(),
                        [t](const Span &s) { return s.from <= t && t < s.to; });

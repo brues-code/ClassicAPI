@@ -8,9 +8,11 @@
 -- along the client's arc, its weapons drawn or sheathed, and its stand
 -- state's animation (sitting, sleeping, dead, kneeling). While it plays, the
 -- log's casts, auras, swings and deaths play on the actors; a jump in time
--- sets each unit's auras and death as they were then. Scene positions are
--- map positions. Click a unit to follow it with the camera; click the ground
--- to stop. Drag to turn and tilt the camera, right drag to move it across
+-- sets each unit's auras and death as they were then. A hurt unit shows its
+-- health over its head, from the log's advanced data, and the log's lines
+-- scroll by in the corner in the client's own combat log words. Scene
+-- positions are map positions. Click a unit, or its name in the unit list,
+-- to follow it with the camera; click the ground to stop. Drag to turn and tilt the camera, right drag to move it across
 -- the view. With the cursor over the scene, W, A, S and D fly the camera
 -- along its view, Space and X up and down, Shift faster. /replay toggles the
 -- window.
@@ -21,7 +23,12 @@ local ANIM_JUMP, ANIM_FALL = 38, 40;
 -- Combat (AnimationData.dbc): dying, then lying dead; a swing, unarmed (a
 -- creature) or one-handed (a player).
 local ANIM_DEATH, ANIM_DEAD = 1, 6;
-local ANIM_ATTACK_UNARMED, ANIM_ATTACK_1H = 16, 17;
+local ANIM_ATTACK_UNARMED = 16;
+-- A swing by the main hand's weapon (item class 2), as the client picks it
+-- (0x006246A0): the subclass indexes the bytes at 0x006247AC into 17
+-- Attack1H, 18 Attack2H, 19 Attack2HL, 85 Attack1HPierce or 16 AttackUnarmed.
+local ITEM_CLASS_WEAPON = 2;
+local SWING_BY_SUBCLASS = { [0] = 17, 18, 16, 16, 17, 18, 19, 17, 18, 16, 19, 17, 18, 16, 17, 85, 16, 19, 16, 16, 19 };
 -- How long a swing holds its animation, in replay seconds, and how long the
 -- dying animation plays before the corpse lies still, in real seconds.
 local SWING_TIME = 0.8;
@@ -58,8 +65,36 @@ local FLY_KEYS = {
 	D = { 0, 1, 0 }, A = { 0, -1, 0 },
 	SPACE = { 0, 0, 1 }, X = { 0, 0, -1 },
 };
+-- A name's color: a player's class color, else these; grey once dead. The
+-- unit list fades the name of a unit out of view.
 local PLAYER_NAME_COLOR = { 0.4, 0.8, 1 };
 local CREATURE_NAME_COLOR = { 1, 0.82, 0 };
+local DEAD_NAME_COLOR = { 0.5, 0.5, 0.5 };
+local OUT_OF_VIEW_ALPHA = 0.4;
+local UNIT_ROW_HEIGHT = 16;
+-- The health bar over a hurt unit: its size, how far above the name point
+-- it sits (pixels), and its colors.
+local HEALTH_BAR_WIDTH, HEALTH_BAR_HEIGHT, HEALTH_BAR_RISE = 50, 5, 14;
+local PLAYER_HEALTH_COLOR = { 0, 0.8, 0 };
+local CREATURE_HEALTH_COLOR = { 0.85, 0.1, 0.1 };
+-- The feed of the log's lines: how many show, how long each stays, and the
+-- colors of its lines, heals and deaths.
+local FEED_LINES, FEED_WIDTH, FEED_SECONDS = 8, 440, 12;
+local FEED_TEXT_COLOR = { 1, 1, 1 };
+local FEED_HEAL_COLOR = { 0.2, 1, 0.2 };
+local FEED_DEATH_COLOR = { 1, 0.25, 0.25 };
+-- The client's combat log words for a missed swing and a missed spell, by
+-- miss type (GlobalStrings).
+local SWING_MISS_TEXT = {
+	MISS = MISSEDOTHEROTHER, DODGE = VSDODGEOTHEROTHER, PARRY = VSPARRYOTHEROTHER,
+	BLOCK = VSBLOCKOTHEROTHER, ABSORB = VSABSORBOTHEROTHER, EVADE = VSEVADEOTHEROTHER,
+	IMMUNE = VSIMMUNEOTHEROTHER,
+};
+local SPELL_MISS_TEXT = {
+	MISS = SPELLMISSOTHEROTHER, DODGE = SPELLDODGEDOTHEROTHER, PARRY = SPELLPARRIEDOTHEROTHER,
+	BLOCK = SPELLBLOCKEDOTHEROTHER, RESIST = SPELLRESISTOTHEROTHER, ABSORB = SPELLLOGABSORBOTHEROTHER,
+	EVADE = SPELLEVADEDOTHEROTHER,
+};
 
 local frame, scene, camera;
 local selectedLog;    -- a log's name
@@ -76,6 +111,9 @@ local settingTimeline = false;
 local pressX, pressY;
 local flying = {};     -- the fly keys held, by key name
 local combatTime;      -- the replay time the combat state is at, nil before the first
+local freeBars = {};   -- health bars not in use
+local feed;            -- the ScrollingMessageFrame of the log's lines
+local unitListChanged; -- a unit was named since the list was filled
 
 ------------------------------------------------------------------------------
 -- Text
@@ -108,28 +146,111 @@ local function SetStatus(text)
 end
 
 ------------------------------------------------------------------------------
+-- Health bars
+
+local function NewBar()
+	local bar = CreateFrame("StatusBar", nil, scene);
+	bar:SetWidth(HEALTH_BAR_WIDTH);
+	bar:SetHeight(HEALTH_BAR_HEIGHT);
+	bar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar");
+	bar:SetMinMaxValues(0, 1);
+	bar:SetFrameLevel(scene:GetFrameLevel() + 5);
+	local background = bar:CreateTexture(nil, "BACKGROUND");
+	background:SetAllPoints(bar);
+	background:SetTexture(0, 0, 0, 0.6);
+	return bar;
+end
+
+local function HideBar(u)
+	if u.bar then
+		u.bar:Hide();
+		tinsert(freeBars, u.bar);
+		u.bar = nil;
+	end
+end
+
+-- Where a unit's name point appears on the scene, in the scene's units; nil
+-- when it is behind the camera or off the scene.
+local function ScenePoint(actor)
+	local x, y, z = actor:GetNamePosition();
+	if not x then
+		return nil;
+	end
+	local px, py, depth = scene:Project3DPointTo2D(x, y, z);
+	if not px or depth < 0 or depth > 1 then
+		return nil;
+	end
+	local scale = scene:GetEffectiveScale();
+	px, py = px / scale, py / scale;
+	if px < 0 or py < 0 or px > scene:GetWidth() or py > scene:GetHeight() then
+		return nil;
+	end
+	return px, py;
+end
+
+-- A living unit below its full health shows a bar over its name.
+local function ShowBar(u, time, isDead)
+	local health, maxHealth;
+	if not isDead then
+		health, maxHealth = C_CombatLogReplay.GetUnitHealth(u.index, time);
+	end
+	local px, py;
+	if health and health < maxHealth then
+		px, py = ScenePoint(u.actor);
+	end
+	if not px then
+		HideBar(u);
+		return;
+	end
+	local bar = u.bar;
+	if not bar then
+		bar = tremove(freeBars) or NewBar();
+		u.bar = bar;
+		local color = u.isPlayer and PLAYER_HEALTH_COLOR or CREATURE_HEALTH_COLOR;
+		bar:SetStatusBarColor(color[1], color[2], color[3]);
+	end
+	bar:SetValue(health / maxHealth);
+	bar:ClearAllPoints();
+	bar:SetPoint("BOTTOM", scene, "BOTTOMLEFT", px, py + HEALTH_BAR_RISE);
+	bar:Show();
+end
+
+------------------------------------------------------------------------------
 -- Units
 
 local function ReleaseUnits()
 	combatTime = nil;
+	for i = 1, #units do
+		HideBar(units[i]);
+	end
 	scene:ReleaseAllActors();
 	units = {};
 	unitOfActor = {};
 	focus = nil;
 end
 
--- A pooled actor keeps the scale settings of its last use (scene 4's
--- actors carry their display info's), and ModelSceneActorMixin applies them
--- again whenever a model loads; so a new one starts at its own size.
+-- A pooled actor keeps what ApplyFromModelSceneActorInfo set at its last
+-- use: scene 4's "unwrapped" actor centres its model on its position
+-- (useCenterForOriginZ, which sinks a unit by half its height) and carries a
+-- display info's scale, which the mixin applies again whenever a model
+-- loads. A new one stands on its position at its own size.
 local function Acquire(u)
 	local actor = scene:AcquireActor();
+	actor:SetUseCenterForOrigin(false, false, false);
+	actor:SetPitch(0);
+	actor:SetRoll(0);
+	actor:SetAlpha(1);
+	actor:StopAnimationKit();
+	actor:SetSpellVisualKit(nil);
 	actor:SetNormalizedScaleAggressiveness(0);
 	actor:SetRequestedScale(1);
 	unitOfActor[actor] = u;
 	return actor;
 end
 
+
 local function HideUnit(u)
+	HideBar(u);
 	if u.actor and u.actor:IsShown() then
 		u.actor:Hide();
 	end
@@ -220,7 +341,7 @@ local function ShowUnit(u, time, x, y, z, facing, speed, falling, jumping, displ
 	local named = not isDead;
 	if u.named ~= named then
 		if named then
-			local color = u.isPlayer and PLAYER_NAME_COLOR or CREATURE_NAME_COLOR;
+			local color = u.nameColor;
 			actor:SetNameText(u.name, color[1], color[2], color[3]);
 		else
 			actor:ClearNameText();
@@ -262,7 +383,7 @@ local function ShowUnit(u, time, x, y, z, facing, speed, falling, jumping, displ
 	elseif speed > MOVING_SPEED then
 		animation = speed >= RUN_SPEED and ANIM_RUN or ANIM_WALK;
 	elseif u.swingUntil and time < u.swingUntil then
-		animation = u.isPlayer and ANIM_ATTACK_1H or ANIM_ATTACK_UNARMED;
+		animation = u.swingAnimation;
 	else
 		animation = STAND_ANIMATION[standState] or ANIM_STAND;
 	end
@@ -282,8 +403,72 @@ local function ShownActor(index)
 	return actor and actor:IsShown() and actor or nil, u;
 end
 
+-- The swing animation of the unit's main hand at `time`.
+local function SwingAnimation(index, time)
+	local itemClass, subclass = C_CombatLogReplay.GetUnitWeapons(index, time);
+	return itemClass == ITEM_CLASS_WEAPON and SWING_BY_SUBCLASS[subclass] or ANIM_ATTACK_UNARMED;
+end
+
+local function UnitName(index)
+	local u = index and units[index];
+	return u and u.name ~= "" and u.name or UNKNOWN;
+end
+
+local function SpellName(spellID)
+	return spellID and GetSpellInfo(spellID) or UNKNOWN;
+end
+
+-- The event in the client's combat log words, and its color; nil for one
+-- the feed leaves out.
+local function FeedText(e)
+	local kind = e.event;
+	local source, dest = UnitName(e.sourceIndex), UnitName(e.destIndex);
+	if kind == "SWING_DAMAGE" then
+		return string.format(e.critical and COMBATHITCRITOTHEROTHER or COMBATHITOTHEROTHER, source, dest, e.amount);
+	elseif kind == "SPELL_DAMAGE" or kind == "SPELL_PERIODIC_DAMAGE" or kind == "RANGE_DAMAGE"
+			or kind == "DAMAGE_SHIELD" then
+		return string.format(e.critical and SPELLLOGCRITOTHEROTHER or SPELLLOGOTHEROTHER, source,
+			SpellName(e.spellID), dest, e.amount);
+	elseif kind == "SPELL_HEAL" or kind == "SPELL_PERIODIC_HEAL" then
+		return string.format(e.critical and HEALEDCRITOTHEROTHER or HEALEDOTHEROTHER, source,
+			SpellName(e.spellID), dest, e.amount), FEED_HEAL_COLOR;
+	elseif kind == "SWING_MISSED" then
+		local text = SWING_MISS_TEXT[e.missType];
+		return text and string.format(text, source, dest);
+	elseif kind == "SPELL_MISSED" or kind == "SPELL_PERIODIC_MISSED" or kind == "RANGE_MISSED" then
+		if e.missType == "IMMUNE" then
+			return string.format(SPELLIMMUNEOTHEROTHER, source, SpellName(e.spellID), dest);
+		end
+		local text = SPELL_MISS_TEXT[e.missType];
+		return text and string.format(text, source, SpellName(e.spellID), dest);
+	elseif kind == "SPELL_CAST_START" then
+		return string.format(SPELLCASTOTHERSTART, source, SpellName(e.spellID));
+	elseif kind == "SPELL_CAST_SUCCESS" then
+		if e.destIndex and e.destIndex ~= e.sourceIndex then
+			return string.format(SPELLCASTGOOTHERTARGETTED, source, SpellName(e.spellID), dest);
+		end
+		return string.format(SPELLCASTGOOTHER, source, SpellName(e.spellID));
+	elseif kind == "SPELL_AURA_APPLIED" then
+		return string.format(e.auraType == "DEBUFF" and AURAADDEDOTHERHARMFUL or AURAADDEDOTHERHELPFUL, dest,
+			SpellName(e.spellID));
+	elseif kind == "SPELL_AURA_REMOVED" then
+		return string.format(AURAREMOVEDOTHER, SpellName(e.spellID), dest);
+	elseif kind == "UNIT_DIED" then
+		return string.format(UNITDIESOTHER, dest), FEED_DEATH_COLOR;
+	end
+end
+
+local function AddFeedLine(e)
+	local text, color = FeedText(e);
+	if text then
+		color = color or FEED_TEXT_COLOR;
+		feed:AddMessage(text, color[1], color[2], color[3]);
+	end
+end
+
 -- One log event, as time passes it.
 local function PlayEvent(e)
+	AddFeedLine(e);
 	local source, u = ShownActor(e.sourceIndex);
 	local target, du = ShownActor(e.destIndex);
 	local kind = e.event;
@@ -325,6 +510,7 @@ local function PlayEvent(e)
 	elseif kind == "SWING_DAMAGE" or kind == "SWING_MISSED" then
 		if u then
 			u.swingUntil = e.time + SWING_TIME;
+			u.swingAnimation = SwingAnimation(e.sourceIndex, e.time);
 		end
 	elseif kind == "UNIT_DIED" then
 		if du then
@@ -336,6 +522,7 @@ end
 -- Each unit's combat state as it was at `time`: no cast or swing under way,
 -- its auras then; a dead unit lies still.
 local function SetCombatState(time)
+	feed:Clear();
 	for i = 1, #units do
 		local u = units[i];
 		u.casts, u.swingUntil, u.dyingUntil = nil, nil, nil;
@@ -376,9 +563,11 @@ local function Apply(time)
 			display, nativeDisplay, mountDisplay, scale, standState, _, _, sheathState, isDead =
 				GetUnitLook(i, time);
 		end
-		if display and display > 0 then
+		u.inView, u.dead = display and display > 0, isDead;
+		if u.inView then
 			ShowUnit(u, time, x, y, z, facing, speed, falling, jumping, display, nativeDisplay,
 				mountDisplay, scale, standState, sheathState, isDead);
+			ShowBar(u, time, isDead);
 		else
 			HideUnit(u);
 		end
@@ -395,16 +584,6 @@ local function Aim(x, y, z)
 	camera:SnapAllInterpolatedValues();
 end
 
-local function SetFocus(u)
-	if focus and focus.actor then
-		focus.actor:SetHighlight("target", false);
-	end
-	focus = u;
-	if focus and focus.actor then
-		focus.actor:SetHighlight("target", true);
-	end
-end
-
 local function FollowFocus()
 	if not focus then
 		return;
@@ -413,6 +592,111 @@ local function FollowFocus()
 	if x then
 		camera:SetTarget(x, y, z + 1);
 	end
+end
+
+------------------------------------------------------------------------------
+-- The unit list
+
+-- A row shows its unit's name in its color (grey once dead), faded while the
+-- unit is out of view, and marked while the camera follows it.
+local function UpdateUnitRow(row)
+	local u = row.unit;
+	local color = u.dead and DEAD_NAME_COLOR or u.nameColor;
+	row.Text:SetTextColor(color[1], color[2], color[3]);
+	row:SetAlpha(u.inView and 1 or OUT_OF_VIEW_ALPHA);
+	if u == focus then
+		row.Selected:Show();
+	else
+		row.Selected:Hide();
+	end
+end
+
+local function UpdateUnitList()
+	frame.UnitList.ScrollBox:ForEachFrame(UpdateUnitRow);
+end
+
+local function SetFocus(u)
+	if focus and focus.actor then
+		focus.actor:SetHighlight("target", false);
+	end
+	focus = u;
+	if focus and focus.actor then
+		focus.actor:SetHighlight("target", true);
+	end
+	UpdateUnitList();
+	if focus then
+		frame.UnitList.ScrollBox:ScrollToElementData(focus, ScrollBoxConstants.AlignNearest);
+	end
+end
+
+local function OnUnitRowClick(row)
+	SetFocus(row.unit);
+	FollowFocus();
+end
+
+local function InitUnitRow(row, u)
+	row.unit = u;
+	row.Text:SetText(u.name ~= "" and u.name or UNKNOWN);
+	row:SetScript("OnClick", OnUnitRowClick);
+	UpdateUnitRow(row);
+end
+
+-- Players first, then creatures, each by name; units without a name last.
+local function UnitOrder(a, b)
+	if (a.name == "") ~= (b.name == "") then
+		return b.name == "";
+	end
+	if not a.isPlayer ~= not b.isPlayer then
+		return not b.isPlayer;
+	end
+	if a.name ~= b.name then
+		return a.name < b.name;
+	end
+	return a.index < b.index;
+end
+
+local function FillUnitList()
+	local list = {};
+	for i = 1, #units do
+		list[i] = units[i];
+	end
+	table.sort(list, UnitOrder);
+	frame.UnitList.ScrollBox:SetDataProvider(CreateDataProvider(list), ScrollBoxConstants.RetainScrollPosition);
+	unitListChanged = false;
+end
+
+-- A creature the log does not name and the client has not cached is asked
+-- for; NameCreatures names its units when it arrives.
+local function RequestName(unit)
+	if unit.name == "" and unit.creatureID then
+		C_CreatureInfo.RequestLoadCreatureByID(unit.creatureID);
+	end
+end
+
+local function NameCreatures(creatureID)
+	local info = C_CreatureInfo.GetCreatureInfoByID(creatureID);
+	if not info or not info.name or info.name == "" then
+		return;
+	end
+	for i = 1, #units do
+		local u = units[i];
+		if u.creatureID == creatureID and u.name == "" then
+			u.name = info.name;
+			u.named = nil;
+			unitListChanged = true;
+		end
+	end
+end
+
+-- A player's class color, else the name color of its kind.
+local function NameColor(isPlayer, appearances)
+	local appearance = appearances and appearances[1];
+	local info = appearance and C_CreatureInfo.GetClassInfo(appearance.classID);
+	local color = info and RAID_CLASS_COLORS[info.classFile];
+	if color then
+		return { color.r, color.g, color.b };
+	end
+	return isPlayer and PLAYER_NAME_COLOR or CREATURE_NAME_COLOR;
 end
 
 ------------------------------------------------------------------------------
@@ -547,6 +831,9 @@ local function OnUpdate(self, elapsed)
 		camera:SnapToTargetInterpolationPitch();
 	end
 	Fly(elapsed);
+	if unitListChanged then
+		FillUnitList();
+	end
 	if #units == 0 then
 		return;
 	end
@@ -559,6 +846,7 @@ local function OnUpdate(self, elapsed)
 	end
 	Apply(now);
 	FollowFocus();
+	UpdateUnitList();
 	UpdateTimeline();
 end
 
@@ -566,6 +854,7 @@ local function Seek(time)
 	now = math.max(0, math.min(duration, time));
 	Apply(now);
 	FollowFocus();
+	UpdateUnitList();
 	UpdateTimeline();
 end
 
@@ -574,6 +863,7 @@ local function Build()
 	ReleaseUnits();
 	local info = C_CombatLogReplay.GetReplayInfo();
 	if not info then
+		FillUnitList();
 		SetStatus(REPLAY_LOAD_FAILED);
 		return;
 	end
@@ -583,8 +873,13 @@ local function Build()
 		if unit.isPlayer then
 			name = string.gsub(name, "%-.*", "");
 		end
-		units[i] = { index = i, name = name, isPlayer = unit.isPlayer, mountDisplay = 0,
-			appearances = unit.isPlayer and C_CombatLogReplay.GetUnitAppearances(i) or nil };
+		local appearances = unit.isPlayer and C_CombatLogReplay.GetUnitAppearances(i) or nil;
+		units[i] = { index = i, name = name, isPlayer = unit.isPlayer, creatureID = unit.creatureID,
+			mountDisplay = 0, appearances = appearances, nameColor = NameColor(unit.isPlayer, appearances) };
+	end
+	FillUnitList();
+	for i = 1, #units do
+		RequestName(units[i]);
 	end
 	duration = info.duration;
 	frame.Timeline:SetMinMaxValues(0, math.max(duration, 0.1));
@@ -670,16 +965,23 @@ end
 ------------------------------------------------------------------------------
 -- The window
 
-local function OnEvent(self, event, logName, success)
+local function OnEvent(self, event, ...)
 	if event == "COMBAT_LOG_REPLAY_ENCOUNTERS_READY" then
+		local logName = ...;
 		if logName == selectedLog then
 			ReadSegments();
 		end
 	elseif event == "COMBAT_LOG_REPLAY_LOADED" then
+		local success = ...;
 		if success then
 			Build();
 		else
 			SetStatus(REPLAY_LOAD_FAILED);
+		end
+	elseif event == "CREATURE_DATA_LOAD_RESULT" then
+		local creatureID, success = ...;
+		if success then
+			NameCreatures(creatureID);
 		end
 	end
 end
@@ -716,6 +1018,7 @@ function ClassicAPIReplay_OnLoad(self)
 	self:SetScript("OnEvent", OnEvent);
 	self:RegisterEvent("COMBAT_LOG_REPLAY_ENCOUNTERS_READY");
 	self:RegisterEvent("COMBAT_LOG_REPLAY_LOADED");
+	self:RegisterEvent("CREATURE_DATA_LOAD_RESULT");
 
 	scene.ControlFrame:SetModelScene(scene);
 	scene:TransitionToModelSceneID(4, CAMERA_TRANSITION_TYPE_IMMEDIATE, CAMERA_MODIFICATION_TYPE_DISCARD, true);
@@ -731,6 +1034,20 @@ function ClassicAPIReplay_OnLoad(self)
 	camera:SetRightMouseButtonYMode(ORBIT_CAMERA_MOUSE_MODE_TARGET_VERTICAL, true);
 	scene:HookScript("OnMouseDown", OnSceneMouseDown);
 	scene:HookScript("OnMouseUp", OnSceneMouseUp);
+	feed = CreateFrame("ScrollingMessageFrame", nil, scene);
+	feed:SetPoint("BOTTOMLEFT", scene, "BOTTOMLEFT", 8, 8);
+	feed:SetWidth(FEED_WIDTH);
+	feed:SetHeight(FEED_LINES * 14);
+	feed:SetFontObject(GameFontHighlightSmall);
+	feed:SetJustifyH("LEFT");
+	feed:SetMaxLines(FEED_LINES * 4);
+	feed:SetFading(true);
+	feed:SetTimeVisible(FEED_SECONDS);
+	feed:SetFrameLevel(scene:GetFrameLevel() + 6);
+	local view = CreateScrollBoxListLinearView();
+	view:SetElementExtent(UNIT_ROW_HEIGHT);
+	view:SetElementInitializer("ClassicAPIReplayUnitRowTemplate", InitUnitRow);
+	ScrollUtil.InitScrollBoxListWithScrollBar(self.UnitList.ScrollBox, self.UnitList.ScrollBar, view);
 	scene:EnableKeyboard(true);
 	scene:SetScript("OnKeyDown", OnSceneKeyDown);
 	scene:SetScript("OnKeyUp", OnSceneKeyUp);

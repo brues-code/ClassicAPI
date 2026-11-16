@@ -4315,9 +4315,22 @@ embedded load-on-demand addon. Layers:
   death spell within 1 s is not a revival, a corpse leaving view ends the
   death); the viewer plays casts (precast for the logged time), missiles,
   auras, swings and deaths forward, sets the state on a jump, and hides a
-  dead unit's name. Checked offline on a Stratholme log. Left: health
-  bars, an event feed, attack animations by weapon.
-- L5 follow camera, unit list, raids built on terrain.
+  dead unit's name. Checked offline on a Stratholme log. Second half
+  DONE (2026-11-16, not yet seen in game): health bars from the advanced
+  blocks (`GetUnitHealth`; a player's in percent), a feed of the log's
+  lines in the client's 1.12 GlobalStrings words (`GetEvents` amount,
+  critical, missType), and swings by the main hand's weapon as 0x006246A0
+  picks them (`GetUnitWeapons`). Off-hand swings play the main hand's:
+  Era's damage lines carry no off-hand flag.
+- L5 follow camera, unit list, raids built on terrain. Click-to-follow is
+  L2's. Unit list DONE (2026-11-16, not yet seen in game): beside the
+  scene, players first in class colors, grey when dead, faded out of view,
+  unnamed last; click to follow. A unit the log never names (122 of 221
+  in a Stormwind log, all creatures seen only in the movement file) takes
+  the client's cached name, and an uncached creature is requested
+  (RequestLoadCreatureByID) and renamed on CREATURE_DATA_LOAD_RESULT.
+  Raids: SetWorldTerrain places the tiles' WMOs, so
+  BWL/ZG/AQ/Naxx take the terrain path already; not checked.
 Maps (probe 2026-11-16, `SetWorldModelByMapID`): only Onyxia 249 and MC
 409 are single WMOs. BWL 469, ZG 309, AQ 509/531 and Naxx 533 need
 terrain plus the WMOs placed on tiles (MODF). DONE (2026-11-16):

@@ -1,7 +1,28 @@
 <Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/
 ..\FrameXML\UI.xsd">
+	<!-- A unit in the unit list: its name, and a mark while the camera follows it. -->
+	<Button name="ClassicAPIReplayUnitRowTemplate" virtual="true">
+		<Size x="100" y="16"/>
+		<Layers>
+			<Layer level="BACKGROUND">
+				<Texture parentKey="Selected" setAllPoints="true" hidden="true">
+					<Color r="1" g="0.82" b="0" a="0.25"/>
+				</Texture>
+			</Layer>
+			<Layer level="ARTWORK">
+				<FontString parentKey="Text" inherits="GameFontHighlightSmall" justifyH="LEFT">
+					<Size y="16"/>
+					<Anchors>
+						<Anchor point="LEFT" x="4"/>
+						<Anchor point="RIGHT" x="-4"/>
+					</Anchors>
+				</FontString>
+			</Layer>
+		</Layers>
+		<HighlightTexture file="Interface\QuestFrame\UI-QuestTitleHighlight" alphaMode="ADD"/>
+	</Button>
 	<Frame name="ClassicAPIReplayFrame" parent="UIParent" toplevel="true" movable="true" enableMouse="true" hidden="true" frameStrata="DIALOG">
-		<Size x="960" y="640"/>
+		<Size x="1000" y="640"/>
 		<Anchors>
 			<Anchor point="CENTER"/>
 		</Anchors>
@@ -55,10 +76,38 @@
 					<Anchor point="TOPLEFT" x="292" y="-38"/>
 				</Anchors>
 			</DropdownButton>
+			<Frame parentKey="UnitList">
+				<Size x="180"/>
+				<Anchors>
+					<Anchor point="TOPRIGHT" x="-16" y="-72"/>
+					<Anchor point="BOTTOMRIGHT" x="-16" y="50"/>
+				</Anchors>
+				<Layers>
+					<Layer level="BACKGROUND">
+						<Texture setAllPoints="true">
+							<Color r="0" g="0" b="0" a="0.85"/>
+						</Texture>
+					</Layer>
+				</Layers>
+				<Frames>
+					<EventFrame parentKey="ScrollBar" inherits="MinimalScrollBar">
+						<Anchors>
+							<Anchor point="TOPRIGHT"/>
+							<Anchor point="BOTTOMRIGHT"/>
+						</Anchors>
+					</EventFrame>
+					<Frame parentKey="ScrollBox" inherits="WowScrollBoxList">
+						<Anchors>
+							<Anchor point="TOPLEFT" x="2" y="-2"/>
+							<Anchor point="BOTTOMRIGHT" relativeKey="$parent.ScrollBar" relativePoint="BOTTOMLEFT" x="-2" y="2"/>
+						</Anchors>
+					</Frame>
+				</Frames>
+			</Frame>
 			<ModelScene parentKey="Scene" inherits="ModelSceneMixinTemplate">
 				<Anchors>
 					<Anchor point="TOPLEFT" x="16" y="-72"/>
-					<Anchor point="BOTTOMRIGHT" x="-16" y="50"/>
+					<Anchor point="BOTTOMRIGHT" relativeKey="$parent.UnitList" relativePoint="BOTTOMLEFT" x="-6" y="0"/>
 				</Anchors>
 				<Frames>
 					<Frame parentKey="ControlFrame" inherits="ModelSceneControlFrameTemplate">
