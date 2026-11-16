@@ -289,7 +289,6 @@ void ApplyParryHaste() {
 
 // ---- Ranged wind-up compensation ------------------------------------------
 
-using GetCastTime_t = int(__fastcall *)(int spellID, int pet, int allowNegative);
 
 // Auto Shot / Shoot are re-cast by the server as TRIGGERED spells, so the
 // per-shot SMSG_SPELL_START is skipped and SMSG_SPELL_GO is the only packet
@@ -301,10 +300,7 @@ void HandleAutorepeatReset(uint32_t spellId) {
     const uint32_t rangedTime = AttackTimeMs(RANGED);
     if (rangedTime == 0)
         return;
-    auto getCastTime = reinterpret_cast<GetCastTime_t>(Offsets::FUN_GET_CAST_TIME);
-    int castTime = getCastTime(static_cast<int>(spellId), 0, 0);
-    if (castTime < 0)
-        castTime = 0;
+    const int castTime = Spell::Lookup::CastTimeMs(static_cast<int>(spellId), false, false);
     const auto windUp = static_cast<uint32_t>(castTime);
     MarkReset(RANGED, windUp >= rangedTime ? 0 : rangedTime - windUp);
 }

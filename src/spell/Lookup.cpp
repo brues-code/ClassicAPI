@@ -77,6 +77,16 @@ bool HasEffect(const uint8_t *spellRecord, int effect) {
     return false;
 }
 
+int CastTimeMs(int spellID, bool pet, bool allowNegative) {
+    using Fn = int(__fastcall *)(int spellID, int pet, int allowNegative);
+    return reinterpret_cast<Fn>(Offsets::FUN_GET_CAST_TIME)(spellID, pet ? 1 : 0, allowNegative ? 1 : 0);
+}
+
+int32_t PowerCost(int spellID, bool pet) {
+    using Fn = int32_t(__fastcall *)(int spellID, int pet);
+    return reinterpret_cast<Fn>(Offsets::FUN_GET_SPELL_COST)(spellID, pet ? 1 : 0);
+}
+
 int FindAuraEffect(const uint8_t *spellRecord, int aura) {
     if (spellRecord == nullptr)
         return -1;

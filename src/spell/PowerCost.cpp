@@ -49,12 +49,11 @@ namespace Spell::PowerCost {
 
 namespace {
 
-using GetSpellCost_t = uint32_t(__fastcall *)(int spellID, int pet);
 
 // The engine's cost helper, in STORED units (rage in tenths); 0xFFFFFFFF on
 // error. Callers divide by `Unit::Power::DisplayDivisor` before surfacing it.
 uint32_t EffectiveCost(int spellID) {
-    return reinterpret_cast<GetSpellCost_t>(Offsets::FUN_GET_SPELL_COST)(spellID, 0);
+    return static_cast<uint32_t>(Spell::Lookup::PowerCost(spellID, false));
 }
 
 int __fastcall Script_GetSpellPowerCost(void *L) {

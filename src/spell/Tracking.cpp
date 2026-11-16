@@ -13,6 +13,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "spell/Cancel.h"
 #include "spell/Lookup.h"
 
 #include <cstdint>
@@ -155,11 +156,8 @@ static int __fastcall Script_SetTracking(void *L) {
     if (!Game::Lua::IsNumber(L, 1)) {
         const int tracking =
             Game::Read<int>(static_cast<uintptr_t>(Offsets::VAR_ACTIVE_TRACKING_SPELL));
-        if (tracking != 0) {
-            using CancelAuraSend_t = void(__fastcall *)(int);
-            reinterpret_cast<CancelAuraSend_t>(
-                static_cast<uintptr_t>(Offsets::FUN_CANCEL_AURA_SEND))(tracking);
-        }
+        if (tracking != 0)
+            Spell::Cancel::SendCancel(tracking);
         return 0;
     }
     const int index = static_cast<int>(Game::Lua::ToNumber(L, 1));

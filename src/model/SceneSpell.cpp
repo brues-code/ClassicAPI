@@ -917,7 +917,6 @@ void AddCastsMade(Actor &caster) {
 // the caster.
 uint32_t Begin(Actor &caster, uint32_t spellID, Actor *target, const float *point, int castTimeMs, int channelMs,
                const std::vector<Actor *> &others) {
-    using GetCastTime_t = int(__fastcall *)(int spellID, int pet, int allowNegative);
     static uint32_t s_lastCastID = 0;
     const uint8_t *spell =
         Spell::Lookup::RecordForID(static_cast<int>(spellID));
@@ -929,8 +928,7 @@ uint32_t Begin(Actor &caster, uint32_t spellID, Actor *target, const float *poin
     // A new cast ends the precast of one still preparing.
     Stop(caster, false);
     if (castTimeMs < 0)
-        castTimeMs = reinterpret_cast<GetCastTime_t>(Offsets::FUN_GET_CAST_TIME)(
-            static_cast<int>(spellID), 0, 0);
+        castTimeMs = Spell::Lookup::CastTimeMs(static_cast<int>(spellID), false, false);
     SpellCast cast;
     if (++s_lastCastID == 0) // the IDs start again from 1 after 2^32 casts
         s_lastCastID = 1;

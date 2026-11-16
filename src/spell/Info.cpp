@@ -124,10 +124,8 @@ static bool ReadSpellInfo(int spellID, int pet, SpellInfoData &out) {
     out.powerType = Game::Read<int>(record, Offsets::OFF_SPELL_RECORD_POWER_TYPE);
 
     using PowerHelper_t = int32_t(__fastcall *)(int spellID, int pet);
-    using CastTime_t = int32_t(__fastcall *)(int spellID, int pet, int allowNegative);
     const auto divisor = static_cast<int32_t>(Unit::Power::DisplayDivisor(out.powerType));
-    const int32_t cost = reinterpret_cast<PowerHelper_t>(
-        static_cast<uintptr_t>(Offsets::FUN_GET_SPELL_COST))(spellID, pet) / divisor;
+    const int32_t cost = Spell::Lookup::PowerCost(spellID, pet != 0) / divisor;
     const int32_t costPerSecond = reinterpret_cast<PowerHelper_t>(
         static_cast<uintptr_t>(Offsets::FUN_GET_SPELL_POWER_PER_SECOND))(spellID, pet) / divisor;
     out.isFunnel = costPerSecond > 0;
@@ -137,8 +135,7 @@ static bool ReadSpellInfo(int spellID, int pet, SpellInfoData &out) {
     out.castTimeMs = 0;
     if (!(Game::Read<uint32_t>(record, Offsets::OFF_SPELL_RECORD_ATTRIBUTES) &
           Offsets::SPELL_ATTR_PASSIVE))
-        out.castTimeMs = reinterpret_cast<CastTime_t>(
-            static_cast<uintptr_t>(Offsets::FUN_GET_CAST_TIME))(spellID, pet, 1);
+        out.castTimeMs = Spell::Lookup::CastTimeMs(spellID, pet != 0, true);
 
     // Range as 4.3.4's `Script_GetSpellInfo` reports it: 0/0 for a melee
     // row (SpellRange flag 0x1), else the engine's resolver for the caster.

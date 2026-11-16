@@ -51,7 +51,6 @@ namespace Spell::Usable {
 namespace {
 
 using SpellIsUsable_t = int(__fastcall *)(const uint8_t *spellRecord, int *outNoMana);
-using GetSpellCost_t = uint32_t(__fastcall *)(int spellID, int pet);
 using PetActionsUsable_t = int(__cdecl *)();
 
 struct Usability {
@@ -111,8 +110,7 @@ Usability ComputePet(int spellID) {
         return r; // not a power type Spell.dbc can hold; the engine would index garbage
     }
 
-    auto getCost = reinterpret_cast<GetSpellCost_t>(Offsets::FUN_GET_SPELL_COST);
-    const int cost = static_cast<int>(getCost(spellID, 0));
+    const int cost = Spell::Lookup::PowerCost(spellID, false);
     if (cost <= power) {
         r.usable = true;
         return r;

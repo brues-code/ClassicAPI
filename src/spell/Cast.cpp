@@ -97,7 +97,6 @@ namespace Spell::Cast {
 
 namespace {
 
-using GetCastTime_t = uint32_t(__fastcall *)(int spellID, int pet, int allowNegative);
 
 // SPELL_ATTR_RANGED — every ranged ability carries it; the server adds a
 // flat +500ms "aim time" to these (SpellEntry::GetCastTime). Auto-repeat
@@ -244,8 +243,7 @@ void PushMs(void *L, int ms) {
 // matches the engine's cast bar exactly — including talents like a Mage's
 // faster casts. Pet arg 0 = local player; allowNegative 0 clamps negatives to 0.
 int CastTimeMs(int spellID) {
-    int ms = static_cast<int>(
-        reinterpret_cast<GetCastTime_t>(Offsets::FUN_GET_CAST_TIME)(spellID, 0, 0));
+    int ms = Spell::Lookup::CastTimeMs(spellID, false, false);
     // FUN_006e3340 (also the spell tooltip's cast-time source) does NOT add the
     // flat +500ms "aim time" the server applies to ranged, non-autorepeat
     // spells — SpellEntry::GetCastTime does `castTime += 500` for

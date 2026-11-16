@@ -21,4 +21,9 @@ namespace Spell::Cancel {
 // sender. True when a matching buff was found and its cancel sent.
 bool CancelPlayerAura(int auraType, int miscValue = -1);
 
+// Sends CMSG_CANCEL_AURA for `spellID` through the engine's sender
+// (FUN_CANCEL_AURA_SEND), after checking the spell exists: the sender reads
+// the Spell.dbc record unchecked and faults on a bad id.
+void SendCancel(int spellID);
+
 } // namespace Spell::Cancel

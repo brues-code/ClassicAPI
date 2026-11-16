@@ -37,19 +37,6 @@ namespace Spell::Cancel {
 
 namespace {
 
-using CancelAuraSend_t = void(__fastcall *)(int spellID);
-
-// Pre-validates `spellID` against Spell.dbc and ships the cancel
-// packet. The engine's sender unconditionally derefs `[record+0x1C]`
-// after a NULL-on-OOR record lookup, so skipping the
-// `RecordForID != nullptr` check would AV on bad input.
-void SendCancel(int spellID) {
-    if (Spell::Lookup::RecordForID(spellID) == nullptr)
-        return;
-    auto fn = reinterpret_cast<CancelAuraSend_t>(
-        static_cast<uintptr_t>(Offsets::FUN_CANCEL_AURA_SEND));
-    fn(spellID);
-}
 
 int __fastcall Script_CancelSpellByID(void *L) {
     if (!Game::Lua::IsNumber(L, 1))
@@ -131,5 +118,12 @@ static void RegisterLuaFunctions() {
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
+
+void SendCancel(int spellID) {
+    using CancelAuraSend_t = void(__fastcall *)(int spellID);
+    if (Spell::Lookup::RecordForID(spellID) == nullptr)
+        return;
+    reinterpret_cast<CancelAuraSend_t>(Offsets::FUN_CANCEL_AURA_SEND)(spellID);
+}
 
 } // namespace Spell::Cancel

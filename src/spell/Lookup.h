@@ -46,6 +46,16 @@ bool IsFitToFamily(const uint8_t *spellRecord, uint32_t family,
 // SpellHasEffect. False for a null record.
 bool HasEffect(const uint8_t *spellRecord, int effect);
 
+// The player's (or, with `pet`, the pet's) cast time for `spellID` in ms,
+// talents and gear included (FUN_GET_CAST_TIME, the engine's cast bar and
+// tooltip source). `allowNegative` false clamps a negative result to 0.
+int CastTimeMs(int spellID, bool pet, bool allowNegative);
+
+// The player's (or the pet's) power cost for `spellID` in stored units (rage
+// in tenths), cost mods folded in (FUN_GET_SPELL_COST); -1 with no caster or
+// a bad spell.
+int32_t PowerCost(int spellID, bool pet);
+
 // The index (0..2) of the first of the spell's three effects that applies
 // the aura `aura` (EffectApplyAuraName), or -1 when none does or the record
 // is null. For reading that effect's other columns (its misc value, ...).

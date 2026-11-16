@@ -442,7 +442,7 @@ __declspec(naked) void ItemFormRefusalThunk() {
 // so the form stays.
 void __fastcall ItemToggleCancel(int spellId) {
     g_itemUnshift = false;
-    reinterpret_cast<void(__fastcall *)(int)>(Offsets::FUN_CANCEL_AURA_SEND)(spellId);
+    Spell::Cancel::SendCancel(spellId);
 }
 
 // Before the bind-on-use test: 4.3.4 CGItem_C::Use's form cancel.

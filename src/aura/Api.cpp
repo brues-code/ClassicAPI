@@ -41,6 +41,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "aura/Instance.h"
+#include "spell/Cancel.h"
 #include "spell/Lookup.h"
 #include "ui/ColorData.h"
 #include "unit/Identity.h"
@@ -683,9 +684,7 @@ int __fastcall Script_CancelUnitBuff(void *L) {
          Offsets::SPELL_ATTR_EX_CHANNELED_1) != 0;
     if (!cancelable)
         return 0;
-    using CancelAuraSend_t = void(__fastcall *)(int spellID);
-    reinterpret_cast<CancelAuraSend_t>(
-        static_cast<uintptr_t>(Offsets::FUN_CANCEL_AURA_SEND))(spellID);
+    Spell::Cancel::SendCancel(spellID);
     return 0;
 }
 
