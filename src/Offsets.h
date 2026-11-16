@@ -146,6 +146,15 @@ enum Offsets {
     OFF_BINDINGS_COMMAND_TABLE = 0x08,
     OFF_HASHTABLE_SLOTS = 0x1C,
     OFF_HASHTABLE_MASK = 0x24,
+    // A TSHashTable bucket, 0xC bytes: { link offset @+0x0, ? @+0x4, first
+    // node @+0x8 }. A node's next is `*(node + linkOffset + 4)`; a null or odd
+    // pointer ends the chain. A HASHKEY_STRI node keeps its SStrHashHT hash
+    // @+0x0 and its name @+0x14. The XML template and frame factory tables
+    // below have the same shape. Storm::HashTable reads it.
+    HASHTABLE_BUCKET_STRIDE = 0xC,
+    OFF_HASHTABLE_BUCKET_LINK = 0x0,
+    OFF_HASHTABLE_BUCKET_HEAD = 0x8,
+    OFF_HASHTABLE_NODE_HASH = 0x0,
     OFF_HASHTABLE_NODE_NAME = 0x14,
     // Storm SStrHashHT — `uint32_t __stdcall(const char *)` (callee pops its
     // one argument; FUN_BINDINGS_GET_COMMAND_ACTION calls it with no cleanup).
@@ -13498,26 +13507,18 @@ enum Offsets {
     // See src/xml/Templates.cpp.
     //
     // VAR_XML_TEMPLATE_TABLE holds a POINTER to the bucket array (0 / the
-    // array unallocated) and VAR_XML_TEMPLATE_MASK the bucket-count mask;
-    // mask == 0xFFFFFFFF means no template has ever registered (walk = empty).
+    // array unallocated), and the bucket-count mask follows at +0x8
+    // (0x00CEEA24); mask == 0xFFFFFFFF means no template has ever registered.
     VAR_XML_TEMPLATE_TABLE = 0x00CEEA1C,
-    VAR_XML_TEMPLATE_MASK = 0x00CEEA24,
-    // Bucket struct (0xC bytes): { linkOffset@+0x0, ?@+0x4, chainHead@+0x8 }.
-    // A node's next pointer is at `*(node + linkOffset + 4)`; the tail
-    // sentinel has its low bit set (chain ends on `(ptr & 1) != 0`).
-    XML_TEMPLATE_BUCKET_STRIDE = 0xC,
-    OFF_XML_TEMPLATE_BUCKET_LINKOFF = 0x0,
-    OFF_XML_TEMPLATE_BUCKET_HEAD = 0x8,
-    // Registry node payload: name hash @+0x0 (FUN_SSTR_HASH_HT, the lookup's
-    // `cmp [ebx],esi`), template name string @+0x14, parsed definition XML
+    // A Storm TSHashTable (OFF_HASHTABLE_*: the mask is 8 bytes after the
+    // bucket pointer). Node payload past the hash @+0x0 (FUN_SSTR_HASH_HT, the
+    // lookup's `cmp [ebx],esi`) and the name @+0x14: parsed definition XML
     // node @+0x18, and the context word current when it registered @+0x1C —
     // the registrar FUN_006EE500(node, name, context, status) stores its
     // third argument there (0x006EE6BE), and the XML file loader passes
     // VAR_FRAMESCRIPT_EXEC_CONTEXT: the owning addon's name, or 0 for the
     // client's own XML. 3.3.5's FrameXML_AcquireHashNode returns it as the
     // template's taint.
-    OFF_XML_TEMPLATE_NODE_HASH = 0x0,
-    OFF_XML_TEMPLATE_NODE_NAME = 0x14,
     OFF_XML_TEMPLATE_NODE_DEF = 0x18,
     OFF_XML_TEMPLATE_NODE_CONTEXT = 0x1C,
     // The two places the client applies a single `inherits` template — the
@@ -13717,16 +13718,13 @@ enum Offsets {
     // the glue UI's FUN_0046A400.
     FUN_FRAMEXML_REGISTER_FACTORY = 0x006EE880,
     // The table it fills: a Storm hash with the template table's shape
-    // (XML_TEMPLATE_BUCKET_*): a pointer to the bucket array and the bucket
-    // mask, 0xFFFFFFFF before the first registration. A node holds the name
+    // (OFF_HASHTABLE_*): a pointer to the bucket array and the bucket mask,
+    // 0xFFFFFFFF before the first registration. A node holds the name
     // hash @+0x0 (FUN_SSTR_HASH_HT), the name @+0x14, the factory @+0x18 and
     // the unique flag (byte) @+0x1C. FUN_XML_FRAME_BUILD's lookup
     // (0x006EE2DE..0x006EE351) hashes the tag, compares the name with SStrCmpI
     // and calls the factory with the parent in ECX.
-    VAR_FRAME_FACTORY_TABLE = 0x00CEE9D8,
-    VAR_FRAME_FACTORY_MASK = 0x00CEE9E0,
-    OFF_FRAME_FACTORY_NODE_HASH = 0x0,
-    OFF_FRAME_FACTORY_NODE_NAME = 0x14,
+    VAR_FRAME_FACTORY_TABLE = 0x00CEE9D8, // the mask follows at +0x8 (0x00CEE9E0)
     OFF_FRAME_FACTORY_NODE_FN = 0x18,
 
     // ---- Subclassing CSimpleFrame (Frame::Cooldown) -------------------------

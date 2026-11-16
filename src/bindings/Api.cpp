@@ -49,6 +49,7 @@
 #include "Offsets.h"
 #include "bindings/Command.h"
 #include "input/Modifier.h"
+#include "storm/HashTable.h"
 #include "storm/String.h"
 
 #include <cstdint>
@@ -131,22 +132,9 @@ const char *SavedCommand(void *mgr, const char *key) {
 // Whether the command table has `command` — the walk the engine inlines in
 // FUN_BINDING_COMMAND_EXECUTE (see OFF_BINDINGS_COMMAND_TABLE).
 bool IsKnownCommand(void *mgr, const char *command) {
-    const uintptr_t table = reinterpret_cast<uintptr_t>(mgr) + Offsets::OFF_BINDINGS_COMMAND_TABLE;
-    const uint32_t mask = Game::Read<uint32_t>(table + Offsets::OFF_HASHTABLE_MASK);
-    if (*command == '\0' || mask == 0xFFFFFFFF)
-        return false;
-    const uint32_t hash = Storm::HashHT(command);
-    const uintptr_t bucket =
-        Game::Read<uintptr_t>(table + Offsets::OFF_HASHTABLE_SLOTS) + (hash & mask) * 12;
-    const uint32_t link = Game::Read<uint32_t>(bucket);
-    for (uintptr_t node = Game::Read<uintptr_t>(bucket + 8); node != 0 && (node & 1) == 0;
-         node = Game::Read<uintptr_t>(node + link + 4)) {
-        if (Game::Read<uint32_t>(node) == hash &&
-            Game::StrCmpI(Game::Read<const char *>(node + Offsets::OFF_HASHTABLE_NODE_NAME),
-                          command) == 0)
-            return true;
-    }
-    return false;
+    return Storm::HashTable::FindStri(reinterpret_cast<uintptr_t>(mgr) + Offsets::OFF_BINDINGS_COMMAND_TABLE +
+                                          Offsets::OFF_HASHTABLE_SLOTS,
+                                      command) != nullptr;
 }
 
 // CGUIBindings::GetKeyBinding: the key's active override, else its saved

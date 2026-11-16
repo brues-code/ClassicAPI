@@ -41,6 +41,7 @@
 // The engine's frame-type table lasts the process, so a name registers once;
 // the definitions are dropped with the Lua state and loaded again.
 
+#include "storm/HashTable.h"
 #include "storm/String.h"
 #include "xml/Intrinsics.h"
 
@@ -85,21 +86,8 @@ const Def *Find(const char *name) {
 
 // FUN_XML_FRAME_BUILD's lookup of a tag in the frame-type table.
 Factory_t FactoryFor(const char *type) {
-    const uint32_t mask = Game::Read<uint32_t>(Offsets::VAR_FRAME_FACTORY_MASK);
-    const uint8_t *base = Game::Read<const uint8_t *>(Offsets::VAR_FRAME_FACTORY_TABLE);
-    if (type == nullptr || mask == 0xFFFFFFFFu || base == nullptr)
-        return nullptr;
-    const uint32_t hash = Storm::HashHT(type);
-    const uint8_t *bucket = base + (hash & mask) * Offsets::XML_TEMPLATE_BUCKET_STRIDE;
-    const int linkOff = Game::Read<int>(bucket, Offsets::OFF_XML_TEMPLATE_BUCKET_LINKOFF);
-    for (const uint8_t *node = Game::Read<const uint8_t *>(bucket, Offsets::OFF_XML_TEMPLATE_BUCKET_HEAD);
-         node != nullptr && (reinterpret_cast<uintptr_t>(node) & 1) == 0;
-         node = Game::Read<const uint8_t *>(node, linkOff + 4)) {
-        if (Game::Read<uint32_t>(node, Offsets::OFF_FRAME_FACTORY_NODE_HASH) == hash &&
-            Game::StrCmpI(Game::Read<const char *>(node, Offsets::OFF_FRAME_FACTORY_NODE_NAME), type) == 0)
-            return Game::Read<Factory_t>(node, Offsets::OFF_FRAME_FACTORY_NODE_FN);
-    }
-    return nullptr;
+    const uint8_t *node = Storm::HashTable::FindStri(Offsets::VAR_FRAME_FACTORY_TABLE, type);
+    return node != nullptr ? Game::Read<Factory_t>(node, Offsets::OFF_FRAME_FACTORY_NODE_FN) : nullptr;
 }
 
 // Every intrinsic name's factory: the base type's, for the node being built.

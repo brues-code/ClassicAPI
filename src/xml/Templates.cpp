@@ -22,15 +22,14 @@
 // Fonts are a separate registry and are (correctly) not included; non-virtual
 // named frames take a different instantiate path and never enter this table.
 //
-// Table shape (see Offsets.h): a POINTER to a bucket array at
-// VAR_XML_TEMPLATE_TABLE, a bucket-count mask at VAR_XML_TEMPLATE_MASK
-// (0xFFFFFFFF until the first template registers). Each bucket is a Storm
-// intrusive list; each node carries the template name (+0x14) and the parsed
-// definition node (+0x18), whose element tag string (+0x8) is the frame type.
+// A Storm TSHashTable at VAR_XML_TEMPLATE_TABLE (Storm::HashTable). Each node
+// carries the template name (+0x14) and the parsed definition node (+0x18),
+// whose element tag string (+0x8) is the frame type.
 // Contents reflect the currently-loaded XML and are rebuilt on `/reload`.
 
 #include "Game.h"
 #include "Offsets.h"
+#include "storm/HashTable.h"
 #include "xml/KeyValues.h"
 
 #include <cstdint>
@@ -115,44 +114,20 @@ void ReadSize(const uint8_t *node, double *outW, double *outH) {
 int __fastcall Script_GetTemplates(void *L) {
     Game::Lua::NewTable(L); // the result array
 
-    const uint32_t mask = Game::Read<uint32_t>(Offsets::VAR_XML_TEMPLATE_MASK);
-    if (mask == 0xFFFFFFFFu)
-        return 1; // no template has ever registered — empty array
-
-    const uint8_t *base = Game::Read<const uint8_t *>(Offsets::VAR_XML_TEMPLATE_TABLE);
-    if (base == nullptr)
-        return 1;
-
     int outIdx = 0;
-    for (uint32_t b = 0; b <= mask; ++b) {
-        const uint8_t *bucket = base + b * Offsets::XML_TEMPLATE_BUCKET_STRIDE;
-        const int linkOff = Game::Read<int>(
-            bucket, Offsets::OFF_XML_TEMPLATE_BUCKET_LINKOFF);
-        const uint8_t *node = Game::Read<const uint8_t *>(
-            bucket, Offsets::OFF_XML_TEMPLATE_BUCKET_HEAD);
+    Storm::HashTable::ForEach(Offsets::VAR_XML_TEMPLATE_TABLE, [&](const uint8_t *node) {
+        const char *name = Storm::HashTable::NodeName(node);
+        const uint8_t *def = Game::Read<const uint8_t *>(node, Offsets::OFF_XML_TEMPLATE_NODE_DEF);
+        const char *type = def != nullptr ? Game::Read<const char *>(def, Offsets::OFF_XML_NODE_TAG) : nullptr;
 
-        // Walk the intrusive chain; the tail sentinel has its low bit set
-        // (mirrors the engine's own traversal in FUN_006ee6f0).
-        while (node != nullptr && (reinterpret_cast<uintptr_t>(node) & 1) == 0) {
-            const char *name = Game::Read<const char *>(
-                node, Offsets::OFF_XML_TEMPLATE_NODE_NAME);
-            const uint8_t *def = Game::Read<const uint8_t *>(
-                node, Offsets::OFF_XML_TEMPLATE_NODE_DEF);
-            const char *type =
-                (def != nullptr)
-                    ? Game::Read<const char *>(def, Offsets::OFF_XML_NODE_TAG)
-                    : nullptr;
-
-            ++outIdx;
-            Game::Lua::PushNumber(L, static_cast<double>(outIdx));
-            Game::Lua::NewTable(L);
-            Game::Lua::SetFieldString(L, "name", name != nullptr ? name : "");
-            Game::Lua::SetFieldString(L, "type", type != nullptr ? type : "");
-            Game::Lua::SetTable(L, -3);
-
-            node = *reinterpret_cast<const uint8_t *const *>(node + linkOff + 4);
-        }
-    }
+        ++outIdx;
+        Game::Lua::PushNumber(L, static_cast<double>(outIdx));
+        Game::Lua::NewTable(L);
+        Game::Lua::SetFieldString(L, "name", name);
+        Game::Lua::SetFieldString(L, "type", type);
+        Game::Lua::SetTable(L, -3);
+        return true;
+    });
     return 1;
 }
 

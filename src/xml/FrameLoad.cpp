@@ -11,6 +11,7 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
+#include "storm/HashTable.h"
 #include "storm/String.h"
 #include "xml/FrameLoad.h"
 
@@ -67,22 +68,8 @@ const void *Template(const char *name) {
 // FUN_XML_TEMPLATE_LOOKUP's own walk — hash, masked bucket, chain compare on
 // hash then SStrCmpI — returning the node's context instead of its definition.
 const char *TemplateContext(const char *name) {
-    const uint32_t mask = Game::Read<uint32_t>(Offsets::VAR_XML_TEMPLATE_MASK);
-    const uint8_t *base = Game::Read<const uint8_t *>(Offsets::VAR_XML_TEMPLATE_TABLE);
-    if (name == nullptr || mask == 0xFFFFFFFFu || base == nullptr)
-        return nullptr;
-    const uint32_t hash = Storm::HashHT(name);
-    const uint8_t *bucket = base + (hash & mask) * Offsets::XML_TEMPLATE_BUCKET_STRIDE;
-    const int linkOff = Game::Read<int>(bucket, Offsets::OFF_XML_TEMPLATE_BUCKET_LINKOFF);
-    for (const uint8_t *node = Game::Read<const uint8_t *>(bucket, Offsets::OFF_XML_TEMPLATE_BUCKET_HEAD);
-         node != nullptr && (reinterpret_cast<uintptr_t>(node) & 1) == 0;
-         node = Game::Read<const uint8_t *>(node, linkOff + 4)) {
-        if (Game::Read<uint32_t>(node, Offsets::OFF_XML_TEMPLATE_NODE_HASH) == hash &&
-            Game::StrCmpI(Game::Read<const char *>(node, Offsets::OFF_XML_TEMPLATE_NODE_NAME),
-                          name) == 0)
-            return Game::Read<const char *>(node, Offsets::OFF_XML_TEMPLATE_NODE_CONTEXT);
-    }
-    return nullptr;
+    const uint8_t *node = Storm::HashTable::FindStri(Offsets::VAR_XML_TEMPLATE_TABLE, name);
+    return node != nullptr ? Game::Read<const char *>(node, Offsets::OFF_XML_TEMPLATE_NODE_CONTEXT) : nullptr;
 }
 
 void LoadNode(void *object, const void *node, void *status) {
