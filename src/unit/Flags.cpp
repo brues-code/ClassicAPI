@@ -160,9 +160,6 @@ uint32_t ReadGuildKey(const uint8_t *unit) {
     return Game::Read<uint32_t>(info, Offsets::OFF_PLAYER_INFO_GUILD_KEY);
 }
 
-using PlayerInfoLookup_t = const uint8_t *(__thiscall *)(
-    void *cache, uint32_t guidLo, uint32_t guidHi, uint64_t *cookie,
-    void *callback, void *userData, int retryFlag);
 
 // Resolve a GUID to its live CGPlayer object, or nullptr if no player
 // object with that GUID is loaded. Never raises.
@@ -171,38 +168,6 @@ const uint8_t *ResolvePlayerByGuid(uint64_t guid) {
         return nullptr;
     return static_cast<const uint8_t *>(
         Object::ByGuid(Offsets::TYPEMASK_PLAYER, guid, "UnitIsInMyGuild", 0));
-}
-
-// Resolves a player GUID to its character name via
-// `FUN_PLAYER_INFO_LOOKUP` with a NULL callback — a pure NameCache
-// read that returns the entry block for any GUID the engine has seen a
-// `SMSG_NAME_QUERY_RESPONSE` for (same path `GetPlayerInfoByGUID`
-// uses). This is the OOR-safe fallback: it works for a raid member in
-// another zone whose CGUnit isn't loaded.
-//
-// Returns `nameBuf` on success (copied out — the entry's name pointer
-// isn't guaranteed stable across reentrant cache writes), or nullptr
-// when the GUID isn't a player the engine has name-queried (NPC GUID,
-// or not yet queried).
-const char *NameFromGuid(uint64_t guid, char (&nameBuf)[64]) {
-    if (guid == 0)
-        return nullptr;
-
-    auto lookup = reinterpret_cast<PlayerInfoLookup_t>(
-        Offsets::FUN_PLAYER_INFO_LOOKUP);
-    auto *cache = reinterpret_cast<void *>(
-        static_cast<uintptr_t>(Offsets::VAR_PLAYER_NAME_CACHE));
-    uint64_t cookie = 0;
-    const uint8_t *entry = lookup(cache,
-                                  static_cast<uint32_t>(guid),
-                                  static_cast<uint32_t>(guid >> 32),
-                                  &cookie, nullptr, nullptr, 0);
-    if (entry == nullptr)
-        return nullptr;
-
-    std::snprintf(nameBuf, sizeof(nameBuf), "%s",
-                  Game::Ptr<const char>(entry, Offsets::OFF_PLAYER_INFO_NAME));
-    return nameBuf;
 }
 
 // `UnitIsInMyGuild(unitOrName)` — returns `1` if the unit/character
@@ -264,8 +229,7 @@ int __fastcall Script_UnitIsInMyGuild(void *L) {
 
     // 2. A unit token — its name, from the engine NameCache.
     const char *nameToFind = input;
-    char nameBuf[64];
-    if (const char *tokenName = NameFromGuid(::Unit::Identity::GuidForToken(input), nameBuf))
+    if (const char *tokenName = ::Unit::Identity::NameForGuid(::Unit::Identity::GuidForToken(input)))
         nameToFind = tokenName;
 
     // 3. The roster, by name.

@@ -11,6 +11,7 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
+#include "cache/Record.h"
 #include "storm/List.h"
 #include "unit/Identity.h"
 
@@ -172,19 +173,9 @@ uint64_t GuidForToken(const char *token) {
 const uint8_t *PlayerInfoRecord(uint64_t guid) {
     if (guid == 0)
         return nullptr;
-    // Peek the engine's player-info NameCache: a NULL callback means "look up
-    // only, don't fire a query" (see the FUN_PLAYER_INFO_LOOKUP note in
-    // Offsets.h). Returns the entry data block for a cached GUID, else null.
-    using Lookup_t = const uint8_t *(__thiscall *)(void *cache, uint32_t lo,
-                                                   uint32_t hi, void *cookie,
-                                                   void *cb, void *ud, char flag);
-    auto fn = reinterpret_cast<Lookup_t>(
-        static_cast<uintptr_t>(Offsets::FUN_PLAYER_INFO_LOOKUP));
-    uint32_t cookie[2] = {0, 0};
-    return fn(reinterpret_cast<void *>(
-                  static_cast<uintptr_t>(Offsets::VAR_PLAYER_NAME_CACHE)),
-              static_cast<uint32_t>(guid), static_cast<uint32_t>(guid >> 32),
-              cookie, nullptr, nullptr, 0);
+    // A null callback only looks up: it never sends a query.
+    const uint64_t owner = 0;
+    return Cache::Record::GetPlayer(guid, &owner, nullptr, nullptr, false);
 }
 
 const char *NameForGuid(uint64_t guid) {

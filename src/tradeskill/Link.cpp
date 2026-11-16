@@ -53,6 +53,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "Window.h"
+#include "cache/Record.h"
 #include "dbc/Lookup.h"
 #include "spell/Known.h"
 #include "spell/Lookup.h"
@@ -68,9 +69,6 @@ namespace TradeSkill::Link {
 
 namespace {
 
-using NameCacheGet_t = const uint8_t *(__thiscall *)(void *cache, uint32_t lo, uint32_t hi,
-                                                     const uint64_t *owner, void *callback,
-                                                     void *userData, char dedupe);
 
 constexpr int kRowsPerChar = 6;
 
@@ -274,10 +272,8 @@ void Open(const char *data) {
     if (copy == nullptr)
         return;
     const uint64_t none = 0;
-    const uint8_t *linker = reinterpret_cast<NameCacheGet_t>(Offsets::FUN_PLAYER_INFO_LOOKUP)(
-        reinterpret_cast<void *>(Offsets::VAR_PLAYER_NAME_CACHE), static_cast<uint32_t>(guid),
-        static_cast<uint32_t>(guid >> 32), &none, reinterpret_cast<void *>(&LinkerNameLoaded),
-        copy, 1);
+    const uint8_t *linker = Cache::Record::GetPlayer(
+        guid, &none, reinterpret_cast<void *>(&LinkerNameLoaded), copy, true);
     if (linker == nullptr)
         return;
     std::free(copy);

@@ -39,4 +39,11 @@ const uint8_t *Get(uintptr_t getRecord, uintptr_t cache, uint32_t id, const uint
 // A passive lookup: the record, or nullptr. Never sends a query.
 const uint8_t *Peek(uintptr_t getRecord, uintptr_t cache, uint32_t id);
 
+// The player name cache (DBCache::NameCache at VAR_PLAYER_NAME_CACHE), whose
+// GetRecord (FUN_PLAYER_INFO_LOOKUP) is keyed by the GUID's two halves and
+// otherwise takes Get's arguments. The record holds the name at
+// OFF_PLAYER_INFO_NAME and the race, sex and class after it.
+const uint8_t *GetPlayer(uint64_t guid, const uint64_t *owner, void *callback, void *userData,
+                         bool dedup);
+
 } // namespace Cache::Record

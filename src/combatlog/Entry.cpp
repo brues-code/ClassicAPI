@@ -291,9 +291,6 @@ uint32_t RaidFlags(uint64_t guid) {
     return 0;
 }
 
-using NameCache_t = const uint8_t *(__thiscall *)(void *cache, uint32_t lo, uint32_t hi,
-                                                  const uint64_t *guid, void *callback,
-                                                  void *userData, char dedup);
 using GameObjectName_t = const char *(__fastcall *)(void *object);
 
 void *QueryDone() { return reinterpret_cast<void *>(Offsets::FUN_COMBAT_LOG_NAME_QUERY_DONE); }
@@ -326,9 +323,7 @@ const char *ObjectName(uint64_t guid) {
         return nullptr;
     }
     if (Guid::IsPlayer(guid)) {
-        const uint8_t *rec = reinterpret_cast<NameCache_t>(Offsets::FUN_PLAYER_INFO_LOOKUP)(
-            reinterpret_cast<void *>(Offsets::VAR_PLAYER_NAME_CACHE), static_cast<uint32_t>(guid),
-            static_cast<uint32_t>(guid >> 32), &guid, QueryDone(), nullptr, 0);
+        const uint8_t *rec = Cache::Record::GetPlayer(guid, &guid, QueryDone(), nullptr, false);
         return rec != nullptr
                    ? reinterpret_cast<const char *>(rec + Offsets::OFF_PLAYER_INFO_NAME)
                    : nullptr;
