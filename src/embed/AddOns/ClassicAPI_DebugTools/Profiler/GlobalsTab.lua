@@ -14,6 +14,13 @@ local function Kind(value)
   return t
 end
 
+-- a frame, texture or font string. GetDebugName is on the Region method
+-- table, so other UI objects (a font from CreateFont, an animation group)
+-- have no debug name, source location or visibility.
+local function IsRegion(value)
+  return value.GetDebugName ~= nil
+end
+
 local function Line(left, right)
   GameTooltip:AddDoubleLine(left, right, 1, 1, 1, 1, 1, 1)
 end
@@ -34,9 +41,11 @@ local function Tooltip(entry)
   elseif entry.kind == "table" then
     Line(PROFILER_LABEL_ENTRIES, ns.Count(table.count(value)))
   elseif type(value) == "table" then
-    Line(PROFILER_LABEL_DEBUG_NAME, ns.FrameName(value))
-    local source = value:GetSourceLocation()
-    if source then GameTooltip:AddLine(source, .6, .6, .6, true) end
+    if IsRegion(value) then
+      Line(PROFILER_LABEL_DEBUG_NAME, ns.FrameName(value))
+      local source = value:GetSourceLocation()
+      if source then GameTooltip:AddLine(source, .6, .6, .6, true) end
+    end
   elseif type(value) ~= "function" and value ~= nil then
     Line(PROFILER_LABEL_VALUE, strsub(tostring(value), 1, 60))
   end
@@ -88,7 +97,7 @@ tab.list = ns.CreateList(tab.frame, {
     root:CreateTitle(entry.name)
     if type(value) == "table" then
       root:CreateButton(PROFILER_GLOBALS_MENU_INSPECT, function() ns.Inspect(value) end)
-      if entry.kind ~= "table" then
+      if entry.kind ~= "table" and IsRegion(value) then
         root:CreateButton(PROFILER_GLOBALS_MENU_HIGHLIGHT, function() ns.Highlight(value) end)
       end
     end
