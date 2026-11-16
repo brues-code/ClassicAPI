@@ -62,6 +62,7 @@
 #include "item/Swap.h"
 #include "object/Resolve.h"
 #include "tick/WorldTick.h"
+#include "time/Clock.h"
 #include "item/BagFamily.h"
 
 #include <cstdint>
@@ -91,10 +92,11 @@ const Event::Custom::AutoReserve _evtStart{"AUCTION_MULTISELL_START", &kStartDoc
 const Event::Custom::AutoReserve _evtUpdate{"AUCTION_MULTISELL_UPDATE", &kUpdateDoc};
 const Event::Custom::AutoReserve _evtFailure{"AUCTION_MULTISELL_FAILURE", &kFailureDoc};
 
-// Generous per-step abort bound. A split or a post is one server round-trip
-// (~tens of frames); 600 frames (~10s at 60fps) means "something's wrong"
-// (disconnect, server refusal we can't see) rather than normal latency.
-constexpr int kMaxWaitTicks = 600;
+// Generous per-step abort bound. A split or a post is one server round-trip;
+// 10 s without the answer means "something's wrong" (disconnect, a server
+// refusal we can't see) rather than latency. Wall time, not frames, so the
+// bound holds at any frame rate.
+constexpr uint32_t kStepTimeoutMs = 10000;
 
 enum class Phase { Idle, SplitWait, PostWait };
 
@@ -109,7 +111,7 @@ struct Job {
     Phase phase;
     int workBag, workSlot; // slot currently being split-into / posted-from
     uint64_t postGuid;     // GUID we posted — detect it leaving bags
-    int waitTicks;
+    uint32_t deadlineMs; // the current step's abort time (Time::Clock)
 };
 Job g_job{};
 
@@ -247,7 +249,7 @@ void Tick() {
             g_job.postGuid = s.guid;
             PostStack(L, s.guid);
             g_job.phase = Phase::PostWait;
-            g_job.waitTicks = 0;
+            g_job.deadlineMs = Time::Clock::NowMs() + kStepTimeoutMs;
         } else {
             int fb = 0, fs = 0;
             if (!FindFreeGeneralSlot(L, &fb, &fs)) {
@@ -262,7 +264,7 @@ void Tick() {
             g_job.workBag = fb;
             g_job.workSlot = fs;
             g_job.phase = Phase::SplitWait;
-            g_job.waitTicks = 0;
+            g_job.deadlineMs = Time::Clock::NowMs() + kStepTimeoutMs;
         }
         break;
     }
@@ -272,8 +274,8 @@ void Tick() {
             g_job.postGuid = w.guid;
             PostStack(L, w.guid);
             g_job.phase = Phase::PostWait;
-            g_job.waitTicks = 0;
-        } else if (++g_job.waitTicks > kMaxWaitTicks) {
+            g_job.deadlineMs = Time::Clock::NowMs() + kStepTimeoutMs;
+        } else if (Time::Clock::Reached(g_job.deadlineMs)) {
             Finish(false);
         }
         break;
@@ -286,8 +288,8 @@ void Tick() {
             Event::Custom::Fire(_evtUpdate.Slot(), "%d%d",
                                 g_job.postedStacks, g_job.totalStacks);
             g_job.phase = Phase::Idle;
-            g_job.waitTicks = 0;
-        } else if (++g_job.waitTicks > kMaxWaitTicks) {
+            g_job.deadlineMs = Time::Clock::NowMs() + kStepTimeoutMs;
+        } else if (Time::Clock::Reached(g_job.deadlineMs)) {
             Finish(false);
         }
         break;
