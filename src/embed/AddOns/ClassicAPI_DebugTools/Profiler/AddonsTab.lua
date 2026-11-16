@@ -88,11 +88,11 @@ tab.list = ns.CreateList(tab.frame, {
 tab.list:SetAllPoints()
 
 function tab:OnSelect()
-  self.list:SetEntries(stats.list)
+  self.list:SetEntries(stats.list, #stats.list)
 end
 
 function tab:OnSample()
-  self.list:SetEntries(stats.list)
+  self.list:SetEntries(stats.list, #stats.list)
 end
 
 function tab:Status()

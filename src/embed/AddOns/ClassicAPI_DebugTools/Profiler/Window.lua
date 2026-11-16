@@ -194,20 +194,26 @@ function ListMixin:SortBy(index)
   self:Refresh()
 end
 
-function ListMixin:SetEntries(entries)
-  self.entries = entries
+-- `count` is the number of entries, so Refresh needs no `#`
+function ListMixin:SetEntries(entries, count)
+  self.entries, self.count = entries, count
   self:Refresh()
 end
 
--- filter by the search text, sort, and show
+-- filter by the search text, sort, and show. With CPU profiling every Lua
+-- call is charged, and this runs over every entry each second, so the loop
+-- makes no calls it can do without (no ipairs, tinsert or #).
 function ListMixin:Refresh()
   local value = self.def.columns[self.sortColumn].value
   local needle, desc = ns.search, self.sortDesc
-  local shown, keys, maxValue = {}, {}, 0
+  local entries = self.entries
+  local shown, keys, maxValue, n = {}, {}, 0, 0
 
-  for _, entry in ipairs(self.entries) do
+  for i = 1, self.count do
+    local entry = entries[i]
     if needle == "" or strfind(entry.search, needle, 1, true) then
-      tinsert(shown, entry)
+      n = n + 1
+      shown[n] = entry
       local v = value and value(entry)
       keys[entry] = v
       if type(v) == "number" and v > maxValue then maxValue = v end
@@ -223,8 +229,10 @@ function ListMixin:Refresh()
     return va < vb
   end)
 
+  -- the rows are indices into `shown` (retail's index range provider, made
+  -- for lists of thousands): no per-entry insert into a data provider
   self.shown, self.maxValue = shown, maxValue
-  self.ScrollBox:SetDataProvider(CreateDataProvider(shown), ScrollBoxConstants.RetainScrollPosition)
+  self.provider:SetSize(n)
 end
 
 -- the shown rows as plain text
@@ -255,7 +263,7 @@ function ns.CreateList(parent, def)
   local list = CreateFrame("Frame", nil, parent, "ClassicAPIProfilerListTemplate")
   Mixin(list, ListMixin)
   list.def = def
-  list.entries, list.shown, list.maxValue = {}, {}, 0
+  list.entries, list.count, list.shown, list.maxValue = {}, 0, {}, 0
   list.sortColumn, list.sortDesc = def.sort or 1, true
   ns.CreateBackdrop(list)
 
@@ -276,13 +284,15 @@ function ns.CreateList(parent, def)
 
   local view = CreateScrollBoxListLinearView(0, 0, 0, 0, 1)
   view:SetElementExtent(ROW_HEIGHT)
-  view:SetElementInitializer("Button", function(row, entry) InitRow(list, row, entry) end)
+  view:SetElementInitializer("Button", function(row, index) InitRow(list, row, list.shown[index]) end)
   ScrollUtil.InitScrollBoxListWithScrollBar(list.ScrollBox, list.ScrollBar, view)
+  list.provider = CreateIndexRangeDataProvider(0)
+  list.ScrollBox:SetDataProvider(list.provider)
   return list
 end
 
 -- [[ tabs ]]
--- a tab has `frame`, `list`, and optionally OnSelect(), OnSample(dt) and
+-- a tab has `frame`, `list`, and optionally OnSelect(), OnSample() and
 -- Status() for the line at the bottom
 local tabs = {}
 
@@ -374,11 +384,14 @@ Tooltip(profiling, function()
 end)
 
 -- [[ sampling while open ]]
-ns.OnSample(function(dt)
+ns.OnScan(function()
+  if window:IsShown() then ns.track.Scan() end
+end)
+
+ns.OnSample(function()
   if not window:IsShown() then return end
-  ns.track.Scan(dt)
   local tab = window.active
-  if tab.OnSample then tab:OnSample(dt) end
+  if tab.OnSample then tab:OnSample() end
   UpdateStatus()
 end)
 

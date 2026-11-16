@@ -101,9 +101,13 @@ function ns.FrameName(frame)
   return name
 end
 
--- [[ events of this module: sample and reset listeners ]]
-local sampleListeners, resetListeners = {}, {}
+-- [[ events of this module: scan, sample and reset listeners ]]
+-- A scan listener walks the game's objects (the frame walk); a sample
+-- listener shows the results (the lists, the widget). Each runs in its own
+-- frame after the sample, see the sampler below.
+local scanListeners, sampleListeners, resetListeners = {}, {}, {}
 
+function ns.OnScan(fn) tinsert(scanListeners, fn) end
 function ns.OnSample(fn) tinsert(sampleListeners, fn) end
 function ns.OnReset(fn) tinsert(resetListeners, fn) end
 
@@ -188,8 +192,6 @@ local function Sample(dt)
     stats.eventCountRate = Delta(eventCount, lastEventCount) / dt
     lastScript, lastEventTime, lastEventCount = script, eventTime, eventCount
   end
-
-  for _, fn in ipairs(sampleListeners) do fn(dt) end
 end
 
 -- the counters as they are now, so the first sample's rates cover only its
@@ -230,11 +232,11 @@ end
 -- nothing until it is opened.
 local sampler = CreateFrame("Frame")
 sampler:Hide()
-local elapsedSinceSample = 0
+local elapsedSinceSample, step = 0, 0
 
--- spot garbage collections: Lua 5.0 sets a new threshold after each
--- collection, so a changed threshold means a collection ran
 sampler:SetScript("OnUpdate", function(self, elapsed)
+  -- spot garbage collections: Lua 5.0 sets a new threshold after each
+  -- collection, so a changed threshold means a collection ran
   local mem, threshold = gcinfo()
   if threshold ~= lastThreshold then
     collected = true
@@ -244,9 +246,20 @@ sampler:SetScript("OnUpdate", function(self, elapsed)
   lastMem, lastThreshold = mem, threshold
 
   elapsedSinceSample = elapsedSinceSample + elapsed
-  if elapsedSinceSample >= ns.INTERVAL then
+
+  -- once a second the work takes three frames, one heavy part in each: the
+  -- sample (the addon recount walks the Lua heap), then the scan listeners
+  -- (the frame walk), then the sample listeners (the lists)
+  if step == 1 then
+    step = 2
+    for _, fn in ipairs(scanListeners) do fn() end
+  elseif step == 2 then
+    step = 0
+    for _, fn in ipairs(sampleListeners) do fn() end
+  elseif elapsedSinceSample >= ns.INTERVAL then
     Sample(elapsedSinceSample)
     elapsedSinceSample = 0
+    step = 1
   end
 end)
 

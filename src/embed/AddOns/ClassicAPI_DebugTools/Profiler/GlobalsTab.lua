@@ -150,7 +150,7 @@ local function Scan()
   for _, entry in ipairs(entries) do
     if entry.override then tab.overrides = tab.overrides + 1 end
   end
-  tab.list:SetEntries(entries)
+  tab.list:SetEntries(entries, tab.count)
 end
 
 local rescan = ns.CreateButton("ClassicAPIProfilerWindowRescan", tab.frame, 80, PROFILER_GLOBALS_RESCAN, Scan)

@@ -14,6 +14,8 @@ local Delta = ns.Delta
 
 local track = {
   frames = {},     -- [frame] = record: frames that ran scripts, or are hooked
+  list = {},       -- the same records in an array, for numeric loops: under
+  count = 0,       -- CPU profiling each pairs step is a charged call
   events = {},     -- [event] = record: events fired while the analyzer is open
   frameCount = 0,  -- frames in the last scan
   deep = false,
@@ -40,6 +42,8 @@ local function FrameRecord(frame, cpu, calls)
   }
   rec.search = strlower(rec.name .. " " .. ns.OwnerLabel(rec.owner))
   track.frames[frame] = rec
+  track.count = track.count + 1
+  track.list[track.count] = rec
   return rec
 end
 
@@ -137,10 +141,22 @@ local function CountListeners(...)
 end
 track.CountListeners = CountListeners
 
-function track.Scan(dt)
+-- when the counters were last taken (Start, Scan or a reset): each rate is
+-- the counters' growth since then over the time since then
+local takenAt
+
+function track.Scan()
+  local now = GetTime()
+  local dt = now - takenAt
+  if dt <= 0 then return end
+  takenAt = now
+
   local profiling, deep = ns.profiling, track.deep
   local count = 0
 
+  -- this loop runs for every frame (11k with a full UI) and, under CPU
+  -- profiling, each Lua call in it is charged: Delta is written out here
+  -- (the counter's growth, or the counter itself after a reset)
   local frame = EnumerateFrames()
   while frame do
     count = count + 1
@@ -150,8 +166,10 @@ function track.Scan(dt)
       local cpu, calls = GetFrameCPUUsage(frame, false)
       if calls > 0 and not rec then rec = FrameRecord(frame, cpu, calls) end
       if rec then
-        rec.cpuRate = Delta(cpu, rec.cpu) / dt
-        rec.callRate = Delta(calls, rec.calls) / dt
+        local dCpu, dCalls = cpu, calls
+        if cpu >= rec.cpu then dCpu = cpu - rec.cpu end
+        if calls >= rec.calls then dCalls = calls - rec.calls end
+        rec.cpuRate, rec.callRate = dCpu / dt, dCalls / dt
         rec.cpu, rec.calls = cpu, calls
       end
     end
@@ -168,9 +186,14 @@ function track.Scan(dt)
   end
   track.frameCount = count
 
-  for _, rec in pairs(track.frames) do
-    rec.allocRate = Delta(rec.alloc, rec.lastAlloc) / dt
-    rec.lastAlloc = rec.alloc
+  local records = track.list
+  for i = 1, track.count do
+    local rec = records[i]
+    local alloc, last = rec.alloc, rec.lastAlloc
+    local dAlloc = alloc
+    if last and alloc >= last then dAlloc = alloc - last end
+    rec.allocRate = dAlloc / dt
+    rec.lastAlloc = alloc
   end
 
   for name, ev in pairs(track.events) do
@@ -193,6 +216,7 @@ function track.Start()
   for _, ev in pairs(track.events) do
     ev.lastCpu, ev.lastAlloc = ev.cpu, ev.alloc
   end
+  takenAt = GetTime()
   capture:RegisterAllEvents()
 end
 
@@ -209,4 +233,5 @@ ns.OnReset(function()
     ev.fires, ev.dispatches, ev.cpu, ev.alloc = 0, 0, 0, 0
     ev.lastFires, ev.lastCpu, ev.lastAlloc = 0, 0, 0
   end
+  takenAt = GetTime()
 end)

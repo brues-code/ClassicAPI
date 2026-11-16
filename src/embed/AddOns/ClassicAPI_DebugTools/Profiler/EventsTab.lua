@@ -105,9 +105,12 @@ tab.list = ns.CreateList(tab.frame, {
 tab.list:SetAllPoints()
 
 local function Update(self)
-  local entries = {}
-  for _, ev in pairs(track.events) do tinsert(entries, ev) end
-  self.list:SetEntries(entries)
+  local entries, n = {}, 0
+  for _, ev in pairs(track.events) do
+    n = n + 1
+    entries[n] = ev
+  end
+  self.list:SetEntries(entries, n)
 end
 
 tab.OnSelect = Update

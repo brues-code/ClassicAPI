@@ -4,10 +4,11 @@ local _, ns = ...
 
 local track = ns.track
 
+-- profiling is fixed for the session, so a column is the value itself or
+-- nothing, without a wrapper call per row
 local function Profiled(fn)
-  return function(rec)
-    if ns.profiling then return fn(rec) end
-  end
+  if ns.profiling then return fn end
+  return function() end
 end
 
 local function Tracked(fn)
@@ -146,12 +147,18 @@ tab.list = ns.CreateList(tab.frame, {
 })
 tab.list:SetAllPoints()
 
+-- a numeric loop over the records: under CPU profiling each pairs step is
+-- a charged call
 local function Update(self)
-  local entries = {}
-  for _, rec in pairs(track.frames) do
-    if rec.calls > 0 or rec.alloc > 0 then tinsert(entries, rec) end
+  local records, entries, n = track.list, {}, 0
+  for i = 1, track.count do
+    local rec = records[i]
+    if rec.calls > 0 or rec.alloc > 0 then
+      n = n + 1
+      entries[n] = rec
+    end
   end
-  self.list:SetEntries(entries)
+  self.list:SetEntries(entries, n)
 end
 
 tab.OnSelect = Update
