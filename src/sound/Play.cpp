@@ -50,6 +50,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "event/Custom.h"
+#include "storm/List.h"
 #include "tick/WorldTick.h"
 
 #include <cstdint>
@@ -79,7 +80,7 @@ uintptr_t FindStreamNode(uintptr_t handle) {
     uintptr_t node = *reinterpret_cast<const uintptr_t *>(
         static_cast<uintptr_t>(Offsets::VAR_SOUND_STREAM_LIST_HEAD));
     for (int guard = 0; guard < 4096; ++guard) {
-        if (node == 0 || (node & 1) != 0)
+        if (!Storm::IsNode(node))
             return 0;
         if (node == handle)
             return node;

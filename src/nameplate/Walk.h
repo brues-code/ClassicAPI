@@ -15,6 +15,7 @@
 
 #include "Offsets.h"
 #include "object/Resolve.h"
+#include "storm/List.h"
 
 #include <cstdint>
 
@@ -96,7 +97,7 @@ int ForEachNamePlatedUnit(F &&emit) {
     uintptr_t entry = *reinterpret_cast<const uintptr_t *>(
         static_cast<uintptr_t>(Offsets::VAR_NAMEPLATE_LIST_HEAD));
     int count = 0;
-    for (int guard = 0; entry != 0 && (entry & 1) == 0 && guard < kMaxPlates; ++guard) {
+    for (int guard = 0; Storm::IsNode(entry) && guard < kMaxPlates; ++guard) {
         const auto *plate = reinterpret_cast<const uint8_t *>(entry);
         entry = *reinterpret_cast<const uintptr_t *>(plate + Offsets::OFF_NAMEPLATE_LINK_NEXT);
         const uint64_t guid =

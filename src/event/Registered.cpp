@@ -31,6 +31,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "event/Custom.h"
+#include "storm/List.h"
 
 #include <cstdint>
 
@@ -60,7 +61,7 @@ int __fastcall Script_GetFramesRegisteredForEvent(void *L) {
     // event with many registered frames would otherwise risk overflowing
     // the default Lua stack slack as we push.
     int count = 0;
-    for (uintptr_t node = head; (node & 1) == 0 && node != 0;
+    for (uintptr_t node = head; Storm::IsNode(node);
          node = Game::Read<uintptr_t>(node + Offsets::OFF_EVENT_NODE_NEXT)) {
         if (Game::Read<void *>(node + Offsets::OFF_EVENT_NODE_FRAME))
             ++count;
@@ -70,7 +71,7 @@ int __fastcall Script_GetFramesRegisteredForEvent(void *L) {
     Game::Lua::CheckStack(L, count);
 
     int pushed = 0;
-    for (uintptr_t node = head; (node & 1) == 0 && node != 0;
+    for (uintptr_t node = head; Storm::IsNode(node);
          node = Game::Read<uintptr_t>(node + Offsets::OFF_EVENT_NODE_NEXT)) {
         void *frame = Game::Read<void *>(node + Offsets::OFF_EVENT_NODE_FRAME);
         if (frame != nullptr) {

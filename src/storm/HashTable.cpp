@@ -14,6 +14,7 @@
 #include "storm/HashTable.h"
 
 #include "Game.h"
+#include "storm/List.h"
 #include "storm/String.h"
 
 namespace Storm::HashTable {
@@ -28,7 +29,7 @@ const uint8_t *FindStri(uintptr_t slotsField, const char *name) {
     const uint8_t *bucket = buckets + (hash & mask) * Offsets::HASHTABLE_BUCKET_STRIDE;
     const int link = Game::Read<int>(bucket, Offsets::OFF_HASHTABLE_BUCKET_LINK);
     for (auto *node = Game::Read<const uint8_t *>(bucket, Offsets::OFF_HASHTABLE_BUCKET_HEAD);
-         node != nullptr && (reinterpret_cast<uintptr_t>(node) & 1) == 0;
+         Storm::IsNode(node);
          node = Game::Read<const uint8_t *>(node, link + 4))
         if (Game::Read<uint32_t>(node, Offsets::OFF_HASHTABLE_NODE_HASH) == hash &&
             Game::StrCmpI(NodeName(node), name) == 0)

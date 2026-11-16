@@ -14,6 +14,7 @@
 #pragma once
 
 #include "Offsets.h"
+#include "storm/List.h"
 
 #include <cstdint>
 #include <type_traits>
@@ -36,7 +37,7 @@ template <typename Fn> void ForEachEntry(Fn fn) {
         static_cast<uintptr_t>(Offsets::VAR_ADDON_LIST_CTRL));
     uintptr_t entry = *reinterpret_cast<const uintptr_t *>(
         static_cast<uintptr_t>(Offsets::VAR_ADDON_LIST_HEAD));
-    while ((entry & 1) == 0 && entry != 0) {
+    while (Storm::IsNode(entry)) {
         if constexpr (std::is_void_v<decltype(fn(entry))>) {
             fn(entry);
         } else {

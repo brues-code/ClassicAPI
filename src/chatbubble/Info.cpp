@@ -41,6 +41,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "storm/List.h"
 
 #include <cstdint>
 
@@ -52,7 +53,7 @@ static int __fastcall Script_GetAllChatBubbles(void *L) {
     uintptr_t node = *reinterpret_cast<const uintptr_t *>(
         static_cast<uintptr_t>(Offsets::VAR_CHAT_BUBBLE_LIST_HEAD));
     int nextIndex = 1;
-    while (node != 0 && (node & 1) == 0) {
+    while (Storm::IsNode(node)) {
         Game::Lua::PushNumber(L, static_cast<double>(nextIndex++));
         Game::Lua::PushObject(L, reinterpret_cast<void *>(node));
         Game::Lua::SetTable(L, -3);

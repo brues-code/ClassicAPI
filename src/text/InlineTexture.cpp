@@ -75,6 +75,7 @@
 // icon outside the link. See docs/InlineTextureEscapes.md for the RE map.
 
 #include "fontstring/Layout.h"
+#include "storm/List.h"
 #include "text/InlineTexture.h"
 
 #include "animation/Region.h"
@@ -1942,7 +1943,7 @@ void FlushLayout(void *layout) {
     const int linkOff = Game::Read<int>(layout, Offsets::OFF_TEXT_LAYOUT_NODE_LINK);
     void *node = Game::Read<void *>(layout, Offsets::OFF_TEXT_LAYOUT_NODE_HEAD);
 
-    for (int guard = 0; node != nullptr && (reinterpret_cast<uintptr_t>(node) & 1) == 0 &&
+    for (int guard = 0; Storm::IsNode(node) &&
                         guard < 4096;
          ++guard) {
         if (!LooksReadable(node))

@@ -68,6 +68,7 @@
 #include "frame/GetPointGuard.h"
 #include "frame/Layout.h"
 #include "frame/SourceLocation.h"
+#include "storm/List.h"
 #include "tooltip/Lines.h"
 #include "tooltip/SetEvents.h"
 
@@ -241,11 +242,11 @@ int __fastcall Script_GameTooltipSetFrameStack(void *L) {
     Frame::Layout::NdcToDdc(&x, &y, mouse[0], mouse[1]);
 
     void *frame = Game::Read<void *>(ctx, Offsets::OFF_UI_CONTEXT_FRAME_LIST_HEAD);
-    if (frame == nullptr || (reinterpret_cast<uintptr_t>(frame) & 1) != 0)
+    if (!Storm::IsNode(frame))
         return 0;
 
     std::vector<Entry> frames;
-    for (; frame != nullptr && (reinterpret_cast<uintptr_t>(frame) & 1) == 0;
+    for (; Storm::IsNode(frame);
          frame = Game::Read<void *>(frame, Offsets::OFF_FRAME_ENUM_NEXT)) {
         const uint32_t visible = Game::Read<uint32_t>(frame, Offsets::OFF_FRAME_VISIBLE);
         if ((visible == 0 && !showHidden) || !UnderCursor(frame, x, y))

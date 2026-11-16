@@ -15,6 +15,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "storm/List.h"
 
 namespace Event::Custom {
 
@@ -132,7 +133,7 @@ template <typename Fn> void ForEachListener(int slot, Fn fn) {
     const uint8_t *entry = Game::Read<uint8_t *>(Offsets::VAR_EVENT_TABLE_BASE_PTR) +
                            slot * Offsets::EVENT_ENTRY_STRIDE;
     uintptr_t node = Game::Read<uintptr_t>(entry, Offsets::OFF_EVENT_ENTRY_HEAD);
-    while (node != 0 && (node & 1) == 0) {
+    while (Storm::IsNode(node)) {
         const uintptr_t next = Game::Read<uintptr_t>(node + Offsets::OFF_EVENT_NODE_NEXT);
         auto *frame = Game::Read<uint8_t *>(node + Offsets::OFF_EVENT_NODE_FRAME);
         if (frame != nullptr)

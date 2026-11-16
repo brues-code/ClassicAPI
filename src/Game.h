@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include "storm/List.h"
+
 #include <cstddef>
 #include <cstdint>
 
@@ -77,7 +79,7 @@ struct Live {
 template <typename Fn>
 void ForEachFrameListObject(void *frame, uintptr_t listOffset, Fn fn) {
     uintptr_t link = Read<uintptr_t>(frame, listOffset);
-    while (link != 0 && (link & 1) == 0) {
+    while (Storm::IsNode(link)) {
         void *obj = *reinterpret_cast<void *const *>(link + 8);
         const uintptr_t next = *reinterpret_cast<const uintptr_t *>(link + 4);
         if (obj != nullptr)

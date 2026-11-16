@@ -20,6 +20,7 @@
 // on, and is 0xFFFFFFFF before the first insert. Layout at OFF_HASHTABLE_*.
 
 #include "Offsets.h"
+#include "storm/List.h"
 
 #include <cstdint>
 
@@ -36,7 +37,7 @@ template <class Fn> void ForEach(uintptr_t slotsField, Fn &&fn) {
         const uint8_t *bucket = buckets + b * Offsets::HASHTABLE_BUCKET_STRIDE;
         const int link = *reinterpret_cast<const int *>(bucket + Offsets::OFF_HASHTABLE_BUCKET_LINK);
         for (auto *node = *reinterpret_cast<const uint8_t *const *>(bucket + Offsets::OFF_HASHTABLE_BUCKET_HEAD);
-             node != nullptr && (reinterpret_cast<uintptr_t>(node) & 1) == 0;
+             Storm::IsNode(node);
              node = *reinterpret_cast<const uint8_t *const *>(node + link + 4))
             if (!fn(node))
                 return;

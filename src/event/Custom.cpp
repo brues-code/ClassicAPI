@@ -19,6 +19,7 @@
 #include "frame/ScriptArgs.h"
 #include "frame/UnitEvent.h"
 #include "profile/ScriptTime.h"
+#include "storm/List.h"
 #include "storm/Memory.h"
 
 #include <cstdint>
@@ -268,7 +269,7 @@ void Grow() {
     for (int i = 0; i < count; ++i) {
         const uint32_t head = Game::Read<uint32_t>(
             base + i * Offsets::EVENT_ENTRY_STRIDE, Offsets::OFF_EVENT_ENTRY_HEAD);
-        if (head != 0 && (head & 1) == 0) { // populated chain (not 0 / sentinel)
+        if (Storm::IsNode(head)) { // populated chain (not 0 / sentinel)
             Debug::Log::Printf(
                 "[event] grow aborted — chain live at slot %d (not first-reg)", i);
             return;
@@ -428,7 +429,7 @@ bool HasListeners(int slot) {
     // uses. So this is true iff at least one frame registered for the event.
     const uint32_t head = Game::Read<uint32_t>(
         base + slot * Offsets::EVENT_ENTRY_STRIDE, Offsets::OFF_EVENT_ENTRY_HEAD);
-    return head != 0 && (head & 1) == 0;
+    return Storm::IsNode(head);
 }
 
 void FireValues(int slot, void *L, int firstArgIdx, int nargs) {

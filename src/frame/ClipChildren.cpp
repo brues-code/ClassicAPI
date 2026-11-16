@@ -74,6 +74,7 @@
 #include "frame/LayerChange.h"
 #include "frame/ParentChange.h"
 #include "gx/Device.h"
+#include "storm/List.h"
 #include "xml/FrameLoad.h"
 
 #include <cstdint>
@@ -131,7 +132,7 @@ void __fastcall DrawClipped(void *arg);
 
 bool HasCallback(const void *levelBatch, const Record *r) {
     uintptr_t node = Game::Read<uintptr_t>(levelBatch, Offsets::OFF_RENDERBATCH_CALLBACKS);
-    for (; node != 0 && (node & 1) == 0; node = *reinterpret_cast<const uintptr_t *>(node + 4))
+    for (; Storm::IsNode(node); node = *reinterpret_cast<const uintptr_t *>(node + 4))
         if (*reinterpret_cast<const Callback_t *>(node + 8) == &DrawClipped &&
             *reinterpret_cast<const Record *const *>(node + 0xC) == r)
             return true;

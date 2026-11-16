@@ -26,6 +26,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "storm/List.h"
 
 #include <cstdint>
 
@@ -59,7 +60,7 @@ bool ReportsGlobalCooldown(int spellID, bool pet, uint32_t startMs,
     const uintptr_t list = Offsets::VAR_SPELL_HISTORY +
                            (pet ? Offsets::SPELL_HISTORY_STRIDE : 0);
     for (uintptr_t rec = Game::Read<uintptr_t>(list + Offsets::OFF_SPELL_HISTORY_HEAD);
-         rec != 0 && (rec & 1) == 0;
+         Storm::IsNode(rec);
          rec = Game::Read<uintptr_t>(rec + Offsets::OFF_SPELL_HISTORY_RECORD_NEXT)) {
         if (Game::Read<uint32_t>(rec + Offsets::OFF_SPELL_HISTORY_RECORD_GCD_CATEGORY) == category &&
             Game::Read<uint32_t>(rec + Offsets::OFF_SPELL_HISTORY_RECORD_GCD_TIME) == durationMs &&

@@ -32,6 +32,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "console/Registry.h"
+#include "storm/List.h"
 
 #include <windows.h>
 
@@ -55,7 +56,7 @@ std::vector<std::string> SnapshotLines() {
         Game::Read<uint32_t>(Offsets::VAR_CONSOLE_LINE_LIST_LINK_OFFSET);
     uintptr_t node = Game::Read<uint32_t>(Offsets::VAR_CONSOLE_LINE_LIST_HEAD);
     bool head = true;
-    while (Console::Registry::IsNode(node)) {
+    while (Storm::IsNode(node)) {
         const bool typing =
             head && Game::Read<uint32_t>(node + Offsets::OFF_CONSOLE_LINE_INPUT_POS) != 0;
         const auto *text = Game::Read<const char *>(node + Offsets::OFF_CONSOLE_LINE_BUFFER);

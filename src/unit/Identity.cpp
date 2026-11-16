@@ -11,6 +11,7 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
+#include "storm/List.h"
 #include "unit/Identity.h"
 
 #include "Game.h"
@@ -218,7 +219,7 @@ void ForEachCachedPlayer(CachedPlayerVisitor visit, void *context) {
         static_cast<uintptr_t>(Offsets::VAR_PLAYER_NAME_CACHE));
     const auto linkOffset = Game::Read<uintptr_t>(cache, Offsets::OFF_NAME_CACHE_LINK_OFFSET);
     for (auto node = Game::Read<uintptr_t>(cache, Offsets::OFF_NAME_CACHE_FIRST_NODE);
-         node != 0 && (node & 1) == 0;
+         Storm::IsNode(node);
          node = Game::Read<uintptr_t>(node + linkOffset + 4)) { // TSLink {prev, next}
         const auto guid = Game::Read<uint64_t>(node + Offsets::OFF_NAME_CACHE_NODE_GUID);
         const uint8_t *rec = PlayerInfoRecord(guid);

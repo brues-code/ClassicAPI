@@ -21,6 +21,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "storm/List.h"
 
 #include <cstdint>
 
@@ -36,17 +37,13 @@ struct Command {
     bool IsCvar() const { return handler == Offsets::FUN_CONSOLE_CVAR_COMMAND_HANDLER; }
 };
 
-// A list node, or 0 once the walk reaches the end. The low bit tags the
-// sentinel, the same convention the addon registry and the parser lists use.
-inline bool IsNode(uintptr_t node) { return node != 0 && (node & 1) == 0; }
-
 // Calls `fn(const Command &)` for every registered command. Steps to the next
 // node before the call, so the walk does not depend on what `fn` does.
 template <typename Fn> void ForEach(Fn &&fn) {
     const uintptr_t linkOffset =
         Game::Read<uint32_t>(Offsets::VAR_CONSOLE_COMMAND_LINK_OFFSET);
     uintptr_t node = Game::Read<uint32_t>(Offsets::VAR_CONSOLE_COMMAND_LIST_HEAD);
-    while (IsNode(node)) {
+    while (Storm::IsNode(node)) {
         const Command command{
             Game::Read<const char *>(node + Offsets::OFF_CONSOLE_COMMAND_NAME),
             Game::Read<const char *>(node + Offsets::OFF_CONSOLE_COMMAND_HELP),
