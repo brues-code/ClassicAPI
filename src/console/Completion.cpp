@@ -49,6 +49,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "console/Registry.h"
+#include "input/EventBus.h"
 #include "input/Modifier.h"
 
 #include <algorithm>
@@ -61,9 +62,6 @@ namespace Console::Completion {
 
 namespace {
 
-using Handler_t = int(__fastcall *)(const void *data, void *param);
-using RegisterEx_t = void(__fastcall *)(int eventId, Handler_t handler, void *param,
-                                        float priority);
 using GetInputLine_t = uintptr_t(__fastcall *)();
 using MakeCommandCurrent_t = void(__fastcall *)(uintptr_t line, const char *text);
 using SetInputString_t = void(__fastcall *)(const char *text);
@@ -247,7 +245,7 @@ void Register() {
     if (registered)
         return;
     registered = true;
-    reinterpret_cast<RegisterEx_t>(Offsets::FUN_EVENT_REGISTER_EX)(
+    Input::EventBus::Register(
         Offsets::EVENT_ID_KEYDOWN, &OnKeyDown, nullptr,
         static_cast<float>(Offsets::CONSOLE_EVENT_PRIORITY));
 }

@@ -11,6 +11,7 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
+#include "input/EventBus.h"
 #include "input/Modifier.h"
 
 #include "Game.h"
@@ -246,9 +247,6 @@ int __fastcall OnActivate(const void * /*payload*/, void * /*param*/) {
     return 1;
 }
 
-using Handler_t = int(__fastcall *)(const void *payload, void *param);
-using RegisterEx_t = void(__fastcall *)(int eventId, Handler_t handler, void *param,
-                                        float priority);
 
 void InstallHook() {
     if (g_msgHook != nullptr)
@@ -258,11 +256,10 @@ void InstallHook() {
     // The bus does not dedup, so these share the once-only guard. Highest
     // priority: the engine's held-key update runs before every handler, so
     // no other handler's veto (the open console swallows keys) may skip ours.
-    auto registerEx = reinterpret_cast<RegisterEx_t>(Offsets::FUN_EVENT_REGISTER_EX);
-    registerEx(Offsets::EVENT_ID_KEYDOWN, &OnKey, nullptr, FLT_MAX);
-    registerEx(Offsets::EVENT_ID_KEYUP, &OnKey, nullptr, FLT_MAX);
-    registerEx(Offsets::EVENT_ID_KEYDOWN_REPEATING, &OnKey, nullptr, FLT_MAX);
-    registerEx(Offsets::EVENT_ID_ACTIVATE, &OnActivate, nullptr, FLT_MAX);
+    Input::EventBus::Register(Offsets::EVENT_ID_KEYDOWN, &OnKey, nullptr, FLT_MAX);
+    Input::EventBus::Register(Offsets::EVENT_ID_KEYUP, &OnKey, nullptr, FLT_MAX);
+    Input::EventBus::Register(Offsets::EVENT_ID_KEYDOWN_REPEATING, &OnKey, nullptr, FLT_MAX);
+    Input::EventBus::Register(Offsets::EVENT_ID_ACTIVATE, &OnActivate, nullptr, FLT_MAX);
 }
 
 const Game::Doc::Field kDownRets[] = {

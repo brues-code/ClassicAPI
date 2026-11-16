@@ -51,6 +51,7 @@
 #include "Offsets.h"
 #include "event/Custom.h"
 #include "frame/ClickEvents.h"
+#include "input/EventBus.h"
 
 #include <cstdint>
 #include <cstring>
@@ -142,19 +143,15 @@ int __fastcall Script_GetMouseButtonName(void *L) {
     return 1;
 }
 
-using Handler_t = int(__fastcall *)(const void *payload, void *param);
-using RegisterEx_t = void(__fastcall *)(int eventId, Handler_t handler, void *param,
-                                        float priority);
 
 void RegisterHandlers() {
     static bool registered = false; // the bus does not dedup
     if (registered)
         return;
     registered = true;
-    auto registerEx = reinterpret_cast<RegisterEx_t>(Offsets::FUN_EVENT_REGISTER_EX);
     const float priority = static_cast<float>(Offsets::GLOBAL_MOUSE_EVENT_PRIORITY);
-    registerEx(Offsets::EVENT_ID_MOUSEDOWN, &OnMouseDown, nullptr, priority);
-    registerEx(Offsets::EVENT_ID_MOUSEUP, &OnMouseUp, nullptr, priority);
+    Input::EventBus::Register(Offsets::EVENT_ID_MOUSEDOWN, &OnMouseDown, nullptr, priority);
+    Input::EventBus::Register(Offsets::EVENT_ID_MOUSEUP, &OnMouseUp, nullptr, priority);
 }
 
 const Game::Doc::Field kIsDownArgs[] = {
