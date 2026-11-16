@@ -24,9 +24,10 @@
 //
 // The row lookup is ours because the engine has none: it loads the table
 // and never reads it (the only xrefs to its globals are the loader's own
-// writes). Playing the row's sound still goes through the engine's by-id
-// player, so only the table indexing is reimplemented, and that is the same
-// `records[id]` walk every other DBC reader here performs.
+// writes). The row's sound plays as PlaySound(soundKitID) plays one
+// (Sound::Play::PlayKitID: the engine's by-id player, quiet while the UI
+// loads or the world is entered or left), so only the table indexing is
+// ours, the same `records[id]` walk every other DBC reader here performs.
 //
 // Race and sex come from the login-time globals rather than the player's
 // descriptor, so this answers correctly from addon-load onward, before the
@@ -35,16 +36,13 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "sound/Play.h"
 
 #include <cstdint>
 
 namespace Sound::VocalError {
 
 namespace {
-
-using PlaySoundEntry_t = void *(__fastcall *)(char, char, int, int, int, int);
-
-constexpr int kVariantRandom = -1;
 
 // Modern `Enum.Vocalerrorsounds`. Values are the DBC's own enum column, so
 // these are the client's numbers and not a mapping invented here.
@@ -166,8 +164,7 @@ int __fastcall Script_PlayVocalErrorSound(void *L) {
     if (soundKitID <= 0)
         return 0;
 
-    reinterpret_cast<PlaySoundEntry_t>(Offsets::FUN_SOUND_PLAY_ENTRY)(
-        0, 0, 0, soundKitID, kVariantRandom, 0);
+    Sound::Play::PlayKitID(soundKitID);
     return 0;
 }
 
