@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include "AutoList.h"
+
 // Shared observer for CSimpleFrame::SetParent (FUN_FRAME_SET_PARENT), which
 // Script SetParent, CreateFrame's parent argument, the XML frame factory and
 // the frame constructor all go through (Offsets.h). Listeners run after the
@@ -27,10 +29,6 @@ namespace Frame::ParentChange {
 
 using Listener = void (*)(void *frame);
 
-struct AutoSubscribe {
-    explicit AutoSubscribe(Listener fn);
-    Listener fn;
-    AutoSubscribe *next;
-};
+using AutoSubscribe = AutoList<struct AutoSubscribeTag, Listener>;
 
 } // namespace Frame::ParentChange

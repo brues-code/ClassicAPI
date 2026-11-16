@@ -10,6 +10,8 @@
 
 #pragma once
 
+#include "AutoList.h"
+
 // Shared per-frame tick that fires in BOTH the glue and in-world states — the
 // counterpart to Tick::WorldTick, which is world-only.
 //
@@ -47,11 +49,7 @@ namespace Tick::FrameTick {
 
 using Callback = void (*)();
 
-struct AutoSubscribe {
-    explicit AutoSubscribe(Callback cb);
-    Callback cb;
-    AutoSubscribe *next;
-};
+using AutoSubscribe = AutoList<struct AutoSubscribeTag, Callback>;
 
 // Subscribers that run at the HEAD of the render callback instead: before
 // the frame pass runs any OnUpdate or draws, so a region they change draws in
@@ -59,11 +57,7 @@ struct AutoSubscribe {
 // must not show a frame late (Duration::TextBinding's text, which has to match
 // a timer bar's fill computed in the same pass). Same module pattern and
 // unspecified order.
-struct AutoSubscribeBefore {
-    explicit AutoSubscribeBefore(Callback cb);
-    Callback cb;
-    AutoSubscribeBefore *next;
-};
+using AutoSubscribeBefore = AutoList<struct AutoSubscribeBeforeTag, Callback>;
 
 // The `elapsed` the current frame pass hands to every frame's per-frame
 // update — the value `OnUpdate` receives. Latched on entry to the render

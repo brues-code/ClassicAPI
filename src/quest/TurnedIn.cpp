@@ -38,8 +38,6 @@ namespace Quest::TurnedIn {
 
 namespace {
 
-AutoSubscribe *g_subscribers = nullptr;
-
 const Game::Doc::Field kPayload[] = {
     Game::Doc::Req("questID", "number"),
     Game::Doc::Req("xpReward", "number", "Experience the turn-in gave; 0 at the level cap."),
@@ -64,7 +62,7 @@ int __fastcall Handler_h(void *thisPlayer, void *edx, Net::CDataStore *packet) {
     packet->m_read = saved;
 
     if (complete && questID > 0)
-        for (const AutoSubscribe *s = g_subscribers; s != nullptr; s = s->next)
+        for (const AutoSubscribe *s = AutoSubscribe::head; s != nullptr; s = s->next)
             s->fn(questID);
 
     const int result = Handler_o(thisPlayer, edx, packet);
@@ -75,8 +73,6 @@ int __fastcall Handler_h(void *thisPlayer, void *edx, Net::CDataStore *packet) {
 }
 
 } // namespace
-
-AutoSubscribe::AutoSubscribe(Callback f) : fn(f), next(g_subscribers) { g_subscribers = this; }
 
 static const Game::HookAutoRegister _hook{
     Offsets::FUN_QUEST_GIVER_QUEST_COMPLETE_HANDLER,

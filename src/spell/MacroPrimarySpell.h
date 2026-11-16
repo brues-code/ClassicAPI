@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include "AutoList.h"
+
 namespace Spell::MacroPrimarySpell {
 
 // Parses the argument(s) immediately after a known function-call
@@ -57,10 +59,6 @@ struct PatternAutoRegister {
 // Same static-init chain pattern as `PatternAutoRegister`.
 using PostParseCallback = void (*)(int macroEntry);
 
-struct PostParseAutoRegister {
-    explicit PostParseAutoRegister(PostParseCallback cb);
-    PostParseCallback cb;
-    PostParseAutoRegister *next;
-};
+using PostParseAutoRegister = AutoList<struct PostParseAutoRegisterTag, PostParseCallback>;
 
 } // namespace Spell::MacroPrimarySpell

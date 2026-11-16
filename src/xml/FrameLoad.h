@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include "AutoList.h"
+
 #include <cstdint>
 
 // Shared observer for the engine's frame XML loader FUN_XML_FRAME_LOAD
@@ -83,18 +85,10 @@ namespace FrameLoad {
 
 using Observer = void (*)(void *object, const void *node, void *status);
 
-struct AutoSubscribe {
-    explicit AutoSubscribe(Observer fn);
-    Observer fn;
-    AutoSubscribe *next;
-};
+using AutoSubscribe = AutoList<struct AutoSubscribeTag, Observer>;
 
 // The same, run BEFORE the engine loads the node (and its inherits).
-struct AutoSubscribeBefore {
-    explicit AutoSubscribeBefore(Observer fn);
-    Observer fn;
-    AutoSubscribeBefore *next;
-};
+using AutoSubscribeBefore = AutoList<struct AutoSubscribeBeforeTag, Observer>;
 
 } // namespace FrameLoad
 

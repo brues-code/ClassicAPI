@@ -22,7 +22,6 @@ namespace {
 // Chained at static-init by each `AutoResolver` constructor, before
 // `DllMain`. Zero-initialized (namespace static) ahead of any dynamic
 // init, so the head is valid when resolvers link in.
-AutoResolver *g_resolvers = nullptr;
 
 // Stock vanilla bags/quivers that shipped with an empty `m_bagFamily`
 // field, recovered from (class, subclass). Correspondence cross-referenced
@@ -51,14 +50,10 @@ uint32_t StockSubclassToId(uint32_t itemClass, uint32_t subclass) {
 
 } // namespace
 
-AutoResolver::AutoResolver(Resolver f) : fn(f), next(g_resolvers) {
-    g_resolvers = this;
-}
-
 uint32_t SubclassToId(uint32_t itemClass, uint32_t subclass) {
     if (const uint32_t id = StockSubclassToId(itemClass, subclass))
         return id;
-    for (AutoResolver *r = g_resolvers; r != nullptr; r = r->next)
+    for (AutoResolver *r = AutoResolver::head; r != nullptr; r = r->next)
         if (const uint32_t id = r->fn(itemClass, subclass))
             return id;
     return 0;

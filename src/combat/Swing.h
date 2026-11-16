@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include "AutoList.h"
+
 #include <cstdint>
 
 // `Enum.PlayerSwingType` values, matching the `_classic_beta_`
@@ -77,10 +79,6 @@ bool ResetsSwing(uint32_t spellId, const uint8_t *spellRecord);
 // _r{&Predicate};` — same static-init chaining as every other
 // `AutoSubscribe`-style registrar in this codebase.
 using SwingResetOverride = bool (*)(uint32_t spellId);
-struct AutoSwingResetOverride {
-    explicit AutoSwingResetOverride(SwingResetOverride fn);
-    SwingResetOverride fn;
-    AutoSwingResetOverride *next;
-};
+using AutoSwingResetOverride = AutoList<struct AutoSwingResetOverrideTag, SwingResetOverride>;
 
 } // namespace Combat::Swing

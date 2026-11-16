@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include "AutoList.h"
+
 #include "storm/List.h"
 
 #include <cstddef>
@@ -773,12 +775,7 @@ extern void(__cdecl *const Printf)(const char *format, ...);
 //
 // Order is unspecified (LIFO of static-init order across TUs). Modules must
 // not depend on each other's registration side effects.
-struct ModuleAutoRegister {
-    using Fn = void (*)();
-    explicit ModuleAutoRegister(Fn fn);
-    Fn fn;
-    ModuleAutoRegister *next;
-};
+using ModuleAutoRegister = AutoList<struct ModuleAutoRegisterTag, void (*)()>;
 
 void RunModuleRegistrations();
 
@@ -789,12 +786,7 @@ void RunModuleRegistrations();
 // callbacks run from the `FUN_LOAD_GLUE_SCRIPT_FUNCTIONS` post-hook,
 // once per glue boot (game launch + every world→glue return). Use
 // `Game::Lua::RegisterGlueFunction` from inside the callback.
-struct GlueModuleAutoRegister {
-    using Fn = void (*)();
-    explicit GlueModuleAutoRegister(Fn fn);
-    Fn fn;
-    GlueModuleAutoRegister *next;
-};
+using GlueModuleAutoRegister = AutoList<struct GlueModuleAutoRegisterTag, void (*)()>;
 
 void RunGlueModuleRegistrations();
 
@@ -867,12 +859,7 @@ bool RunHookRegistrations();
 // state. This is the "clear stale state" category only; a save-before-teardown
 // like Player::NameCache::Flush stays an explicit DllMain call (it persists
 // rather than clears, and also runs on the glue-return path).
-struct ReloadAutoRegister {
-    using Fn = void (*)();
-    explicit ReloadAutoRegister(Fn fn);
-    Fn fn;
-    ReloadAutoRegister *next;
-};
+using ReloadAutoRegister = AutoList<struct ReloadAutoRegisterTag, void (*)()>;
 
 void RunReloadCleanups();
 
@@ -884,12 +871,7 @@ void RunReloadCleanups();
 // next to its ReloadAutoRegister. Only for a cleanup that forgets pointers
 // (or releases engine handles) and touches no Lua: the glue Lua state is a
 // fresh one.
-struct GlueBootAutoRegister {
-    using Fn = void (*)();
-    explicit GlueBootAutoRegister(Fn fn);
-    Fn fn;
-    GlueBootAutoRegister *next;
-};
+using GlueBootAutoRegister = AutoList<struct GlueBootAutoRegisterTag, void (*)()>;
 
 void RunGlueBootCleanups();
 

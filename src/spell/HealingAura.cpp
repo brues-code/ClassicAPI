@@ -19,16 +19,11 @@ namespace {
 
 // Chained at static-init by each `AutoResolver` constructor, before
 // `DllMain`. Zero-initialized ahead of any dynamic init.
-AutoResolver *g_resolvers = nullptr;
 
 } // namespace
 
-AutoResolver::AutoResolver(Resolver f) : fn(f), next(g_resolvers) {
-    g_resolvers = this;
-}
-
 long Resolve(int auraIndex, long amount, int32_t spirit, int32_t armor) {
-    for (AutoResolver *r = g_resolvers; r != nullptr; r = r->next)
+    for (AutoResolver *r = AutoResolver::head; r != nullptr; r = r->next)
         if (const long v = r->fn(auraIndex, amount, spirit, armor))
             return v;
     return 0;

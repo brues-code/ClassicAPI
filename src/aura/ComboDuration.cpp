@@ -143,10 +143,9 @@ const Override *FindOverride(uint32_t spellId) {
 // their own module (e.g. `src/turtle/ComboDuration.cpp` for Turtle's
 // reworked Rip); this stock module only owns the mechanism and the
 // dangling-condition gate. Chained at static-init by `AutoDanglingResolver`.
-AutoDanglingResolver *g_danglingResolvers = nullptr;
 
 bool ResolveDangling(uint32_t spellId, int32_t *baseMs, int32_t *maxMs) {
-    for (AutoDanglingResolver *r = g_danglingResolvers; r != nullptr;
+    for (AutoDanglingResolver *r = AutoDanglingResolver::head; r != nullptr;
          r = r->next)
         if (r->fn(spellId, baseMs, maxMs))
             return true;
@@ -211,11 +210,6 @@ void RegisterLuaFunctions() {
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 
 } // namespace
-
-AutoDanglingResolver::AutoDanglingResolver(DanglingResolver f)
-    : fn(f), next(g_danglingResolvers) {
-    g_danglingResolvers = this;
-}
 
 uint32_t TryComboScaledMs(const uint8_t *spellRecord, uint32_t spellId) {
     if (spellRecord == nullptr || spellId == 0)

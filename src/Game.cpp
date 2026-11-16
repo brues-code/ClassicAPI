@@ -574,51 +574,30 @@ void(__cdecl *const Printf)(const char *format, ...) =
 } // namespace Console
 
 namespace {
-ModuleAutoRegister *g_moduleHead = nullptr;
-GlueModuleAutoRegister *g_glueModuleHead = nullptr;
 HookAutoRegister *g_hookHead = nullptr;
-ReloadAutoRegister *g_reloadHead = nullptr;
-GlueBootAutoRegister *g_glueBootHead = nullptr;
 } // namespace
-
-ModuleAutoRegister::ModuleAutoRegister(Fn f) : fn(f), next(g_moduleHead) {
-    g_moduleHead = this;
-}
 
 void RunModuleRegistrations() {
     Api::Documentation::BeginPass(Api::Documentation::ENV_GAME);
-    for (auto *node = g_moduleHead; node != nullptr; node = node->next)
+    for (auto *node = ModuleAutoRegister::head; node != nullptr; node = node->next)
         node->fn();
     Api::Documentation::EndPass();
-}
-
-GlueModuleAutoRegister::GlueModuleAutoRegister(Fn f)
-    : fn(f), next(g_glueModuleHead) {
-    g_glueModuleHead = this;
 }
 
 void RunGlueModuleRegistrations() {
     Api::Documentation::BeginPass(Api::Documentation::ENV_GLUE);
-    for (auto *node = g_glueModuleHead; node != nullptr; node = node->next)
+    for (auto *node = GlueModuleAutoRegister::head; node != nullptr; node = node->next)
         node->fn();
     Api::Documentation::EndPass();
 }
 
-ReloadAutoRegister::ReloadAutoRegister(Fn f) : fn(f), next(g_reloadHead) {
-    g_reloadHead = this;
-}
-
 void RunReloadCleanups() {
-    for (auto *node = g_reloadHead; node != nullptr; node = node->next)
+    for (auto *node = ReloadAutoRegister::head; node != nullptr; node = node->next)
         node->fn();
 }
 
-GlueBootAutoRegister::GlueBootAutoRegister(Fn f) : fn(f), next(g_glueBootHead) {
-    g_glueBootHead = this;
-}
-
 void RunGlueBootCleanups() {
-    for (auto *node = g_glueBootHead; node != nullptr; node = node->next)
+    for (auto *node = GlueBootAutoRegister::head; node != nullptr; node = node->next)
         node->fn();
 }
 

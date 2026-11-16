@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include "AutoList.h"
+
 #include <cstdint>
 
 // Shared interceptor for the engine's arg'd frame-script runner
@@ -43,11 +45,7 @@ namespace Frame::RunnerHook {
 using Interceptor = bool (*)(void *frame, uint32_t *slotPtr, const char *fmt,
                              void *varargs);
 
-struct AutoSubscribe {
-    explicit AutoSubscribe(Interceptor fn);
-    Interceptor fn;
-    AutoSubscribe *next;
-};
+using AutoSubscribe = AutoList<struct AutoSubscribeTag, Interceptor>;
 
 // The engine's runner (the MinHook trampoline) — for interceptors that run the
 // fire themselves, e.g. to bracket it, rather than suppress it. Valid only once

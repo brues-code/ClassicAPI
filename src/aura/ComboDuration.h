@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include "AutoList.h"
+
 #include <cstdint>
 
 // `Aura::ComboDuration` — combo-point-scaled durations for finisher
@@ -59,10 +61,6 @@ uint32_t TryComboScaledMs(const uint8_t *spellRecord, uint32_t spellId);
 // `static const Aura::ComboDuration::AutoDanglingResolver`.
 using DanglingResolver = bool (*)(uint32_t spellId, int32_t *baseMs,
                                   int32_t *maxMs);
-struct AutoDanglingResolver {
-    explicit AutoDanglingResolver(DanglingResolver fn);
-    DanglingResolver fn;
-    AutoDanglingResolver *next;
-};
+using AutoDanglingResolver = AutoList<struct AutoDanglingResolverTag, DanglingResolver>;
 
 } // namespace Aura::ComboDuration

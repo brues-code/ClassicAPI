@@ -10,6 +10,8 @@
 
 #pragma once
 
+#include "AutoList.h"
+
 #include <cstdint>
 
 namespace Quest::TurnedIn {
@@ -19,10 +21,6 @@ namespace Quest::TurnedIn {
 // completed." and the reward lines, so state they update is current for the
 // CHAT_MSG_SYSTEM those lines fire; QUEST_TURNED_IN fires after them.
 using Callback = void (*)(uint32_t questID);
-struct AutoSubscribe {
-    explicit AutoSubscribe(Callback fn);
-    Callback fn;
-    AutoSubscribe *next;
-};
+using AutoSubscribe = AutoList<struct AutoSubscribeTag, Callback>;
 
 } // namespace Quest::TurnedIn

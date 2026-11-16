@@ -165,13 +165,7 @@ bool InMeleeRange(void *player, void *target) {
 }
 
 namespace {
-AutoSwingResetOverride *g_overrides = nullptr;
 } // namespace
-
-AutoSwingResetOverride::AutoSwingResetOverride(SwingResetOverride fn)
-    : fn(fn), next(g_overrides) {
-    g_overrides = this;
-}
 
 namespace {
 
@@ -308,7 +302,7 @@ void HandleAutorepeatReset(uint32_t spellId) {
 // ---- SMSG_SPELL_GO dispatch -----------------------------------------------
 
 bool ForcedSwingReset(uint32_t spellId) {
-    for (auto *r = g_overrides; r != nullptr; r = r->next)
+    for (auto *r = AutoSwingResetOverride::head; r != nullptr; r = r->next)
         if (r->fn(spellId))
             return true;
     return false;

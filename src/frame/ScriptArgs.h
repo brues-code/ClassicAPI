@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include "AutoList.h"
+
 #include "Game.h"
 
 #include <cstdint>
@@ -65,11 +67,7 @@ inline void RunSlot(const uint32_t *slot, void *frame) {
 // file-scope `static const Frame::ScriptArgs::AutoObserve`.
 using Observer = void (*)(bool begin, int handlerRef, void *frame);
 
-struct AutoObserve {
-    explicit AutoObserve(Observer fn);
-    Observer fn;
-    AutoObserve *next;
-};
+using AutoObserve = AutoList<struct AutoObserveTag, Observer>;
 
 // A boolean 3.3.5 passes after a script's values, which 1.12's runners
 // cannot carry: OnClick/PreClick/PostClick's `down`, OnEnter/OnLeave's
@@ -80,10 +78,6 @@ struct AutoObserve {
 // globals. Declare a file-scope `static const Frame::ScriptArgs::AutoTrailingBool`.
 using TrailingBool = bool (*)(int handlerRef, void *frame, bool *value);
 
-struct AutoTrailingBool {
-    explicit AutoTrailingBool(TrailingBool fn);
-    TrailingBool fn;
-    AutoTrailingBool *next;
-};
+using AutoTrailingBool = AutoList<struct AutoTrailingBoolTag, TrailingBool>;
 
 } // namespace Frame::ScriptArgs

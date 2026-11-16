@@ -29,16 +29,14 @@ namespace Unit::FlagsChanged {
 
 namespace {
 
-AutoSubscribe *g_head = nullptr;
-
 using FlagsChanged_t = void(__thiscall *)(void *unit, uint32_t oldFlags);
 
 void __fastcall FlagsChangedSite(void *unit, void *, uint32_t oldFlags) {
     reinterpret_cast<FlagsChanged_t>(Offsets::FUN_UNIT_FLAGS_CHANGED)(unit, oldFlags);
     const auto *desc = Object::Fields(unit);
     const uint32_t flags = Game::Read<uint32_t>(desc, Offsets::OFF_UNIT_FIELD_FLAGS);
-    for (auto *node = g_head; node != nullptr; node = node->next)
-        node->cb(unit, oldFlags, flags);
+    for (auto *node = AutoSubscribe::head; node != nullptr; node = node->next)
+        node->fn(unit, oldFlags, flags);
 }
 
 void Register() {
@@ -49,9 +47,5 @@ void Register() {
 const Game::ModuleAutoRegister _autoreg{&Register};
 
 } // namespace
-
-AutoSubscribe::AutoSubscribe(Callback cb) : cb(cb), next(g_head) {
-    g_head = this;
-}
 
 } // namespace Unit::FlagsChanged

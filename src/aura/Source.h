@@ -10,6 +10,8 @@
 
 #pragma once
 
+#include "AutoList.h"
+
 #include <cstdint>
 
 // Aura caster / duration cache, fed by a co-hook on `SMSG_SPELL_GO`
@@ -259,11 +261,7 @@ using ChangeCallback = void (*)(const Change &change);
 // Declare a file-scope `static const Aura::Source::AutoObserve _obs{&fn};`.
 // Added and Stacks reach the callback after the cache has stamped the aura,
 // Removed before the cache evicts it, so `caster` is the cache's in all three.
-struct AutoObserve {
-    explicit AutoObserve(ChangeCallback cb);
-    ChangeCallback callback;
-    const AutoObserve *next;
-};
+using AutoObserve = AutoList<struct AutoObserveTag, ChangeCallback>;
 
 // A duration set again for an aura already on `unitGuid`: the server's
 // SMSG_UPDATE_AURA_DURATION for an occupied slot of the player, a recast this

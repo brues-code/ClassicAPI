@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include "AutoList.h"
+
 // Shared observer for the ScrollingMessageFrame line layout
 // FUN_SMF_DISPLAY_REFRESH (Offsets.h), which lays out the lines the frame
 // shows after every change to them: a message added at the bottom, a scroll,
@@ -27,11 +29,7 @@ namespace ScrollingMessageFrame::Layout {
 
 using Listener = void (*)(void *smf);
 
-struct AutoSubscribe {
-    explicit AutoSubscribe(Listener fn);
-    Listener fn;
-    AutoSubscribe *next;
-};
+using AutoSubscribe = AutoList<struct AutoSubscribeTag, Listener>;
 
 // A listener that runs BEFORE the layout, with the frame and the record the
 // layout runs from (the scroll record it is about to store). The layout can
@@ -39,10 +37,6 @@ struct AutoSubscribe {
 // it returns; state a layout makes current must be dropped here, not after.
 using BeforeListener = void (*)(void *smf, int newestRecord);
 
-struct AutoSubscribeBefore {
-    explicit AutoSubscribeBefore(BeforeListener fn);
-    BeforeListener fn;
-    AutoSubscribeBefore *next;
-};
+using AutoSubscribeBefore = AutoList<struct AutoSubscribeBeforeTag, BeforeListener>;
 
 } // namespace ScrollingMessageFrame::Layout

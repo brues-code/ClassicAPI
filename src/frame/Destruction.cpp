@@ -20,13 +20,11 @@ namespace Frame::Destruction {
 
 namespace {
 
-AutoSubscribe *g_head = nullptr;
-
 using Destructor_t = void(__fastcall *)(void *frame);
 Destructor_t g_origDestructor = nullptr;
 
 void __fastcall Destructor_h(void *frame) {
-    for (const AutoSubscribe *s = g_head; s != nullptr; s = s->next)
+    for (const AutoSubscribe *s = AutoSubscribe::head; s != nullptr; s = s->next)
         s->fn(frame);
     g_origDestructor(frame);
 }
@@ -35,7 +33,5 @@ const Game::HookAutoRegister _hook{Offsets::FUN_FRAME_DESTRUCTOR, reinterpret_ca
                                    reinterpret_cast<void **>(&g_origDestructor)};
 
 } // namespace
-
-AutoSubscribe::AutoSubscribe(Listener fn) : fn(fn), next(g_head) { g_head = this; }
 
 } // namespace Frame::Destruction

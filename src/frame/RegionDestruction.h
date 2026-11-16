@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include "AutoList.h"
+
 // Listeners run when a region (a texture or a font string) is destroyed, from
 // the region destructor body every region type ends in (SimpleRegionDestruct).
 // By then the subclass part is torn down, so a listener may only use the
@@ -26,10 +28,6 @@ namespace Frame::RegionDestruction {
 
 using Listener = void (*)(void *region);
 
-struct AutoSubscribe {
-    explicit AutoSubscribe(Listener fn);
-    Listener fn;
-    AutoSubscribe *next;
-};
+using AutoSubscribe = AutoList<struct AutoSubscribeTag, Listener>;
 
 } // namespace Frame::RegionDestruction

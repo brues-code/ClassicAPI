@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include "AutoList.h"
+
 // World-entry observers. This module owns PLAYER_ENTERING_WORLD: it claims
 // the id in `Event::SignalHook` and re-broadcasts it with its payload, and
 // a claim ends the subscriber chain, so a module that must act on world
@@ -28,10 +30,6 @@ namespace Event::EnteringWorld {
 
 using Observer = void (*)();
 
-struct AutoObserve {
-    explicit AutoObserve(Observer fn);
-    Observer fn;
-    const AutoObserve *next;
-};
+using AutoObserve = AutoList<struct AutoObserveTag, Observer>;
 
 } // namespace Event::EnteringWorld

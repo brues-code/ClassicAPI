@@ -96,13 +96,8 @@ const Event::Custom::AutoReserve _reserve{kEventName, &kUpdateDelayedDoc};
 bool g_pending = false;
 
 // C++ subscribers notified once per bag-change frame (see UpdateDelayed.h).
-AutoSubscribe *g_subs = nullptr;
 
 } // namespace
-
-AutoSubscribe::AutoSubscribe(Callback cb) : cb(cb), next(g_subs) {
-    g_subs = this;
-}
 
 // `RaiseBagEvents` — `__cdecl void()`.
 using RaiseBagEvents_t = void(__cdecl *)();
@@ -159,8 +154,8 @@ void OnWorldTick() {
     if (slot >= 0)
         Event::Custom::Fire(slot, "");
     // Notify C++ subscribers of the bag-change frame (see UpdateDelayed.h).
-    for (auto *node = g_subs; node != nullptr; node = node->next)
-        node->cb();
+    for (auto *node = AutoSubscribe::head; node != nullptr; node = node->next)
+        node->fn();
 }
 
 static const Game::HookAutoRegister _hookRaiseBagEvents{

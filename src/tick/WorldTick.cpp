@@ -18,7 +18,6 @@ namespace Tick::WorldTick {
 
 namespace {
 
-AutoSubscribe *g_head = nullptr;
 bool g_ticked = false;
 
 using WorldTick_t = void(__fastcall *)(int, int, int);
@@ -42,15 +41,11 @@ void Drain() {
     if (!g_ticked)
         return;
     g_ticked = false;
-    for (auto *node = g_head; node != nullptr; node = node->next)
-        node->cb();
+    for (auto *node = AutoSubscribe::head; node != nullptr; node = node->next)
+        node->fn();
 }
 
 } // namespace
-
-AutoSubscribe::AutoSubscribe(Callback cb) : cb(cb), next(g_head) {
-    g_head = this;
-}
 
 static const Game::HookAutoRegister _hook{
     Offsets::FUN_WORLD_TICK,

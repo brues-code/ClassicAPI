@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include "AutoList.h"
+
 #include <cstdint>
 
 namespace Unit::FlagsChanged {
@@ -29,10 +31,6 @@ using Callback = void (*)(void *unit, uint32_t oldFlags, uint32_t flags);
 //
 // The constructor chains the callback at static init; order across
 // subscribers is unspecified.
-struct AutoSubscribe {
-    explicit AutoSubscribe(Callback cb);
-    Callback cb;
-    AutoSubscribe *next;
-};
+using AutoSubscribe = AutoList<struct AutoSubscribeTag, Callback>;
 
 } // namespace Unit::FlagsChanged

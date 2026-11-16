@@ -155,8 +155,6 @@ namespace {
 
 // Chained at static-init time by each `AutoSubscribe` constructor, before
 // `DllMain`; zero-initialized ahead of any dynamic init.
-AutoSubscribe *g_head = nullptr;
-AutoSubscribeBefore *g_beforeHead = nullptr;
 
 using Loader_t = uintptr_t(__fastcall *)(void *self, void *edx, const void *node, void *status);
 Loader_t g_orig = nullptr;
@@ -166,11 +164,11 @@ uintptr_t __fastcall Hook(void *self, void *edx, const void *node, void *status)
     if (self == nullptr || node == nullptr)
         return Inherits::LoadFrame(g_orig, self, edx, node, status);
     void *object = static_cast<uint8_t *>(self) - Offsets::OFF_XML_LOADER_SUBOBJECT;
-    for (AutoSubscribeBefore *s = g_beforeHead; s != nullptr; s = s->next)
+    for (AutoSubscribeBefore *s = AutoSubscribeBefore::head; s != nullptr; s = s->next)
         s->fn(object, node, status);
     const Intrinsics::LoadScope intrinsic(object, node, status);
     const uintptr_t r = Inherits::LoadFrame(g_orig, self, edx, node, status);
-    for (AutoSubscribe *s = g_head; s != nullptr; s = s->next)
+    for (AutoSubscribe *s = AutoSubscribe::head; s != nullptr; s = s->next)
         s->fn(object, node, status);
     return r;
 }
@@ -180,12 +178,6 @@ const Game::HookAutoRegister _hook{
     reinterpret_cast<void **>(&g_orig)};
 
 } // namespace
-
-AutoSubscribe::AutoSubscribe(Observer f) : fn(f), next(g_head) { g_head = this; }
-
-AutoSubscribeBefore::AutoSubscribeBefore(Observer f) : fn(f), next(g_beforeHead) {
-    g_beforeHead = this;
-}
 
 } // namespace FrameLoad
 

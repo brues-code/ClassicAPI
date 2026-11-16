@@ -10,6 +10,8 @@
 
 #pragma once
 
+#include "AutoList.h"
+
 // Shared per-frame tick subscription. The engine's world-subsystem
 // update at `FUN_WORLD_TICK` (`0x0066FD50`) is the canonical
 // once-per-frame hook target — single caller, quiet code region, no
@@ -35,10 +37,6 @@ namespace Tick::WorldTick {
 
 using Callback = void (*)();
 
-struct AutoSubscribe {
-    explicit AutoSubscribe(Callback cb);
-    Callback cb;
-    AutoSubscribe *next;
-};
+using AutoSubscribe = AutoList<struct AutoSubscribeTag, Callback>;
 
 } // namespace Tick::WorldTick

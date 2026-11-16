@@ -20,15 +20,13 @@ namespace Texture::CornerStore {
 
 namespace {
 
-AutoSubscribe *g_head = nullptr;
-
 // __thiscall(region, float rect[4]); dummy-EDX form.
 using StoreCorners_t = void(__fastcall *)(void *region, void *edx, float *rect);
 StoreCorners_t g_origStore = nullptr;
 
 void __fastcall StoreCorners_h(void *region, void *edx, float *rect) {
     g_origStore(region, edx, rect);
-    for (const AutoSubscribe *s = g_head; s != nullptr; s = s->next)
+    for (const AutoSubscribe *s = AutoSubscribe::head; s != nullptr; s = s->next)
         s->fn(region);
 }
 
@@ -36,8 +34,6 @@ const Game::HookAutoRegister _hook{Offsets::FUN_REGION_STORE_CORNERS, reinterpre
                                    reinterpret_cast<void **>(&g_origStore)};
 
 } // namespace
-
-AutoSubscribe::AutoSubscribe(Listener fn) : fn(fn), next(g_head) { g_head = this; }
 
 void CropInput(void *region, float (&rect)[4]) {
     using Crop_t = void(__thiscall *)(void *region, float *rect);

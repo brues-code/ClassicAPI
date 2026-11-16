@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include "AutoList.h"
+
 #include <cstdint>
 
 // SMSG_SPELL_START and SMSG_SPELL_GO, and the player's own CMSG_CAST_SPELL,
@@ -72,22 +74,10 @@ using SentCallback = void (*)(const Sent &);
 
 // File-scope `static const` instances chain onto the decoder at static-init
 // time. Order across subscribers is unspecified.
-struct AutoStart {
-    explicit AutoStart(StartCallback fn);
-    StartCallback fn;
-    AutoStart *next;
-};
+using AutoStart = AutoList<struct AutoStartTag, StartCallback>;
 
-struct AutoGo {
-    explicit AutoGo(GoCallback fn);
-    GoCallback fn;
-    AutoGo *next;
-};
+using AutoGo = AutoList<struct AutoGoTag, GoCallback>;
 
-struct AutoSent {
-    explicit AutoSent(SentCallback fn);
-    SentCallback fn;
-    AutoSent *next;
-};
+using AutoSent = AutoList<struct AutoSentTag, SentCallback>;
 
 } // namespace Spell::CastPacket

@@ -23,14 +23,13 @@ namespace {
 // Chained at static-init time by each `AutoSubscribe` constructor, before
 // `DllMain`. Zero-initialized (namespace static) ahead of any dynamic init, so
 // the head is valid when subscribers link in.
-AutoSubscribe *g_head = nullptr;
 
 using Runner_t = void(__cdecl *)(void *frame, uint32_t *slotPtr, const char *fmt,
                                  void *varargs);
 Runner_t g_orig = nullptr;
 
 void __cdecl Hook(void *frame, uint32_t *slotPtr, const char *fmt, void *varargs) {
-    for (AutoSubscribe *s = g_head; s != nullptr; s = s->next)
+    for (AutoSubscribe *s = AutoSubscribe::head; s != nullptr; s = s->next)
         if (s->fn(frame, slotPtr, fmt, varargs))
             return; // handled — suppressed, or the subscriber ran Original itself
     g_orig(frame, slotPtr, fmt, varargs);
@@ -41,8 +40,6 @@ const Game::HookAutoRegister _hook{
     reinterpret_cast<void **>(&g_orig)};
 
 } // namespace
-
-AutoSubscribe::AutoSubscribe(Interceptor f) : fn(f), next(g_head) { g_head = this; }
 
 void Original(void *frame, uint32_t *slotPtr, const char *fmt, void *varargs) {
     g_orig(frame, slotPtr, fmt, varargs);

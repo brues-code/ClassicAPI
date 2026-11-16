@@ -20,15 +20,13 @@ namespace Texture::Construct {
 
 namespace {
 
-AutoSubscribe *g_head = nullptr;
-
 // __thiscall(mem, parent, layer, sublayer) -> region; dummy-EDX __fastcall.
 using Ctor_t = void *(__fastcall *)(void *mem, void *edx, void *parent, int layer, int sublayer);
 Ctor_t g_origCtor = nullptr;
 
 void *__fastcall Ctor_h(void *mem, void *edx, void *parent, int layer, int sublayer) {
     if (mem != nullptr)
-        for (const AutoSubscribe *s = g_head; s != nullptr; s = s->next)
+        for (const AutoSubscribe *s = AutoSubscribe::head; s != nullptr; s = s->next)
             s->fn(mem);
     return g_origCtor(mem, edx, parent, layer, sublayer);
 }
@@ -37,7 +35,5 @@ const Game::HookAutoRegister _hook{Offsets::FUN_SIMPLETEXTURE_CTOR, reinterpret_
                                    reinterpret_cast<void **>(&g_origCtor)};
 
 } // namespace
-
-AutoSubscribe::AutoSubscribe(Listener fn) : fn(fn), next(g_head) { g_head = this; }
 
 } // namespace Texture::Construct

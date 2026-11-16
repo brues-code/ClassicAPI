@@ -20,8 +20,6 @@ namespace Frame::ScriptSlots {
 
 namespace {
 
-AutoRegister *g_head = nullptr;
-
 // The base object's (0x00702590), the frame's (FUN_FRAME_SCRIPT_RESOLVER),
 // then each type's additions; GameTooltip's last. A name the frame's type
 // does not have resolves to 0.
@@ -49,15 +47,13 @@ using Resolver_t = const uint32_t *(__fastcall *)(void *frame, void *edx, const 
 
 } // namespace
 
-AutoRegister::AutoRegister(Enumerator f) : fn(f), next(g_head) { g_head = this; }
-
 void ForEach(void *frame, Visit visit, void *ctx) {
     const void *vtable = Game::Read<const void *>(frame, 0);
     const auto resolve = Game::Read<Resolver_t>(vtable, Offsets::VTBL_FRAME_SCRIPT_RESOLVER);
     for (const char *name : kEngineNames)
         if (const uint32_t *slot = resolve(frame, nullptr, name))
             visit(slot, ctx);
-    for (AutoRegister *r = g_head; r != nullptr; r = r->next)
+    for (AutoRegister *r = AutoRegister::head; r != nullptr; r = r->next)
         r->fn(frame, visit, ctx);
 }
 

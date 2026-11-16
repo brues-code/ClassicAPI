@@ -19,14 +19,12 @@
 namespace Model::Teardown {
 namespace {
 
-AutoSubscribe *g_head = nullptr;
-
 using Destroy_t = void(__fastcall *)(void *frame);
 Destroy_t g_origDestroy = nullptr;
 
 void __fastcall Destroy_h(void *frame) {
-    for (auto *node = g_head; node != nullptr; node = node->next)
-        node->cb(frame);
+    for (auto *node = AutoSubscribe::head; node != nullptr; node = node->next)
+        node->fn(frame);
     g_origDestroy(frame);
 }
 
@@ -35,9 +33,5 @@ const Game::HookAutoRegister _destroyHook{Offsets::FUN_SIMPLEMODEL_DESTROY,
                                           reinterpret_cast<void **>(&g_origDestroy)};
 
 } // namespace
-
-AutoSubscribe::AutoSubscribe(Callback cb) : cb(cb), next(g_head) {
-    g_head = this;
-}
 
 } // namespace Model::Teardown

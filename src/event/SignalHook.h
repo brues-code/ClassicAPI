@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include "AutoList.h"
+
 // Shared interceptor for the engine's no-arg event dispatcher
 // `FUN_FIRE_EVENT_NO_ARGS` (`0x00703E50`) — the `__fastcall(int eventID)`
 // path every no-arg event broadcast goes through (PLAYER_ENTERING_WORLD,
@@ -38,11 +40,7 @@ namespace Event::SignalHook {
 
 using Interceptor = bool (*)(int eventID);
 
-struct AutoSubscribe {
-    explicit AutoSubscribe(Interceptor fn);
-    Interceptor fn;
-    AutoSubscribe *next;
-};
+using AutoSubscribe = AutoList<struct AutoSubscribeTag, Interceptor>;
 
 // Runs `fn` each time the engine signals `eventID` through this dispatcher,
 // without the power to suppress it — for a module that only needs to know the

@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include "AutoList.h"
+
 #include <cstddef>
 #include <cstdint>
 
@@ -43,17 +45,9 @@ using Rewriter = const char *(*)(const char *path, uintptr_t retAddr, char *buf,
                                  size_t bufSize);
 using Suppressor = bool (*)(const char *path);
 
-struct AutoRewrite {
-    explicit AutoRewrite(Rewriter fn);
-    Rewriter fn;
-    AutoRewrite *next;
-};
+using AutoRewrite = AutoList<struct AutoRewriteTag, Rewriter>;
 
-struct AutoSuppress {
-    explicit AutoSuppress(Suppressor fn);
-    Suppressor fn;
-    AutoSuppress *next;
-};
+using AutoSuppress = AutoList<struct AutoSuppressTag, Suppressor>;
 
 // The engine's loader (the MinHook trampoline), bypassing every subscriber.
 // Returns 0 before hooks are installed.

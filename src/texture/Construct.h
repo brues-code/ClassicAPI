@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include "AutoList.h"
+
 // Shared observer for the CSimpleTexture constructor (FUN_SIMPLETEXTURE_CTOR),
 // which builds every texture region, in fresh or recycled pool memory alike.
 // Listeners run BEFORE the constructor, on the memory it is about to build, so
@@ -27,10 +29,6 @@ namespace Texture::Construct {
 
 using Listener = void (*)(void *region);
 
-struct AutoSubscribe {
-    explicit AutoSubscribe(Listener fn);
-    Listener fn;
-    AutoSubscribe *next;
-};
+using AutoSubscribe = AutoList<struct AutoSubscribeTag, Listener>;
 
 } // namespace Texture::Construct

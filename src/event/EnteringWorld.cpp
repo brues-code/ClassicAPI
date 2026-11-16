@@ -47,7 +47,6 @@ namespace Event::EnteringWorld {
 namespace {
 
 // Chained at static init by each `AutoObserve`, before `DllMain`.
-const AutoObserve *g_observers = nullptr;
 
 // Set on glue-screen boot; a pending latch means the next enter-world is a
 // fresh character login (from the login/char-select screen).
@@ -79,7 +78,7 @@ bool Intercept(int eventID) {
     else
         Event::Custom::Fire(pew, "%s%s", kNil, kNil);
 
-    for (const AutoObserve *o = g_observers; o != nullptr; o = o->next)
+    for (const AutoObserve *o = AutoObserve::head; o != nullptr; o = o->next)
         o->fn();
     return true; // handled — suppress the original no-arg PEW fire
 }
@@ -100,7 +99,5 @@ const Game::ModuleAutoRegister _inGame{&OnInGameInit};
 const Game::GlueModuleAutoRegister _glue{&OnGlueInit};
 
 } // namespace
-
-AutoObserve::AutoObserve(Observer f) : fn(f), next(g_observers) { g_observers = this; }
 
 } // namespace Event::EnteringWorld

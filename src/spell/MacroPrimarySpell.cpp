@@ -47,14 +47,13 @@ namespace Spell::MacroPrimarySpell {
 namespace {
 
 PatternAutoRegister *g_patternHead = nullptr;
-PostParseAutoRegister *g_postParseHead = nullptr;
 
 using MacroParse_t = void(__fastcall *)(int macroEntry);
 MacroParse_t MacroParse_o = nullptr;
 
 void NotifyParsed(int macroEntry) {
-    for (auto *node = g_postParseHead; node != nullptr; node = node->next)
-        node->cb(macroEntry);
+    for (auto *node = PostParseAutoRegister::head; node != nullptr; node = node->next)
+        node->fn(macroEntry);
 }
 
 // Vanilla's parser uses a 256-byte stack buffer per line; bytes past
@@ -181,12 +180,6 @@ PatternAutoRegister::PatternAutoRegister(const char *p, ArgExtractor e)
       extract(e),
       next(g_patternHead) {
     g_patternHead = this;
-}
-
-PostParseAutoRegister::PostParseAutoRegister(PostParseCallback c)
-    : cb(c),
-      next(g_postParseHead) {
-    g_postParseHead = this;
 }
 
 } // namespace Spell::MacroPrimarySpell

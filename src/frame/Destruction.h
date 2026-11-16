@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include "AutoList.h"
+
 // Shared observer for the frame destructor body FUN_FRAME_DESTRUCTOR, which
 // every frame class's destructor runs (Offsets.h). It deletes the frame's
 // regions and child frames, so a listener runs while they all still exist.
@@ -25,10 +27,6 @@ namespace Frame::Destruction {
 
 using Listener = void (*)(void *frame);
 
-struct AutoSubscribe {
-    explicit AutoSubscribe(Listener fn);
-    Listener fn;
-    AutoSubscribe *next;
-};
+using AutoSubscribe = AutoList<struct AutoSubscribeTag, Listener>;
 
 } // namespace Frame::Destruction

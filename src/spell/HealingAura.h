@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include "AutoList.h"
+
 #include <cstdint>
 
 // Extension point for non-stock healing-aura semantics feeding
@@ -36,10 +38,6 @@ long Resolve(int auraIndex, long amount, int32_t spirit, int32_t armor);
 // register one at static-init time.
 using Resolver = long (*)(int auraIndex, long amount, int32_t spirit,
                           int32_t armor);
-struct AutoResolver {
-    explicit AutoResolver(Resolver fn);
-    Resolver fn;
-    AutoResolver *next;
-};
+using AutoResolver = AutoList<struct AutoResolverTag, Resolver>;
 
 } // namespace Spell::HealingAura

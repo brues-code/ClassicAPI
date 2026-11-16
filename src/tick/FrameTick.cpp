@@ -17,8 +17,6 @@ namespace Tick::FrameTick {
 
 namespace {
 
-AutoSubscribe *g_head = nullptr;
-AutoSubscribeBefore *g_beforeHead = nullptr;
 float g_elapsed = 0.0f;
 
 // FUN_UI_RENDER_ROOT is `__stdcall(const float *bounds, float elapsed)`,
@@ -36,22 +34,14 @@ void __stdcall UIRenderRoot_h(const float *bounds, float elapsed) {
     // The head subscribers run before the frame pass starts; the tail ones
     // after the strata walk is complete. Either way no frame is mid-draw when
     // regions are mutated.
-    for (auto *node = g_beforeHead; node != nullptr; node = node->next)
-        node->cb();
+    for (auto *node = AutoSubscribeBefore::head; node != nullptr; node = node->next)
+        node->fn();
     UIRenderRoot_o(bounds, elapsed);
-    for (auto *node = g_head; node != nullptr; node = node->next)
-        node->cb();
+    for (auto *node = AutoSubscribe::head; node != nullptr; node = node->next)
+        node->fn();
 }
 
 } // namespace
-
-AutoSubscribe::AutoSubscribe(Callback cb) : cb(cb), next(g_head) {
-    g_head = this;
-}
-
-AutoSubscribeBefore::AutoSubscribeBefore(Callback cb) : cb(cb), next(g_beforeHead) {
-    g_beforeHead = this;
-}
 
 float Elapsed() { return g_elapsed; }
 

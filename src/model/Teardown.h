@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include "AutoList.h"
+
 // Model frame teardown. A Model frame's destructor (FUN_SIMPLEMODEL_DESTROY)
 // releases its M2 scene, and the scene frees every model in it, whatever
 // references are still out. Anything that holds an engine object tied to a
@@ -29,10 +31,6 @@ namespace Model::Teardown {
 
 using Callback = void (*)(void *frame);
 
-struct AutoSubscribe {
-    explicit AutoSubscribe(Callback cb);
-    Callback cb;
-    AutoSubscribe *next;
-};
+using AutoSubscribe = AutoList<struct AutoSubscribeTag, Callback>;
 
 } // namespace Model::Teardown

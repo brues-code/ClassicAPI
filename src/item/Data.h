@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include "AutoList.h"
+
 #include <cstdint>
 
 namespace Item::Data {
@@ -43,12 +45,7 @@ bool WarmCache(uint32_t itemID);
 // or the server refused it / every resend went unanswered (failure). Place
 // a file-scope `static const Item::Data::LoadSubscriber`; order across
 // subscribers is unspecified.
-struct LoadSubscriber {
-    using Callback = void (*)(uint32_t itemID, bool success);
-    explicit LoadSubscriber(Callback cb);
-    Callback cb;
-    LoadSubscriber *next;
-};
+using LoadSubscriber = AutoList<struct LoadSubscriberTag, void (*)(uint32_t itemID, bool success)>;
 
 // Hook for `Script_GetItemInfo` (`0x0048E070`). Pre-warms the cache
 // from arg 1 (number or `"item:NNN..."` string), then runs the

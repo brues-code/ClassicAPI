@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include "AutoList.h"
+
 #include <cstdint>
 
 // Shared BagFamily derivation for a cached `ItemStats_C` record. Used by
@@ -63,10 +65,6 @@ uint32_t BitmaskForRecord(const uint8_t *record);
 // `static const Item::BagFamily::AutoResolver` in a platform module to
 // register one at static-init time.
 using Resolver = uint32_t (*)(uint32_t itemClass, uint32_t subclass);
-struct AutoResolver {
-    explicit AutoResolver(Resolver fn);
-    Resolver fn;
-    AutoResolver *next;
-};
+using AutoResolver = AutoList<struct AutoResolverTag, Resolver>;
 
 } // namespace Item::BagFamily

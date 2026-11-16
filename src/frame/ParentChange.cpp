@@ -20,14 +20,12 @@ namespace Frame::ParentChange {
 
 namespace {
 
-AutoSubscribe *g_head = nullptr;
-
 using SetParent_t = void(__fastcall *)(void *frame, void *edx, void *parent);
 SetParent_t g_origSetParent = nullptr;
 
 void __fastcall SetParent_h(void *frame, void *edx, void *parent) {
     g_origSetParent(frame, edx, parent);
-    for (const AutoSubscribe *s = g_head; s != nullptr; s = s->next)
+    for (const AutoSubscribe *s = AutoSubscribe::head; s != nullptr; s = s->next)
         s->fn(frame);
 }
 
@@ -35,7 +33,5 @@ const Game::HookAutoRegister _hook{Offsets::FUN_FRAME_SET_PARENT, reinterpret_ca
                                    reinterpret_cast<void **>(&g_origSetParent)};
 
 } // namespace
-
-AutoSubscribe::AutoSubscribe(Listener fn) : fn(fn), next(g_head) { g_head = this; }
 
 } // namespace Frame::ParentChange

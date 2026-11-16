@@ -24,8 +24,6 @@ namespace {
 
 // Chained at static-init time by the subscriber constructors, before `DllMain`.
 // Zero-initialized (namespace static) ahead of any dynamic init.
-AutoRewrite *g_rewriters = nullptr;
-AutoSuppress *g_suppressors = nullptr;
 
 using LoadFile_t = uint32_t(__fastcall *)(const char *path, void *ctx, void *status);
 LoadFile_t g_orig = nullptr;
@@ -36,10 +34,10 @@ constexpr size_t kPathBuf = 0x208;
 uint32_t __fastcall Hook(const char *path, void *ctx, void *status) {
     const uintptr_t retAddr = reinterpret_cast<uintptr_t>(_ReturnAddress());
     char buf[kPathBuf];
-    for (AutoRewrite *r = g_rewriters; r != nullptr && path != nullptr; r = r->next)
+    for (AutoRewrite *r = AutoRewrite::head; r != nullptr && path != nullptr; r = r->next)
         path = r->fn(path, retAddr, buf, sizeof buf);
     if (path != nullptr)
-        for (AutoSuppress *s = g_suppressors; s != nullptr; s = s->next)
+        for (AutoSuppress *s = AutoSuppress::head; s != nullptr; s = s->next)
             if (s->fn(path))
                 return 0;
     return g_orig(path, ctx, status);
@@ -50,12 +48,6 @@ const Game::HookAutoRegister _hook{
     reinterpret_cast<void **>(&g_orig)};
 
 } // namespace
-
-AutoRewrite::AutoRewrite(Rewriter f) : fn(f), next(g_rewriters) { g_rewriters = this; }
-
-AutoSuppress::AutoSuppress(Suppressor f) : fn(f), next(g_suppressors) {
-    g_suppressors = this;
-}
 
 uint32_t Original(const char *path, void *ctx, void *status) {
     return g_orig != nullptr ? g_orig(path, ctx, status) : 0;

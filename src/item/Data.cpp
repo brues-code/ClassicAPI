@@ -134,19 +134,13 @@ static bool g_ownedEverBuilt = false;
 // or /reload) in RegisterLuaFunctions.
 static bool g_ownedPrefetched = false;
 
-static LoadSubscriber *g_loadSubs = nullptr;
-
-LoadSubscriber::LoadSubscriber(Callback cb) : cb(cb), next(g_loadSubs) {
-    g_loadSubs = this;
-}
-
 static void OnLoadDone(uint32_t itemID, bool success, bool requested) {
     if (requested)
         FireItemDataLoadResult(static_cast<int>(itemID), success);
     else
         FireGetItemInfoReceived(static_cast<int>(itemID), success);
-    for (auto *sub = g_loadSubs; sub != nullptr; sub = sub->next)
-        sub->cb(itemID, success);
+    for (auto *sub = LoadSubscriber::head; sub != nullptr; sub = sub->next)
+        sub->fn(itemID, success);
 }
 
 // --- Owned-item priority set --------------------------------------------

@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include "AutoList.h"
+
 // Shared observer for a texture's corner store (FUN_REGION_STORE_CORNERS),
 // which writes the drawn quad from a rect: every layout of the texture
 // (FUN_TEXTURE_ON_FRAME_SIZE_CHANGED), a coordinate change on a texture with
@@ -34,10 +36,6 @@ void CropInput(void *region, float (&rect)[4]);
 
 using Listener = void (*)(void *region);
 
-struct AutoSubscribe {
-    explicit AutoSubscribe(Listener fn);
-    Listener fn;
-    AutoSubscribe *next;
-};
+using AutoSubscribe = AutoList<struct AutoSubscribeTag, Listener>;
 
 } // namespace Texture::CornerStore

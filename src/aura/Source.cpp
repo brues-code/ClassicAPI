@@ -1764,11 +1764,9 @@ void NotifyIfPlayer(void *unit) {
         Player::StatSignal::Notify();
 }
 
-const AutoObserve *g_observers = nullptr;
-
 void NotifyObservers(const Change &change) {
-    for (const AutoObserve *o = g_observers; o != nullptr; o = o->next)
-        o->callback(change);
+    for (const AutoObserve *o = AutoObserve::head; o != nullptr; o = o->next)
+        o->fn(change);
 }
 
 // The change for the aura in `slot`, with the caster and polarity of the
@@ -2165,10 +2163,6 @@ void ObserveGroupAuras(uint64_t guid, const uint16_t *auraArray) {
     for (int i = 0; i < total; ++i)
         snap->ids[i] = auraArray[i];
     snap->touchMs = now;
-}
-
-AutoObserve::AutoObserve(ChangeCallback cb) : callback(cb), next(g_observers) {
-    g_observers = this;
 }
 
 void SignalRefreshed(uint64_t unitGuid, uint32_t spellId, int slot) {

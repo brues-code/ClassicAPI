@@ -20,13 +20,11 @@ namespace Frame::RegionDestruction {
 
 namespace {
 
-AutoSubscribe *g_head = nullptr;
-
 using Destruct_t = void(__fastcall *)(void *region);
 Destruct_t g_origDestruct = nullptr;
 
 void __fastcall Destruct_h(void *region) {
-    for (const AutoSubscribe *s = g_head; s != nullptr; s = s->next)
+    for (const AutoSubscribe *s = AutoSubscribe::head; s != nullptr; s = s->next)
         s->fn(region);
     g_origDestruct(region);
 }
@@ -35,7 +33,5 @@ const Game::HookAutoRegister _hook{Offsets::FUN_REGION_DESTRUCT, reinterpret_cas
                                    reinterpret_cast<void **>(&g_origDestruct)};
 
 } // namespace
-
-AutoSubscribe::AutoSubscribe(Listener fn) : fn(fn), next(g_head) { g_head = this; }
 
 } // namespace Frame::RegionDestruction

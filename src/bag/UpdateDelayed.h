@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include "AutoList.h"
+
 // Authoritative "a bag changed this frame" subscription. `Bag::UpdateDelayed`
 // co-hooks the three (and only three) engine `BAG_UPDATE` fire sites and
 // coalesces them into a single per-frame signal — the same signal that backs
@@ -31,10 +33,6 @@ namespace Bag::UpdateDelayed {
 
 using Callback = void (*)();
 
-struct AutoSubscribe {
-    explicit AutoSubscribe(Callback cb);
-    Callback cb;
-    AutoSubscribe *next;
-};
+using AutoSubscribe = AutoList<struct AutoSubscribeTag, Callback>;
 
 } // namespace Bag::UpdateDelayed

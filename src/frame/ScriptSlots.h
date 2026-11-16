@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include "AutoList.h"
+
 #include "Game.h"
 #include "Offsets.h"
 
@@ -37,11 +39,7 @@ namespace Frame::ScriptSlots {
 using Visit = void (*)(const uint32_t *slot, void *ctx);
 using Enumerator = void (*)(const void *frame, Visit visit, void *ctx);
 
-struct AutoRegister {
-    explicit AutoRegister(Enumerator fn);
-    Enumerator fn;
-    AutoRegister *next;
-};
+using AutoRegister = AutoList<struct AutoRegisterTag, Enumerator>;
 
 void ForEach(void *frame, Visit visit, void *ctx);
 
