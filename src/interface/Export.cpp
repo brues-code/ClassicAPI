@@ -92,6 +92,7 @@
 #include "Common.h"
 #include "Game.h"
 #include "Offsets.h"
+#include "baselib/Ascii.h"
 #include "debug/Log.h"
 #include "storm/File.h"
 #include "storm/Memory.h"
@@ -120,19 +121,6 @@ using MpqEnumFiles_t = void(__fastcall *)(int archiveSelector, const char *pathP
 // is the only enumeration entry point — see its note for why a single
 // FUN_00401470 call can never see more than one secondary archive.
 
-// Case-insensitive ASCII equality.
-bool EqualsCI(const char *a, const char *b) {
-    for (;; ++a, ++b) {
-        char ca = *a, cb = *b;
-        if (ca >= 'A' && ca <= 'Z') ca = static_cast<char>(ca + ('a' - 'A'));
-        if (cb >= 'A' && cb <= 'Z') cb = static_cast<char>(cb + ('a' - 'A'));
-        if (ca != cb)
-            return false;
-        if (ca == '\0')
-            return true;
-    }
-}
-
 bool HasExtension(const char *name, const char *const *exts, int count) {
     const char *dot = nullptr;
     for (const char *p = name; *p; ++p) {
@@ -142,7 +130,7 @@ bool HasExtension(const char *name, const char *const *exts, int count) {
     if (dot == nullptr)
         return false;
     for (int i = 0; i < count; ++i) {
-        if (EqualsCI(dot + 1, exts[i]))
+        if (Ascii::EqualCI(dot + 1, exts[i]))
             return true;
     }
     return false;
@@ -258,7 +246,7 @@ bool LooksLikeDbcString(const uint8_t *s) {
         ++n;
     if (s + n >= limit || s[n] != '\0' || n < 4) // not terminated, or too short
         return false;
-    return EqualsCI(reinterpret_cast<const char *>(s + n - 4), ".dbc");
+    return Ascii::EqualCI(reinterpret_cast<const char *>(s + n - 4), ".dbc");
 }
 
 // Scan .text for the DBC path-getter pattern and add each referenced
@@ -352,19 +340,6 @@ int ExportTree(const char *pathPrefix, size_t stripLen, const char *const *exts,
 // ours). See Offsets.h `VAR_SOUND_ENTRIES_RECORDS` for why this source
 // exists at all and for the record layout.
 
-// Case-insensitive "does `s` start with `prefix`".
-bool StartsWithCI(const char *s, const char *prefix) {
-    for (;; ++s, ++prefix) {
-        if (*prefix == '\0')
-            return true;
-        char a = *s, b = *prefix;
-        if (a >= 'A' && a <= 'Z') a = static_cast<char>(a + ('a' - 'A'));
-        if (b >= 'A' && b <= 'Z') b = static_cast<char>(b + ('a' - 'A'));
-        if (a != b)
-            return false;
-    }
-}
-
 // True when `p` points into the loaded image's data — the record's
 // string columns are fixed up to real pointers at load, but a row may
 // leave a File slot null, and a table that never loaded leaves garbage.
@@ -415,7 +390,7 @@ void ScanSoundEntries(Collector &c, const char *prefix) {
                 else
                     path.push_back('\\');
 
-            if (StartsWithCI(path.c_str(), prefix))
+            if (Ascii::StartsWithCI(path.c_str(), prefix))
                 c.Add(path.c_str());
         }
     }

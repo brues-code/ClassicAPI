@@ -15,6 +15,7 @@
 
 #include "Common.h"
 #include "Offsets.h"
+#include "baselib/Ascii.h"
 
 #include <windows.h>
 
@@ -53,18 +54,6 @@ void __cdecl RegisterThenParse() {
 
 bool IsSpace(char c) { return c == ' ' || c == '\t'; }
 
-char Lower(char c) { return (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c; }
-
-// Stops at `a`'s terminator rather than reading `len` bytes unconditionally, so
-// a switch name at the very end of the command line cannot read past it.
-bool EqualsIgnoreCase(const char *a, const char *b, size_t len) {
-    for (size_t i = 0; i < len; ++i) {
-        if (a[i] == '\0' || Lower(a[i]) != Lower(b[i]))
-            return false;
-    }
-    return true;
-}
-
 size_t Length(const char *s) {
     size_t n = 0;
     while (s[n] != '\0')
@@ -94,7 +83,7 @@ const char *FindValue(const char *name) {
         // token there.
         if (p != cmdLine && !IsSpace(p[-1]) && p[-1] != '"')
             continue;
-        if (!EqualsIgnoreCase(p + 1, name, nameLen))
+        if (!Ascii::StartsWithCI(p + 1, name))
             continue;
 
         const char *after = p + 1 + nameLen;

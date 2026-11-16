@@ -13,6 +13,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "baselib/Ascii.h"
 
 #include <cstdint>
 
@@ -35,23 +36,11 @@ constexpr ListSlot kLists[] = {
     {"bidder", Offsets::VAR_AUCTION_BIDDER_ENTRIES, Offsets::VAR_AUCTION_BIDDER_COUNT},
 };
 
-bool EqualsIgnoreCase(const char *s, const char *literalLowercase) {
-    for (;; ++s, ++literalLowercase) {
-        const unsigned char a = static_cast<unsigned char>(*s);
-        const unsigned char b = static_cast<unsigned char>(*literalLowercase);
-        const unsigned char aLower = (a >= 'A' && a <= 'Z') ? a + 32 : a;
-        if (aLower != b)
-            return false;
-        if (b == 0)
-            return true;
-    }
-}
-
 const ListSlot *FindList(const char *type) {
     if (type == nullptr || *type == '\0')
         return nullptr;
     for (const auto &slot : kLists) {
-        if (EqualsIgnoreCase(type, slot.literalLowercase))
+        if (Ascii::EqualCI(type, slot.literalLowercase))
             return &slot;
     }
     return nullptr;

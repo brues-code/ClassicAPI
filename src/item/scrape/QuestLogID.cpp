@@ -13,30 +13,12 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "baselib/Ascii.h"
 #include "quest/Cache.h"
 
 #include <cstdint>
 
 namespace Item::QuestLogID {
-
-namespace {
-
-// Tiny case-insensitive comparison — we only ever match the two literal
-// strings the engine accepts ("reward" / "choice"), so a single-pass
-// tolower-as-we-go beats pulling in <cstring>/SStrCmpI for two callers.
-bool EqualsIgnoreCase(const char *s, const char *literalLowercase) {
-    for (;; ++s, ++literalLowercase) {
-        const unsigned char a = static_cast<unsigned char>(*s);
-        const unsigned char b = static_cast<unsigned char>(*literalLowercase);
-        const unsigned char aLower = (a >= 'A' && a <= 'Z') ? a + 32 : a;
-        if (aLower != b)
-            return false;
-        if (b == 0)
-            return true;
-    }
-}
-
-} // namespace
 
 // `GetQuestLogItemID(type, index)` — itemID companion to
 // `GetQuestLogItemLink`. Reads the same quest-cache record the engine
@@ -64,11 +46,11 @@ static int __fastcall Script_GetQuestLogItemID(void *L) {
         return 0;
 
     int byteOffset = 0;
-    if (EqualsIgnoreCase(type, "choice")) {
+    if (Ascii::EqualCI(type, "choice")) {
         if (index >= Quest::Cache::CHOICE_COUNT)
             return 0;
         byteOffset = Quest::Cache::OFF_CHOICE_ITEMS + index * 4;
-    } else if (EqualsIgnoreCase(type, "reward")) {
+    } else if (Ascii::EqualCI(type, "reward")) {
         if (index >= Quest::Cache::REWARD_COUNT)
             return 0;
         byteOffset = Quest::Cache::OFF_REWARD_ITEMS + index * 4;

@@ -45,6 +45,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "baselib/Ascii.h"
 #include "storm/File.h"
 #include "addons/Toc.h"
 #include "script/LoadFile.h"
@@ -75,22 +76,14 @@ LoadTocFilesFn g_orig = nullptr;
 // a handful of entries (one addon's SV files, briefly). Main-thread only.
 std::vector<std::string> g_pendingSuppress;
 
-using AddOns::Toc::EqCI;
-using AddOns::Toc::Lower;
-
-bool SamePathCI(const char *a, const char *b) {
-    for (; *a != '\0' && *b != '\0'; ++a, ++b)
-        if (Lower(*a) != Lower(*b)) return false;
-    return *a == *b;
-}
 
 // Extract "<Name>" from an addon base-TOC path `…\AddOns\<Name>\<Name>.toc`.
 // Returns false for anything else (FrameXML.toc, nested paths, …) so the
 // SavedVariables reorder only touches real addon loads.
 bool AddonNameFromToc(const char *path, char *out, size_t outSize) {
     const size_t len = std::strlen(path);
-    if (len < 4 || !(path[len - 4] == '.' && Lower(path[len - 3]) == 't' &&
-                     Lower(path[len - 2]) == 'o' && Lower(path[len - 1]) == 'c'))
+    if (len < 4 || !(path[len - 4] == '.' && Ascii::ToLower(path[len - 3]) == 't' &&
+                     Ascii::ToLower(path[len - 2]) == 'o' && Ascii::ToLower(path[len - 1]) == 'c'))
         return false;
     size_t lastSep = NPOS;
     for (size_t i = len; i-- > 0;)
@@ -104,7 +97,7 @@ bool AddonNameFromToc(const char *path, char *out, size_t outSize) {
     for (size_t i = prevSep; i-- > 0;)
         if (path[i] == '\\' || path[i] == '/') { gpSep = i; break; }
     if (gpSep == NPOS) return false;
-    if (prevSep - (gpSep + 1) != 6 || !EqCI(path + gpSep + 1, 6, "AddOns"))
+    if (prevSep - (gpSep + 1) != 6 || !Ascii::EqualCI(path + gpSep + 1, 6, "AddOns"))
         return false;
     const size_t nameLen = lastSep - (prevSep + 1);
     if (nameLen == 0 || nameLen + 1 > outSize) return false;
@@ -235,7 +228,7 @@ uint32_t __fastcall LoadTocFiles_h(char *tocPath, int *a2, int *a3) {
 // affected. Our own early load bypasses this through Original.
 bool SuppressReload(const char *path) {
     for (size_t i = 0; i < g_pendingSuppress.size(); ++i) {
-        if (SamePathCI(g_pendingSuppress[i].c_str(), path)) {
+        if (Ascii::EqualCI(g_pendingSuppress[i].c_str(), path)) {
             g_pendingSuppress.erase(g_pendingSuppress.begin() +
                                     static_cast<std::ptrdiff_t>(i));
             return true; // suppress — the addon's file-scope SV writes survive

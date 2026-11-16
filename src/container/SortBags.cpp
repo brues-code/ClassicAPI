@@ -60,6 +60,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "baselib/Ascii.h"
 #include "container/Bag.h"
 #include "cvar/Factory.h"
 #include "item/BagFamily.h"
@@ -213,10 +214,6 @@ struct Cell {
     int bag, slot;
 };
 
-char Lower(char c) {
-    return (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c;
-}
-
 // A missing name sorts after every present one. Substituting a
 // placeholder string instead (libbagsort uses "zzz") wedges the unnamed
 // item in among items actually named with those letters; this keeps it
@@ -230,7 +227,7 @@ int CompareNames(const char *a, const char *b) {
     if (b == nullptr)
         return -1;
     for (size_t i = 0;; ++i) {
-        const char ca = Lower(a[i]), cb = Lower(b[i]);
+        const char ca = Ascii::ToLower(a[i]), cb = Ascii::ToLower(b[i]);
         if (ca != cb)
             return ca < cb ? -1 : 1;
         if (ca == '\0')

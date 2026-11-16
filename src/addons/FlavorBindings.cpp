@@ -11,6 +11,7 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
+#include "baselib/Ascii.h"
 #include "storm/File.h"
 #include "addons/FlavorBindings.h"
 #include "addons/Toc.h"
@@ -25,8 +26,6 @@ namespace AddOns::FlavorBindings {
 
 namespace {
 
-using AddOns::Toc::EqCI;
-using AddOns::Toc::Lower;
 
 constexpr size_t NPOS = static_cast<size_t>(-1);
 
@@ -40,12 +39,12 @@ size_t AddonBindingsPrefix(const char *path) {
     const size_t flen = 12;
     if (len < flen + 1) return NPOS;
     for (size_t i = 0; i < flen; ++i)
-        if (Lower(path[len - flen + i]) != kFile[i]) return NPOS;
+        if (Ascii::ToLower(path[len - flen + i]) != kFile[i]) return NPOS;
     const size_t prefixLen = len - flen;
     if (path[prefixLen - 1] != '\\' && path[prefixLen - 1] != '/')
         return NPOS; // "Bindings.xml" must be a whole path segment
     for (size_t i = 0; i + 8 <= len; ++i)
-        if (EqCI(path + i, 8, "\\AddOns\\")) return prefixLen;
+        if (Ascii::EqualCI(path + i, 8, "\\AddOns\\")) return prefixLen;
     return NPOS;
 }
 

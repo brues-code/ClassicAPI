@@ -14,22 +14,11 @@
 #include "Factory.h"
 
 #include "Game.h"
+#include "baselib/Ascii.h"
 
 namespace CVar::Bool {
 
 namespace {
-
-// Case-insensitive "true" check for the string-form match. Bounded
-// 4-char comparison + null terminator.
-bool IsTrueString(const char *s) {
-    if (s == nullptr)
-        return false;
-    auto lc = [](char c) -> char {
-        return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + 32) : c;
-    };
-    return lc(s[0]) == 't' && lc(s[1]) == 'r' && lc(s[2]) == 'u' &&
-           lc(s[3]) == 'e' && s[4] == '\0';
-}
 
 // Coerces a cvar's string value to bool per modern semantics:
 //   - empty / nil  → false
@@ -40,7 +29,7 @@ bool IsTrueString(const char *s) {
 bool StringToBool(const char *s) {
     if (s == nullptr || s[0] == '\0')
         return false;
-    if (IsTrueString(s))
+    if (Ascii::EqualCI(s, "true"))
         return true;
     // Parse leading integer; non-zero means true. atoi-style.
     bool negative = false;

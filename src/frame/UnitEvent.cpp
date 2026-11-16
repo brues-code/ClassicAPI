@@ -72,6 +72,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "baselib/Ascii.h"
 #include "frame/RunnerHook.h"
 
 #include <cstdint>
@@ -84,11 +85,9 @@ namespace Frame::UnitEvent {
 
 namespace {
 
-
-bool EqualsIgnoreCase(const char *a, const char *b) {
-    if (a == nullptr || b == nullptr)
-        return false;
-    return Game::StrCmpI(a, b) == 0;
+// A null name never matches (the event-table walk can hand one over).
+bool NameIs(const char *a, const char *b) {
+    return a != nullptr && b != nullptr && Ascii::EqualCI(a, b);
 }
 
 // One filtered registration — the unit filter 5.4.8 keeps on the event's
@@ -129,7 +128,7 @@ const char *EventNameAt(const void *frame, uint32_t i) {
 // matches)? Walked from the end, as Frame::UnregisterEvent walks it.
 bool ListensTo(const void *frame, const char *eventName) {
     for (uint32_t i = EventCount(frame); i-- > 0;)
-        if (EqualsIgnoreCase(EventNameAt(frame, i), eventName))
+        if (NameIs(EventNameAt(frame, i), eventName))
             return true;
     return false;
 }
@@ -141,7 +140,7 @@ Filter *FindFilter(const void *frame, const char *eventName) {
     if (it == g_filters.end())
         return nullptr;
     for (Filter &f : it->second)
-        if (EqualsIgnoreCase(f.event.c_str(), eventName))
+        if (NameIs(f.event.c_str(), eventName))
             return &f;
     return nullptr;
 }
@@ -152,7 +151,7 @@ void EraseFilter(const void *frame, const char *eventName) {
         return;
     std::vector<Filter> &v = it->second;
     for (size_t i = 0; i < v.size(); ++i) {
-        if (EqualsIgnoreCase(v[i].event.c_str(), eventName)) {
+        if (NameIs(v[i].event.c_str(), eventName)) {
             v.erase(v.begin() + static_cast<ptrdiff_t>(i));
             break;
         }
@@ -263,7 +262,7 @@ const Filter *DispatchFilter(const std::vector<Filter> &filters, const char *eve
 bool MatchesUnit(const Filter &f, const char *arg1) {
     if (arg1 != nullptr)
         for (const std::string &u : f.units)
-            if (EqualsIgnoreCase(arg1, u.c_str()))
+            if (NameIs(arg1, u.c_str()))
                 return true;
     return false;
 }

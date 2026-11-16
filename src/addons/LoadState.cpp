@@ -25,6 +25,7 @@
 #include "Common.h"
 #include "Game.h"
 #include "Offsets.h"
+#include "baselib/Ascii.h"
 
 namespace AddOns::LoadState {
 
@@ -37,20 +38,6 @@ constexpr int kMaxName = 64;
 
 char g_stack[kMaxDepth][kMaxName];
 int g_depth = 0;
-
-bool EqualsIgnoreCase(const char *a, const char *b) {
-    for (; *a != '\0' && *b != '\0'; ++a, ++b) {
-        char ca = *a;
-        char cb = *b;
-        if (ca >= 'A' && ca <= 'Z')
-            ca = static_cast<char>(ca - 'A' + 'a');
-        if (cb >= 'A' && cb <= 'Z')
-            cb = static_cast<char>(cb - 'A' + 'a');
-        if (ca != cb)
-            return false;
-    }
-    return *a == *b;
-}
 
 using LoadOne_t = unsigned int(__fastcall *)(const char *name, char flag,
                                              void *progressCtx);
@@ -82,7 +69,7 @@ bool IsLoading(const char *name) {
         return false;
     const int depth = (g_depth < kMaxDepth) ? g_depth : kMaxDepth;
     for (int i = 0; i < depth; ++i)
-        if (EqualsIgnoreCase(g_stack[i], name))
+        if (Ascii::EqualCI(g_stack[i], name))
             return true;
     return false;
 }

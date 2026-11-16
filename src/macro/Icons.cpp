@@ -80,6 +80,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "baselib/Ascii.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -114,18 +115,6 @@ const char *Basename(const char *s) {
             bn = p + 1;
     }
     return bn;
-}
-
-// Case-insensitive prefix match. `prefix` must be uppercase ASCII.
-bool StartsWithCI(const char *s, const char *prefix) {
-    for (int i = 0; prefix[i] != '\0'; ++i) {
-        char c = s[i];
-        if (c >= 'a' && c <= 'z')
-            c = static_cast<char>(c - ('a' - 'A'));
-        if (c != prefix[i])
-            return false;
-    }
-    return true;
 }
 
 // Normalize an icon path for dedup: strip `Interface\Icons\` (or any
@@ -174,9 +163,9 @@ void Capture(const char *raw, Source src) {
     if (bn == nullptr || *bn == '\0')
         return;
     Category cat;
-    if (StartsWithCI(bn, "INV_"))
+    if (Ascii::StartsWithCI(bn, "INV_"))
         cat = CAT_ITEM;
-    else if (StartsWithCI(bn, "ABILITY_") || StartsWithCI(bn, "SPELL_"))
+    else if (Ascii::StartsWithCI(bn, "ABILITY_") || Ascii::StartsWithCI(bn, "SPELL_"))
         cat = CAT_SPELL;
     else
         return;

@@ -37,6 +37,7 @@
 // pixel coords render correctly.
 
 #include "RaidMarkers.h"
+#include "baselib/Ascii.h"
 
 #include <cstdio>
 #include <cstring>
@@ -64,21 +65,10 @@ constexpr Token kTokens[] = {
     {"rt8", 8}, {"skull", 8},
 };
 
-char LowerAscii(char c) { return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + 32) : c; }
-
-// Case-insensitive match of the n-char token body [s, s+n) against a lowercase
-// literal — true only when `lit` is exactly n chars long.
-bool EqCI(const char *s, size_t n, const char *lit) {
-    for (size_t i = 0; i < n; ++i)
-        if (lit[i] == '\0' || LowerAscii(s[i]) != lit[i])
-            return false;
-    return lit[n] == '\0';
-}
-
 // Raid-target index (1..8) for the token body [name, name+n), or 0 if unknown.
 int MatchMarker(const char *name, size_t n) {
     for (const Token &t : kTokens)
-        if (EqCI(name, n, t.name))
+        if (Ascii::EqualCI(name, n, t.name))
             return t.marker;
     return 0;
 }

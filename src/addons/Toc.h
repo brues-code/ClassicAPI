@@ -13,25 +13,12 @@
 
 #pragma once
 
+#include "baselib/Ascii.h"
+
 #include <cstddef>
 #include <cstring>
 
 namespace AddOns::Toc {
-
-// Fold an ASCII letter to lower case (leaves every other byte unchanged).
-inline char Lower(char c) {
-    return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + 32) : c;
-}
-
-// Case-insensitive equality of the `n` bytes at `s` against the NUL-terminated
-// `lit` (ASCII). True only when the lengths match too. Shared by the addon
-// modules that scan `…\AddOns\<Name>\…` paths and TOC directive lines.
-inline bool EqCI(const char *s, size_t n, const char *lit) {
-    for (size_t i = 0; i < n; ++i)
-        if (lit[i] == '\0' || Lower(s[i]) != Lower(lit[i]))
-            return false;
-    return lit[n] == '\0';
-}
 
 // Scans an in-memory TOC buffer for the `## <key>:` directive and returns the
 // first one's value via out-params: [*valStart, *valStart + *valLen), trimmed
@@ -70,7 +57,7 @@ inline bool FindValue(const char *buf, size_t size, const char *key,
             p += 2;
             while (p < eol && *p == ' ')
                 ++p;
-            if (static_cast<size_t>(eol - p) > klen && EqCI(p, klen, key) &&
+            if (static_cast<size_t>(eol - p) > klen && Ascii::EqualCI(p, klen, key) &&
                 p[klen] == ':') {
                 p += klen + 1;
                 while (p < eol && (*p == ' ' || *p == '\t'))

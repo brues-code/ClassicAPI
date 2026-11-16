@@ -11,6 +11,7 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
+#include "baselib/Ascii.h"
 #include "storm/File.h"
 #include "addons/TocRewrite.h"
 #include "addons/Toc.h"
@@ -29,8 +30,6 @@ namespace AddOns::TocRewrite {
 
 namespace {
 
-using AddOns::Toc::EqCI;
-using AddOns::Toc::Lower;
 
 bool IsSpace(char c) { return c == ' ' || c == '\t'; }
 
@@ -45,7 +44,7 @@ bool ListContains(const char *list, size_t listLen, const char *token) {
         while (i < listLen && list[i] != ',') ++i;
         size_t end = i; // [start, end) is one item, maybe with trailing space
         while (end > start && IsSpace(list[end - 1])) --end;
-        if (end > start && EqCI(list + start, end - start, token)) return true;
+        if (end > start && Ascii::EqualCI(list + start, end - start, token)) return true;
     }
     return false;
 }
@@ -54,9 +53,9 @@ bool ListContains(const char *list, size_t listLen, const char *token) {
 // a known variable. This 1.12 + ClassicAPI client is the Classic family,
 // the Vanilla game type, and whatever the client text locale is.
 const char *VariableValue(const char *head, size_t headLen) {
-    if (EqCI(head, headLen, "Family")) return "Classic";
-    if (EqCI(head, headLen, "Game")) return "Vanilla";
-    if (EqCI(head, headLen, "TextLocale")) return Client();
+    if (Ascii::EqualCI(head, headLen, "Family")) return "Classic";
+    if (Ascii::EqualCI(head, headLen, "Game")) return "Vanilla";
+    if (Ascii::EqualCI(head, headLen, "TextLocale")) return Client();
     return nullptr;
 }
 
@@ -91,7 +90,7 @@ bool TryRewriteInterfaceLine(const char *line, size_t len, std::string &out) {
     const size_t klen = 9;
     if (p + klen > len) return false;
     for (size_t i = 0; i < klen; ++i)
-        if (Lower(line[p + i]) != kKey[i]) return false;
+        if (Ascii::ToLower(line[p + i]) != kKey[i]) return false;
     p += klen;
     while (p < len && IsSpace(line[p])) ++p;
     if (p >= len || line[p] != ':') return false;
@@ -143,13 +142,13 @@ bool ListContainsGameType(const char *list, size_t listLen) {
 // condition we cannot confirm must not load — fail safe).
 bool EvalCondition(const char *head, size_t headLen, const char *args,
                    size_t argsLen) {
-    if (EqCI(head, headLen, "AllowLoadGameType"))
+    if (Ascii::EqualCI(head, headLen, "AllowLoadGameType"))
         return ListContainsGameType(args, argsLen);
-    if (EqCI(head, headLen, "ExcludeLoadGameType"))
+    if (Ascii::EqualCI(head, headLen, "ExcludeLoadGameType"))
         return !ListContainsGameType(args, argsLen);
-    if (EqCI(head, headLen, "AllowLoadTextLocale"))
+    if (Ascii::EqualCI(head, headLen, "AllowLoadTextLocale"))
         return ListContains(args, argsLen, Client());
-    if (EqCI(head, headLen, "AllowLoad"))
+    if (Ascii::EqualCI(head, headLen, "AllowLoad"))
         return ListContains(args, argsLen, "game"); // addon files: in-game only
     return false;
 }
@@ -255,11 +254,11 @@ void RebuildToc(const char *src, size_t srcLen, std::string &out) {
 bool IsAddonToc(const char *path) {
     const size_t len = std::strlen(path);
     if (len < 4) return false;
-    if (!(path[len - 4] == '.' && Lower(path[len - 3]) == 't' &&
-          Lower(path[len - 2]) == 'o' && Lower(path[len - 1]) == 'c'))
+    if (!(path[len - 4] == '.' && Ascii::ToLower(path[len - 3]) == 't' &&
+          Ascii::ToLower(path[len - 2]) == 'o' && Ascii::ToLower(path[len - 1]) == 'c'))
         return false;
     for (size_t i = 0; i + 8 <= len; ++i)
-        if (EqCI(path + i, 8, "\\addons\\")) return true;
+        if (Ascii::EqualCI(path + i, 8, "\\addons\\")) return true;
     return false;
 }
 

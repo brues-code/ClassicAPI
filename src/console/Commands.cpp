@@ -44,6 +44,7 @@
 // so it needs no translation.
 
 #include "Game.h"
+#include "baselib/Ascii.h"
 #include "console/Registry.h"
 
 namespace Console::Commands {
@@ -54,16 +55,6 @@ namespace {
 // cannot occur here.
 constexpr int kCommandTypeCvar = 0;
 constexpr int kCommandTypeCommand = 1;
-
-char Lower(char c) { return (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c; }
-
-bool StartsWithIgnoreCase(const char *name, const char *prefix) {
-    for (size_t i = 0; prefix[i] != '\0'; ++i) {
-        if (name[i] == '\0' || Lower(name[i]) != Lower(prefix[i]))
-            return false;
-    }
-    return true;
-}
 
 // `ConsoleGetAllCommands() -> ConsoleCommandInfo[]`
 int __fastcall Script_GetAllCommands(void *L) {
@@ -125,7 +116,7 @@ int __fastcall Script_ConsolePrintAllMatchingCommands(void *L) {
         return 0;
 
     Console::Registry::ForEach([&](const Console::Registry::Command &command) {
-        if (StartsWithIgnoreCase(command.name, prefix))
+        if (Ascii::StartsWithCI(command.name, prefix))
             Game::Console::Write(command.name);
     });
     return 0;
