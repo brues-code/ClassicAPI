@@ -66,6 +66,7 @@
 //     moused over — for the cast and for this icon alike — and a lone
 //     `[@mouseover] Spell` shows `?` instead of a spell the click cannot cast.
 
+#include "baselib/Ascii.h"
 #include "macro/ShowTooltip.h"
 
 #include "Game.h"
@@ -220,10 +221,8 @@ void NextLine(const char **cursor, char *out, unsigned outSize) {
         reinterpret_cast<const char *>(Offsets::VAR_MACRO_LINE_DELIMS), nullptr);
 }
 
-bool IsBlank(char c) { return c == ' ' || c == '\t'; }
-
 const char *SkipBlanks(const char *p) {
-    while (IsBlank(*p))
+    while (Ascii::IsBlank(*p))
         ++p;
     return p;
 }
@@ -231,7 +230,7 @@ const char *SkipBlanks(const char *p) {
 void CopyTrimmed(const char *src, char *dst, size_t dstSize) {
     src = SkipBlanks(src);
     size_t len = std::strlen(src);
-    while (len > 0 && IsBlank(src[len - 1]))
+    while (len > 0 && Ascii::IsBlank(src[len - 1]))
         --len;
     if (len >= dstSize)
         len = dstSize - 1;
@@ -261,7 +260,7 @@ Kind ParseDirective(const char *line, const char **args) {
         if (_strnicmp(line, w.text, w.len) != 0)
             continue;
         const char after = line[w.len];
-        if (after != '\0' && !IsBlank(after))
+        if (after != '\0' && !Ascii::IsBlank(after))
             continue;
         *args = SkipBlanks(line + w.len);
         return w.kind;
@@ -563,7 +562,7 @@ bool ParseUInt(const char *s, const char **end, int *out) {
 // `^(%d+)%s+(%d+)$`
 bool ParseBagSlot(const char *s, int *bag, int *slot) {
     const char *p = nullptr;
-    if (!ParseUInt(s, &p, bag) || !IsBlank(*p))
+    if (!ParseUInt(s, &p, bag) || !Ascii::IsBlank(*p))
         return false;
     p = SkipBlanks(p);
     return ParseUInt(p, &p, slot) && *p == '\0';

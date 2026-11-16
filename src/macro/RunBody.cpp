@@ -45,6 +45,7 @@
 // action-bar macro) runs with none, as each run sets its own and restores the
 // outer one when it ends.
 
+#include "baselib/Ascii.h"
 #include "macro/RunBody.h"
 
 #include "action/Slot.h"
@@ -60,8 +61,6 @@ namespace {
 
 
 constexpr unsigned kLineBufferSize = Offsets::MACRO_LINE_BUFFER_SIZE;
-
-bool IsBlank(char c) { return c == ' ' || c == '\t'; }
 
 // Set by `StopMacro()`, read after each dispatched line. Scoped to the macro
 // currently running: a line that runs ANOTHER macro (a `/click` on a button
@@ -101,7 +100,7 @@ void __fastcall RunBody_h(int macroEntry) {
         // before deciding the line is a comment — otherwise ` #showtooltip`
         // goes to chat as a /say.
         const char *text = line;
-        while (IsBlank(*text))
+        while (Ascii::IsBlank(*text))
             ++text;
         if (*text == '\0' || *text == '#')
             continue;

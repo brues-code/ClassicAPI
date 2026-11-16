@@ -21,6 +21,9 @@
 
 namespace Ascii {
 
+// A space or a tab: the blank the engine's macro and TOC parsers skip.
+inline bool IsBlank(char c) { return c == ' ' || c == '\t'; }
+
 // Fold a single ASCII char to lower case (non-letters unchanged).
 inline char ToLower(char c) {
     return (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c;

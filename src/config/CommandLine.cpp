@@ -52,8 +52,6 @@ void __cdecl RegisterThenParse() {
     reinterpret_cast<void(__cdecl *)()>(Offsets::FUN_REGISTER_CLIENT_SWITCHES)();
 }
 
-bool IsSpace(char c) { return c == ' ' || c == '\t'; }
-
 size_t Length(const char *s) {
     size_t n = 0;
     while (s[n] != '\0')
@@ -81,7 +79,7 @@ const char *FindValue(const char *name) {
         // Only at a token boundary, so a path containing the name cannot match.
         // A closing quote is a boundary too: the engine's tokenizer ends a
         // token there.
-        if (p != cmdLine && !IsSpace(p[-1]) && p[-1] != '"')
+        if (p != cmdLine && !Ascii::IsBlank(p[-1]) && p[-1] != '"')
             continue;
         if (!Ascii::StartsWithCI(p + 1, name))
             continue;
@@ -89,8 +87,8 @@ const char *FindValue(const char *name) {
         const char *after = p + 1 + nameLen;
         if (*after == '=' || *after == ':') {
             ++after;
-        } else if (IsSpace(*after)) {
-            while (IsSpace(*after))
+        } else if (Ascii::IsBlank(*after)) {
+            while (Ascii::IsBlank(*after))
                 ++after;
         } else {
             continue; // a longer switch that merely starts with `name`
@@ -125,7 +123,7 @@ bool RawValue(const char *name, std::string &out) {
     const bool quoted = (*p == '"');
     if (quoted)
         ++p;
-    while (*p != '\0' && (quoted ? (*p != '"') : !IsSpace(*p)))
+    while (*p != '\0' && (quoted ? (*p != '"') : !Ascii::IsBlank(*p)))
         out.push_back(*p++);
     return !out.empty();
 }

@@ -31,19 +31,17 @@ namespace AddOns::TocRewrite {
 namespace {
 
 
-bool IsSpace(char c) { return c == ' ' || c == '\t'; }
-
 using Localization::Locale::Client;
 
 // True iff the comma-separated `list` (spaces allowed) contains `token` (CI).
 bool ListContains(const char *list, size_t listLen, const char *token) {
     size_t i = 0;
     while (i < listLen) {
-        while (i < listLen && (IsSpace(list[i]) || list[i] == ',')) ++i;
+        while (i < listLen && (Ascii::IsBlank(list[i]) || list[i] == ',')) ++i;
         const size_t start = i;
         while (i < listLen && list[i] != ',') ++i;
         size_t end = i; // [start, end) is one item, maybe with trailing space
-        while (end > start && IsSpace(list[end - 1])) --end;
+        while (end > start && Ascii::IsBlank(list[end - 1])) --end;
         if (end > start && Ascii::EqualCI(list + start, end - start, token)) return true;
     }
     return false;
@@ -82,17 +80,17 @@ uint32_t ClientInterfaceVersion() {
 // verbatim.
 bool TryRewriteInterfaceLine(const char *line, size_t len, std::string &out) {
     size_t s = 0;
-    while (s < len && IsSpace(line[s])) ++s;
+    while (s < len && Ascii::IsBlank(line[s])) ++s;
     if (s + 1 >= len || line[s] != '#' || line[s + 1] != '#') return false;
     size_t p = s + 2;
-    while (p < len && IsSpace(line[p])) ++p;
+    while (p < len && Ascii::IsBlank(line[p])) ++p;
     static const char kKey[] = "interface"; // matched case-insensitively
     const size_t klen = 9;
     if (p + klen > len) return false;
     for (size_t i = 0; i < klen; ++i)
         if (Ascii::ToLower(line[p + i]) != kKey[i]) return false;
     p += klen;
-    while (p < len && IsSpace(line[p])) ++p;
+    while (p < len && Ascii::IsBlank(line[p])) ++p;
     if (p >= len || line[p] != ':') return false;
     ++p;                       // past ':'
     const size_t prefixEnd = p; // "## Interface:" (author spacing preserved)
@@ -102,7 +100,7 @@ bool TryRewriteInterfaceLine(const char *line, size_t len, std::string &out) {
     bool hasComma = false;
     size_t q = p;
     while (q < len) {
-        while (q < len && (IsSpace(line[q]) || line[q] == ',')) {
+        while (q < len && (Ascii::IsBlank(line[q]) || line[q] == ',')) {
             if (line[q] == ',') hasComma = true;
             ++q;
         }
@@ -177,9 +175,9 @@ bool ProcessFileLine(const char *line, size_t len, std::string &out) {
         const char *inner = line + i + 1;
         const size_t innerLen = close - (i + 1);
         size_t h = 0;
-        while (h < innerLen && !IsSpace(inner[h])) ++h; // [0,h) = head word
+        while (h < innerLen && !Ascii::IsBlank(inner[h])) ++h; // [0,h) = head word
         size_t a = h;
-        while (a < innerLen && IsSpace(inner[a])) ++a;  // skip separating ws
+        while (a < innerLen && Ascii::IsBlank(inner[a])) ++a;  // skip separating ws
         const char *head = inner;
         const size_t headLen = h;
         const char *args = inner + a;
@@ -200,7 +198,7 @@ bool ProcessFileLine(const char *line, size_t len, std::string &out) {
         }
         i = close + 1;
     }
-    while (!out.empty() && IsSpace(out.back())) out.pop_back();
+    while (!out.empty() && Ascii::IsBlank(out.back())) out.pop_back();
     return keep;
 }
 
@@ -230,7 +228,7 @@ void RebuildToc(const char *src, size_t srcLen, std::string &out) {
         if (i < srcLen && src[i] == '\n') ++i;
 
         size_t s = 0;
-        while (s < len && IsSpace(line[s])) ++s;
+        while (s < len && Ascii::IsBlank(line[s])) ++s;
         if (s >= len) {
             out.append(line, len); // blank
         } else if (line[s] == '#') {
