@@ -39,6 +39,26 @@ void *CreateDisplayModel(void *scene, uint32_t displayID, const char **path = nu
 // releases it (null is a no-op). `force` loads every texture at once,
 // ignoring the engine's per-frame load budget.
 void *CreateDresser(void *instance, const uint8_t *extraRec);
+
+// A player's own look, as CGUnit_C::BuildCharacterComponent's player branch
+// reads it: race and sex from UNIT_FIELD_BYTES_0, the rest from PLAYER_BYTES
+// and PLAYER_BYTES_2.
+struct Body {
+    uint32_t race = 0;
+    uint32_t sex = 0; // 0 male, 1 female
+    uint32_t skin = 0;
+    uint32_t face = 0;
+    uint32_t hairStyle = 0;
+    uint32_t hairColor = 0;
+    uint32_t facialHair = 0;
+};
+
+// The display a player of `body`'s race and sex is shown in (ChrRaces), or 0.
+uint32_t BodyDisplay(const Body &body);
+
+// CreateDresser for a player body: composited from its look, no bake and no
+// equipment.
+void *CreateDresser(void *instance, const Body &body);
 bool PumpDresser(void *dresser, bool force = false);
 void DestroyDresser(void *dresser);
 

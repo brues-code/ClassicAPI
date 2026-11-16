@@ -26,6 +26,8 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "event/Custom.h"
+#include "model/Outfit.h"
+#include "model/TryOn.h"
 #include "replay/Catalog.h"
 #include "replay/Recording.h"
 #include "tick/WorldTick.h"
@@ -135,9 +137,10 @@ double Seconds(int64_t ms) { return static_cast<double>(ms) / 1000.0; }
 
 int64_t Milliseconds(double seconds) { return static_cast<int64_t>(std::llround(seconds * 1000.0)); }
 
-// The loaded replay's unit at argument 1 (1-based), or null.
-const Unit *UnitArg(void *L, const char *usage) {
-    if (!Lua::IsNumber(L, 1) || !Lua::IsNumber(L, 2)) {
+// The loaded replay's unit at argument 1 (1-based), or null. A `timed`
+// function takes the time as argument 2.
+const Unit *UnitArg(void *L, const char *usage, bool timed = true) {
+    if (!Lua::IsNumber(L, 1) || (timed && !Lua::IsNumber(L, 2))) {
         Lua::Error(L, "%s", usage);
         return nullptr;
     }
@@ -302,6 +305,42 @@ int __fastcall Script_GetUnitLook(void *L) {
     return 8;
 }
 
+// Each body the player had, from the time it took it: a list the viewer
+// reads once, not a lookup per frame. The items are what its model shows,
+// as CGPlayer_C::ApplyEquipmentDisplay (0x005ED700) leaves a hidden helm or
+// cloak off.
+int __fastcall Script_GetUnitAppearances(void *L) {
+    const Unit *unit = UnitArg(L, "Usage: C_CombatLogReplay.GetUnitAppearances(unitIndex)", false);
+    Lua::NewTable(L);
+    if (unit == nullptr)
+        return 1;
+    int i = 0;
+    for (const auto &[t, a] : unit->appearances) {
+        Lua::NewTable(L);
+        Lua::SetFieldNumber(L, "time", Seconds(t));
+        Lua::SetFieldNumber(L, "raceID", a.race);
+        Lua::SetFieldNumber(L, "classID", a.classId);
+        Lua::SetFieldNumber(L, "sex", a.sex);
+        Lua::SetFieldNumber(L, "skin", a.skin);
+        Lua::SetFieldNumber(L, "face", a.face);
+        Lua::SetFieldNumber(L, "hairStyle", a.hairStyle);
+        Lua::SetFieldNumber(L, "hairColor", a.hairColor);
+        Lua::SetFieldNumber(L, "facialHair", a.facialHair);
+        Model::Outfit::Worn worn;
+        for (int slot = 0; slot < Model::Outfit::kInventorySlots; ++slot)
+            worn[slot] = {a.items[slot], a.enchants[slot]};
+        if (a.hideHelm)
+            worn[Offsets::INVSLOT_HEAD - 1] = {};
+        if (a.hideCloak)
+            worn[Offsets::INVSLOT_BACK - 1] = {};
+        Lua::PushString(L, "items");
+        Model::TryOn::PushTransmogInfoList(L, worn);
+        Lua::SetTable(L, -3);
+        Lua::RawSetI(L, -2, ++i);
+    }
+    return 1;
+}
+
 // --- Documentation ----------------------------------------------------------
 
 const Game::Doc::Field kLogInfoFields[] = {
@@ -410,6 +449,33 @@ const Game::Doc::Field kGetUnitLookRets[] = {
     Opt("stealthed", "bool"),
     Opt("sheathState", "number"),
 };
+const Game::Doc::Field kAppearanceFields[] = {
+    Req("time", "number", "Seconds from the replay's start; negative when it began before it."),
+    Req("raceID", "number"),
+    Req("classID", "number"),
+    Req("sex", "number", "0 male, 1 female."),
+    Req("skin", "number"),
+    Req("face", "number"),
+    Req("hairStyle", "number"),
+    Req("hairColor", "number"),
+    Req("facialHair", "number"),
+    Req("items", "table",
+        "ItemTransmogInfo for inventory slots 1 to 19, what the model shows: a hidden helm or "
+        "cloak has none."),
+};
+const Game::Doc::Structure kAppearance{
+    "CombatLogReplayAppearance", "CombatLogReplay", kAppearanceFields,
+    "A player's body and what it wears. It fits ModelSceneActor:SetModelByCharacterAppearance."};
+const Game::Doc::Field kUnitIndexArg[] = {Req("unitIndex", "number")};
+const Game::Doc::Field kGetUnitAppearancesRets[] = {
+    Req("appearances", "table",
+        "An array of CombatLogReplayAppearance in time order, each until the next; empty for a "
+        "creature."),
+};
+const Game::Doc::Function kGetUnitAppearances{
+    "Returns each body a replay player had and what it wore.", kUnitIndexArg,
+    kGetUnitAppearancesRets, nullptr, true};
+
 const Game::Doc::Function kGetUnitLook{"Returns what a replay unit looks like at a time.",
                                        kUnitTimeArgs, kGetUnitLookRets, nullptr, true};
 
@@ -423,6 +489,8 @@ void RegisterLuaFunctions() {
     Lua::RegisterTableFunction(kTable, "GetUnitPosition", &Script_GetUnitPosition,
                                &kGetUnitPosition);
     Lua::RegisterTableFunction(kTable, "GetUnitLook", &Script_GetUnitLook, &kGetUnitLook);
+    Lua::RegisterTableFunction(kTable, "GetUnitAppearances", &Script_GetUnitAppearances,
+                               &kGetUnitAppearances);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

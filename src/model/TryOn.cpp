@@ -130,10 +130,7 @@ namespace {
 
 // A number field of the table at `index`, or 0.
 uint32_t FieldNumber(void *L, int index, const char *key) {
-    Game::Lua::PushString(L, key);
-    Game::Lua::GetTable(L, index);
-    const double value = Game::Lua::IsNumber(L, -1) ? Game::Lua::ToNumber(L, -1) : 0.0;
-    Game::Lua::SetTop(L, -2);
+    const double value = Game::Lua::GetFieldNumber(L, index, key);
     return value > 0.0 ? static_cast<uint32_t>(value) : 0;
 }
 

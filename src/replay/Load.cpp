@@ -29,6 +29,7 @@
 #include <algorithm>
 #include <charconv>
 #include <cmath>
+#include <cstring>
 #include <unordered_map>
 
 namespace Replay {
@@ -53,10 +54,12 @@ private:
     Unit &Get(std::string_view guid) { return r_.units[IndexOf(guid)]; }
     void AddKey(Unit &unit, Key key, Spline *spline = nullptr);
     void AddLook(Unit &unit, int32_t t, const Look &look);
+    void AddAppearance(Unit &unit, int32_t t, const Appearance &appearance);
     void AddSpeeds(Unit &unit, int32_t t, const Speeds &speeds);
     void Close(Unit &unit, int32_t t);
     void Header(const Line::Fields &f, int32_t t);
     void UnitInfo(const Line::Fields &f, int32_t t);
+    void PlayerInfo(const Line::Fields &f, int32_t t);
     void UnitMove(const Line::Fields &f, int32_t t);
     void MonsterMove(const Line::Fields &f, int32_t t);
     void MonsterStop(const Line::Fields &f, int32_t t);
@@ -124,6 +127,18 @@ void Loader::AddLook(Unit &unit, int32_t t, const Look &look) {
         unit.looks.emplace_back(t, look);
 }
 
+// The same appearance again is no change: the file writes every unit again
+// after a header, and again for a flag the model does not read (AFK, PvP).
+void Loader::AddAppearance(Unit &unit, int32_t t, const Appearance &appearance) {
+    if (!unit.appearances.empty() &&
+        std::memcmp(&unit.appearances.back().second, &appearance, sizeof appearance) == 0)
+        return;
+    if (t < 0 && !unit.appearances.empty() && unit.appearances.back().first < 0)
+        unit.appearances.back() = {t, appearance};
+    else
+        unit.appearances.emplace_back(t, appearance);
+}
+
 void Loader::AddSpeeds(Unit &unit, int32_t t, const Speeds &speeds) {
     if (t < 0 && !unit.speeds.empty() && unit.speeds.back().first < 0)
         unit.speeds.back() = {t, speeds};
@@ -177,6 +192,26 @@ void Loader::UnitInfo(const Line::Fields &f, int32_t t) {
     look.bytes1 = f.Hex(15);
     look.bytes2 = f.Hex(16);
     AddLook(unit, t, look);
+}
+
+void Loader::PlayerInfo(const Line::Fields &f, int32_t t) {
+    Appearance a;
+    a.race = static_cast<uint32_t>(f.Int(2));
+    a.classId = static_cast<uint32_t>(f.Int(3));
+    a.sex = static_cast<uint32_t>(f.Int(4));
+    a.skin = static_cast<uint32_t>(f.Int(5));
+    a.face = static_cast<uint32_t>(f.Int(6));
+    a.hairStyle = static_cast<uint32_t>(f.Int(7));
+    a.hairColor = static_cast<uint32_t>(f.Int(8));
+    a.facialHair = static_cast<uint32_t>(f.Int(9));
+    const uint32_t flags = f.Hex(10);
+    a.hideHelm = (flags & Offsets::PLAYER_FLAG_HIDE_HELM) != 0;
+    a.hideCloak = (flags & Offsets::PLAYER_FLAG_HIDE_CLOAK) != 0;
+    for (int i = 0; i < Appearance::kSlots; ++i) {
+        a.items[i] = static_cast<uint32_t>(f.Int(11 + i * 2));
+        a.enchants[i] = static_cast<uint32_t>(f.Int(12 + i * 2));
+    }
+    AddAppearance(Get(f[1]), t, a);
 }
 
 void Loader::UnitSpeed(const Line::Fields &f, int32_t t) {
@@ -286,6 +321,8 @@ void Loader::Movement(std::string_view body, int32_t t) {
         MonsterMove(f, t);
     else if (f[0] == "UNIT_INFO")
         UnitInfo(f, t);
+    else if (f[0] == "PLAYER_INFO")
+        PlayerInfo(f, t);
     else if (f[0] == "UNIT_GONE")
         Close(Get(f[1]), t);
     else if (f[0] == "MONSTER_STOP")

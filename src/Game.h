@@ -646,6 +646,9 @@ void SetFieldBool(void *L, const char *key, bool value);
 // hold from an earlier fill. Not for fresh tables: Lua 5.0 inserts a node for
 // a missing key even when the value is nil.
 void SetFieldNil(void *L, const char *key);
+// `t[key]` of the table at the absolute (positive) stack `index`, when it is
+// a number, else `fallback`. Leaves the stack as it was.
+double GetFieldNumber(void *L, int index, const char *key, double fallback = 0.0);
 
 // Sets `_G[name] = value` via `lua_rawset` on the globals
 // pseudo-index. `RawSet` over `SetTable` because the globals table has

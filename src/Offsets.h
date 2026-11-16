@@ -5623,6 +5623,13 @@ enum Offsets {
     // engine's ghost test `test byte [eax+8],0x10`, OnPlayerFlagsChanged
     // 0x005EEAB4).
     PLAYER_FLAG_GHOST = 0x10,
+    // PLAYER_FLAGS bits 10 and 11 — the player hides its helm / cloak.
+    // CGPlayer_C::ApplyEquipmentDisplay (0x005ED700) leaves equipment slot 0
+    // (head) off the character component when `flags >> 10 & 1` is set
+    // (0x005ED7F9..0x005ED807) and slot 14 (back) when `flags >> 11 & 1`
+    // is (0x005ED811..0x005ED81F).
+    PLAYER_FLAG_HIDE_HELM = 0x400,
+    PLAYER_FLAG_HIDE_CLOAK = 0x800,
     // PLAYER_FLAGS bit 9 — the player asked to stay PvP flagged (TogglePVP /
     // SetPVP). CGPlayer_C::OnPlayerFlagsChanged (0x005EE990) tests it at
     // 0x005EEB0D; tortoise-wow and vmangos PLAYER_FLAGS_PVP_DESIRED = 0x200.
@@ -7087,6 +7094,12 @@ enum Offsets {
     // builder (0x004799A0) reads it at 0x00479A21 for
     // `Item\ObjectComponents\Head\<name>_<prefix><sex letter>.mdx`.
     OFF_CHRRACES_CLIENT_PREFIX = 0x18,
+    // The display a player of the race is shown in, male and female
+    // (columns 4 and 5; ChrRaces.dbc parsed: Human 49 / 50, Orc 51 / 52,
+    // Gnome 1563 / 1564). The server gives a new player these as its
+    // DISPLAYID and NATIVEDISPLAYID.
+    OFF_CHRRACES_MALE_DISPLAY = 0x10,
+    OFF_CHRRACES_FEMALE_DISPLAY = 0x14,
     // The race's splash (SoundEntries id): PostInit (0x005FB880) stores it
     // for the unit's race byte (UNIT_FIELD_BYTES_0) at +0xB18, and the swim
     // decision plays it (CGUnit_C::PlaySplash 0x006237C0).
@@ -11968,6 +11981,8 @@ enum Offsets {
     INVSLOT_MAINHAND = 16,
     INVSLOT_BODY = 4,    // the shirt
     INVSLOT_TABARD = 19,
+    INVSLOT_HEAD = 1,
+    INVSLOT_BACK = 15,
 
     // Character-pane equipment slot range: 1..19 (head=1, neck=2, …,
     // tabard=19). Used by `C_Item.IsEquippedItem` to walk every slot

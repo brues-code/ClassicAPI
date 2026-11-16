@@ -466,6 +466,14 @@ void RegisterConstants(const char *sub, ArrayRef<EnumIntegerEntry> entries,
         Api::Documentation::RecordConstants(sub, entries, docSystem);
 }
 
+double GetFieldNumber(void *L, int index, const char *key, double fallback) {
+    PushString(L, key);
+    GetTable(L, index);
+    const double value = IsNumber(L, -1) ? ToNumber(L, -1) : fallback;
+    SetTop(L, -2);
+    return value;
+}
+
 void SetFieldNumber(void *L, const char *key, double value) {
     PushString(L, key);
     PushNumber(L, value);

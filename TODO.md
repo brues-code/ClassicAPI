@@ -4297,8 +4297,17 @@ embedded load-on-demand addon. Layers:
   state's animation), play/pause/speed/timeline, click a unit to follow
   it. Checked in game on a Stormwind log: players show as white bare
   race models (L3) and stand on the missing city WMO (L5).
-- L3 player models built from PLAYER_INFO (needs a DLL extension: build a
-  character from data, on the character component / `model/Outfit`).
+- L3 player models. DONE (2026-11-16): `C_CombatLogReplay.GetUnitAppearances`
+  (each body a player had, items as ItemTransmogInfo, hidden helm/cloak
+  left off as ApplyEquipmentDisplay 0x005ED700 does) and the actor
+  extension `SetModelByCharacterAppearance` (the race/sex display from
+  ChrRaces, dressed by a component built as BuildCharacterComponent's
+  player branch 0x005FB200 builds one). The viewer dresses a player in its
+  own display once per appearance and sheathes by its sheath state.
+  Checked in game on a Stormwind log. Not yet: tabard emblems (no guild
+  ID logged), creature held weapons, the ranged sheath state, jump arcs
+  (a jump is drawn as straight lines to its mid-air sample; the log has
+  the jump's speeds and fall time for the client's arc).
 - L4 combat: cast visuals and missiles, auras, swings, deaths, health bars,
   an event feed.
 - L5 follow camera, unit list, raids built on terrain.

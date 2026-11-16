@@ -36,6 +36,17 @@ struct Look {
     uint32_t bytes2 = 0; // UNIT_FIELD_BYTES_2: sheath state
 };
 
+// PLAYER_INFO: a player's own body and what it wears, as the movement file
+// writes them. Of its PLAYER_FLAGS only the two its model reads.
+struct Appearance {
+    uint32_t race = 0, classId = 0, sex = 0;
+    uint32_t skin = 0, face = 0, hairStyle = 0, hairColor = 0, facialHair = 0;
+    uint32_t hideHelm = 0, hideCloak = 0;
+    static constexpr int kSlots = 19;
+    uint32_t items[kSlots] = {}; // inventory slot n at [n - 1]
+    uint32_t enchants[kSlots] = {};
+};
+
 // The speeds the client moves a unit at (UNIT_INFO, then UNIT_SPEED).
 struct Speeds {
     float walk = 0, run = 0, runBack = 0, swim = 0, swimBack = 0;
@@ -87,6 +98,7 @@ struct Unit {
     std::vector<Spline> splines;
     std::vector<Span> spans; // empty when the movement file has no UNIT_INFO for it
     std::vector<std::pair<int32_t, Look>> looks;
+    std::vector<std::pair<int32_t, Appearance>> appearances; // a player's
     std::vector<std::pair<int32_t, Speeds>> speeds;
 };
 

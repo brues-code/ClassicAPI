@@ -15,12 +15,14 @@
 
 #include "Offsets.h"
 #include "animation/Object.h"
+#include "model/DisplayInfo.h"
 #include "model/Outfit.h"
 #include "model/SceneContact.h"
 #include "model/TryOn.h"
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -209,7 +211,10 @@ class Actor : public Animation::Object {
     // Clears the model (OnModelCleared), then releases any model that script
     // set: the caller's new model wins.
     void Vacate();
-    void SetModel(void *model, const char *path, const uint8_t *dressRecord);
+    // A model dressed by a CreatureDisplayInfoExtra record, or by a player
+    // body, once it has loaded.
+    void SetModel(void *model, const char *path, const uint8_t *dressRecord,
+                  const Model::DisplayInfo::Body *body = nullptr);
     // Shows a copy of the unit's model, dressed and armed per autoDress,
     // sheathed and hideWeapons; false (and no model) when it has none.
     bool SetUnitModel(uint64_t guid);
@@ -238,6 +243,9 @@ class Actor : public Animation::Object {
     void *model = nullptr;
     std::string modelPath;
     const uint8_t *dressRecord = nullptr; // CreatureDisplayInfoExtra, until dressed
+    std::optional<Model::DisplayInfo::Body> body; // a player body, until dressed
+    // Whether the model has a character component, or gets one once loaded.
+    bool Dresses() const { return dresser != nullptr || dressRecord != nullptr || body.has_value(); }
     float displayScale = 1.0f; // a creature display's CreatureModelScale, else 1
     // The CreatureDisplayInfo the model shows (a creature display's, or the
     // unit's UNIT_FIELD_DISPLAYID), for its sound data; 0 for a model file.

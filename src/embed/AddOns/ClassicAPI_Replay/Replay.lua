@@ -3,8 +3,10 @@
 -- C_CombatLogReplay reads the log and its movement file in the DLL; this
 -- window picks a log and a stretch of it (the whole log or one encounter),
 -- shows the map, and puts an actor where each unit was at the replay's time:
--- its display, its mount, walking or running at its speed, and its stand
--- state's animation (sitting, sleeping, dead, kneeling). Scene positions are
+-- its display (a player in its own display as its own body, wearing what it
+-- wore), its mount, walking or running at its speed, its weapons drawn or
+-- sheathed, and its stand state's animation (sitting, sleeping, dead,
+-- kneeling). Scene positions are
 -- map positions. Click a unit to follow it with the camera; click the ground
 -- to stop. /replay toggles the window.
 
@@ -12,6 +14,8 @@ local ANIM_STAND, ANIM_WALK, ANIM_RUN, ANIM_MOUNT = 0, 4, 5, 91
 -- The animation a stand state shows, as the client's follow camera reads it
 -- (Offsets.h ANIM_*): sit, sleep, the three chairs, dead, kneel.
 local STAND_ANIMATION = { [1] = 97, [3] = 100, [4] = 102, [5] = 103, [6] = 104, [7] = 6, [8] = 115 };
+-- The sheath state with melee weapons in hand.
+local SHEATH_MELEE = 1;
 -- Below this a moving unit walks (yards a second; walk speed is 2.5, run 7).
 local RUN_SPEED = 4;
 -- Faster than this a unit is moving, slower it stands.
@@ -82,8 +86,13 @@ local function ReleaseUnits()
 	focus = nil;
 end
 
+-- A pooled actor keeps the scale settings of its last use (scene 4's
+-- actors carry their display info's), and ModelSceneActorMixin applies them
+-- again whenever a model loads; so a new one starts at its own size.
 local function Acquire(u)
 	local actor = scene:AcquireActor();
+	actor:SetNormalizedScaleAggressiveness(0);
+	actor:SetRequestedScale(1);
 	unitOfActor[actor] = u;
 	return actor;
 end
@@ -134,7 +143,35 @@ local function SetMount(u, mountDisplay)
 	return u.mount;
 end
 
-local function ShowUnit(u, x, y, z, facing, speed, display, mountDisplay, scale, standState)
+-- The player's appearance at `time`: the last that began by then, else its
+-- first (PLAYER_INFO comes with the UNIT_INFO that shows the unit).
+local function AppearanceAt(u, time)
+	local list = u.appearances;
+	if not list or not list[1] then
+		return nil;
+	end
+	local found = list[1];
+	for i = 2, #list do
+		if list[i].time > time then
+			break;
+		end
+		found = list[i];
+	end
+	return found;
+end
+
+-- Shows the player's own body in `appearance`, wearing its items.
+local function Dress(actor, appearance)
+	actor:SetModelByCharacterAppearance(appearance);
+	for slot, info in ipairs(appearance.items) do
+		if info.appearanceID > 0 then
+			actor:SetItemTransmogInfo(info, slot);
+		end
+	end
+end
+
+local function ShowUnit(u, time, x, y, z, facing, speed, display, nativeDisplay, mountDisplay,
+		scale, standState, sheathState)
 	local actor = u.actor;
 	if not actor then
 		actor = Acquire(u);
@@ -145,14 +182,28 @@ local function ShowUnit(u, x, y, z, facing, speed, display, mountDisplay, scale,
 	if not actor:IsShown() then
 		actor:Show();
 	end
-	if u.display ~= display then
-		actor:SetModelByCreatureDisplayID(display);
-		u.display = display;
+	local sheathed = sheathState ~= SHEATH_MELEE;
+	if u.sheathed ~= sheathed then
+		actor:SetSheathed(sheathed);
+		u.sheathed = sheathed;
+	end
+	-- A player shown in its own display is its own body; in any other (a
+	-- form, a polymorph) it is that creature, as the client shows it.
+	local appearance = display == nativeDisplay and AppearanceAt(u, time);
+	local model = appearance or display;
+	if u.model ~= model then
+		if appearance then
+			Dress(actor, appearance);
+		else
+			actor:SetModelByCreatureDisplayID(display);
+		end
+		u.model = model;
 		u.animation = nil;
 		u.seated = false;
 	end
+	-- Through the mixin, which sets it again once the model has loaded.
 	if u.scale ~= scale then
-		actor:SetScale(scale);
+		actor:SetRequestedScale(scale);
 		u.scale = scale;
 	end
 	local body = SetMount(u, mountDisplay);
@@ -177,12 +228,14 @@ local function Apply(time)
 	for i = 1, #units do
 		local u = units[i];
 		local x, y, z, facing, speed = GetUnitPosition(i, time);
-		local display, nativeDisplay, mountDisplay, scale, standState;
+		local display, nativeDisplay, mountDisplay, scale, standState, sheathState, _;
 		if x then
-			display, nativeDisplay, mountDisplay, scale, standState = GetUnitLook(i, time);
+			display, nativeDisplay, mountDisplay, scale, standState, _, _, sheathState =
+				GetUnitLook(i, time);
 		end
 		if display and display > 0 then
-			ShowUnit(u, x, y, z, facing, speed, display, mountDisplay, scale, standState);
+			ShowUnit(u, time, x, y, z, facing, speed, display, nativeDisplay, mountDisplay, scale,
+				standState, sheathState);
 		else
 			HideUnit(u);
 		end
@@ -200,11 +253,11 @@ end
 
 local function SetFocus(u)
 	if focus and focus.actor then
-		focus.actor:SetHighlight(false);
+		focus.actor:SetHighlight("target", false);
 	end
 	focus = u;
 	if focus and focus.actor then
-		focus.actor:SetHighlight(true);
+		focus.actor:SetHighlight("target", true);
 	end
 end
 
@@ -340,7 +393,8 @@ local function Build()
 		if unit.isPlayer then
 			name = string.gsub(name, "%-.*", "");
 		end
-		units[i] = { index = i, name = name, isPlayer = unit.isPlayer, mountDisplay = 0 };
+		units[i] = { index = i, name = name, isPlayer = unit.isPlayer, mountDisplay = 0,
+			appearances = unit.isPlayer and C_CombatLogReplay.GetUnitAppearances(i) or nil };
 	end
 	duration = info.duration;
 	frame.Timeline:SetMinMaxValues(0, math.max(duration, 0.1));

@@ -386,6 +386,7 @@ void ReleaseModel(Actor &actor) {
     actor.model = nullptr;
     actor.dresser = nullptr;
     actor.dressRecord = nullptr;
+    actor.body.reset();
     actor.displayScale = 1.0f;
     actor.displayID = 0;
     actor.areaEffect = nullptr;
@@ -455,13 +456,16 @@ void Actor::Vacate() {
     ReleaseModel(*this);
 }
 
-void Actor::SetModel(void *newModel, const char *path, const uint8_t *newDressRecord) {
+void Actor::SetModel(void *newModel, const char *path, const uint8_t *newDressRecord,
+                     const Model::DisplayInfo::Body *newBody) {
     Vacate();
     if (newModel == nullptr)
         return;
     model = newModel;
     modelPath = path != nullptr ? path : "";
     dressRecord = newDressRecord;
+    if (newBody != nullptr)
+        body = *newBody;
     const auto user = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(this));
     M2::SetAnimDoneCallback(model, reinterpret_cast<const void *>(&OnAnimDone), user, 0);
     M2::SetEventCallback(model, reinterpret_cast<const void *>(&Events::OnModelEvent), user, 0);
@@ -604,7 +608,7 @@ int TryOnReason(const Actor &actor, const uint8_t *record) {
         return TryOn::kSuccess;
     switch (Outfit::ArmOf(Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_INVENTORY_TYPE))) {
     case Outfit::Arm::Armor: // a component now, or the display's once it loads
-        return (actor.dresser != nullptr || actor.dressRecord != nullptr) && actor.armorReady
+        return actor.Dresses() && actor.armorReady
                    ? TryOn::kSuccess
                    : TryOn::kNotEquippable;
     case Outfit::Arm::Held:
@@ -1179,14 +1183,17 @@ void Actor::Update(float elapsedSec, float sceneSec) {
     }
     if (model != nullptr && !loaded) {
         bool ready = M2::IsLoaded(model, 0, 0);
-        if (ready && dressRecord != nullptr && dresser == nullptr) {
+        if (ready && dresser == nullptr && (dressRecord != nullptr || body)) {
             // A dress the engine rejects shows the model undressed, as a
             // unit with no compositor shows.
-            dresser = Model::DisplayInfo::CreateDresser(model, dressRecord);
-            if (dresser == nullptr)
+            dresser = dressRecord != nullptr ? Model::DisplayInfo::CreateDresser(model, dressRecord)
+                                             : Model::DisplayInfo::CreateDresser(model, *body);
+            if (dresser == nullptr) {
                 dressRecord = nullptr;
-            else
+                body.reset();
+            } else {
                 Model::DisplayInfo::LightChildren(SceneFrame(), model);
+            }
         }
         if (ready && dresser != nullptr && !Model::DisplayInfo::PumpDresser(dresser))
             ready = false;
@@ -1372,6 +1379,53 @@ int __fastcall Script_SetModelByCreatureDisplayID(void *L) {
                     "SetModelByCreatureDisplayID(creatureDisplayID)"))
         return 0;
     Game::Lua::PushBool(L, ShowCreatureDisplay(*actor, static_cast<uint32_t>(Game::Lua::ToNumber(L, 2))));
+    return 1;
+}
+
+// A player's own body from a description, with no unit (a ClassicAPI
+// extension, for replays): the display ChrRaces gives the race and sex,
+// dressed by a character component built from the look the way
+// CGUnit_C::BuildCharacterComponent (0x005FB200) builds a player's. Nothing
+// worn: items go on with TryOn or SetItemTransmogInfo, and wait for the body.
+int __fastcall Script_SetModelByCharacterAppearance(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr)
+        return 0;
+    if (Game::Lua::Type(L, 2) != Game::Lua::TYPE_TABLE) {
+        Game::Lua::Error(L, "Usage: %s:SetModelByCharacterAppearance(appearance)", actor->DisplayName());
+        return 0;
+    }
+    auto field = [L](const char *key) {
+        const double value = Game::Lua::GetFieldNumber(L, 2, key);
+        return value > 0.0 ? static_cast<uint32_t>(value) : 0u;
+    };
+    Model::DisplayInfo::Body body;
+    body.race = field("raceID");
+    body.sex = field("sex");
+    body.skin = field("skin");
+    body.face = field("face");
+    body.hairStyle = field("hairStyle");
+    body.hairColor = field("hairColor");
+    body.facialHair = field("facialHair");
+    const uint32_t displayID = Model::DisplayInfo::BodyDisplay(body);
+    const char *path = nullptr;
+    actor->Vacate();
+    void *model = displayID != 0 ? Model::DisplayInfo::CreateDisplayModel(
+                                       Model::Pane::Scene(actor->SceneFrame()), displayID, &path)
+                                 : nullptr;
+    if (model == nullptr) {
+        Game::Lua::PushBool(L, false);
+        return 1;
+    }
+    actor->displayID = displayID;
+    actor->displayScale =
+        Game::Read<float>(Model::DisplayInfo::Record(displayID), Offsets::OFF_CREATUREDISPLAYINFO_SCALE);
+    // PostInit (0x005FB880): the race's splash.
+    if (const uint8_t *race = DBC::Record(Offsets::VAR_CHRRACES_RECORDS, Offsets::VAR_CHRRACES_COUNT, body.race))
+        actor->splashSound = Game::Read<int32_t>(race, Offsets::OFF_CHRRACES_SPLASH_SOUND);
+    // SetModel keeps these fields: there is no model to clear.
+    actor->SetModel(model, path, nullptr, &body);
+    Game::Lua::PushBool(L, true);
     return 1;
 }
 
@@ -1596,8 +1650,7 @@ int __fastcall Script_SetItemTransmogInfo(void *L) {
 bool SlotAllowed(const Actor &actor, int invSlot) {
     return actor.model != nullptr &&
            (invSlot == Offsets::INVSLOT_RANGED ||
-            Outfit::SlotAllowed(invSlot, (actor.dresser != nullptr || actor.dressRecord != nullptr) &&
-                                             actor.armorReady));
+            Outfit::SlotAllowed(invSlot, actor.Dresses() && actor.armorReady));
 }
 
 int __fastcall Script_IsSlotAllowed(void *L) {
@@ -2891,6 +2944,7 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
     {"SetScript", &Animation::Script_SetScript},
     {"HookScript", &Animation::Script_HookScript},
     {"SetModelByCreatureDisplayID", &Script_SetModelByCreatureDisplayID},
+    {"SetModelByCharacterAppearance", &Script_SetModelByCharacterAppearance},
     {"SetModelByPath", &Script_SetModelByPath},
     {"SetModelBySpellArea", &Script_SetModelBySpellArea},
     {"SetModelByUnit", &Script_SetModelByUnit},
@@ -3546,6 +3600,25 @@ const Game::Doc::Function kDetachFromActor{
 const Game::Doc::Function kSetModelByCreatureDisplayID{
     "Shows a creature display, dressed like the creature.", kDisplayArgs, kSuccessRet};
 const Game::Doc::Function kSetModelByPath{"Shows a model file.", kPathArgs, kSuccessRet};
+const Game::Doc::Field kCharacterAppearanceFields[] = {
+    Req("raceID", "number"),
+    Req("sex", "number", "0 male, 1 female."),
+    Opt("skin", "number", "0"),
+    Opt("face", "number", "0"),
+    Opt("hairStyle", "number", "0"),
+    Opt("hairColor", "number", "0"),
+    Opt("facialHair", "number", "0"),
+};
+const Game::Doc::Structure kCharacterAppearance{
+    "CharacterAppearance", "FrameAPIModelSceneFrameActor", kCharacterAppearanceFields,
+    "A player character's body: race, sex and the choices made at character creation."};
+const Game::Doc::Field kCharacterAppearanceArgs[] = {
+    Req("appearance", "CharacterAppearance"),
+};
+const Game::Doc::Function kSetModelByCharacterAppearance{
+    "Shows a player character's body with nothing on, without a unit. Items put on with TryOn or "
+    "SetItemTransmogInfo wait for it to load. False when the race and sex have no model.",
+    kCharacterAppearanceArgs, kSuccessRet, nullptr, true};
 const Game::Doc::Field kSpellAreaArgs[] = {
     Req("spellID", "number", "A spell with a ground area, such as Blizzard or Consecration."),
     Req("radius", "number", "The radius of the area in yards. More than 0."),
@@ -3664,6 +3737,7 @@ const Game::Doc::Method kMethodDocs[] = {
     {"HookScript", &kHookScript},
     {"SetModelByCreatureDisplayID", &kSetModelByCreatureDisplayID},
     {"SetModelByPath", &kSetModelByPath},
+    {"SetModelByCharacterAppearance", &kSetModelByCharacterAppearance},
     {"SetModelBySpellArea", &kSetModelBySpellArea},
     {"SetModelByUnit", &kSetModelByUnit},
     {"SetModelByUnitCreatureDisplayID", &kSetModelByUnitCreatureDisplayID},
