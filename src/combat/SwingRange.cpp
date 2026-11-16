@@ -54,6 +54,7 @@
 #include "spell/Range.h"
 #include "tick/WorldTick.h"
 #include "unit/Position.h"
+#include "unit/Relation.h"
 
 #include <cstdint>
 
@@ -69,7 +70,6 @@ enum class RangeState { NoCheck, InRange, OutOfRange };
 bool g_enabled[3] = {false, false, false};
 RangeState g_lastState[3] = {RangeState::NoCheck, RangeState::NoCheck, RangeState::NoCheck};
 
-using UnitCanAttack_t = bool(__thiscall *)(void *attacker, void *target);
 using EquippedItemCheck_t = char(__fastcall *)(void *caster, const uint8_t *spellRecord,
                                                char checkAmmo, char report);
 
@@ -122,8 +122,7 @@ RangeState Evaluate(SwingType type) {
     if (player == nullptr || target == nullptr)
         return RangeState::NoCheck; // no current target
 
-    auto canAttack = reinterpret_cast<UnitCanAttack_t>(Offsets::FUN_UNIT_CAN_ATTACK);
-    if (!canAttack(player, target))
+    if (!::Unit::Relation::CanAttack(player, target))
         return RangeState::NoCheck; // target can't be attacked
 
     if (type != RANGED)

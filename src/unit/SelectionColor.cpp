@@ -44,6 +44,7 @@
 #include "friendlist/FriendList.h"
 #include "object/Resolve.h"
 #include "unit/Identity.h"
+#include "unit/Relation.h"
 
 #include <cstdint>
 
@@ -88,12 +89,6 @@ constexpr Type kReactionTypes[8] = {Hostile, Hostile,  Unfriendly, Neutral,
                                     Friendly, Friendly, Friendly,   Friendly};
 
 // --- the ladder -------------------------------------------------------------
-
-bool CanAttack(void *attacker, void *target) {
-    using Fn = bool(__thiscall *)(void *attacker, void *target);
-    return reinterpret_cast<Fn>(static_cast<uintptr_t>(Offsets::FUN_UNIT_CAN_ATTACK))(attacker,
-                                                                                      target);
-}
 
 bool IsPartyMember(uint64_t guid) {
     using Fn = int(__fastcall *)(const uint64_t *guid);
@@ -146,15 +141,13 @@ Type ForGuid(uint64_t guid, bool extended) {
     if ((flags & Offsets::UNIT_FLAG_PLAYER_CONTROLLED) == 0) {
         if (extended && Game::Read<int32_t>(fields, Offsets::OFF_UNIT_FIELD_HEALTH) < 1)
             return Dead;
-        using Reaction = int(__thiscall *)(void *unit, void *other);
-        const int reaction = reinterpret_cast<Reaction>(
-            static_cast<uintptr_t>(Offsets::FUN_UNIT_REACTION))(unit, viewer);
+        const int reaction = ::Unit::Relation::Reaction(unit, viewer);
         return kReactionTypes[reaction & 7];
     }
 
-    if (CanAttack(unit, viewer))
-        return CanAttack(viewer, unit) ? Hostile : PlayerType(extended);
-    if (CanAttack(viewer, unit))
+    if (::Unit::Relation::CanAttack(unit, viewer))
+        return ::Unit::Relation::CanAttack(viewer, unit) ? Hostile : PlayerType(extended);
+    if (::Unit::Relation::CanAttack(viewer, unit))
         return Neutral;
 
     using IsPvp = bool(__thiscall *)(void *unit);

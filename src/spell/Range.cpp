@@ -19,6 +19,7 @@
 #include "object/Resolve.h"
 #include "spell/Lookup.h"
 #include "unit/Position.h"
+#include "unit/Relation.h"
 
 #include <cmath>
 #include <cstdint>
@@ -113,12 +114,7 @@ constexpr uint32_t TARGET_WORD_GAMEOBJECT_ITEM = 0x4000;
 constexpr uint32_t TARGET_WORD_CORPSE_ALLY = 0x8000;
 constexpr int32_t TARGET_PET = 5;
 
-using Relation_t = bool(__thiscall *)(void *caster, void *other);
 using CreatureType_t = int(__thiscall *)(void *unit);
-
-bool Relation(uintptr_t fn, void *caster, void *other) {
-    return reinterpret_cast<Relation_t>(fn)(caster, other);
-}
 
 void *Pet() {
     return Object::ByGuid(Offsets::TYPEMASK_UNIT,
@@ -198,15 +194,15 @@ bool AdmitsUnit(void *caster, const uint8_t *rec, uint32_t word, void *unit) {
         return false;
     }
 
-    if ((word & TARGET_WORD_PARTY) && Relation(Offsets::FUN_UNIT_IN_SAME_PARTY, caster, unit) &&
-        Relation(Offsets::FUN_UNIT_CAN_ASSIST, caster, unit))
+    if ((word & TARGET_WORD_PARTY) && ::Unit::Relation::InSameParty(caster, unit) &&
+        ::Unit::Relation::CanAssist(caster, unit))
         return true;
-    if ((word & TARGET_WORD_RAID) && Relation(Offsets::FUN_UNIT_IN_SAME_RAID, caster, unit) &&
-        Relation(Offsets::FUN_UNIT_CAN_ASSIST, caster, unit))
+    if ((word & TARGET_WORD_RAID) && ::Unit::Relation::InSameRaid(caster, unit) &&
+        ::Unit::Relation::CanAssist(caster, unit))
         return true;
-    if ((word & TARGET_WORD_FRIEND) && Relation(Offsets::FUN_UNIT_CAN_ASSIST, caster, unit))
+    if ((word & TARGET_WORD_FRIEND) && ::Unit::Relation::CanAssist(caster, unit))
         return true;
-    if ((word & TARGET_WORD_ENEMY) && Relation(Offsets::FUN_UNIT_CAN_ATTACK, caster, unit))
+    if ((word & TARGET_WORD_ENEMY) && ::Unit::Relation::CanAttack(caster, unit))
         return true;
     if ((word & TARGET_WORD_UNIT) && (flags & Offsets::UNIT_FLAG_IMMUNE_TO_PLAYER) == 0)
         return true;
@@ -216,9 +212,9 @@ bool AdmitsUnit(void *caster, const uint8_t *rec, uint32_t word, void *unit) {
          Offsets::TYPEMASK_PLAYER) != 0;
     if ((word & TARGET_WORD_CORPSE_ALLY) && dead &&
         (isPlayer || Game::Read<uint32_t>(fields, Offsets::OFF_UNIT_FIELD_PETNUMBER) != 0))
-        return Relation(Offsets::FUN_UNIT_CAN_ASSIST, caster, unit);
+        return ::Unit::Relation::CanAssist(caster, unit);
     return (word & TARGET_WORD_CORPSE_ENEMY) && dead && isPlayer &&
-           !Relation(Offsets::FUN_UNIT_CAN_ASSIST, caster, unit);
+           !::Unit::Relation::CanAssist(caster, unit);
 }
 
 // A corpse target (0x006E46B2..0x006E46FF).
@@ -226,7 +222,7 @@ bool AdmitsCorpse(void *caster, uint32_t word, void *corpse) {
     if (Game::Read<uint32_t>(Object::Fields(corpse), Offsets::OFF_CORPSE_FIELD_FLAGS) &
         Offsets::CORPSE_FLAG_BONES)
         return false;
-    const bool assist = Relation(Offsets::FUN_UNIT_CAN_ASSIST_CORPSE, caster, corpse);
+    const bool assist = ::Unit::Relation::CanAssistCorpse(caster, corpse);
     return ((word & TARGET_WORD_CORPSE_ENEMY) && !assist) ||
            ((word & TARGET_WORD_CORPSE_ALLY) && assist);
 }

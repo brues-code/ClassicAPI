@@ -48,6 +48,7 @@
 #include "object/Resolve.h"
 #include "tick/WorldTick.h"
 #include "unit/Identity.h"
+#include "unit/Relation.h"
 #include "unit/TokenEvents.h"
 #include "unit/TokenObserver.h"
 
@@ -118,9 +119,7 @@ bool IsFriendlyToPlayer(void *unit) {
     void *player = const_cast<uint8_t *>(Unit::Identity::PlayerObject());
     if (player == nullptr)
         return false;
-    using Reaction_t = int(__thiscall *)(void *unit, void *other);
-    return reinterpret_cast<Reaction_t>(static_cast<uintptr_t>(Offsets::FUN_UNIT_REACTION))(
-               player, unit) > 3;
+    return ::Unit::Relation::Reaction(player, unit) > 3;
 }
 
 void OnWorldTick() {

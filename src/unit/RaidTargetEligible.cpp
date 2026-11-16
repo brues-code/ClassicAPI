@@ -27,6 +27,7 @@
 #include "Offsets.h"
 #include "object/Resolve.h"
 #include "unit/Identity.h"
+#include "unit/Relation.h"
 
 #include <cstdint>
 
@@ -35,7 +36,6 @@ namespace Unit::RaidTargetEligible {
 namespace {
 
 using IsPlayerOrPet_t = int(__fastcall *)(const uint64_t *guid);
-using CanCooperate_t = bool(__fastcall *)(const void *self, void *, const void *other);
 
 bool CanBeRaidTarget(uint64_t guid) {
     if (guid == 0)
@@ -51,8 +51,7 @@ bool CanBeRaidTarget(uint64_t guid) {
 
     if ((::Object::Type(unit) & Offsets::TYPEMASK_PLAYER) == 0)
         return true;
-    return reinterpret_cast<CanCooperate_t>(Offsets::FUN_UNIT_CAN_COOPERATE)(player, nullptr,
-                                                                           unit) ||
+    return ::Unit::Relation::CanCooperate(player, unit) ||
            unit == player;
 }
 

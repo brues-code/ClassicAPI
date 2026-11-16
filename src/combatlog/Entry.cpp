@@ -49,6 +49,7 @@
 #include "unit/Identity.h"
 #include "unit/RaidTarget.h"
 #include "unit/Power.h"
+#include "unit/Relation.h"
 
 #include <ctime>
 
@@ -168,12 +169,6 @@ uint64_t ReadGuidField(const void *object, int offset) {
     return fields == nullptr ? 0 : Game::Read<uint64_t>(fields, offset);
 }
 
-int Reaction(void *unit, void *other) {
-    using Reaction_t = int(__thiscall *)(void *unit, void *other);
-    return reinterpret_cast<Reaction_t>(static_cast<uintptr_t>(Offsets::FUN_UNIT_REACTION))(
-        unit, other);
-}
-
 uint32_t ObjectFlags(uint64_t guid) {
     if (guid == 0)
         return NONE;
@@ -223,7 +218,7 @@ uint32_t ObjectFlags(uint64_t guid) {
         bool hostile = false;
         void *playerUnit = const_cast<uint8_t *>(Unit::Identity::PlayerObject());
         if (unit != nullptr && playerUnit != nullptr) {
-            const int reaction = Reaction(unit, playerUnit);
+            const int reaction = ::Unit::Relation::Reaction(unit, playerUnit);
             if (reaction >= 4) {
                 flags |= REACTION_FRIENDLY;
             } else if (reaction <= 1) {

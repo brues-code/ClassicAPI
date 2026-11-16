@@ -29,6 +29,7 @@
 #include "time/Clock.h"
 #include "turtle/Detect.h"
 #include "unit/Identity.h"
+#include "unit/Relation.h"
 
 #include <cstdint>
 #include <cstring>
@@ -794,9 +795,7 @@ static bool IsStealable(uint64_t unitGuid, const uint8_t *spellRecord, bool isHe
     void *unit = Object::ByGuid(Offsets::TYPEMASK_UNIT, unitGuid);
     if (player == nullptr || unit == nullptr)
         return false;
-    using CanAttack_t = bool(__thiscall *)(void *attacker, void *target);
-    return reinterpret_cast<CanAttack_t>(static_cast<uintptr_t>(Offsets::FUN_UNIT_CAN_ATTACK))(
-        player, unit);
+    return ::Unit::Relation::CanAttack(player, unit);
 }
 
 // The display fields resolved from a spell record + caster, shared by the table
