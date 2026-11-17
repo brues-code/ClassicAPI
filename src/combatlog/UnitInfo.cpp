@@ -112,6 +112,7 @@ struct Cast {
 struct State {
     uint64_t target;
     uint64_t owner;
+    uint64_t attackTarget; // the unit it swings at
     uint32_t flags;
     uint32_t level;
     uint32_t faction;
@@ -240,6 +241,7 @@ State ReadState(void *unit, const uint8_t *fields) {
     state.flags = Game::Read<uint32_t>(fields, Offsets::OFF_UNIT_FIELD_FLAGS);
     state.level = Game::Read<uint32_t>(fields, Offsets::OFF_UNIT_FIELD_LEVEL);
     state.faction = Game::Read<uint32_t>(fields, Offsets::OFF_UNIT_FIELD_FACTIONTEMPLATE);
+    state.attackTarget = Game::Read<uint64_t>(unit, Offsets::OFF_UNIT_ATTACK_TARGET);
     return state;
 }
 
@@ -251,6 +253,7 @@ void WriteState(uint64_t guid, const State &state) {
     AppendHex(line, state.flags);
     AppendUnsigned(line, state.level);
     AppendUnsigned(line, state.faction);
+    File::AppendGuid(line, state.attackTarget);
     Movement::Emit(line);
 }
 

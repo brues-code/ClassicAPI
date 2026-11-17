@@ -4395,6 +4395,10 @@ enum Offsets {
     // fingers of CloseHand, 8..17) is stopped when it ends, except
     // HandsClosed (15), which stays.
     M2_KEY_BONE_ROOT = 0x1A,
+    // A unit's split key bone, the upper body: the display apply 0x0060ABE0
+    // stores 6 at +0xD5C, where CGUnit_C::PlayWoundAnimation plays a moving
+    // or attacking unit's wound (0x0060EADA).
+    M2_KEY_BONE_UPPER_BODY = 6,
     ANIM_HANDS_CLOSED = 15,
     // CM2Model::SetAnimDoneCallback — `__thiscall(model, callback, uint64
     // userData)`, ret 0xC. AttachDisplayModel passes the pane sign-extended
@@ -12716,6 +12720,10 @@ enum Offsets {
     //     attacking" test (the cast request's auto-attack start and STOP's
     //     guard both call it). CGUnit_C::HasAttackTarget, verified in Ghidra.
     FUN_UNIT_HAS_ATTACK_TARGET = 0x0060ECB0,
+    // That melee-victim GUID (u64) on every unit, which SMSG_ATTACKSTART and
+    // SMSG_ATTACKSTOP set for the units in view. CGUnit_C::PlayWoundAnimation
+    // reads it (0x0060EB81) to pick CombatWound over StandWound.
+    OFF_UNIT_ATTACK_TARGET = 0xC48,
 
     // Inbox — array of mail-entry pointers behind a slot indirection.
     // The address itself holds a heap pointer (`MOV ECX, [imm32]` in

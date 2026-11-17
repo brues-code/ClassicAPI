@@ -73,12 +73,14 @@
 //     cache) or a creature (its creature record), when it first has one and
 //     when it changes, so a log
 //     read elsewhere names units the combat log never does;
-//   UNIT_STATE,unitGUID,targetGUID,ownerGUID,flags,level,factionTemplate
+//   UNIT_STATE,unitGUID,targetGUID,ownerGUID,flags,level,factionTemplate,
+//       attackTargetGUID
 //     when the unit comes into view and each time one of these changes: its
 //     target (UNIT_FIELD_TARGET), its charmer or creator (a pet's, guardian's
 //     or totem's owner, a mind-controlled unit's controller), UNIT_FIELD_FLAGS
 //     (stunned 0x40000, confused 0x400000, fleeing 0x800000, in combat
-//     0x80000, ...), its level and its FactionTemplate id;
+//     0x80000, ...), its level, its FactionTemplate id, and the unit it
+//     swings at (SMSG_ATTACKSTART to SMSG_ATTACKSTOP, the unit's +0xC48);
 //   UNIT_POWER,unitGUID,health,maxHealth,powerType,power,maxPower
 //     when the unit comes into view and each time one of these changes: its
 //     health, and the power of its own type in stored units (rage in tenths);

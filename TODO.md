@@ -4350,6 +4350,19 @@ embedded load-on-demand addon. Layers:
   a display with flag +0x24 bit 0). Creatures hold their logged virtual
   items (`actor:SetHeldItem`, `GetUnitHeldItem`) and every unit takes the
   log's sheath state (`actor:SetSheatheState`, 2 = ranged in hand).
+- Reactions and missing casts (2026-11-17, not yet seen in game): a
+  SPELL_CAST_START's visual flies to its success's destination
+  (castTargetIndex; before, a cast-time bolt had no target, so no missile).
+  Casts only in UNIT_CAST (Opening 3366, creature channels with no success
+  line) are casts in the reader and play their visual at the UNIT_STATE
+  target. UNIT_STATE gains the attack target (+0xC48); a melee victim plays
+  PlayWoundAnimation's 10/9/8 choice and the $CPP parry/dodge/block poses
+  through actor:PlayOneShotAnimation (upper body on key bone 6). Open: they
+  play at the log line, not at the attacker's $CAH/$CPP swing event; the
+  creature type flag 0x8 (no wound/parry) is not honored; a missile's
+  arrival still plays CombatWound alone (SceneSpell), not the 8/9 choice;
+  parry/dodge/block go upper body while moving by analogy with the wound,
+  not from CGUnit_C::PlayAnimation's routing.
 - Game objects and ground areas (2026-11-17, recorder + reader + API; not yet
   seen in game): ObjectInfo.cpp writes GAMEOBJECT_INFO (owner, display, type,
   state, flags, place, GAMEOBJECT_ROTATION quaternion, scale, record name) on

@@ -146,6 +146,7 @@ struct Cast {
 struct UnitState {
     int32_t target = -1;
     int32_t owner = -1;
+    int32_t attackTarget = -1; // the unit it swings at
     uint32_t flags = 0;
     uint32_t level = 0;
     uint32_t faction = 0;
@@ -241,6 +242,9 @@ struct CombatEvent {
     int32_t castEnd = -1;
     bool castFailed = false;
     int32_t interrupter = -1;
+    // A SPELL_CAST_START: the destination of the SPELL_CAST_SUCCESS that ended
+    // it, where its missile flies; -1 for none.
+    int32_t castTarget = -1;
     bool endsCast = false; // a SPELL_CAST_SUCCESS or FAILED that ends a SPELL_CAST_START
     uint32_t extraSpellID = 0; // a SPELL_INTERRUPT's interrupted spell
     // A damage or heal event's amount (`hasAmount`) and whether it was

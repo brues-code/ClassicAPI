@@ -405,6 +405,8 @@ int __fastcall Script_GetEvents(void *L) {
             Lua::SetFieldBool(L, "endsCast", true);
         if (e.extraSpellID != 0)
             Lua::SetFieldNumber(L, "extraSpellID", e.extraSpellID);
+        if (e.castTarget >= 0)
+            Lua::SetFieldNumber(L, "castTargetIndex", e.castTarget + 1);
         if (e.hasAmount) {
             Lua::SetFieldNumber(L, "amount", e.amount);
             Lua::SetFieldBool(L, "critical", e.critical);
@@ -522,7 +524,8 @@ int __fastcall Script_GetUnitState(void *L) {
     Lua::PushNumber(L, state->flags);
     Lua::PushNumber(L, state->level);
     Lua::PushNumber(L, state->faction);
-    return 5;
+    PushUnitIndex(L, state->attackTarget);
+    return 6;
 }
 
 // When the aura `spellID` came onto the unit: the first of the unbroken run
@@ -965,6 +968,9 @@ const Game::Doc::Field kEventFields[] = {
     Opt("missType", "cstring", nullptr, "For a _MISSED event: MISS, DODGE, PARRY, BLOCK, RESIST, ABSORB, IMMUNE, ..."),
     Opt("endsCast", "bool", nullptr, "True for a SPELL_CAST_SUCCESS or SPELL_CAST_FAILED that ends a SPELL_CAST_START."),
     Opt("extraSpellID", "number", nullptr, "For a SPELL_INTERRUPT: the spell it interrupted."),
+    Opt("castTargetIndex", "number", nullptr,
+        "For a SPELL_CAST_START: the destination of the SPELL_CAST_SUCCESS that ended it. Nil when it did not "
+        "go off or had no unit as its destination."),
     Opt("text", "cstring", nullptr, "For an EMOTE: the raid boss emote's text, as the chat frame showed it."),
 };
 const Game::Doc::Structure kEvent{"CombatLogReplayEvent", "CombatLogReplay", kEventFields};
@@ -1052,6 +1058,7 @@ const Game::Doc::Field kGetUnitStateRets[] = {
     Opt("flags", "number", nullptr, "UNIT_FIELD_FLAGS: stunned 0x40000, in combat 0x80000, confused 0x400000, fleeing 0x800000."),
     Opt("level", "number"),
     Opt("factionTemplate", "number", nullptr, "Its FactionTemplate.dbc id."),
+    Opt("attackTargetIndex", "number", nullptr, "The unit it swings at with melee attacks; nil for none."),
 };
 const Game::Doc::Function kGetUnitState{
     "Returns whom a replay unit targets, who owns it, its unit flags, level and faction at a time, from the movement "

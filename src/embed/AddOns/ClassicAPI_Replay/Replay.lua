@@ -34,6 +34,18 @@ local SWING_BY_SUBCLASS = { [0] = 17, 18, 16, 16, 17, 18, 19, 17, 18, 16, 19, 17
 -- How long a swing holds its animation, in replay seconds, and how long the
 -- dying animation plays before the corpse lies still, in real seconds.
 local SWING_TIME = 0.8;
+-- A melee victim's reactions (AnimationData.dbc). CGUnit_C::PlayWoundAnimation
+-- (0x0060EA70) plays CombatCritical for a critical, CombatWound while the
+-- victim swings at someone, else StandWound. The attacker's $CPP swing event
+-- plays Dodge or ShieldBlock, or the parry of the victim's main-hand weapon
+-- (CGUnit_C::PlayParryAnimation 0x0060EC00, by item subclass).
+local ANIM_STAND_WOUND = 8;
+local ANIM_COMBAT_WOUND = 9;
+local ANIM_COMBAT_CRITICAL = 10;
+local ANIM_SHIELD_BLOCK = 24;
+local ANIM_DODGE = 30;
+local PARRY_BY_SUBCLASS = { [0] = 21, [4] = 21, [7] = 21, [11] = 21, [14] = 21, [15] = 21, [1] = 22, [5] = 22,
+	[8] = 22, [12] = 22, [6] = 23, [10] = 23, [17] = 23, [13] = 20 };
 local DYING_TIME = 1.5;
 -- A step in time longer than this (replay seconds), or one back, is a jump:
 -- the combat state is set as it was, not played.
@@ -574,6 +586,7 @@ local function ShowUnit(u, time, x, y, z, facing, speed, falling, jumping, displ
 		actor:SetRequestedScale(scale);
 		u.scale = scale;
 	end
+	u.moving = speed > MOVING_SPEED or falling or mountDisplay > 0;
 	local body = SetMount(u, mountDisplay);
 	body:SetPosition(x, y, z);
 	body:SetYaw(facing);
@@ -672,6 +685,37 @@ local function SwingAnimation(index, time)
 	return itemClass == ITEM_CLASS_WEAPON and SWING_BY_SUBCLASS[subclass] or ANIM_ATTACK_UNARMED;
 end
 
+-- A melee hit's wound on its victim: on the upper body while it moves or
+-- swings, as the client plays it.
+local function Wound(index, du, actor, critical, time)
+	local animation, upperBody = ANIM_COMBAT_CRITICAL, true;
+	if not critical then
+		local _, _, _, _, _, attackTarget = C_CombatLogReplay.GetUnitState(index, time);
+		if attackTarget then
+			animation = ANIM_COMBAT_WOUND;
+		else
+			animation, upperBody = ANIM_STAND_WOUND, du.moving;
+		end
+	end
+	actor:PlayOneShotAnimation(animation, upperBody);
+end
+
+-- A parried, dodged or blocked swing's pose on its victim.
+local function Avoid(index, du, actor, missType, time)
+	local animation;
+	if missType == "PARRY" then
+		local itemClass, subclass = C_CombatLogReplay.GetUnitWeapons(index, time);
+		animation = itemClass == ITEM_CLASS_WEAPON and PARRY_BY_SUBCLASS[subclass];
+	elseif missType == "DODGE" then
+		animation = ANIM_DODGE;
+	elseif missType == "BLOCK" then
+		animation = ANIM_SHIELD_BLOCK;
+	end
+	if animation then
+		actor:PlayOneShotAnimation(animation, du.moving);
+	end
+end
+
 local function UnitName(index)
 	local u = index and units[index];
 	return u and u.name ~= "" and u.name or UNKNOWN;
@@ -746,6 +790,9 @@ local function PlayEvent(e)
 		-- speed. One that failed or was interrupted prepares for its whole
 		-- cast time and stops when the cast stopped, before it goes off.
 		if source then
+			u.playedCastStart = e.time;
+			-- The missile flies to the success's destination.
+			target = ShownActor(e.castTargetIndex);
 			local castMs = e.castTime and e.castTime * 1000 / PLAY_SPEEDS[playSpeed];
 			if e.castFailed then
 				-- Its due end, when the logs give one past the stop; else the
@@ -776,8 +823,9 @@ local function PlayEvent(e)
 			-- A channel this begins channels until the log's channel stopped.
 			local channelMs;
 			local spellID, startTime, _, stopTime, isChannel = C_CombatLogReplay.GetUnitCast(e.sourceIndex, e.time);
-			if isChannel and spellID == e.spellID and startTime == e.time and stopTime then
-				channelMs = (stopTime - startTime) * 1000 / PLAY_SPEEDS[playSpeed];
+			if isChannel and spellID == e.spellID and startTime == e.time then
+				u.playedCastStart = e.time;
+				channelMs = stopTime and (stopTime - startTime) * 1000 / PLAY_SPEEDS[playSpeed];
 			end
 			source:PlaySpellVisual(e.spellID, target, 0, channelMs);
 		end
@@ -797,6 +845,13 @@ local function PlayEvent(e)
 		if u then
 			u.swingUntil = e.time + SWING_TIME;
 			u.swingAnimation = SwingAnimation(e.sourceIndex, e.time);
+		end
+		if target then
+			if kind == "SWING_DAMAGE" then
+				Wound(e.destIndex, du, target, e.critical, e.time);
+			else
+				Avoid(e.destIndex, du, target, e.missType, e.time);
+			end
 		end
 	elseif kind == "UNIT_DIED" then
 		if du then
@@ -839,6 +894,32 @@ local function StopInterrupted(time)
 	end
 end
 
+-- The casts the combat log leaves out (Opening, a creature's channel with no
+-- success line), from the movement file: each one's visual as it begins, at
+-- the unit it targeted.
+local function PlayUnloggedCasts(from, to)
+	local GetUnitCast = C_CombatLogReplay.GetUnitCast;
+	local speed = PLAY_SPEEDS[playSpeed];
+	for i = 1, #units do
+		local source, u = ShownActor(i);
+		if source then
+			local spellID, startTime, endTime, stopTime, isChannel, interrupted = GetUnitCast(i, to);
+			if spellID and startTime > from and u.playedCastStart ~= startTime then
+				u.playedCastStart = startTime;
+				local target = ShownActor((C_CombatLogReplay.GetUnitState(i, startTime)));
+				if isChannel then
+					source:PlaySpellVisual(spellID, target, 0, stopTime and (stopTime - startTime) * 1000 / speed);
+				else
+					local castID = source:PlaySpellVisual(spellID, target, (endTime - startTime) * 1000 / speed);
+					if castID and interrupted then
+						u.stopCastID, u.stopCastAt = castID, stopTime;
+					end
+				end
+			end
+		end
+	end
+end
+
 -- Brings the combat state to `time`: the events since the last time when
 -- time went a short way forward, else the state as it was then.
 local function Combat(time)
@@ -847,6 +928,7 @@ local function Combat(time)
 			for _, e in ipairs(C_CombatLogReplay.GetEvents(combatTime, time)) do
 				PlayEvent(e);
 			end
+			PlayUnloggedCasts(combatTime, time);
 			StopInterrupted(time);
 		end
 	else

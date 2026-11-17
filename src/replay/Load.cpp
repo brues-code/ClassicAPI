@@ -326,6 +326,7 @@ void Loader::UnitState(const Line::Fields &f, int32_t t) {
     state.flags = f.Hex(4);
     state.level = static_cast<uint32_t>(f.Int(5));
     state.faction = static_cast<uint32_t>(f.Int(6));
+    state.attackTarget = IsUnitGuid(f[7]) ? IndexOf(f[7]) : -1;
     AddAt(Get(f[1]).states, t, state);
 }
 
@@ -772,6 +773,8 @@ void Loader::Combat(std::string_view body, int32_t t) {
             CombatEvent &start = r_.events[open->second];
             start.castEnd = t;
             start.castFailed = type == "SPELL_CAST_FAILED";
+            if (!start.castFailed)
+                start.castTarget = dest;
             e.endsCast = true;
             openCasts_.erase(open);
         }
@@ -997,6 +1000,10 @@ int32_t Interrupter(const Recording &r, int32_t caster, int32_t stop) {
 // and the start gets that stop as its end. A channel is a UNIT_CAST's channel
 // spell, from the SPELL_CAST_SUCCESS that began it until the spell goes.
 void BuildCasts(Recording &r) {
+    // The UNIT_CAST lines a SPELL_CAST_START matched, by unit.
+    std::vector<std::vector<bool>> matched(r.units.size());
+    for (std::size_t i = 0; i < r.units.size(); ++i)
+        matched[i].resize(r.units[i].castStates.size());
     for (CombatEvent &e : r.events) {
         if (e.type != "SPELL_CAST_START" || e.source < 0)
             continue;
@@ -1009,6 +1016,7 @@ void BuildCasts(Recording &r) {
         uint32_t castMs = 0;
         int32_t stopped = -1;
         if (begun != states.end() && begun->t <= e.t + kCastMatchMs) {
+            matched[e.source][begun - states.begin()] = true;
             castMs = begun->castMs;
             const auto stop = std::find_if(begun + 1, states.end(),
                                            [&](const CastState &s) { return s.spell != e.spellID; });
@@ -1041,6 +1049,31 @@ void BuildCasts(Recording &r) {
     }
     for (std::size_t i = 0; i < r.units.size(); ++i) {
         Unit &unit = r.units[i];
+        // A cast the combat log leaves out, such as Opening: from its
+        // UNIT_CAST to the line that ends it. It went off when it lasted its
+        // cast time.
+        const std::vector<CastState> &states = unit.castStates;
+        for (std::size_t s = 0; s < states.size(); ++s) {
+            const CastState &state = states[s];
+            if (state.spell == 0 || matched[i][s] || (s > 0 && states[s - 1].spell == state.spell))
+                continue;
+            Cast cast;
+            cast.spellID = state.spell;
+            cast.start = state.t;
+            cast.end = state.t + static_cast<int32_t>(state.castMs);
+            const auto stop = std::find_if(states.begin() + static_cast<std::ptrdiff_t>(s) + 1, states.end(),
+                                           [&](const CastState &o) { return o.spell != state.spell; });
+            if (stop != states.end()) {
+                cast.stop = stop->t;
+                if (cast.stop >= cast.end - kWentOffMs)
+                    cast.end = cast.stop;
+                else
+                    cast.interrupted = true;
+            }
+            if (cast.interrupted)
+                cast.interrupter = Interrupter(r, static_cast<int32_t>(i), cast.stop);
+            unit.casts.push_back(cast);
+        }
         const auto channel = [&](uint32_t spell, int32_t from, int32_t to) {
             Cast cast;
             cast.spellID = spell;

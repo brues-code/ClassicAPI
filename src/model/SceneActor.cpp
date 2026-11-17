@@ -1577,6 +1577,28 @@ int __fastcall Script_SetGameObjectState(void *L) {
     return 0;
 }
 
+// A reaction played once over the actor's own animation (a ClassicAPI
+// extension, for replays): a wound, parry, dodge or block, as a unit plays
+// one (CGUnit_C::PlayWoundAnimation 0x0060EA70). Nothing for a dead actor, an
+// unloaded model, or a model without the sequence. On the whole body it
+// gives back the actor's own animation when it ends; on the upper body (the
+// unit's split key bone, a moving or attacking unit's) the legs go on.
+int __fastcall Script_PlayOneShotAnimation(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr ||
+        !NumberArgs(L, 2, 1, actor->DisplayName(), "PlayOneShotAnimation(animation [, upperBodyOnly])"))
+        return 0;
+    const auto anim = static_cast<uint32_t>(Game::Lua::ToNumber(L, 2));
+    if (actor->model == nullptr || !actor->loaded || M2::IsDeathAnimation(actor->CurrentAnimation()) ||
+        M2::GetSequenceInfo(actor->model, anim, 0).length == 0)
+        return 0;
+    if (Game::Lua::ToBoolean(L, 3) != 0)
+        M2::PlayAnimation(actor->model, Offsets::M2_KEY_BONE_UPPER_BODY, anim, -1, 0, 1.0f, 0, 0);
+    else
+        actor->PlayKitAnimation(static_cast<int>(anim), false);
+    return 0;
+}
+
 // Retail's argument order: unit, sheatheWeapons, autoDress, hideWeapons,
 // usePlayerNativeForm, holdBowString, customRaceID.
 int __fastcall Script_SetModelByUnit(void *L) {
@@ -3074,6 +3096,7 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
     {"SetModelBySpellArea", &Script_SetModelBySpellArea},
     {"SetModelByGameObjectDisplayID", &Script_SetModelByGameObjectDisplayID},
     {"SetGameObjectState", &Script_SetGameObjectState},
+    {"PlayOneShotAnimation", &Script_PlayOneShotAnimation},
     {"SetModelByUnit", &Script_SetModelByUnit},
     {"SetModelByUnitCreatureDisplayID", &Script_SetModelByUnitCreatureDisplayID},
     {"GetModelUnitGUID", &Script_GetModelUnitGUID},
@@ -3795,6 +3818,14 @@ const Game::Doc::Field kGameObjectStateArgs[] = {
     Opt("previousState", "number", nullptr,
         "The state it was in: the open, close, destroy or rebuild animation plays first."),
 };
+const Game::Doc::Field kOneShotArgs[] = {
+    Req("animation", "number", "An AnimationData.dbc id, for example 9 CombatWound or 30 Dodge."),
+    Opt("upperBodyOnly", "bool", "false", "Plays it on the upper body, so the legs go on walking or running."),
+};
+const Game::Doc::Function kPlayOneShotAnimation{
+    "Plays an animation once over the actor's own animation, as a unit plays a wound or a parry. Nothing "
+    "happens when the actor plays a death animation or its model has no such animation.",
+    kOneShotArgs, {}, nullptr, true};
 const Game::Doc::Function kSetGameObjectState{
     "Shows a game object model in a state, as the world animates a door or a chest when its state changes.",
     kGameObjectStateArgs, {}, nullptr, true};
@@ -3912,6 +3943,7 @@ const Game::Doc::Method kMethodDocs[] = {
     {"SetModelBySpellArea", &kSetModelBySpellArea},
     {"SetModelByGameObjectDisplayID", &kSetModelByGameObjectDisplayID},
     {"SetGameObjectState", &kSetGameObjectState},
+    {"PlayOneShotAnimation", &kPlayOneShotAnimation},
     {"SetModelByUnit", &kSetModelByUnit},
     {"SetModelByUnitCreatureDisplayID", &kSetModelByUnitCreatureDisplayID},
     {"GetModelUnitGUID", &kGetModelUnitGUID},

@@ -885,6 +885,7 @@ build instructions.
   - [`actor:SetModelByPath(path [, useMips])`](#actorsetmodelbypathpath--usemips)
   - [`actor:SetModelBySpellArea(spellID, radius)`](#actorsetmodelbyspellareaspellid-radius)
   - [`actor:SetModelByGameObjectDisplayID(gameObjectDisplayID)`](#actorsetmodelbygameobjectdisplayidgameobjectdisplayid)
+  - [`actor:PlayOneShotAnimation(animation [, upperBodyOnly])`](#actorplayoneshotanimationanimation--upperbodyonly)
   - [`actor:SetGameObjectState(state [, previousState])`](#actorsetgameobjectstatestate--previousstate)
   - [`actor:SetModelByUnit(unit [, sheatheWeapons, autoDress, hideWeapons, usePlayerNativeForm, holdBowString, customRaceID])`](#actorsetmodelbyunitunit--sheatheweapons-autodress-hideweapons-useplayernativeform-holdbowstring-customraceid)
   - [`actor:SetModelByUnitCreatureDisplayID(unit)`](#actorsetmodelbyunitcreaturedisplayidunit)
@@ -3572,7 +3573,7 @@ movement of your character:
 | `UNIT_INFO` | What a unit looks like when it comes into view, and each time that this changes: its display, mount, scale, stand state, sheath state and held items. |
 | `PLAYER_INFO` | The body of a player and what it wears: race, sex, appearance, the 19 visible items with their enchants, and the tabard emblem of its guild. |
 | `UNIT_CAST` | Each time that a unit starts or stops a cast or a channel: the spell that it casts and its cast time, and the spell that it channels. |
-| `UNIT_STATE` | Each time that the target, the owner, the unit flags, the level or the faction of a unit changes. The owner is the master of a pet, a guardian or a totem, or the controller of a charmed unit. |
+| `UNIT_STATE` | Each time that the target, the owner, the unit flags, the level, the faction or the melee victim of a unit changes. The owner is the master of a pet, a guardian or a totem, or the controller of a charmed unit. |
 | `UNIT_POWER` | Each time that the health or the power of a unit changes. |
 | `UNIT_AURAS` | Each time that the auras of a unit change: the spell, harmful or helpful, and the stacks of each aura. |
 | `UNIT_NAME` | The name that your client has for a player, a pet, or a creature. With it, a log that is read on a different computer still has the names. |
@@ -3636,7 +3637,7 @@ name of a creature from the server.
 | `GetUnitAppearances(unitIndex)` | An array of the bodies of a player, in time order. Each has `time`, `raceID`, `classID`, `sex`, `skin`, `face`, `hairStyle`, `hairColor`, `facialHair`, the five tabard emblem values when the log has them, and `items`, a list of `ItemTransmogInfo` for slots 1 to 19. The table fits [`actor:SetModelByCharacterAppearance`](#actorsetmodelbycharacterappearanceappearance). |
 | `GetUnitHealth(unitIndex, time)` | `health, maxHealth`. They come from the `UNIT_POWER` lines of the movement file, or else from the data of `advancedCombatLogging`. Nil before the log gives them. `0` after the unit dies. |
 | `GetUnitPower(unitIndex, time)` | `powerType, power, maxPower` from the movement file. Rage is in tenths. Nil when the file has no power for the unit. |
-| `GetUnitState(unitIndex, time)` | `targetIndex, ownerIndex, flags, level, factionTemplate` from the movement file. `flags` is `UNIT_FIELD_FLAGS`: `0x40000` stunned, `0x80000` in combat, `0x400000` confused, `0x800000` fleeing. Nil when the file has no state for the unit. |
+| `GetUnitState(unitIndex, time)` | `targetIndex, ownerIndex, flags, level, factionTemplate, attackTargetIndex` from the movement file. `attackTargetIndex` is the unit that it attacks with melee swings. `flags` is `UNIT_FIELD_FLAGS`: `0x40000` stunned, `0x80000` in combat, `0x400000` confused, `0x800000` fleeing. Nil when the file has no state for the unit. |
 | `GetUnitAuras(unitIndex, time)` | An array of auras. Each has `spellID`, `auraType` (`BUFF` or `DEBUFF`), `sourceIndex`, `applied` and `applications`. With the `UNIT_AURAS` lines of the movement file, all the auras of the unit are known. Without them, only the auras that the log saw applied are known. `sourceIndex` is known only for an aura that the log saw applied. |
 | `GetUnitWeapons(unitIndex, time)` | The item class and subclass of the main hand and the off hand. |
 | `GetUnitDeaths(unitIndex)` | An array of the times when the unit died. |
@@ -3653,6 +3654,9 @@ not show other stops, for example when the caster moves or is stunned, and
 it does not show when a channel ends. `GetUnitCast` gets these times from the
 `UNIT_CAST` lines of the movement file. Without these lines, a cast with no
 end in the combat log has no bar, and there are no channels.
+
+The combat log does not show some casts, for example Opening on a door or a
+chest. `GetUnitCast` also gives these casts from the `UNIT_CAST` lines.
 
 ### Game objects and ground areas
 
@@ -3680,6 +3684,7 @@ including, `endTime`, in time order. Each event has:
 | `castTime` | For a `SPELL_CAST_START`: the seconds until the cast succeeded, failed, was interrupted or stopped, or the caster died. |
 | `castFailed` | For a `SPELL_CAST_START` with a `castTime`: `true` when the cast failed or was interrupted. |
 | `extraSpellID` | For a `SPELL_INTERRUPT`: the spell that it interrupted. |
+| `castTargetIndex` | For a `SPELL_CAST_START`: the target of the `SPELL_CAST_SUCCESS` that ended the cast. Nil when the cast did not go off or had no unit as its target. |
 | `text` | For an `EMOTE`: the text of the raid boss emote. |
 | `endsCast` | `true` for a `SPELL_CAST_SUCCESS` or `SPELL_CAST_FAILED` that ends a `SPELL_CAST_START`. |
 | `amount`, `critical` | For damage and heal events. |
@@ -19968,6 +19973,22 @@ door, a chest or a sign. `gameObjectDisplayID` is a
 `GameObjectDisplayInfo.dbc` id. Returns `true`, or `false` when the display
 has no model. A display whose model is a world model (a WMO), for example a
 ship or an elevator, also returns `false`.
+
+This is a ClassicAPI extension.
+
+### `actor:PlayOneShotAnimation(animation [, upperBodyOnly])`
+
+Plays an animation one time over the animation of the actor, as a unit
+plays a wound, a parry, a dodge or a block. `animation` is an
+`AnimationData.dbc` id, for example `9` (CombatWound) or `30` (Dodge).
+
+- If `upperBodyOnly` is `true`, the animation plays on the upper body, and
+  the legs continue to walk or run. When it ends, the upper body follows the
+  legs again.
+- Otherwise it plays on the whole body. When it ends, the animation of the
+  actor plays again.
+- Nothing plays while the actor plays a death animation, before its model
+  loads, or when the model has no such animation.
 
 This is a ClassicAPI extension.
 
