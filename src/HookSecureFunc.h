@@ -29,8 +29,9 @@ int __fastcall Wrapper(void *L);
 
 // Pops the hook (top) and the original (below it) and pushes the wrapper
 // closure over them. The original and the wrapper carry `origWord`, the
-// hook `hookWord` (context words, 1.12's taint); the current context is
-// left as it was.
+// hook `hookWord` (context words, 1.12's taint). The current context is
+// `origWord` on return, so the store that follows stamps under the
+// original's word; the caller restores its own context after the store.
 void PushWrapper(void *L, uint32_t origWord, uint32_t hookWord);
 
 // HookScript's store once GetScript has run: the stack is (self, type,

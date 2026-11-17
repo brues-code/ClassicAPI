@@ -142,15 +142,22 @@ int __fastcall Wrapper(void *L) {
 }
 
 // 3.3.5's `lua_settaint` pair, `lua_pushcclosure`, `lua_settaint` on the
-// closure. Copying the upvalues makes a nonzero word current, so the
-// context is put back after, as 3.3.5's save/restore around it does.
+// closure, then the context goes back to the ORIGINAL's word — 3.3.5's
+// `savedTaint`, which it reads before its lua_insert and which is the
+// original's word there. It cannot be read here: every caller has already
+// moved the hook, and copying the hook makes its word current. The store
+// that follows runs under that context, and it must: 1.12's lua_insert
+// gives a zero-word value the current context (0x006F324B), so the key and
+// the wrapper inserted before hooksecurefunc's rawset would otherwise take
+// the hook's word. With a hook from /run that put the macro context on
+// _G.JumpOrAscendStart, the JUMP binding's GETGLOBAL made it current, and
+// the jump was refused with MACRO_ACTION_FORBIDDEN.
 void PushWrapper(void *L, uint32_t origWord, uint32_t hookWord) {
-    const uint32_t saved = Context();
     SetContextWord(L, -2, origWord);
     SetContextWord(L, -1, hookWord);
     Game::Lua::PushCClosure(L, &Wrapper, 2);
     SetContextWord(L, -1, origWord);
-    Context() = saved;
+    Context() = origWord;
 }
 
 // 3.3.5's Script_HookScript (0x0049EDB0) from the script lookup on:
