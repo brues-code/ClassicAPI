@@ -978,6 +978,7 @@ build instructions.
   - [Unit tokens (`markN`)](#unit-tokens-markn)
   - [Unit tokens (`totemN`)](#unit-tokens-totemn)
   - [Unit tokens (GUID literals)](#unit-tokens-guid-literals)
+  - [Unit tokens (names)](#unit-tokens-names)
   - [`IsUnitToken(value)`](#isunittokenvalue)
 
 - [NewItems](#newitems)
@@ -10895,11 +10896,10 @@ Rules:
   are OR'd.
 - A `@unit` or `target=unit` piece sets the group's target. Conditions that
   need a unit use it, and default to `"target"`.
-- The unit can be a character name as well as a token, so
-  `[target=Feral] Rejuvenation` heals the player called Feral. The name
-  matches on its start and picks the nearest match, and it has to be
-  someone around you. See
-  [`UnitTokenFromName`](#unittokenfromnamename--exactmatch).
+- The unit can also be the name of you, a group member, or one of your
+  pets. Thus `[target=Feral] Rejuvenation` heals the group member called
+  Feral. A group with any other name does not match. See
+  [Unit tokens (names)](#unit-tokens-names).
 - A group whose only piece is a `@unit` matches only while that unit exists.
   So `[@mouseover][] Spell` uses the mouseover unit when there is one, and
   falls through to `[]` (your target) when there is not. A bare `[]` always
@@ -17827,9 +17827,8 @@ zone, the button has no range state.
 
 The function ignores `unit` when `value` is `false`, `nil` or an empty
 string, because the macro then aims at nothing. A call with the same `value`
-and a different `unit` changes the unit. If `unit` is not a unit token, the
-function raises the error `Unknown unit name: <unit>`, the same error that
-`UnitExists` gives. Then it publishes nothing.
+and a different `unit` changes the unit. If `unit` is not a unit token, it
+names no unit, and the range check uses your target as above.
 
 **What the button picks up.** The spell is written where the client keeps
 each macro's spell, which is the field its own buttons read. So cooldown,
@@ -21892,14 +21891,57 @@ so when it's loaded we detect it and defer to its resolver (no double
 handling); when it isn't, this fills the gap. Either way GUID-token input
 behaves identically, so addons needn't care whether SuperWoW is present.
 
+### Unit tokens (names)
+
+The unit functions also accept a name in place of a token. The name can be
+yours, the name of a party or raid member, or the name of a pet that belongs
+to you or to a group member.
+
+```lua
+print(UnitHealth("Feral"), UnitClass("Feral"))
+TargetUnit("Feral-pet")
+```
+
+```
+/cast [@Feral] Rejuvenation
+```
+
+The rules for a name:
+
+- The name must match the full name of the unit. Uppercase and lowercase
+  letters are equal.
+- A group member matches also when the member is out of range. A pet
+  matches only when the client can see it.
+- In a raid, the raid members are compared. In a party, the party members
+  are compared. Your own name comes first, then the members, then the pets.
+  The first match is the unit.
+- A token comes before a name. If a member has the name `Target`,
+  `"Target"` gives your target. If the token has no unit at that time, the
+  member is the unit.
+- After the name, `-target` moves to the target of the unit, and `-pet`
+  moves to its pet. You can use more than one: `"Feral-pet-target"`. The
+  `-pet` part works for you and for group members.
+
+Other names are not accepted. This includes players outside your group and
+NPCs. To get a token for one of these units, use
+[`UnitTokenFromName`](#unittokenfromnamename--exactmatch).
+
+A text that is not a token and not one of these names names no unit. The
+unit functions then give the same result as for a unit that is not there,
+and they do not raise an error. For example, `UnitName("Nobody")` returns
+`nil`.
+
 ### `IsUnitToken(value)`
 
 Returns `true` when `value` is a unit token, and `false` when it is anything
-else, such as a character name.
+else. The name of you, a group member, or one of your pets counts as a
+token, because the unit functions accept it (see
+[Unit tokens (names)](#unit-tokens-names)). Other character names are
+`false`.
 
-Several functions come in pairs, one that takes a token and one that takes a
-name, and each raises an error on the other kind. Use this to pick between
-them:
+Several functions come in pairs, one that takes a token and one that searches
+by name. The token function does nothing for a name that it does not know.
+Use this to pick between them:
 
 ```lua
 if IsUnitToken(x) then TargetUnit(x) else TargetByName(x) end
@@ -27180,8 +27222,9 @@ end
 ### `UnitTokenFromName(name [, exactMatch])`
 
 Finds the unit called `name` and returns a token for it, or `nil` when
-nobody around matches. This is what lets a character name stand in for a
-unit token, as `[target=Feral]` does in a macro.
+nobody around matches. The unit functions accept the name of a group member
+or a pet directly (see [Unit tokens (names)](#unit-tokens-names)). Use this
+function for other units, for example a player outside your group or an NPC.
 
 ```lua
 local token = UnitTokenFromName("Feral")

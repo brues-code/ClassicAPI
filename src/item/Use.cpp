@@ -51,7 +51,6 @@
 #include "item/Location.h"
 #include "item/Use.h"
 #include "unit/Identity.h"
-#include "unit/TokenResolve.h"
 
 #include <cstdint>
 
@@ -69,15 +68,8 @@ namespace {
 uint64_t ResolveUnitGuid(void *L, int idx) {
     if (!Game::Lua::IsString(L, idx))
         return 0;
-    const char *token = Game::Lua::ToString(L, idx);
-    // The engine's resolver RAISES for a string that names no token, which
-    // would turn a bad `unit` into an error out of a function whose contract
-    // is to no-op on bad input — and this is reached from secure-button
-    // attributes and key bindings, where the string is whatever an addon
-    // configured. Probe first so an unusable one is simply no target.
-    if (!Unit::TokenResolve::IsUnitToken(token))
-        return 0;
-    return ::Unit::Identity::GuidForToken(token);
+    // A string that names no unit is simply no target.
+    return ::Unit::Identity::GuidForToken(Game::Lua::ToString(L, idx));
 }
 
 int __fastcall Script_C_Item_UseItemByName(void *L) {

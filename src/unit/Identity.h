@@ -86,8 +86,8 @@ bool IsPlayerToken(const char *token);
 // read from the canonical local-player pointer so it works regardless of
 // object-manager state; everything else goes through the engine's
 // token→GUID resolver (so out-of-range party/raid members resolve too).
-// NOTE: raises a Lua error for tokens the engine doesn't recognize — only
-// pass known unit tokens.
+// A string the resolver doesn't know answers 0, as any absent unit does
+// (unit/TokenExtensions.cpp catches the engine's "Unknown unit name" raise).
 uint64_t GuidForToken(const char *token);
 
 // The engine's by-name unit search (`FUN_UNIT_FIND_BY_NAME`, behind

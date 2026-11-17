@@ -28,7 +28,6 @@
 #include "Offsets.h"
 #include "target/SoftAttack.h"
 #include "unit/Identity.h"
-#include "unit/TokenResolve.h"
 
 #include <cstdint>
 
@@ -39,11 +38,10 @@ namespace {
 using Start_t = void(__thiscall *)(void *player, const uint64_t *targetGuid);
 using Stop_t = void(__fastcall *)(void *player);
 
-// Resolve an optional unit-token argument to a GUID without raising: a name or
-// garbage is no token (Unit::TokenResolve), and yields 0, which the caller
-// treats as "use current target".
+// Resolve an optional unit-token argument to a GUID. A string that names no
+// unit yields 0, which the caller treats as "use current target".
 uint64_t SafeResolveToken(const char *token) {
-    return Unit::TokenResolve::IsUnitToken(token) ? Unit::Identity::GuidForToken(token) : 0;
+    return Unit::Identity::GuidForToken(token);
 }
 
 } // namespace

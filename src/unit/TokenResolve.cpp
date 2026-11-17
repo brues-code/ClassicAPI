@@ -11,24 +11,17 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// Protected "is this a unit token?" probe over the engine's own token
-// resolver. See TokenResolve.h for the contract.
+// "Is this a unit token?" over the engine's own token resolver. See
+// TokenResolve.h for the contract.
 //
-// Why a protected call and not a token-list match: the resolver
-// (`FUN_TOKEN_TO_GUID`, 0x00515970) is a chain of literal / prefix compares
-// that returns 0 for a token pointing at nothing and, for anything it does
-// not recognise, falls through to the engine's Lua error helper
-// (`FUN_007040E0` → `luaG_runerror`) with "Unknown unit name: %s". That
-// error is a real throw, which is why FrameXML-side code has to wrap
-// `UnitExists` in `pcall` (Util/MacroOptions.lua does exactly that). So the
-// only way to consult the resolver about an unknown string is to catch the
-// throw — and catching it is strictly better than re-listing the token
+// Why ask the resolver and not match a token list: the resolver
+// (`FUN_TOKEN_TO_GUID`, 0x00515970) returns 0 for a token pointing at nothing
+// and, for anything it does not recognise, raises "Unknown unit name: %s".
+// The hook on it (`unit/TokenExtensions.cpp`) catches that raise and answers
+// "no unit", as 4.3.4 and retail do, and records it for the string being
+// asked about. Asking that way is strictly better than re-listing the token
 // families here, which would silently drift from both the engine's set and
-// the ones `unit/TokenExtensions.cpp` hooks on.
-//
-// The resolver is a pure read (object-manager lookups, string compares,
-// party/raid slot arrays), so probing and then letting the engine resolve
-// the same string again costs nothing but the second walk.
+// the ones other DLLs and the hook add.
 //
 // Exposed to Lua as `IsUnitToken(value)`, which is what lets a caller pick
 // between the engine's TOKEN entry and its BY-NAME entry for the same verb:
@@ -42,47 +35,15 @@
 // either side to notice. One additive predicate composes with all of them
 // and shadows nothing.
 
-#include "unit/Identity.h"
+#include "unit/TokenExtensions.h"
 #include "unit/TokenResolve.h"
 
 #include "Game.h"
-#include "Offsets.h"
-
-#include <cstdint>
 
 namespace Unit::TokenResolve {
 
-namespace {
-
-
-// Body of the protected call: resolve arg 1 and discard the result. Returns
-// no values — the caller only reads the pcall status, since a token that
-// resolves to 0 (empty slot) is still a token.
-int __fastcall ProbeThunk(void *L) {
-    const char *token = Game::Lua::ToString(L, 1);
-    if (token)
-        ::Unit::Identity::GuidForToken(token);
-    return 0;
-}
-
-} // namespace
-
 bool IsUnitToken(const char *s) {
-    if (!s || !*s)
-        return false;
-
-    void *L = Game::Lua::State();
-    if (!L)
-        return false;
-
-    const int base = Game::Lua::GetTop(L);
-    Game::Lua::PushCClosure(L, &ProbeThunk, 0);
-    Game::Lua::PushString(L, s);
-    const int status = Game::Lua::PCall(L, /*nargs*/ 1, /*nresults*/ 0, /*errfunc*/ 0);
-    // On failure pcall leaves the error object on the stack; restore either
-    // way so the caller sees the stack it handed us.
-    Game::Lua::SetTop(L, base);
-    return status == 0;
+    return Unit::TokenExtensions::IsKnown(s);
 }
 
 namespace {
@@ -104,7 +65,8 @@ const Game::Doc::Field kArgs[] = {
 };
 const Game::Doc::Field kRets[] = {
     Game::Doc::Req("isUnitToken", "bool",
-                   "True for any token the client accepts, also when no unit is there."),
+                   "True for any token the client accepts, also when no unit is there, and "
+                   "for the name of you, a group member or one of your pets."),
 };
 const Game::Doc::Function kIsUnitToken{
     "Returns whether a value is a unit token rather than a name or other text.", kArgs, kRets,

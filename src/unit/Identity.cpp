@@ -248,9 +248,8 @@ void ForEachCachedPlayer(CachedPlayerVisitor visit, void *context) {
 // live, which is why earlier versions of `UnitGUID` returned nil
 // for `"party1"` when the member was on a different continent.
 //
-// Invalid tokens (arbitrary strings that aren't unit IDs) raise a
-// Lua error via the engine's `"Unknown unit name: %s"` path — same
-// as `Script_UnitName` and other engine unit-token consumers.
+// A string that is no unit token answers nil, as in `Script_UnitName` and
+// the other engine unit-token consumers (unit/TokenExtensions.cpp).
 static int __fastcall Script_UnitGUID(void *L) {
     if (!Game::Lua::IsString(L, 1)) {
         Game::Lua::Error(L, "Usage: UnitGUID(\"unit\")");
@@ -275,8 +274,7 @@ static int __fastcall Script_UnitGUID(void *L) {
 //
 // The search walks the modern retail token order with post-vanilla
 // tokens dropped (no `vehicle`, `arenaN`, `arenapetN`, `bossN` — those
-// post-date 1.12 and `FUN_TOKEN_TO_GUID` would raise "Unknown unit name"
-// for them). `nameplateN`, `focus` and the soft targets are included — we
+// post-date 1.12 and `FUN_TOKEN_TO_GUID` knows none of them). `nameplateN`, `focus` and the soft targets are included — we
 // hook the token resolver so the engine recognizes them (see
 // `unit/TokenExtensions.cpp`, `unit/Focus.cpp`, `target/SoftInteract.cpp`
 // and `target/SoftUnit.cpp`). Order matches retail with the dropped
@@ -429,10 +427,10 @@ uint64_t FindGuidByName(const char *name, uint32_t typeMask, bool exact, int mod
 
 // `UnitTokenFromName(name [, exactMatch])` -> unit token, or nothing.
 //
-// The macro `@unit` / `target=unit` piece accepts a character name as well
-// as a unit token, but nothing in 1.12 turns a name into something the
-// `Unit*` functions accept. This runs the engine's own by-name search — the
-// one behind `TargetByName` — and reports the winner as a token.
+// The unit functions take the name of you, a group member or one of your
+// pets directly (unit/TokenExtensions.cpp), but not anyone else's. This runs
+// the engine's own by-name search — the one behind `TargetByName`, over every
+// unit nearby — and reports the winner as something they accept.
 //
 // Prefers a standard token (`party1`, `target`, …) so callers get the
 // stable, readable form, and falls back to the GUID literal for a unit no

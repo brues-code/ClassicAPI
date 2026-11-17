@@ -2336,12 +2336,10 @@ enum Offsets {
     //                            semantics as the existing
     //                            `UnitGUID` documented behavior).
     //
-    // Don't use this from code paths that need to handle literal
-    // character names — see CLAUDE.md "Resolving input to a name"
-    // for the `lua_pcall(UnitName)` workaround. For pure unit-token
-    // input it's the right primitive. To ask "is this string a unit
-    // token?" without eating that error, use
-    // `Unit::TokenResolve::IsUnitToken` (protected probe).
+    // ClassicAPI's hook on it (`unit/TokenExtensions.cpp`) adds the name of
+    // you, a group member or a pet, and catches that raise so an unknown
+    // string answers 0, as 4.3.4 and retail do. To ask "is this string a
+    // unit token?", use `Unit::TokenResolve::IsUnitToken`.
     //
     // Verified on the Turtle build: the unknown-token fallthrough
     // (`jne` at 0x00515C14) is patched to `jmp 0x00D06670`, in the
@@ -2683,6 +2681,12 @@ enum Offsets {
     EVENT_PLAYER_LEAVING_WORLD = 0x111,
     EVENT_QUEST_LOG_UPDATE = 0x134,
     EVENT_FRIENDLIST_UPDATE = 0x15F,
+    // The roster signals. Both no-arg (FUN_FIRE_EVENT_NO_ARGS): the pending-name
+    // countdown 0x004BAD90 ends `mov ecx,0x1F3; call 0x703E50; mov ecx,0xDA;
+    // jmp 0x703E50`, and a roster rebuild signals only once every member's
+    // name is in the name cache (benilla-re ui/raid, ui/party).
+    EVENT_PARTY_MEMBERS_CHANGED = 0xDA,
+    EVENT_RAID_ROSTER_UPDATE = 0x1F3,
     // UnitWatchedIndex — the position of unit field `field` (bank-relative
     // index, the unit-field event id) in the unit's watched-field table
     // (0x00839E48, 0xA7 entries), the slot of its 4 bytes in the watch copy

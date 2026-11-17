@@ -55,26 +55,20 @@ end
 -- at all, so it becomes the untargeted form of whatever verb ran.
 local NON_UNIT_TARGETS = { none = true, cursor = true };
 
--- `@unit` and `target=unit` accept a character name as well as a unit token
--- (`[target=Feral]`), and the engine's unit functions take only tokens.
--- Resolve once here so every command below hands them something they accept.
--- Returns nil for a name with nobody around to match it.
+-- `@unit` and `target=unit` take a unit token or the name of you, a group
+-- member or one of your pets (`[target=Feral]`), and the unit functions accept
+-- both as they are. They raise for anything else, which becomes nil here.
 local function SecureCmdTargetUnit(target)
 	if ( not target or target == "" or IsUnitToken(target) ) then
 		return target;
 	end
-	-- Keep the non-unit targets out of the by-name search, which matches on
-	-- the START of a name: `@none` would happily find a nearby Nonek.
-	if ( NON_UNIT_TARGETS[strlower(target)] ) then
-		return nil;
-	end
-	return UnitTokenFromName(target);
+	return nil;
 end
 
 -- One target normalization for every verb below: an empty target and `@none`
 -- become nil (no unit), a non-unit target keeps its own name, and anything
--- else has to resolve to a token. Returns `false` for a name with nobody
--- around to match it, which the callers treat as "do nothing".
+-- else has to be a unit the unit functions accept. Returns `false` for one
+-- they don't, which the callers treat as "do nothing".
 local function SecureCmdNormalizeTarget(target)
 	if ( not target or target == "" ) then
 		return nil;
@@ -188,7 +182,7 @@ local function SecureCmdCast(msg)
 	end
 	target = SecureCmdNormalizeTarget(target);
 	if ( target == false ) then
-		return; -- a named unit with nobody around to match it
+		return; -- a name the unit functions don't take
 	end
 	SecureCmdPerformAction(action, target);
 end
@@ -279,9 +273,10 @@ end
 -- ---------------------------------------------------------------------
 -- Targeting
 --
--- Each verb has one entry that takes a unit token and another that takes a
--- character name, and each errors on the other kind. `SecureCmdOptionParse`
--- hands back either, so pick with `IsUnitToken`.
+-- Each verb has one entry that takes a unit (a token, or the name of you, a
+-- group member or one of your pets) and another that searches by name, and
+-- the unit entry errors on any other name. `SecureCmdOptionParse` hands back
+-- either, so pick with `IsUnitToken`.
 -- ---------------------------------------------------------------------
 
 local function SecureCmdTarget(msg, exactMatch)
@@ -891,7 +886,7 @@ SlashCmdList["CASTSEQUENCE"] = function(msg)
 	end
 	target = SecureCmdNormalizeTarget(target);
 	if ( target == false ) then
-		return; -- a named unit with nobody around to match it
+		return; -- a name the unit functions don't take
 	end
 	ExecuteCastSequence(sequence, target);
 end
@@ -968,7 +963,7 @@ local function SecureCmdCastRandom(msg)
 	end
 	target = SecureCmdNormalizeTarget(target);
 	if ( target == false ) then
-		return; -- a named unit with nobody around to match it
+		return; -- a name the unit functions don't take
 	end
 	local action = ExecuteCastRandom(actions);
 	if ( action and action ~= "" ) then

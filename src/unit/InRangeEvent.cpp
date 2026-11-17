@@ -27,7 +27,7 @@
 // and their pets. A token fires when Unit::Range::InRange, UnitInRange's own
 // check, changes for it; its first check fires nothing. A filter unit that
 // is not a unit token is dropped once (Unit::TokenResolve::IsUnitToken), as
-// the engine's resolver raises a Lua error for it.
+// it can never name a unit.
 
 #include "Game.h"
 #include "Offsets.h"

@@ -378,10 +378,7 @@ static int __fastcall Script_GameTooltipHasUnit(void *L) {
 // It compares GUIDs, so any token naming that unit matches, whichever one the
 // tooltip was built from.
 //
-// 4.3.4's token resolver answers 0 for a string that names nothing; 1.12's
-// raises "Unknown unit name", so the string is probed first (see
-// `Unit::TokenResolve::IsUnitToken`) and an unusable one is simply no match.
-// A token that names no unit right now resolves to 0 and never matches, even
+// A string that is no token resolves to 0 and is no match. A token that names no unit right now resolves to 0 and never matches, even
 // on a tooltip showing nothing.
 static int __fastcall Script_GameTooltipIsUnit(void *L) {
     void *tooltipObj = Game::Lua::ResolveTooltip(L);
@@ -392,11 +389,7 @@ static int __fastcall Script_GameTooltipIsUnit(void *L) {
         return 0;
     }
 
-    const char *token = Game::Lua::ToString(L, 2);
-    uint64_t guid = 0;
-    if (Unit::TokenResolve::IsUnitToken(token)) {
-        guid = ::Unit::Identity::GuidForToken(token);
-    }
+    const uint64_t guid = ::Unit::Identity::GuidForToken(Game::Lua::ToString(L, 2));
 
     const auto *base = static_cast<const uint8_t *>(tooltipObj);
     const uint64_t shown =
