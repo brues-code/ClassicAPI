@@ -3567,6 +3567,7 @@ movement of your character:
 | `MONSTER_MOVE`, `MONSTER_STOP` | A path that the server moves a creature on, with its points and its time. |
 | `UNIT_INFO` | What a unit looks like when it comes into view, and each time that this changes: its display, mount, scale, stand state, sheath state and held items. |
 | `PLAYER_INFO` | The body of a player and what it wears: race, sex, appearance, the 19 visible items with their enchants, and the tabard emblem of its guild. |
+| `UNIT_CAST` | Each time that a unit starts or stops a cast or a channel: the spell that it casts and its cast time, and the spell that it channels. |
 | `UNIT_GONE` | A unit that went out of view. |
 
 The replay functions read this file. A movement file from an earlier
@@ -3626,10 +3627,18 @@ name of a creature from the server.
 | `GetUnitAuras(unitIndex, time)` | An array of auras. Each has `spellID`, `auraType` (`BUFF` or `DEBUFF`), `sourceIndex` and `applied`. Only auras that the log saw applied are known. |
 | `GetUnitWeapons(unitIndex, time)` | The item class and subclass of the main hand and the off hand. |
 | `GetUnitDeaths(unitIndex)` | An array of the times when the unit died. |
+| `GetUnitCast(unitIndex, time)` | `spellID, startTime, endTime, stopTime, isChannel, interrupted, interrupterIndex` of the last cast or channel that the unit started by `time`. Nil when it started none. `endTime` is when the cast was due to end. `stopTime` is when it stopped, and is nil when the log does not say. `interrupted` is `true` for a cast that stopped before its end. `interrupterIndex` is the unit whose interrupt stopped it. |
 
 A unit is dead from its death until it next casts, attacks or is
 resurrected, or until it goes out of view. A hidden helm or a hidden cloak
 has no item in `items`.
+
+A cast ends at its `SPELL_CAST_SUCCESS` or `SPELL_CAST_FAILED`, at a
+`SPELL_INTERRUPT` of it, or at the death of its caster. The combat log does
+not show other stops, for example when the caster moves or is stunned, and
+it does not show when a channel ends. `GetUnitCast` gets these times from the
+`UNIT_CAST` lines of the movement file. Without these lines, a cast with no
+end in the combat log has no bar, and there are no channels.
 
 ### `C_CombatLogReplay.GetEvents(startTime, endTime)`
 
@@ -3643,8 +3652,9 @@ including, `endTime`, in time order. Each event has:
 | `sourceIndex`, `destIndex` | The units. Nil when the source or the target is not a unit. |
 | `spellID` | For spell events. |
 | `auraType` | `BUFF` or `DEBUFF`, for aura events. |
-| `castTime` | For a `SPELL_CAST_START`: the seconds until the cast succeeded or failed. |
-| `castFailed` | For a `SPELL_CAST_START` with a `castTime`: `true` when the cast failed. |
+| `castTime` | For a `SPELL_CAST_START`: the seconds until the cast succeeded, failed, was interrupted or stopped, or the caster died. |
+| `castFailed` | For a `SPELL_CAST_START` with a `castTime`: `true` when the cast failed or was interrupted. |
+| `extraSpellID` | For a `SPELL_INTERRUPT`: the spell that it interrupted. |
 | `endsCast` | `true` for a `SPELL_CAST_SUCCESS` or `SPELL_CAST_FAILED` that ends a `SPELL_CAST_START`. |
 | `amount`, `critical` | For damage and heal events. |
 | `missType` | For miss events: `MISS`, `DODGE`, `PARRY`, `BLOCK`, `RESIST`, `ABSORB`, `IMMUNE` and more. |

@@ -68,6 +68,13 @@
 //     emblem values are the guild's tabard emblem from the guild cache
 //     (GetGuildEmblem), all -1 while the client has no record of the guild
 //     or the player has none (version 5);
+//   UNIT_CAST,unitGUID,castSpellID,castTimeMs,channelSpellID
+//     a unit's cast state each time it changes (UnitInfo.cpp), and when a
+//     unit that casts or channels comes into view: the spell it casts with
+//     a cast time and that time in milliseconds, then the spell it
+//     channels, each 0 for none. A cast that stops without a
+//     SPELL_CAST_SUCCESS was interrupted; a channel ends when its spell
+//     goes back to 0;
 //   UNIT_GONE,unitGUID
 //     the unit left view.
 // GUIDs are written as the combat log writes them. After a header the unit

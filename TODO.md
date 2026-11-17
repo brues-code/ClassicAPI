@@ -4304,10 +4304,8 @@ embedded load-on-demand addon. Layers:
   ChrRaces, dressed by a component built as BuildCharacterComponent's
   player branch 0x005FB200 builds one). The viewer dresses a player in its
   own display once per appearance and sheathes by its sheath state.
-  Checked in game on a Stormwind log. Not yet: tabard emblems (no guild
-  ID logged), creature held weapons, the ranged sheath state, jump arcs
-  (a jump is drawn as straight lines to its mid-air sample; the log has
-  the jump's speeds and fall time for the client's arc).
+  Checked in game on a Stormwind log. Jumps and falls follow the client's
+  arc (Recording.cpp, Unit::Fall from the move's fall time and speed).
 - L4 combat: cast visuals and missiles, auras, swings, deaths, health bars,
   an event feed. First half DONE (2026-11-16): the reader keeps the
   stretch's combat lines (`GetEvents`, casts paired start to end), aura
@@ -4346,6 +4344,19 @@ embedded load-on-demand addon. Layers:
   a display with flag +0x24 bit 0). Creatures hold their logged virtual
   items (`actor:SetHeldItem`, `GetUnitHeldItem`) and every unit takes the
   log's sheath state (`actor:SetSheatheState`, 2 = ranged in hand).
+- Cast bars (2026-11-16, not yet seen in game): the movement file's
+  UNIT_CAST (UnitInfo.cpp) writes each unit's cast spell (CGUnit +0xC8C,
+  cleared by ClearCastingSpell 0x0060D040) with SMSG_SPELL_START's cast
+  time, and its channel spell (+0x228), when they change. The reader's
+  `GetUnitCast` pairs SPELL_CAST_START with its success or failure, a
+  SPELL_INTERRUPT of it, or an interrupt spell's success on the caster as
+  it stopped (the server logs no SPELL_INTERRUPT for one that also deals
+  damage: Kick, Pummel) (the bar names the interrupter with retail's
+  SPELL_INTERRUPTED_BY) or the caster's UNIT_DIED; a start with none of
+  these stops where UNIT_CAST does (interrupted when before its end), and a
+  channel runs from its SPELL_CAST_SUCCESS until +0x228 clears. The viewer
+  shows retail's Classic cast bar colors over the unit, stops an
+  interrupted cast's visual and gives a channel's visual its logged length.
 - Time of day (scoped 2026-11-16, deferred): the scene's sky, bodies and
   water take the WORLD's time of day (light state 0x00CE9B64); its ground,
   WMO exteriors and actors are lit by the scene's fixed light and fog

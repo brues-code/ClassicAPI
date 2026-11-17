@@ -91,6 +91,7 @@ ITEMS_IN_INVENTORY = "%d |4Gegenstand:Gegenstände; im Inventar";
 ITEM_SLOTS_IGNORED = "%d |4Platz:Plätze; ignoriert";
 ITEM_MISSING = "%s fehlt";
 ITEMS_NOT_IN_INVENTORY = "%d |4Gegenstand fehlt:Gegenstände fehlen;";
+SPELL_INTERRUPTED_BY = "Unterbrochen: %s";
 STOP_AUTO_ATTACK = "Autom. Angriff stoppen";
 TARGETFOCUS = "Fokussierte Einheit anvisieren";
 -- BINDING_NAME_AOELOOT = "AoE Loot";

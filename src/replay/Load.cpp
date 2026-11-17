@@ -25,10 +25,12 @@
 #include "replay/Recording.h"
 
 #include "Offsets.h"
+#include "spell/Lookup.h"
 
 #include <algorithm>
 #include <charconv>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <unordered_map>
 
@@ -41,6 +43,19 @@ constexpr int64_t kTailMs = 10000;
 // A unit's cast this soon after its death is the death's own spell, not the
 // unit acting again.
 constexpr int32_t kDeathSpellMs = 1000;
+// A UNIT_CAST that begins a cast this close to a SPELL_CAST_START of its spell
+// is that cast's: both come from one SMSG_SPELL_START, the log line from the
+// message, the UNIT_CAST from the frame after it.
+constexpr int32_t kCastMatchMs = 500;
+// A cast with no success line that stopped this close to its end went off
+// (a cast whose success the log leaves out, as it does for opening a lock):
+// the server's message that it went off and the client's cast time end at
+// about the same time, apart by the network's delay.
+constexpr int32_t kWentOffMs = 300;
+// How long after its SPELL_CAST_SUCCESS a channel's UNIT_CAST can come: the
+// server sends UNIT_FIELD_CHANNEL_SPELL up to about a second after the
+// SMSG_SPELL_GO that starts the channel (spell/Cast.cpp).
+constexpr int32_t kChannelLagMs = 2000;
 
 class Loader {
 public:
@@ -69,6 +84,7 @@ private:
     void AddLook(Unit &unit, int32_t t, const Look &look);
     void AddAppearance(Unit &unit, int32_t t, const Appearance &appearance);
     void AddSpeeds(Unit &unit, int32_t t, const Speeds &speeds);
+    void AddCastState(Unit &unit, const CastState &state);
     void Close(Unit &unit, int32_t t);
     void Header(const Line::Fields &f, int32_t t);
     void UnitInfo(const Line::Fields &f, int32_t t);
@@ -77,6 +93,7 @@ private:
     void MonsterMove(const Line::Fields &f, int32_t t);
     void MonsterStop(const Line::Fields &f, int32_t t);
     void UnitSpeed(const Line::Fields &f, int32_t t);
+    void UnitCast(const Line::Fields &f, int32_t t);
 
     Recording &r_;
     std::unordered_map<std::string, int32_t> index_;
@@ -163,9 +180,21 @@ void Loader::AddSpeeds(Unit &unit, int32_t t, const Speeds &speeds) {
         unit.speeds.emplace_back(t, speeds);
 }
 
-// The unit leaves view. A time in view that ended before the stretch is
-// dropped.
+void Loader::AddCastState(Unit &unit, const CastState &state) {
+    if (state.t < 0 && !unit.castStates.empty() && unit.castStates.back().t < 0)
+        unit.castStates.back() = state;
+    else
+        unit.castStates.push_back(state);
+}
+
+// The unit leaves view, and with it any cast it had under way. A time in
+// view that ended before the stretch is dropped.
 void Loader::Close(Unit &unit, int32_t t) {
+    if (!unit.castStates.empty() && (unit.castStates.back().spell != 0 || unit.castStates.back().channel != 0)) {
+        CastState none;
+        none.t = t;
+        AddCastState(unit, none);
+    }
     if (unit.spans.empty() || unit.spans.back().to != INT32_MAX)
         return;
     unit.spans.back().to = t;
@@ -257,6 +286,15 @@ void Loader::UnitSpeed(const Line::Fields &f, int32_t t) {
     else
         return; // TURN_RATE
     AddSpeeds(unit, t, speeds);
+}
+
+void Loader::UnitCast(const Line::Fields &f, int32_t t) {
+    CastState state;
+    state.t = t;
+    state.spell = static_cast<uint32_t>(f.Int(2));
+    state.castMs = static_cast<uint32_t>(f.Int(3));
+    state.channel = static_cast<uint32_t>(f.Int(4));
+    AddCastState(Get(f[1]), state);
 }
 
 void Loader::UnitMove(const Line::Fields &f, int32_t t) {
@@ -354,6 +392,8 @@ void Loader::Movement(std::string_view body, int32_t t) {
         MonsterStop(f, t);
     else if (f[0] == "UNIT_SPEED")
         UnitSpeed(f, t);
+    else if (f[0] == "UNIT_CAST")
+        UnitCast(f, t);
     else if (f[0] == "MOVEMENT_LOG_VERSION")
         Header(f, t);
 }
@@ -516,19 +556,27 @@ void Loader::Combat(std::string_view body, int32_t t) {
     // Damage: amount, baseAmount, overkill, school, resisted, blocked,
     // absorbed, critical; heals: amount, baseAmount, overhealing, absorbed,
     // critical; misses: missType first.
+    // The damage suffix also follows DAMAGE_SHIELD (Thorns) and DAMAGE_SPLIT,
+    // whose names do not end in _DAMAGE.
     const int suffix = SuffixAt(type, advanced_);
-    if (EndsWith(type, "_DAMAGE")) {
+    if (EndsWith(type, "_DAMAGE") || type == "DAMAGE_SHIELD" || type == "DAMAGE_SPLIT") {
+        e.hasAmount = true;
         e.amount = f.Int(suffix);
         e.critical = f[suffix + 7] == "1";
     } else if (EndsWith(type, "_HEAL")) {
+        e.hasAmount = true;
         e.amount = f.Int(suffix);
         e.critical = f[suffix + 4] == "1";
     } else if (EndsWith(type, "_MISSED")) {
         e.missType = std::string(f[suffix]);
     }
     // A cast's start is open until the caster's success or failure of the
-    // same spell.
-    const uint64_t key = (static_cast<uint64_t>(static_cast<uint32_t>(source)) << 32) | e.spellID;
+    // same spell, a SPELL_INTERRUPT of that spell on the caster, or the
+    // caster's death.
+    const auto castKey = [](int32_t unit, uint32_t spell) {
+        return (static_cast<uint64_t>(static_cast<uint32_t>(unit)) << 32) | spell;
+    };
+    const uint64_t key = castKey(source, e.spellID);
     if (type == "SPELL_CAST_START" && source >= 0) {
         openCasts_[key] = r_.events.size();
     } else if ((type == "SPELL_CAST_SUCCESS" || type == "SPELL_CAST_FAILED") && source >= 0) {
@@ -539,6 +587,27 @@ void Loader::Combat(std::string_view body, int32_t t) {
             start.castFailed = type == "SPELL_CAST_FAILED";
             e.endsCast = true;
             openCasts_.erase(open);
+        }
+    } else if (type == "SPELL_INTERRUPT" && dest >= 0) {
+        e.extraSpellID = static_cast<uint32_t>(f.Int(suffix));
+        const auto open = openCasts_.find(castKey(dest, e.extraSpellID));
+        if (open != openCasts_.end()) {
+            CombatEvent &start = r_.events[open->second];
+            start.castEnd = t;
+            start.castFailed = true;
+            start.interrupter = source;
+            openCasts_.erase(open);
+        }
+    } else if (type == "UNIT_DIED" && dest >= 0) {
+        for (auto open = openCasts_.begin(); open != openCasts_.end();) {
+            if (static_cast<int32_t>(open->first >> 32) != dest) {
+                ++open;
+                continue;
+            }
+            CombatEvent &start = r_.events[open->second];
+            start.castEnd = t;
+            start.castFailed = true;
+            open = openCasts_.erase(open);
         }
     }
     r_.events.push_back(std::move(e));
@@ -709,6 +778,113 @@ void Retime(Unit &unit) {
                      [](const Key &a, const Key &b) { return a.t < b.t; });
 }
 
+// The unit that interrupted `caster`'s cast stopped at `stop`: the source of a
+// spell with an interrupt effect that went off on the caster as the cast
+// stopped, the nearest. The server writes no execute log, so no
+// SPELL_INTERRUPT, for an interrupt that also deals damage (tortoise-wow
+// Spell::HandleImmediate drops it for SCHOOL_DAMAGE): Kick, Pummel, Shield
+// Bash and Earth Shock leave only their success line, on the same stamp as
+// the stop. -1 for none.
+int32_t Interrupter(const Recording &r, int32_t caster, int32_t stop) {
+    int32_t found = -1, nearest = kCastMatchMs + 1;
+    auto it = std::lower_bound(r.events.begin(), r.events.end(), stop - kCastMatchMs,
+                               [](const CombatEvent &e, int32_t t) { return e.t < t; });
+    for (; it != r.events.end() && it->t <= stop + kCastMatchMs; ++it) {
+        if (it->type != "SPELL_CAST_SUCCESS" || it->dest != caster || it->source < 0 ||
+            std::abs(it->t - stop) >= nearest)
+            continue;
+        const uint8_t *spell = Spell::Lookup::RecordForID(static_cast<int>(it->spellID));
+        if (Spell::Lookup::HasEffect(spell, Offsets::SPELL_EFFECT_INTERRUPT_CAST)) {
+            found = it->source;
+            nearest = std::abs(it->t - stop);
+        }
+    }
+    return found;
+}
+
+// The unit's cast bars. A cast is a SPELL_CAST_START until its caster's
+// success or failure of the spell, a SPELL_INTERRUPT of it, or the caster's
+// death. With no such line the cast stopped when
+// UNIT_CAST says the unit stopped casting it: before its end it was
+// interrupted (the logs write no line for another unit's interrupted cast),
+// and the start gets that stop as its end. A channel is a UNIT_CAST's channel
+// spell, from the SPELL_CAST_SUCCESS that began it until the spell goes.
+void BuildCasts(Recording &r) {
+    for (CombatEvent &e : r.events) {
+        if (e.type != "SPELL_CAST_START" || e.source < 0)
+            continue;
+        Unit &unit = r.units[e.source];
+        const std::vector<CastState> &states = unit.castStates;
+        auto begun = std::lower_bound(states.begin(), states.end(), e.t - kCastMatchMs,
+                                      [](const CastState &s, int32_t t) { return s.t < t; });
+        while (begun != states.end() && begun->t <= e.t + kCastMatchMs && begun->spell != e.spellID)
+            ++begun;
+        uint32_t castMs = 0;
+        int32_t stopped = -1;
+        if (begun != states.end() && begun->t <= e.t + kCastMatchMs) {
+            castMs = begun->castMs;
+            const auto stop = std::find_if(begun + 1, states.end(),
+                                           [&](const CastState &s) { return s.spell != e.spellID; });
+            if (stop != states.end())
+                stopped = stop->t;
+        }
+        Cast cast;
+        cast.spellID = e.spellID;
+        cast.start = e.t;
+        if (e.castEnd >= 0) {
+            cast.stop = e.castEnd;
+            cast.end = e.castFailed && castMs != 0 ? e.t + static_cast<int32_t>(castMs) : e.castEnd;
+            cast.interrupted = e.castFailed;
+            cast.interrupter = e.interrupter;
+        } else if (stopped >= 0) {
+            cast.stop = stopped;
+            cast.end = e.t + static_cast<int32_t>(castMs);
+            if (stopped >= cast.end - kWentOffMs)
+                cast.end = stopped;
+            else
+                cast.interrupted = true;
+            e.castEnd = stopped;
+            e.castFailed = cast.interrupted;
+        } else {
+            continue; // the logs do not say when it stopped
+        }
+        if (cast.interrupted && cast.interrupter < 0)
+            cast.interrupter = Interrupter(r, e.source, cast.stop);
+        unit.casts.push_back(cast);
+    }
+    for (std::size_t i = 0; i < r.units.size(); ++i) {
+        Unit &unit = r.units[i];
+        const auto channel = [&](uint32_t spell, int32_t from, int32_t to) {
+            Cast cast;
+            cast.spellID = spell;
+            cast.start = from;
+            cast.stop = to;
+            cast.channel = true;
+            auto it = std::lower_bound(r.events.begin(), r.events.end(), from - kChannelLagMs,
+                                       [](const CombatEvent &e, int32_t t) { return e.t < t; });
+            for (; it != r.events.end() && it->t <= from; ++it)
+                if (it->type == "SPELL_CAST_SUCCESS" && it->source == static_cast<int32_t>(i) &&
+                    it->spellID == spell)
+                    cast.start = it->t;
+            unit.casts.push_back(cast);
+        };
+        uint32_t open = 0;
+        int32_t from = 0;
+        for (const CastState &state : unit.castStates) {
+            if (state.channel == open)
+                continue;
+            if (open != 0)
+                channel(open, from, state.t);
+            open = state.channel;
+            from = state.t;
+        }
+        if (open != 0)
+            channel(open, from, INT32_MAX);
+        std::stable_sort(unit.casts.begin(), unit.casts.end(),
+                         [](const Cast &a, const Cast &b) { return a.start < b.start; });
+    }
+}
+
 } // namespace
 
 std::unique_ptr<Recording> Load(const std::string &log, int64_t startMs, int64_t endMs) {
@@ -756,6 +932,7 @@ std::unique_ptr<Recording> Load(const std::string &log, int64_t startMs, int64_t
     });
     if (recording->map < 0)
         recording->map = loader.CombatMap();
+    BuildCasts(*recording);
     // A corpse leaving view ends its death: a creature can come back under
     // its GUID (a respawn), new to view.
     for (Unit &unit : recording->units)

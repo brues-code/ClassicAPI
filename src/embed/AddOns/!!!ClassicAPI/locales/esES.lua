@@ -91,6 +91,7 @@ ITEMS_IN_INVENTORY = "En inventario: %d |4objeto:objetos;";
 ITEM_SLOTS_IGNORED = "Ignorado: %d |4casilla:casillas;";
 ITEM_MISSING = "Falta: %s";
 ITEMS_NOT_IN_INVENTORY = "Faltan: %d |4objeto:objetos;";
+SPELL_INTERRUPTED_BY = "Interrumpido: %s";
 STOP_AUTO_ATTACK = "Detener ataque automático";
 TARGETFOCUS = "Fijar unidad objetivo";
 -- BINDING_NAME_AOELOOT = "AoE Loot";

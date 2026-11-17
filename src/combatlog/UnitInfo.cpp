@@ -28,6 +28,15 @@
 // CGPlayer_C::ApplyEquipmentDisplay. The rest of UNIT_INFO is the look around
 // the model: mount, scale, stand state, form, stealth, sheath state, and the
 // hands a creature holds.
+//
+// UNIT_CAST is the unit's cast state as the client keeps it: the spell it
+// casts (CGUnit +0xC8C, which SMSG_SPELL_START sets and ClearCastingSpell
+// 0x0060D040 clears when the cast goes off, is interrupted, or the unit moves
+// or dies) and the spell it channels (UNIT_FIELD_CHANNEL_SPELL). The cast
+// time comes from the SMSG_SPELL_START that began the cast. A cast without a
+// cast time is not written, as the combat log writes no SPELL_CAST_START for
+// one. The combat log tells when a cast went off; this tells when one stopped
+// without going off, and when a channel ended, which no combat log line does.
 
 #include "Game.h"
 #include "Offsets.h"
@@ -37,6 +46,7 @@
 #include "item/ID.h"
 #include "model/Outfit.h"
 #include "object/Resolve.h"
+#include "spell/CastPacket.h"
 #include "tick/FrameTick.h"
 #include "unit/Position.h"
 
@@ -85,13 +95,26 @@ struct Dress {
     int32_t emblem[5]; // its guild's tabard emblem, GetGuildEmblem's order; -1 unknown
 };
 
+// A unit's UNIT_CAST fields; all 0 while it neither casts nor channels.
+struct Cast {
+    uint32_t spell;   // the cast under way
+    uint32_t castMs;  // its cast time
+    uint32_t channel; // the channel under way
+    bool operator==(const Cast &o) const {
+        return spell == o.spell && castMs == o.castMs && channel == o.channel;
+    }
+};
+
 struct Seen {
     Look look;
     Dress dress;
+    Cast cast;
     uint32_t frame; // the last walk that found it
 };
 
 std::unordered_map<uint64_t, Seen> g_seen;
+// The cast time of each unit's last SMSG_SPELL_START: its spell and time.
+std::unordered_map<uint64_t, std::pair<uint32_t, uint32_t>> g_castTimes;
 uint32_t g_frame = 0;
 uint32_t g_generation = 0; // the movement file's, when g_seen was last emptied
 
@@ -155,6 +178,27 @@ Dress ReadDress(uint64_t guid, void *player, const uint8_t *fields) {
     return dress;
 }
 
+Cast ReadCast(uint64_t guid, void *unit, const uint8_t *fields) {
+    Cast cast{};
+    cast.channel = Game::Read<uint32_t>(fields, Offsets::OFF_UNIT_FIELD_CHANNEL_SPELL);
+    const uint32_t spell = Game::Read<uint32_t>(unit, Offsets::OFF_UNIT_CAST_SPELL);
+    const auto it = g_castTimes.find(guid);
+    if (spell != 0 && it != g_castTimes.end() && it->second.first == spell && it->second.second != 0) {
+        cast.spell = spell;
+        cast.castMs = it->second.second;
+    }
+    return cast;
+}
+
+void WriteCast(uint64_t guid, const Cast &cast) {
+    std::string line = "UNIT_CAST";
+    File::AppendGuid(line, guid);
+    AppendUnsigned(line, cast.spell);
+    AppendUnsigned(line, cast.castMs);
+    AppendUnsigned(line, cast.channel);
+    Movement::Emit(line);
+}
+
 void WriteLook(uint64_t guid, void *unit, const Look &look) {
     std::string line = "UNIT_INFO";
     File::AppendGuid(line, guid);
@@ -211,6 +255,7 @@ void Visit(uint64_t guid) {
     // Only a player has the player block (OFF_CGPLAYER_INFO's hazard).
     const bool player = (::Object::Type(unit) & Offsets::TYPEMASK_PLAYER) != 0;
     const Dress dress = player ? ReadDress(guid, unit, fields) : Dress{};
+    const Cast cast = ReadCast(guid, unit, fields);
 
     const auto [it, added] = g_seen.try_emplace(guid);
     Seen &seen = it->second;
@@ -223,11 +268,16 @@ void Visit(uint64_t guid) {
         seen.dress = dress;
         WriteDress(guid, dress);
     }
+    if (added ? !(cast == Cast{}) : !(seen.cast == cast)) {
+        seen.cast = cast;
+        WriteCast(guid, cast);
+    }
 }
 
 void OnFrame() {
     if (!Movement::IsOpen()) {
         g_seen.clear();
+        g_castTimes.clear();
         return;
     }
     // Out of world the walk finds nothing, which is not every unit leaving.
@@ -252,11 +302,18 @@ void OnFrame() {
         std::string line = "UNIT_GONE";
         File::AppendGuid(line, it->first);
         Movement::Emit(line);
+        g_castTimes.erase(it->first);
         it = g_seen.erase(it);
     }
 }
 
+void OnSpellStart(const Spell::CastPacket::Start &s) {
+    if (Movement::IsOpen())
+        g_castTimes[s.header.caster] = {s.header.spellId, s.castTimeMs};
+}
+
 const Tick::FrameTick::AutoSubscribe _frame{&OnFrame};
+const Spell::CastPacket::AutoStart _start{&OnSpellStart};
 
 } // namespace
 

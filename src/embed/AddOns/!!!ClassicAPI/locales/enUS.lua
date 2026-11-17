@@ -235,6 +235,7 @@ FIRST_NUMBER_CAP_NO_SPACE = "K";
 SECOND_NUMBER = "million";
 SECOND_NUMBER_CAP = " M";
 SECOND_NUMBER_CAP_NO_SPACE = "M";
+SPELL_INTERRUPTED_BY = "Interrupted: %s";
 THIRD_NUMBER = "billion";
 FOURTH_NUMBER = "trillion";
 LUA_ERROR = "Lua Error";

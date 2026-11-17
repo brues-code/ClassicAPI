@@ -90,6 +90,7 @@ ITEMS_IN_INVENTORY = "%d |4objet:objets; dans l'inventaire";
 ITEM_SLOTS_IGNORED = "%d |4emplacement ignoré:emplacements ignorés;";
 ITEM_MISSING = "Objet manquant : %s";
 ITEMS_NOT_IN_INVENTORY = "%d |4objet:objets; manquants";
+SPELL_INTERRUPTED_BY = "Interruption : %s";
 STOP_AUTO_ATTACK = "Interrompre attaque auto.";
 TARGETFOCUS = "Cibler l'unité focalisée";
 -- BINDING_NAME_AOELOOT = "AoE Loot";

@@ -177,6 +177,12 @@ bool DeadAt(const Unit &unit, int32_t t) {
                        [t](const Span &s) { return s.from <= t && t < s.to; });
 }
 
+const Cast *CastAt(const Unit &unit, int32_t t) {
+    const auto it = std::upper_bound(unit.casts.begin(), unit.casts.end(), t,
+                                     [](int32_t time, const Cast &c) { return time < c.start; });
+    return it == unit.casts.begin() ? nullptr : &*(it - 1);
+}
+
 const Look *LookAt(const Unit &unit, int32_t t) {
     const auto it = std::upper_bound(
         unit.looks.begin(), unit.looks.end(), t,

@@ -15,6 +15,7 @@ ROTATE_TOOLTIP = "마우스 왼쪽 버튼으로 클릭 후 끌어 옮기면 캐�
 SECOND_NUMBER = "만";
 SECOND_NUMBER_CAP = "억";
 SECOND_NUMBER_CAP_NO_SPACE = "억";
+SPELL_INTERRUPTED_BY = "방해: %s";
 THIRD_NUMBER = "억";
 FOURTH_NUMBER = "조";
 KEY_BINDING_NAME_AND_KEY = "%s (%s)";

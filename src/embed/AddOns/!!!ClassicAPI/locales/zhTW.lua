@@ -90,6 +90,7 @@ ITEMS_IN_INVENTORY = "%d件物品在物品欄中";
 ITEM_SLOTS_IGNORED = "忽略%d個欄位";
 ITEM_MISSING = "缺少%s物品";
 ITEMS_NOT_IN_INVENTORY = "缺少%d件物品";
+SPELL_INTERRUPTED_BY = "被中斷：%s";
 STOP_AUTO_ATTACK = "停止自動攻擊";
 TARGETFOCUS = "選定鎖定單位";
 -- BINDING_NAME_AOELOOT = "AoE Loot";

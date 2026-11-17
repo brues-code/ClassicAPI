@@ -34,6 +34,7 @@
 #include "player/Info.h"
 #include "replay/Catalog.h"
 #include "replay/Recording.h"
+#include "spell/Lookup.h"
 #include "tick/WorldTick.h"
 
 #include <algorithm>
@@ -399,10 +400,9 @@ int __fastcall Script_GetEvents(void *L) {
         }
         if (e.endsCast)
             Lua::SetFieldBool(L, "endsCast", true);
-        const auto endsWith = [&](const char *end, size_t n) {
-            return e.type.size() >= n && e.type.compare(e.type.size() - n, n, end) == 0;
-        };
-        if (endsWith("_DAMAGE", 7) || endsWith("_HEAL", 5)) {
+        if (e.extraSpellID != 0)
+            Lua::SetFieldNumber(L, "extraSpellID", e.extraSpellID);
+        if (e.hasAmount) {
             Lua::SetFieldNumber(L, "amount", e.amount);
             Lua::SetFieldBool(L, "critical", e.critical);
         }
@@ -493,6 +493,40 @@ int __fastcall Script_GetUnitAuras(void *L) {
         Lua::RawSetI(L, -2, ++i);
     }
     return 1;
+}
+
+// The cast the unit began last by the time, with when it began, when it was
+// due to end and when it stopped. A channel's end is its start and the
+// spell's duration (Spell::Lookup::DurationMs, as UnitChannelInfo times
+// another unit's channel), or its stop when it ran longer.
+int __fastcall Script_GetUnitCast(void *L) {
+    const Unit *unit = UnitArg(L, "Usage: C_CombatLogReplay.GetUnitCast(unitIndex, time)");
+    const Cast *cast = unit != nullptr ? CastAt(*unit, TimeArg(L)) : nullptr;
+    if (cast == nullptr) {
+        Lua::PushNil(L);
+        return 1;
+    }
+    int64_t end = cast->end;
+    if (cast->channel) {
+        const int duration = Spell::Lookup::DurationMs(Spell::Lookup::RecordForID(static_cast<int>(cast->spellID)), false);
+        end = cast->start + static_cast<int64_t>(duration > 0 ? duration : 0);
+        if (cast->stop != INT32_MAX && end < cast->stop)
+            end = cast->stop;
+    }
+    Lua::PushNumber(L, cast->spellID);
+    Lua::PushNumber(L, Seconds(cast->start));
+    Lua::PushNumber(L, Seconds(end));
+    if (cast->stop != INT32_MAX)
+        Lua::PushNumber(L, Seconds(cast->stop));
+    else
+        Lua::PushNil(L);
+    Lua::PushBool(L, cast->channel);
+    Lua::PushBool(L, cast->interrupted);
+    if (cast->interrupter >= 0)
+        Lua::PushNumber(L, cast->interrupter + 1);
+    else
+        Lua::PushNil(L);
+    return 7;
 }
 
 // The times the unit died in the stretch (its UNIT_DIED lines), for a viewer
@@ -735,12 +769,15 @@ const Game::Doc::Field kEventFields[] = {
     Opt("auraType", "cstring", nullptr, "BUFF or DEBUFF, for a SPELL_AURA_ event."),
     Opt("castTime", "number", nullptr,
         "For a SPELL_CAST_START: seconds until the caster's SPELL_CAST_SUCCESS or SPELL_CAST_FAILED of that "
-        "spell. Nil when the log has neither."),
-    Opt("castFailed", "bool", nullptr, "For a SPELL_CAST_START with a castTime: whether the cast failed."),
-    Opt("amount", "number", nullptr, "For a _DAMAGE or _HEAL event."),
+        "spell, a SPELL_INTERRUPT of it, or the caster's death, else until the movement file shows the cast "
+        "stopped. Nil when the logs say none of these."),
+    Opt("castFailed", "bool", nullptr,
+        "For a SPELL_CAST_START with a castTime: whether the cast failed or was interrupted."),
+    Opt("amount", "number", nullptr, "For a _DAMAGE or _HEAL event, DAMAGE_SHIELD and DAMAGE_SPLIT."),
     Opt("critical", "bool", nullptr, "For a _DAMAGE or _HEAL event."),
     Opt("missType", "cstring", nullptr, "For a _MISSED event: MISS, DODGE, PARRY, BLOCK, RESIST, ABSORB, IMMUNE, ..."),
     Opt("endsCast", "bool", nullptr, "True for a SPELL_CAST_SUCCESS or SPELL_CAST_FAILED that ends a SPELL_CAST_START."),
+    Opt("extraSpellID", "number", nullptr, "For a SPELL_INTERRUPT: the spell it interrupted."),
 };
 const Game::Doc::Structure kEvent{"CombatLogReplayEvent", "CombatLogReplay", kEventFields};
 const Game::Doc::Field kTimeRangeArgs[] = {
@@ -786,6 +823,23 @@ const Game::Doc::Field kGetUnitAurasRets[] = {
 const Game::Doc::Function kGetUnitAuras{"Returns the auras on a replay unit at a time.", kUnitTimeArgs,
                                         kGetUnitAurasRets, nullptr, true};
 
+const Game::Doc::Field kGetUnitCastRets[] = {
+    Opt("spellID", "number", nullptr, "Nil when the unit began no cast by the time."),
+    Opt("startTime", "number", nullptr, "When the cast or the channel began."),
+    Opt("endTime", "number", nullptr,
+        "When it was due to end: a cast's cast time from its start, a channel's duration from its start."),
+    Opt("stopTime", "number", nullptr,
+        "When it stopped: at its end, or before it when it was interrupted or the channel was stopped. Nil "
+        "when the log does not say."),
+    Opt("isChannel", "bool"),
+    Opt("interrupted", "bool", nullptr, "True for a cast that stopped before its end and did not go off."),
+    Opt("interrupterIndex", "number", nullptr, "The unit whose interrupt stopped the cast: its SPELL_INTERRUPT, or the success of its interrupt spell on the caster as the cast stopped. Nil for none."),
+};
+const Game::Doc::Function kGetUnitCast{
+    "Returns the cast or channel a replay unit began last by a time. Interrupted casts and the end of a "
+    "channel come from the movement file.",
+    kUnitTimeArgs, kGetUnitCastRets, nullptr, true};
+
 const Game::Doc::Function kGetUnitLook{"Returns what a replay unit looks like at a time.",
                                        kUnitTimeArgs, kGetUnitLookRets, nullptr, true};
 
@@ -805,6 +859,7 @@ void RegisterLuaFunctions() {
     Lua::RegisterTableFunction(kTable, "GetEvents", &Script_GetEvents, &kGetEvents);
     Lua::RegisterTableFunction(kTable, "GetUnitAuras", &Script_GetUnitAuras, &kGetUnitAuras);
     Lua::RegisterTableFunction(kTable, "GetUnitDeaths", &Script_GetUnitDeaths, &kGetUnitDeaths);
+    Lua::RegisterTableFunction(kTable, "GetUnitCast", &Script_GetUnitCast, &kGetUnitCast);
     Lua::RegisterTableFunction(kTable, "GetUnitHealth", &Script_GetUnitHealth, &kGetUnitHealth);
     Lua::RegisterTableFunction(kTable, "GetUnitWeapons", &Script_GetUnitWeapons, &kGetUnitWeapons);
 }

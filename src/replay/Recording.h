@@ -118,6 +118,29 @@ struct AuraSpan {
     int32_t to = INT32_MAX;
 };
 
+// UNIT_CAST: the spell a unit casts with its cast time, and the spell it
+// channels; 0 for none.
+struct CastState {
+    int32_t t = 0;
+    uint32_t spell = 0;
+    uint32_t castMs = 0;
+    uint32_t channel = 0;
+};
+
+// A cast bar: a cast from `start`, due to end at `end`, under way until
+// `stop`. A cast that went off stops at its end; an interrupted one before
+// it. A channel runs from `start` until `stop`; its `end` is -1, as the logs
+// do not give its length.
+struct Cast {
+    uint32_t spellID = 0;
+    int32_t start = 0;
+    int32_t end = -1;
+    int32_t stop = INT32_MAX;
+    bool channel = false;
+    bool interrupted = false;
+    int32_t interrupter = -1; // the unit whose SPELL_INTERRUPT stopped it
+};
+
 struct Unit {
     std::string guid; // as the logs write it
     std::string name; // from the combat log, empty when it is not in it
@@ -136,6 +159,8 @@ struct Unit {
     // was resurrected, or left view.
     std::vector<Span> deaths;
     std::vector<std::pair<int32_t, Speeds>> speeds;
+    std::vector<CastState> castStates;
+    std::vector<Cast> casts; // in start order
 };
 
 // A combat log line of the stretch, as the replay plays it.
@@ -148,11 +173,16 @@ struct CombatEvent {
     bool debuff = false; // an aura event's type
     // A SPELL_CAST_START: when the caster's SPELL_CAST_SUCCESS or
     // SPELL_CAST_FAILED of that spell came, or -1; and whether it failed.
+    // A start can also end at a SPELL_INTERRUPT of the spell on the caster
+    // (`interrupter` its source) or at the caster's UNIT_DIED; both fail it.
     int32_t castEnd = -1;
     bool castFailed = false;
+    int32_t interrupter = -1;
     bool endsCast = false; // a SPELL_CAST_SUCCESS or FAILED that ends a SPELL_CAST_START
-    // A _DAMAGE or _HEAL event's amount and whether it was critical; a
-    // _MISSED event's miss type (MISS, DODGE, PARRY, ...).
+    uint32_t extraSpellID = 0; // a SPELL_INTERRUPT's interrupted spell
+    // A damage or heal event's amount (`hasAmount`) and whether it was
+    // critical; a _MISSED event's miss type (MISS, DODGE, PARRY, ...).
+    bool hasAmount = false;
     int32_t amount = 0;
     bool critical = false;
     std::string missType;
@@ -192,6 +222,9 @@ bool DeadAt(const Unit &unit, int32_t t);
 
 // The unit's health at `t`, null before the log first gives it.
 const Health *HealthAt(const Unit &unit, int32_t t);
+
+// The cast the unit began last by `t`, null for none.
+const Cast *CastAt(const Unit &unit, int32_t t);
 
 // Loads the stretch [startMs, endMs] (stamps) of a log (a Catalog name). Null
 // when the combat log cannot be read. Worker thread safe.

@@ -9,7 +9,8 @@
 -- state's animation (sitting, sleeping, dead, kneeling). While it plays, the
 -- log's casts, auras, swings and deaths play on the actors; a jump in time
 -- sets each unit's auras and death as they were then. A hurt unit shows its
--- health over its head, from the log's advanced data, and the log's lines
+-- health over its head, from the log's advanced data, a casting unit its
+-- cast bar, and the log's lines
 -- scroll by in the corner in the client's own combat log words. Scene
 -- positions are map positions. Click a unit, or its name in the unit list,
 -- to follow it with the camera, which then stops in front of walls as the
@@ -76,6 +77,18 @@ local UNIT_ROW_HEIGHT = 16;
 local HEALTH_BAR_WIDTH, HEALTH_BAR_HEIGHT, HEALTH_BAR_RISE = 50, 5, 14;
 local PLAYER_HEALTH_COLOR = { 0, 0.8, 0 };
 local CREATURE_HEALTH_COLOR = { 0.85, 0.1, 0.1 };
+-- The cast bar over a casting unit, above its health bar, as retail's Classic
+-- cast bar shows a cast (CastingBarFrame.lua's CastingBarTypeInfo): yellow
+-- filling while it casts, green emptying while it channels, full green once
+-- it went off and red with INTERRUPTED when it did not. Then it fades
+-- (CastingBarFrameTemplates.xml: after 0.2 seconds, or 1 when interrupted,
+-- over 0.3), in replay seconds.
+local CAST_BAR_WIDTH, CAST_BAR_HEIGHT, CAST_BAR_GAP = 80, 10, 2;
+local CAST_COLOR = { 1, 0.7, 0 };
+local CHANNEL_COLOR = { 0, 1, 0 };
+local CAST_DONE_COLOR = { 0, 1, 0 };
+local CAST_INTERRUPTED_COLOR = { 1, 0, 0 };
+local CAST_DONE_HOLD, CAST_INTERRUPTED_HOLD, CAST_FADE = 0.2, 1, 0.3;
 -- The feed of the log's lines: how many show, how long each stays, and the
 -- colors of its lines, heals and deaths.
 local FEED_LINES, FEED_WIDTH, FEED_SECONDS = 8, 440, 12;
@@ -117,6 +130,7 @@ local pressX, pressY;
 local flying = {};     -- the fly keys held, by key name
 local combatTime;      -- the replay time the combat state is at, nil before the first
 local freeBars = {};   -- health bars not in use
+local freeCastBars = {}; -- cast bars not in use
 local feed;            -- the ScrollingMessageFrame of the log's lines
 local deathMarks = {}; -- the timeline's death marks in use
 local freeMarks = {};  -- death marks not in use
@@ -195,20 +209,7 @@ local function ScenePoint(actor)
 	return px, py;
 end
 
--- A living unit below its full health shows a bar over its name.
-local function ShowBar(u, time, isDead)
-	local health, maxHealth;
-	if not isDead then
-		health, maxHealth = C_CombatLogReplay.GetUnitHealth(u.index, time);
-	end
-	local px, py;
-	if health and health < maxHealth then
-		px, py = ScenePoint(u.actor);
-	end
-	if not px then
-		HideBar(u);
-		return;
-	end
+local function ShowHealthBar(u, px, py, health, maxHealth)
 	local bar = u.bar;
 	if not bar then
 		bar = tremove(freeBars) or NewBar();
@@ -222,6 +223,117 @@ local function ShowBar(u, time, isDead)
 	bar:Show();
 end
 
+local function NewCastBar()
+	local bar = CreateFrame("StatusBar", nil, scene);
+	bar:SetWidth(CAST_BAR_WIDTH);
+	bar:SetHeight(CAST_BAR_HEIGHT);
+	bar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar");
+	bar:SetMinMaxValues(0, 1);
+	bar:SetFrameLevel(scene:GetFrameLevel() + 5);
+	local background = bar:CreateTexture(nil, "BACKGROUND");
+	background:SetAllPoints(bar);
+	background:SetTexture(0, 0, 0, 0.6);
+	bar.Text = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall");
+	bar.Text:SetPoint("CENTER", bar, "CENTER", 0, 0);
+	bar.Text:SetWidth(CAST_BAR_WIDTH);
+	bar.Text:SetHeight(CAST_BAR_HEIGHT);
+	return bar;
+end
+
+local function HideCastBar(u)
+	if u.castBar then
+		u.castBar:Hide();
+		tinsert(freeCastBars, u.castBar);
+		u.castBar = nil;
+	end
+end
+
+-- What an interrupted cast bar says: who interrupted it in their name color,
+-- as retail's GetInterruptText does with SPELL_INTERRUPTED_BY.
+local function InterruptText(interrupterIndex)
+	local by = interrupterIndex and units[interrupterIndex];
+	if not by or by.name == "" then
+		return INTERRUPTED;
+	end
+	local color = by.nameColor;
+	return string.format(SPELL_INTERRUPTED_BY, string.format("|cff%02x%02x%02x%s|r", math.floor(color[1] * 255),
+		math.floor(color[2] * 255), math.floor(color[3] * 255), by.name));
+end
+
+-- How the unit's cast bar looks at `time`: its fill, color, text and alpha;
+-- nil when it shows none.
+local function CastBarState(u, time)
+	local spellID, startTime, endTime, stopTime, isChannel, interrupted, interrupterIndex =
+		C_CombatLogReplay.GetUnitCast(u.index, time);
+	if not spellID then
+		return nil;
+	end
+	if not stopTime or time < stopTime then
+		local length = endTime - startTime;
+		local done = length > 0 and math.min(math.max((time - startTime) / length, 0), 1) or 1;
+		if isChannel then
+			return 1 - done, CHANNEL_COLOR, GetSpellInfo(spellID), 1;
+		end
+		return done, CAST_COLOR, GetSpellInfo(spellID), 1;
+	end
+	local since = time - stopTime;
+	local hold = interrupted and CAST_INTERRUPTED_HOLD or CAST_DONE_HOLD;
+	if since >= hold + CAST_FADE then
+		return nil;
+	end
+	local alpha = since < hold and 1 or 1 - (since - hold) / CAST_FADE;
+	if interrupted then
+		return 1, CAST_INTERRUPTED_COLOR, InterruptText(interrupterIndex), alpha;
+	end
+	return 1, CAST_DONE_COLOR, GetSpellInfo(spellID), alpha;
+end
+
+local function ShowCastBar(u, px, py, fill, color, text, alpha)
+	local bar = u.castBar;
+	if not bar then
+		bar = tremove(freeCastBars) or NewCastBar();
+		u.castBar = bar;
+	end
+	bar:SetValue(fill);
+	bar:SetStatusBarColor(color[1], color[2], color[3]);
+	bar.Text:SetText(text or "");
+	bar:SetAlpha(alpha);
+	local rise = HEALTH_BAR_RISE + (u.bar and HEALTH_BAR_HEIGHT + CAST_BAR_GAP or 0);
+	bar:ClearAllPoints();
+	bar:SetPoint("BOTTOM", scene, "BOTTOMLEFT", px, py + rise);
+	bar:Show();
+end
+
+-- Over a living unit's name: its health below its full health, and its cast
+-- bar while it casts or channels.
+local function ShowBars(u, time, isDead)
+	local health, maxHealth, fill, color, text, alpha;
+	if not isDead then
+		health, maxHealth = C_CombatLogReplay.GetUnitHealth(u.index, time);
+		fill, color, text, alpha = CastBarState(u, time);
+	end
+	local hurt = health and health < maxHealth;
+	local px, py;
+	if hurt or fill then
+		px, py = ScenePoint(u.actor);
+	end
+	if not px then
+		HideBar(u);
+		HideCastBar(u);
+		return;
+	end
+	if hurt then
+		ShowHealthBar(u, px, py, health, maxHealth);
+	else
+		HideBar(u);
+	end
+	if fill then
+		ShowCastBar(u, px, py, fill, color, text, alpha);
+	else
+		HideCastBar(u);
+	end
+end
+
 ------------------------------------------------------------------------------
 -- Units
 
@@ -229,6 +341,7 @@ local function ReleaseUnits()
 	combatTime = nil;
 	for i = 1, #units do
 		HideBar(units[i]);
+		HideCastBar(units[i]);
 	end
 	scene:ReleaseAllActors();
 	units = {};
@@ -258,6 +371,7 @@ end
 
 local function HideUnit(u)
 	HideBar(u);
+	HideCastBar(u);
 	if u.actor and u.actor:IsShown() then
 		u.actor:Hide();
 	end
@@ -481,6 +595,8 @@ local function FeedText(e)
 			SpellName(e.spellID));
 	elseif kind == "SPELL_AURA_REMOVED" then
 		return string.format(AURAREMOVEDOTHER, SpellName(e.spellID), dest);
+	elseif kind == "SPELL_INTERRUPT" then
+		return string.format(SPELLINTERRUPTOTHEROTHER, source, dest, SpellName(e.extraSpellID));
 	elseif kind == "UNIT_DIED" then
 		return string.format(UNITDIESOTHER, dest), FEED_DEATH_COLOR;
 	end
@@ -503,13 +619,24 @@ local function PlayEvent(e)
 	local kind = e.event;
 	if kind == "SPELL_CAST_START" then
 		-- The preparation lasts as long as the log's cast did, at the play
-		-- speed.
+		-- speed. One that failed or was interrupted prepares for its whole
+		-- cast time and stops when the cast stopped, before it goes off.
 		if source then
 			local castMs = e.castTime and e.castTime * 1000 / PLAY_SPEEDS[playSpeed];
+			if e.castFailed then
+				-- Its due end, when the logs give one past the stop; else the
+				-- spell's own cast time (nil), which runs past the stop too.
+				local _, _, endTime = C_CombatLogReplay.GetUnitCast(e.sourceIndex, e.time);
+				castMs = endTime and endTime > e.time + e.castTime
+					and (endTime - e.time) * 1000 / PLAY_SPEEDS[playSpeed] or nil;
+			end
 			local castID = source:PlaySpellVisual(e.spellID, target, castMs);
 			if castID then
 				u.casts = u.casts or {};
 				u.casts[e.spellID] = castID;
+				if e.castFailed then
+					u.stopCastID, u.stopCastAt = castID, e.time + e.castTime;
+				end
 			end
 		end
 	elseif kind == "SPELL_CAST_SUCCESS" or kind == "SPELL_CAST_FAILED" then
@@ -522,7 +649,13 @@ local function PlayEvent(e)
 				source:StopSpellVisual(castID);
 			end
 		elseif source and not e.endsCast then
-			source:PlaySpellVisual(e.spellID, target, 0);
+			-- A channel this begins channels until the log's channel stopped.
+			local channelMs;
+			local spellID, startTime, _, stopTime, isChannel = C_CombatLogReplay.GetUnitCast(e.sourceIndex, e.time);
+			if isChannel and spellID == e.spellID and startTime == e.time and stopTime then
+				channelMs = (stopTime - startTime) * 1000 / PLAY_SPEEDS[playSpeed];
+			end
+			source:PlaySpellVisual(e.spellID, target, 0, channelMs);
 		end
 	elseif kind == "RANGE_DAMAGE" or kind == "RANGE_MISSED" then
 		if source then
@@ -558,13 +691,26 @@ local function SetCombatState(time)
 	end
 	for i = 1, #units do
 		local u = units[i];
-		u.casts, u.swingUntil, u.dyingUntil = nil, nil, nil;
+		u.casts, u.swingUntil, u.dyingUntil, u.stopCastID, u.stopCastAt = nil, nil, nil, nil, nil;
 		if u.actor then
 			u.actor:StopSpellVisual();
 			u.actor:RemoveAuraVisual();
 			for _, aura in ipairs(C_CombatLogReplay.GetUnitAuras(i, time)) do
 				u.actor:AddAuraVisual(aura.spellID);
 			end
+		end
+	end
+end
+
+-- An interrupted cast's visual stops when the cast stopped.
+local function StopInterrupted(time)
+	for i = 1, #units do
+		local u = units[i];
+		if u.stopCastAt and time >= u.stopCastAt then
+			if u.actor then
+				u.actor:StopSpellVisual(u.stopCastID);
+			end
+			u.stopCastID, u.stopCastAt = nil, nil;
 		end
 	end
 end
@@ -577,6 +723,7 @@ local function Combat(time)
 			for _, e in ipairs(C_CombatLogReplay.GetEvents(combatTime, time)) do
 				PlayEvent(e);
 			end
+			StopInterrupted(time);
 		end
 	else
 		SetCombatState(time);
@@ -601,7 +748,7 @@ local function Apply(time)
 		if u.inView then
 			ShowUnit(u, time, x, y, z, facing, speed, falling, jumping, display, nativeDisplay,
 				mountDisplay, scale, standState, sheathState, isDead, held1, held2, held3);
-			ShowBar(u, time, isDead);
+			ShowBars(u, time, isDead);
 		else
 			HideUnit(u);
 		end
