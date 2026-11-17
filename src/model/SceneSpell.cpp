@@ -153,8 +153,8 @@ namespace {
 // The release events, '$CSL', '$CSR', '$CST'.
 constexpr uint32_t kReleaseEvents[] = {0x4C534324, 0x52534324, 0x54534324};
 constexpr int kAnimStand = 0;
-constexpr int kAnimCombatWound = 9;
 constexpr int kAnimInFlight = 144;
+constexpr int kHostilityHarmful = 2; // GetSpellHostility's harmful
 constexpr float kReleaseTimeoutSec = 2.0f; // 0x0060A814
 constexpr float kMaxSpeed = 100.0f;        // 0x0080C854
 const Game::Live<float> kAimHeight{Offsets::VAR_THREE_QUARTERS};
@@ -192,7 +192,8 @@ bool ChainLoaded(void *model) {
 // The world's kit player on a unit, for a model: the effects (looping into
 // `effects`, or once and owned by the model), the animation and the sound.
 // A lasting kit (`loop`) records the animation it made the caster's loop,
-// and a sound with the kit-loop bit loops in it until the kit ends.
+// and a sound with the kit-loop bit loops in it until the kit ends. A wound
+// animation plays as the unit's wound (PlayUnitSpellVisualKit 0x0060F3AD).
 void PlayKit(Actor &actor, const uint8_t *kit, std::vector<void *> *effects, SpellCast::KitLoop *loop) {
     if (kit == nullptr || actor.model == nullptr)
         return;
@@ -200,7 +201,9 @@ void PlayKit(Actor &actor, const uint8_t *kit, std::vector<void *> *effects, Spe
     Model::VisualKit::Apply(actor.SceneFrame(), actor.model, kit, !lasting, effects);
     Shakes::PlayKit(actor, kit);
     const int anim = KitAnimation(kit);
-    if (anim >= 0) {
+    if (M2::IsWoundAnimation(anim)) {
+        actor.PlayWoundAnimation(false);
+    } else if (anim >= 0) {
         actor.PlayKitAnimation(anim, lasting);
         if (lasting)
             loop->animation = anim;
@@ -495,16 +498,34 @@ void Aim(SpellCast &cast) {
     cast.destination[2] = target->position[2] + box[5] * target->scale * kAimHeight;
 }
 
+// GetSpellHostility (0x006EA280): 2 for a harmful spell.
+bool IsHarmful(uint32_t spellID) {
+    using Hostility_t = int(__fastcall *)(const uint8_t *record, void *edx);
+    const auto *spell = Spell::Lookup::RecordForID(static_cast<int>(spellID));
+    return spell != nullptr &&
+           reinterpret_cast<Hostility_t>(Offsets::FUN_SPELL_HOSTILITY)(spell, nullptr) == kHostilityHarmful;
+}
+
 // The spell reaches its target: the caster's OnSpellVisualImpact (queued),
-// the wound animation, then the impact kit once.
+// then the target's side. A missile's arrival (CMissile::ArriveHit
+// 0x0061DC50) plays the wound, then the impact kit. An instant impact
+// (PlaySpellImpactOnUnit 0x006E8CB0, PlaySpellImpactsOnHits 0x006E8BF0)
+// plays the impact kit, then the wound for a harmful spell; without an
+// impact kit it plays neither.
 void Impact(Actor &caster, SpellCast &cast, bool missileHit) {
     caster.spellImpacts.push_back({cast.id, cast.spellID, cast.target});
     Actor *target = cast.target;
     if (target == nullptr || target->model == nullptr)
         return;
-    if (missileHit)
-        target->PlayKitAnimation(kAnimCombatWound, false);
-    PlayKit(*target, Kit(cast.visual, Offsets::OFF_SPELLVISUAL_IMPACT_KIT), nullptr, nullptr);
+    const uint8_t *kit = Kit(cast.visual, Offsets::OFF_SPELLVISUAL_IMPACT_KIT);
+    if (missileHit) {
+        target->PlayWoundAnimation(false);
+        PlayKit(*target, kit, nullptr, nullptr);
+    } else if (kit != nullptr) {
+        PlayKit(*target, kit, nullptr, nullptr);
+        if (IsHarmful(cast.spellID))
+            target->PlayWoundAnimation(false);
+    }
 }
 
 // StickInUnit (0x0061E7C0), from ArriveHit (0x0061DC50): a missile shot from
@@ -567,8 +588,8 @@ void __stdcall OnEffectEvent(uint32_t tag, uint32_t data, const float *point, ui
     if (tag == Offsets::M2_EVENT_TAG_SND && point != nullptr) {
         const float where[3] = {point[0], point[1], point[2]};
         Sounds::Play(caster->SceneFrame(), static_cast<int32_t>(data), where);
-    } else if (tag == kHIT && caster->model != nullptr) {
-        caster->PlayKitAnimation(kAnimCombatWound, false);
+    } else if (tag == kHIT) {
+        caster->PlayWoundAnimation(false);
     }
 }
 

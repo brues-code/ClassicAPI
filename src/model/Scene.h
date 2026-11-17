@@ -169,6 +169,12 @@ struct AuraVisual {
     // playing at the actor (null while the scene is paused or hidden).
     int loopSoundID = 0;
     void *loopSound = nullptr;
+    // The kit's animation speed procedure (kind 11, AddAnimSpeedEffect
+    // 0x006201D0) while shown: the speed it gave the mount's bone 0, the
+    // body's key bone 4 and bone 0, and the speeds it replaced there.
+    bool setsSpeed = false;
+    float speed = 1.0f;
+    float savedSpeeds[3] = {1.0f, 1.0f, 1.0f};
 };
 
 // The area kit of a spell's ground area while it runs: the shard emitter
@@ -425,6 +431,59 @@ class Actor : public Animation::Object {
     void PlayKitAnimation(int anim, bool loops);
     // The animation the body plays: a spell kit's, else the script's.
     int CurrentAnimation() const { return kitAnimation >= 0 ? kitAnimation : static_cast<int>(animation); }
+    // The unit state a reaction reads, as the script sets it (ClassicAPI
+    // extensions): the creature the actor stands for (SetCreatureID, 0 for
+    // none), whose creature record's type flags can keep wounds and parries
+    // off; whether it swings at a target (SetAttacking, the unit's attack
+    // target +0xC48); whether it moves or rides (SetMoving, for an actor the
+    // script moves; the mover's own flags count as well).
+    uint32_t creatureID = 0;
+    bool attacking = false;
+    bool moving = false;
+    // CGUnit_C::PlayWoundAnimation (0x0060EA70): CombatCritical for a
+    // critical, CombatWound while attacking, else StandWound; on the upper
+    // body while the actor attacks, moves or rides, unless its body plays a
+    // ready stance. Nothing for a dead actor, an unloaded model, a creature
+    // whose type flags keep wounds off, an actor an aura's animation speed
+    // holds, or a model without the sequence. A missile's arrival, a harmful
+    // spell's impact, an effect's $HIT and a one-shot kit's wound animation
+    // all play it.
+    void PlayWoundAnimation(bool critical);
+    // CGUnit_C::PlayParryAnimation (0x0060EC00): the parry of the main
+    // hand's weapon subclass (none without a weapon), through
+    // PlayUnitAnimation. Kept off as the wound is.
+    void PlayParryAnimation();
+    // CGUnit_C::PlayAnimation (0x005FE2F0) for a one-shot request (a swing, a
+    // parry, a dodge, a block): a swing over a swing doubles the playing one
+    // and waits for its end; else the request goes to the upper body or the
+    // whole body by the unit's routing, at speed 0 while an aura's animation
+    // speed holds the actor. Nothing for a dead actor or an unloaded model.
+    void PlayUnitAnimation(uint32_t anim);
+    // A seated rider (AttachToMount, AttachToActor): the model hangs on
+    // another actor's, which stands for the unit's mount model (+0xDC).
+    bool Seated() const;
+    // The result of the swing the actor plays, as SMSG_ATTACKERSTATEUPDATE
+    // (0x006255B0) leaves it on the attacker (+0xD70, the victim state
+    // +0xE14, the hit info +0xD80) for its swing animation's events to show
+    // on the victim (OnCombatModelEvent 0x006247D0): $CPP the avoid pose,
+    // then $CAH or $AH0..$AH3 the wound. The results are the victim states
+    // the events read.
+    enum class SwingResult : uint8_t { Hit, Miss, Dodge, Parry, Block, Evade, Immune, Deflect, Other };
+    struct PendingSwing {
+        bool pending = false;
+        Actor *victim = nullptr; // null when not in the scene; actors live as long as their scene
+        SwingResult result = SwingResult::Other;
+        bool critical = false;
+    } pendingSwing;
+    // The swing a swing over a swing left waiting (+0xD60), -1 for none: it
+    // plays when the playing swing's track ends.
+    int queuedSwing = -1;
+    // The 0x14A handler on the attacker (0x006255B0): a swing not yet shown
+    // is dropped (the world only floats its text), the new result waits on
+    // the actor, and PlaySwingAnimation (0x006246A0) plays the swing of the
+    // main hand's weapon, or of the off hand's. `victim` may be null (the
+    // victim is not in the scene). Nothing for a dead actor.
+    void PlaySwing(Actor *victim, SwingResult result, bool critical, bool offHand);
     // A release event of the model this frame ($CSL / $CSR / $CST, or $BWR
     // from the bow or rifle release point), and its point.
     bool releaseEvent = false;
@@ -555,9 +614,18 @@ void Show(Actor &actor);
 void Drop(Actor &actor);
 // The tint and alpha of the auras shown, after a kit reset the model's.
 void ApplyColors(Actor &actor);
-// The animation the newest aura shown pins while the actor stands (a state
-// kit's, ApplyEffectAnimation 0x005FDE80), or -1.
-int PinnedAnimation(const Actor &actor);
+// What the auras shown make of an animation the actor plays
+// (ApplyEffectAnimation 0x005FDE80), newest first: an animation speed
+// procedure holds it (it plays at speed 0); else a state kit's animation
+// pins it in place of the request while the actor is not `moving`.
+struct EffectAnimation {
+    int pinned = -1;
+    bool frozen = false;
+};
+EffectAnimation Effect(const Actor &actor, bool moving);
+// An aura shown sets the actor's animation speed (the wound's walk of the
+// unit's effects for flag 0x4, 0x0060EAB6).
+bool SetsSpeed(const Actor &actor);
 // From the actor's update, link and place: the world effects' light,
 // visibility and placement, and the loop sounds' place and pause.
 void Update(Actor &actor, float elapsedSec);

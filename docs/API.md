@@ -885,7 +885,10 @@ build instructions.
   - [`actor:SetModelByPath(path [, useMips])`](#actorsetmodelbypathpath--usemips)
   - [`actor:SetModelBySpellArea(spellID, radius)`](#actorsetmodelbyspellareaspellid-radius)
   - [`actor:SetModelByGameObjectDisplayID(gameObjectDisplayID)`](#actorsetmodelbygameobjectdisplayidgameobjectdisplayid)
-  - [`actor:PlayOneShotAnimation(animation [, upperBodyOnly])`](#actorplayoneshotanimationanimation--upperbodyonly)
+  - [`actor:PlaySwing(victim, result [, critical [, offHand]])`](#actorplayswingvictim-result--critical--offhand)
+  - [`actor:PlayWoundAnimation([critical])`](#actorplaywoundanimationcritical)
+  - [`actor:PlayParryAnimation()`](#actorplayparryanimation)
+  - [`actor:SetCreatureID(creatureID)` / `actor:SetAttacking(attacking)` / `actor:SetMoving(moving)`](#actorsetcreatureidcreatureid--actorsetattackingattacking--actorsetmovingmoving)
   - [`actor:SetGameObjectState(state [, previousState])`](#actorsetgameobjectstatestate--previousstate)
   - [`actor:SetModelByUnit(unit [, sheatheWeapons, autoDress, hideWeapons, usePlayerNativeForm, holdBowString, customRaceID])`](#actorsetmodelbyunitunit--sheatheweapons-autodress-hideweapons-useplayernativeform-holdbowstring-customraceid)
   - [`actor:SetModelByUnitCreatureDisplayID(unit)`](#actorsetmodelbyunitcreaturedisplayidunit)
@@ -3690,6 +3693,7 @@ including, `endTime`, in time order. Each event has:
 | `endsCast` | `true` for a `SPELL_CAST_SUCCESS` or `SPELL_CAST_FAILED` that ends a `SPELL_CAST_START`. |
 | `amount`, `critical` | For damage and heal events. |
 | `missType` | For miss events: `MISS`, `DODGE`, `PARRY`, `BLOCK`, `RESIST`, `ABSORB`, `IMMUNE` and more. |
+| `offHand` | `true` for a miss event that the off hand made. The log does not record this for a hit. |
 
 ```lua
 -- Print the deaths in the first minute of the replay.
@@ -19975,21 +19979,109 @@ ship or an elevator, also returns `false`.
 
 This is a ClassicAPI extension.
 
-### `actor:PlayOneShotAnimation(animation [, upperBodyOnly])`
+### `actor:PlaySwing(victim, result [, critical [, offHand]])`
 
-Plays an animation one time over the animation of the actor, as a unit
-plays a wound, a parry, a dodge or a block. `animation` is an
-`AnimationData.dbc` id, for example `9` (CombatWound) or `30` (Dodge).
+Plays a melee swing of the actor, as a unit swings in the world. The actor
+swings the weapon in its hand. With `offHand`, it swings its off hand. The
+victim reacts when the swing strikes.
 
-- If `upperBodyOnly` is `true`, the animation plays on the upper body, and
-  the legs continue to walk or run. When it ends, the upper body follows the
-  legs again.
-- Otherwise it plays on the whole body. When it ends, the animation of the
-  actor plays again.
-- Nothing plays while the actor plays a death animation, before its model
-  loads, or when the model has no such animation.
+| `result` | Reaction of the victim |
+|---|---|
+| `"HIT"` | It flinches at the hit point of the swing, as with `PlayWoundAnimation(critical)`. |
+| `"PARRY"` | It parries at the parry point of the swing, as with `PlayParryAnimation`. |
+| `"DODGE"`, `"DEFLECT"` | It dodges at the parry point of the swing. |
+| `"BLOCK"` | It blocks with its shield at the parry point of the swing. |
+| Other, for example `"MISS"` | Nothing. |
+
+- The swing animation comes from the weapon type, for example Attack1H for
+  a sword or Attack1HPierce for a dagger. Without a weapon, the actor
+  swings unarmed.
+- The swing plays on the upper body while the actor moves (see
+  `SetMoving`) or rides, so the legs continue. Otherwise it plays on the
+  whole body. A dodge or a block of the victim follows the same rule.
+- A swing that misses, is dodged or is evaded continues at half speed after
+  its hit point.
+- A swing during a swing does not start again. The first swing plays at
+  twice its speed, and the new result shows at its hit point. The second
+  swing plays after the first while the actor attacks and stands still
+  (see `SetAttacking`).
+- The reaction comes from the swing animation of the actor model. A swing
+  animation without a hit point or a parry point shows nothing.
+- Use a nil `victim` when the victim is not in the scene. A victim in
+  another scene counts as nil.
 
 This is a ClassicAPI extension.
+
+```lua
+attacker:SetAttacking(true)
+attacker:PlaySwing(victim, "HIT", true) -- the victim flinches when the swing strikes
+```
+
+### `actor:PlayWoundAnimation([critical])`
+
+Makes the actor flinch, as a unit flinches when a hit lands on it:
+
+| Case | Animation |
+|---|---|
+| `critical` is `true` | CombatCritical |
+| The actor attacks (`SetAttacking(true)`) | CombatWound |
+| Other | StandWound |
+
+- The flinch plays on the upper body while the actor moves, rides or
+  attacks, so the legs continue. A StandWound on an actor that stands still
+  plays on the whole body.
+- If the body plays a ready stance, the flinch plays on the whole body.
+- Nothing plays while the actor plays a death animation, before its model
+  loads, or when the model has no such animation.
+- Nothing plays for a creature that never flinches in the world (see
+  `SetCreatureID`).
+- Nothing plays while an aura holds the actor still, for example Freezing
+  Trap or Ice Block (see `AddAuraVisual`).
+
+Spells that the actor plays use the same flinch on their targets.
+
+This is a ClassicAPI extension.
+
+### `actor:PlayParryAnimation()`
+
+Makes the actor parry with the weapon in its main hand, as a unit does:
+
+| Main-hand weapon | Animation |
+|---|---|
+| One-handed axe, mace, sword or exotic, dagger, miscellaneous | Parry1H |
+| Two-handed axe, mace, sword or exotic | Parry2H |
+| Polearm, staff, spear | Parry2HL |
+| Fist weapon | ParryUnarmed |
+
+- Nothing plays without a melee weapon in the main hand.
+- The parry plays on the upper body while the actor moves or rides.
+- Nothing plays while the actor is dead, or for a creature that never
+  parries in the world (see `SetCreatureID`).
+
+This is a ClassicAPI extension.
+
+### `actor:SetCreatureID(creatureID)` / `actor:SetAttacking(attacking)` / `actor:SetMoving(moving)`
+
+These set the state that `PlaySwing`, `PlayWoundAnimation` and
+`PlayParryAnimation` read. All three are off (`0`, `false`) by default.
+
+- `SetCreatureID` sets the creature that the actor shows. A creature that
+  never flinches or parries in the world does not flinch or parry on the
+  actor. The creature data must be in the cache.
+  Use `C_CreatureInfo.RequestLoadCreatureByID` to load it.
+- `SetAttacking` sets whether the actor attacks a target in melee.
+- `SetMoving` sets whether the actor moves. An actor with movement enabled
+  also counts as moving while it moves on its own. A seated rider (see
+  `AttachToMount`) always swings and reacts on its upper body.
+
+This is a ClassicAPI extension.
+
+```lua
+victim:SetCreatureID(1501)     -- a creature
+victim:SetAttacking(true)
+victim:PlayWoundAnimation()     -- CombatWound on the upper body
+victim:PlayWoundAnimation(true) -- CombatCritical
+```
 
 ### `actor:SetGameObjectState(state [, previousState])`
 
@@ -20742,7 +20834,10 @@ The visual plays in these steps, as it does in the world:
    cast animation and flies to the target at the speed of the spell, with
    its flight sound. It follows the target if the target moves.
 4. The impact: the target flinches when a missile hits it. Then the impact
-   effects, animation and sound play on the target.
+   effects, animation and sound play on the target. A harmful spell without
+   a missile also makes the target flinch after its impact. The flinch is
+   the one that [`actor:PlayWoundAnimation`](#actorplaywoundanimationcritical)
+   plays.
 5. The channel, for a channeled spell such as Drain Life, Mind Flay or
    Hellfire: after the cast, the channel effects of the spell stay on the
    actor and its channel animation repeats. A beam goes from the hand of
@@ -20904,6 +20999,11 @@ While the actor does not move, it plays the animation of its newest aura
 with one, in place of its own animation, and a death replaces it. When the
 actor moves, it plays its own animation again. After the aura ends, the
 animation finishes its cycle, then the actor's own animation plays.
+
+Some auras hold the actor still, for example Freezing Trap, Ice Block and
+Petrify. While such an aura shows, the animations of the actor stop. The
+actor does not flinch, and a new animation does not move either. When the
+aura ends, the animations continue.
 
 An actor shows any number of auras at the same time, and they show next to
 the kit of `SetSpellVisualKit`. A spell shows one time: when you add the

@@ -248,7 +248,9 @@ struct CombatEvent {
     bool endsCast = false; // a SPELL_CAST_SUCCESS or FAILED that ends a SPELL_CAST_START
     uint32_t extraSpellID = 0; // a SPELL_INTERRUPT's interrupted spell
     // A damage or heal event's amount (`hasAmount`) and whether it was
-    // critical; a _MISSED event's miss type (MISS, DODGE, PARRY, ...).
+    // critical; a _MISSED event's miss type (MISS, DODGE, PARRY, ...) and
+    // whether the off hand made it (the line's isOffHand).
+    bool offHand = false;
     bool hasAmount = false;
     int32_t amount = 0;
     bool critical = false;

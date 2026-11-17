@@ -4350,19 +4350,36 @@ embedded load-on-demand addon. Layers:
   a display with flag +0x24 bit 0). Creatures hold their logged virtual
   items (`actor:SetHeldItem`, `GetUnitHeldItem`) and every unit takes the
   log's sheath state (`actor:SetSheatheState`, 2 = ranged in hand).
-- Reactions and missing casts (2026-11-17, not yet seen in game): a
+- Reactions and missing casts (2026-11-17, checked in game): a
   SPELL_CAST_START's visual flies to its success's destination
   (castTargetIndex; before, a cast-time bolt had no target, so no missile).
   Casts only in UNIT_CAST (Opening 3366, creature channels with no success
   line) are casts in the reader and play their visual at the UNIT_STATE
-  target. UNIT_STATE gains the attack target (+0xC48); a melee victim plays
-  PlayWoundAnimation's 10/9/8 choice and the $CPP parry/dodge/block poses
-  through actor:PlayOneShotAnimation (upper body on key bone 6). Open: they
-  play at the log line, not at the attacker's $CAH/$CPP swing event; the
-  creature type flag 0x8 (no wound/parry) is not honored; a missile's
-  arrival still plays CombatWound alone (SceneSpell), not the 8/9 choice;
-  parry/dodge/block go upper body while moving by analogy with the wound,
-  not from CGUnit_C::PlayAnimation's routing.
+  target. UNIT_STATE gains the attack target (+0xC48). Wounds (2026-11-17,
+  not yet seen in game): one actor-side PlayWoundAnimation (0x0060EA70)
+  for swings, missile arrivals (ArriveHit 0x0061DC50), harmful instant
+  impacts (0x006E8CB0/0x006E8BF0), effect $HIT and one-shot kits whose
+  animation is a wound (0x0060F3AD); actor:SetCreatureID honors creature
+  type flag 0x8 for wounds and PlayParryAnimation (0x0060EC00, from the
+  main-hand lane); the viewer sets SetAttacking/SetMoving per frame. Swing
+  timing (2026-11-17, not yet seen in game): actor:SetPendingSwing keeps a
+  swing's result on the attacker (the mount of a rider) as
+  SMSG_ATTACKERSTATEUPDATE (0x006255B0) does; its swing animation's $CPP
+  plays the parry/dodge/block pose and $CAH/$AH0..3 the wound
+  (OnCombatModelEvent 0x006247D0); an attacker out of view wounds at once
+  (PlayOneShotAnimation is gone). Open items closed (2026-11-17, not yet
+  seen in game): actor:PlaySwing replaces SetPendingSwing and plays the
+  swing itself (PlaySwingAnimation 0x006246A0, off hand from the miss
+  line's isOffHand); Actor::PlayUnitAnimation mirrors CGUnit_C::PlayAnimation
+  (0x005FE2F0) for one-shot requests: mask rules, overrides, mounted
+  routing (seated riders swing on the upper body), the swing-over-swing
+  fast path (2x, +0xD60 played at the body track's end by the attacking
+  leg 0x005FD360); $CAH slows a missed/dodged/evaded swing to 0.5; the
+  +0xB4 flag 0x4 is AddAnimSpeedEffect (kit procedure kind 11, state kits
+  only: Freezing Trap, Ice Block, Ice Tomb, Frost Blast, Petrify...), now
+  held by aura visuals and gating the wound; the viewer shows the ready
+  stance (0x005FCDC0) while attacking. Left out: hand-overs/demotion of
+  move/ready requests, stand state (vtable +0xA4), the swim pose 41.
 - Game objects and ground areas (2026-11-17, recorder + reader + API; not yet
   seen in game): ObjectInfo.cpp writes GAMEOBJECT_INFO (owner, display, type,
   state, flags, place, GAMEOBJECT_ROTATION quaternion, scale, record name) on

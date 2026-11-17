@@ -6978,6 +6978,57 @@ enum Offsets {
     // (0x0060C9B0 at 0x005FC9A2).
     FUN_IS_MISSILE_RELEASE_ANIMATION = 0x005FCCB0,
     FUN_IS_THROWN_ANIMATION = 0x005FCF90,
+    // IsReadyAnimation (0x005FDE60, `int __fastcall(int anim)`, plain ret):
+    // 25 to 29, the ready stances. CGUnit_C::PlayWoundAnimation (0x0060EAE4)
+    // plays a wound on the whole body, not the upper body, while the body
+    // track plays one.
+    FUN_IS_READY_ANIMATION = 0x005FDE60,
+    // IsWoundAnimation (0x0060F510, `int __fastcall(int anim)`, plain ret):
+    // 8 to 10, StandWound to CombatCritical. PlayUnitSpellVisualKit
+    // (0x0060F3AD) plays a one-shot kit's wound through
+    // CGUnit_C::PlayWoundAnimation, not as the kit's own animation.
+    FUN_IS_WOUND_ANIMATION = 0x0060F510,
+    // The sets CGUnit_C::PlayAnimation (0x005FE2F0) routes a request by, each
+    // `int __fastcall(int anim)` with a plain ret (disassembled): the
+    // upper-body set (0x005FED90, a byte table from 2, 95 ids; every swing,
+    // parry, block, dodge and wound is in it), the mount's full-body set
+    // (0x005FEC80, 33 ids, 8 to 10 among them, no swing or parry), the swings
+    // with their parries, blocks and dodges (0x005FCC10, 22 ids from 10 to
+    // 118), the jumps (0x005FED70: 37 to 39, 187), the landings (0x005FEC40:
+    // 39, 187) and the special attacks (0x005FEC60: 57, 58, 118).
+    FUN_IS_UPPER_BODY_ANIMATION = 0x005FED90,
+    FUN_IS_FULL_BODY_ANIMATION = 0x005FEC80,
+    FUN_IS_SWING_ANIMATION = 0x005FCC10,
+    FUN_IS_JUMP_ANIMATION = 0x005FED70,
+    FUN_IS_LANDING_ANIMATION = 0x005FEC40,
+    FUN_IS_SPECIAL_ATTACK_ANIMATION = 0x005FEC60,
+    // The swings PlaySwingAnimation (0x006246A0) plays: by the main hand's
+    // weapon subclass (the byte table 0x006247AC) Attack1H, Attack2H,
+    // Attack2HL, Attack1HPierce (daggers) or AttackUnarmed (fist weapons,
+    // ranged weapons, no weapon); an off-hand swing (hit info 0x4)
+    // AttackOffPierce with a dagger, AttackOff with another weapon,
+    // AttackUnarmedOff without one.
+    ANIM_ATTACK_UNARMED = 16,
+    ANIM_ATTACK_1H = 17,
+    ANIM_ATTACK_2H = 18,
+    ANIM_ATTACK_2HL = 19,
+    ANIM_ATTACK_1H_PIERCE = 85,
+    ANIM_ATTACK_OFF = 87,
+    ANIM_ATTACK_OFF_PIERCE = 88,
+    ANIM_ATTACK_UNARMED_OFF = 117,
+    // The reactions (AnimationData.dbc): PlayWoundAnimation's three
+    // (0x0060EA70), PlayParryAnimation's four (0x0060EC00), and the $CPP
+    // poses of OnCombatModelEvent (0x00624A61: victim state 2 or 8 Dodge, 5
+    // ShieldBlock).
+    ANIM_STAND_WOUND = 8,
+    ANIM_COMBAT_WOUND = 9,
+    ANIM_COMBAT_CRITICAL = 10,
+    ANIM_PARRY_UNARMED = 20,
+    ANIM_PARRY_1H = 21,
+    ANIM_PARRY_2H = 22,
+    ANIM_PARRY_2HL = 23,
+    ANIM_SHIELD_BLOCK = 24,
+    ANIM_DODGE = 30,
     ANIM_WALK = 4,
     ANIM_RUN = 5,
     ANIM_SHUFFLE_LEFT = 11,
@@ -8307,10 +8358,15 @@ enum Offsets {
     // block holds pointers, not the WDB's inline strings).
     OFF_CREATURE_NAME = 0x00,      // char *Name[4]; [0] is the primary name
     OFF_CREATURE_SUBNAME = 0x10,   // char *SubName (title); "" if none
+    OFF_CREATURE_TYPE_FLAGS = 0x14, // CreatureTypeFlags (SuppressesWoundAnim 0x006125F0 reads it)
     OFF_CREATURE_TYPE = 0x18,      // CreatureType (1=Beast, 7=Humanoid, ...)
     OFF_CREATURE_FAMILY = 0x1C,    // CreatureFamily
     OFF_CREATURE_RANK = 0x20,      // 0=normal,1=elite,2=rareelite,3=worldboss,4=rare
     OFF_CREATURE_DISPLAYID = 0x2C, // creature model display ID
+    // CreatureTypeFlags bit 0x8: no wound and no parry animation
+    // (CGUnit_C::SuppressesWoundAnim 0x006125F0, `>> 3 & 1`, which
+    // PlayWoundAnimation 0x0060EA70 and PlayParryAnimation 0x0060EC00 test).
+    CREATURE_TYPE_FLAG_NO_WOUND_ANIM = 0x8,
 
     // GameObject cache (gameobjectcache.wdb, SMSG_GAMEOBJECT_QUERY_RESPONSE).
     // Sibling cache class to creature (constructed by FUN_00554B90 ->
@@ -15118,6 +15174,18 @@ enum Offsets {
     // BuildAxisRotation4x4 `float *__fastcall(float out[16], const float
     // axis[3], float angle, int unitAxis)` ret 8.
     FUN_M2MODEL_HAS_KEY_BONE = 0x00711D20,
+    // CM2Model::GetKeyBoneAnimSpeed — `float __thiscall(model, keyBone)`, ret
+    // 4, the bone state's +0xB0 in st0; waits for an unloaded model.
+    // SetKeyBoneAnimSpeed — `__thiscall(model, keyBone, float speed)`, ret 8:
+    // keeps the sequence's position and re-derives its window at the new
+    // speed (0 ends the window at once, so the done callback runs at the next
+    // update); queued while the model loads (disassembled; benilla
+    // animation/playback#retiming-a-key-bone).
+    FUN_M2MODEL_GET_KEY_BONE_ANIM_SPEED = 0x00712150,
+    FUN_M2MODEL_SET_KEY_BONE_ANIM_SPEED = 0x00712910,
+    // The key bone AddAnimSpeedEffect (0x006201D0) sets with the body's bone
+    // 0 when the model has it.
+    M2_KEY_BONE_ANIM_SPEED_EFFECT = 4,
     FUN_M2MODEL_SET_KEY_BONE_FLAGS = 0x00711F10,
     FUN_M2MODEL_SET_KEY_BONE_OVERRIDE = 0x00712B00,
     FUN_MATRIX_AXIS_ROTATION = 0x007BDB00,

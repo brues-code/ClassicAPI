@@ -164,6 +164,7 @@
 #include "Offsets.h"
 #include "animation/Xml.h"
 #include "api/Documentation.h"
+#include "cache/Record.h"
 #include "cvar/Factory.h"
 #include "dbc/Lookup.h"
 #include "guid/Guid.h"
@@ -198,6 +199,96 @@ namespace {
 constexpr uint32_t kPinMovingFlags = Mover::FLAG_FORWARD | Mover::FLAG_BACKWARD | Mover::FLAG_STRAFE_LEFT |
                                      Mover::FLAG_STRAFE_RIGHT | Mover::FLAG_SWIMMING;
 static_assert(kPinMovingFlags == 0x20000F, "ApplyEffectAnimation's mask");
+
+// The movement flags that move a wound to the upper body
+// (CGUnit_C::PlayWoundAnimation's `test 0x20200f` at 0x0060EBB3): the four
+// directions, falling or swimming. Its spline (0x0060EBC0) and 0x40000800
+// (0x0060EBDA) tests have no counterpart on a scene body.
+constexpr uint32_t kWoundMovingFlags = kPinMovingFlags | Mover::FLAG_FALLING;
+static_assert(kWoundMovingFlags == 0x20200F, "PlayWoundAnimation's mask");
+
+// The movement flags of CGUnit_C::PlayAnimation's routing (0x005FE2F0): the
+// four directions, the two turns and swimming send an upper-body request to
+// the upper body; a turn without a strafe keeps a fighting unit's request on
+// the whole body.
+constexpr uint32_t kTurnFlags = Mover::FLAG_TURN_LEFT | Mover::FLAG_TURN_RIGHT;
+constexpr uint32_t kStrafeFlags = Mover::FLAG_STRAFE_LEFT | Mover::FLAG_STRAFE_RIGHT;
+constexpr uint32_t kRouteMovingFlags = kPinMovingFlags | kTurnFlags;
+static_assert(kRouteMovingFlags == 0x20003F && kTurnFlags == 0x30 && kStrafeFlags == 0xC,
+              "PlayAnimation's masks");
+
+// The swing over a swing (0x005FE43C): the playing one at twice its speed.
+constexpr float kSwingHurrySpeed = 2.0f;
+
+// The reactions' gates (PlayWoundAnimation 0x0060EA70, PlayParryAnimation
+// 0x0060EC00): LooksDead, the model loaded, and SuppressesWoundAnim
+// (0x006125F0), the creature record's type flag 0x8. A creature not yet in
+// the cache keeps nothing off, as a unit without its record (+0xB30) does.
+bool CanReact(const Actor &actor) {
+    if (actor.model == nullptr || !actor.loaded || M2::IsDeathAnimation(actor.CurrentAnimation()))
+        return false;
+    if (actor.creatureID == 0)
+        return true;
+    const uint8_t *creature =
+        Cache::Record::Peek(Offsets::FUN_CREATURE_GET_RECORD, Offsets::VAR_CREATURE_CACHE, actor.creatureID);
+    return creature == nullptr ||
+           (Game::Read<uint32_t>(creature, Offsets::OFF_CREATURE_TYPE_FLAGS) &
+            Offsets::CREATURE_TYPE_FLAG_NO_WOUND_ANIM) == 0;
+}
+
+uint32_t MoverFlags(const Actor &actor) { return actor.mover != nullptr ? actor.mover->flags : 0; }
+
+// Whether the actor moves, for a reaction: the script's word, or the mover's
+// flags.
+bool Moving(const Actor &actor) { return actor.moving || (MoverFlags(actor) & kWoundMovingFlags) != 0; }
+
+// A spell under way that a unit's routing counts as a channel or precast
+// (UNIT_CHANNEL_SPELL, +0xD58 bit 0x400).
+bool Casting(const Actor &actor) {
+    for (const SpellCast &cast : actor.spellCasts)
+        if (cast.phase == SpellCast::Phase::Precast || cast.phase == SpellCast::Phase::Channel)
+            return true;
+    return false;
+}
+
+// PlaySwingAnimation's pick (0x006246A0): an off-hand swing (hit info 0x4)
+// by the off hand's item, else by the main hand's weapon subclass (the byte
+// table at 0x006247AC).
+uint32_t SwingAnimation(const Actor &actor, bool offHand) {
+    if (offHand) {
+        const Outfit::HeldLane &off = actor.lanes[1];
+        if (off.itemClass != Offsets::ITEM_CLASS_WEAPON)
+            return Offsets::ANIM_ATTACK_UNARMED_OFF;
+        return off.subclass == 15 ? Offsets::ANIM_ATTACK_OFF_PIERCE : Offsets::ANIM_ATTACK_OFF; // 15 dagger
+    }
+    const Outfit::HeldLane &main = actor.lanes[0];
+    if (main.itemClass != Offsets::ITEM_CLASS_WEAPON)
+        return Offsets::ANIM_ATTACK_UNARMED;
+    switch (main.subclass) {
+    case 0: case 4: case 7: case 11: case 14: // one-handed axe, mace, sword; exotic; misc
+        return Offsets::ANIM_ATTACK_1H;
+    case 1: case 5: case 8: case 12: // two-handed axe, mace, sword; exotic
+        return Offsets::ANIM_ATTACK_2H;
+    case 6: case 10: case 17: case 20: // polearm, staff, spear, fishing pole
+        return Offsets::ANIM_ATTACK_2HL;
+    case 15: // dagger
+        return Offsets::ANIM_ATTACK_1H_PIERCE;
+    default: // fist weapon, bow, gun, thrown, crossbow, wand
+        return Offsets::ANIM_ATTACK_UNARMED;
+    }
+}
+
+// The base pick's attacking leg at a body track's end (ResolveReadyAnimation
+// 0x005FD360): an unmounted attacker plays the swing a swing over a swing
+// left waiting, unless an earlier leg claims the pick: moving (0x005FD100)
+// or a spell's looping animation (0x005FD2E0). The waiting swing goes either
+// way, as the next play clears +0xD60.
+bool PlayQueuedSwing(Actor &actor, int queued) {
+    if (queued < 0 || !actor.attacking || actor.Seated() || Moving(actor) || actor.kitAnimation >= 0)
+        return false;
+    actor.PlayUnitAnimation(static_cast<uint32_t>(queued));
+    return true;
+}
 
 // Script indexes (kScripts order).
 // OnSpellVisualImpact (PlaySpellVisual's) and OnMoveFinished (MoveTo's) are
@@ -396,6 +487,8 @@ void ReleaseModel(Actor &actor) {
     actor.gameObjectAnim = -1;
     actor.unitGuid = 0;
     actor.splashSound = 0;
+    actor.pendingSwing = {};
+    actor.queuedSwing = -1;
     actor.lanes[0] = actor.lanes[1] = Outfit::HeldLane{};
     actor.weapons = Outfit::Weapons{};
     actor.rangedDrawn = false;
@@ -786,27 +879,32 @@ void Actor::PlayAnimation() {
     // whose animations end in one advance otherwise each see the other's
     // script replace theirs, then run OnAnimFinished for the new one.
     animFinished = false;
-    // The stationary pin (ApplyEffectAnimation 0x005FDE80): every request but
-    // a death, while the unit neither moves nor swims (its movement flags &
-    // 0x20000F), plays the animation of the newest state kit on it instead,
-    // with variation -1. A stunned actor stands stunned; a moving one runs.
-    if (!M2::IsDeathAnimation(CurrentAnimation()) &&
-        !(mover != nullptr && (mover->flags & kPinMovingFlags) != 0)) {
-        if (const int pinned = AuraVisuals::PinnedAnimation(*this); pinned > 0) {
-            M2::PlayAnimation(model, -1, static_cast<uint32_t>(pinned), -1, 0, 1.0f,
-                              static_cast<int>(blendOperation), 1);
-            return;
-        }
+    // ApplyEffectAnimation (0x005FDE80), for every request but a death: the
+    // stationary pin, while the unit neither moves nor swims (its movement
+    // flags & 0x20000F), plays the animation of the newest state kit on it
+    // instead, with variation -1 (a stunned actor stands stunned; a moving
+    // one runs); an aura's animation speed holds the request at speed 0.
+    const AuraVisuals::EffectAnimation effect =
+        M2::IsDeathAnimation(CurrentAnimation())
+            ? AuraVisuals::EffectAnimation{}
+            : AuraVisuals::Effect(*this, (MoverFlags(*this) & kPinMovingFlags) != 0);
+    if (effect.pinned > 0) {
+        M2::PlayAnimation(model, -1, static_cast<uint32_t>(effect.pinned), -1, 0, 1.0f,
+                          static_cast<int>(blendOperation), 1);
+        return;
     }
+    const float hold = effect.frozen ? 0.0f : 1.0f;
     if (kitAnimation >= 0) {
-        M2::PlayAnimation(model, -1, static_cast<uint32_t>(kitAnimation), -1, 0, 1.0f,
+        M2::PlayAnimation(model, -1, static_cast<uint32_t>(kitAnimation), -1, 0, hold,
                           static_cast<int>(blendOperation), 1);
         return;
     }
     const int offsetMs = static_cast<int>(animOffsetSec * 1000.0f);
-    M2::PlayAnimation(model, -1, animation, variation, offsetMs, animSpeed,
+    M2::PlayAnimation(model, -1, animation, variation, offsetMs, animSpeed * hold,
                       static_cast<int>(blendOperation), 1);
 }
+
+bool Actor::Seated() const { return model != nullptr && M2::Parent(model) != nullptr; }
 
 void Actor::PlayKitAnimation(int anim, bool loops) {
     if (loops)
@@ -814,6 +912,160 @@ void Actor::PlayKitAnimation(int anim, bool loops) {
     kitAnimation = anim;
     kitAnimationLoops = loops;
     PlayAnimation();
+}
+
+void Actor::PlayWoundAnimation(bool critical) {
+    // The walk of the unit's effects (0x0060EAB6): one with flag 0x4, an
+    // aura's animation speed, keeps the wound off.
+    if (!CanReact(*this) || AuraVisuals::SetsSpeed(*this))
+        return;
+    // 0x0060EACA: the animation, and the track: the upper body, or the whole
+    // body for a still StandWound of an unmounted unit.
+    uint32_t anim = Offsets::ANIM_COMBAT_CRITICAL;
+    bool upperBody = true;
+    if (!critical) {
+        anim = attacking ? Offsets::ANIM_COMBAT_WOUND : Offsets::ANIM_STAND_WOUND;
+        upperBody = attacking || Seated() || Moving(*this);
+    }
+    // 0x0060EAE0: a body playing a ready stance takes the wound whole, and so
+    // does a model without the upper-body key bone (+0xD5C of -1).
+    if (upperBody && (M2::IsReadyAnimation(static_cast<int>(M2::GetAnimState(model, -1).id)) ||
+                      !M2::HasKeyBone(model, Offsets::M2_KEY_BONE_UPPER_BODY)))
+        upperBody = false;
+    if (M2::GetSequenceInfo(model, anim, 0).length == 0)
+        return;
+    if (upperBody)
+        M2::PlayAnimation(model, Offsets::M2_KEY_BONE_UPPER_BODY, anim, -1, 0, 1.0f, 0, 0);
+    else
+        PlayKitAnimation(static_cast<int>(anim), false);
+}
+
+void Actor::PlayParryAnimation() {
+    // The main hand's item (the unit's virtual 0x98, the held lane), a weapon.
+    const Outfit::HeldLane &mainHand = lanes[0];
+    if (!CanReact(*this) || mainHand.itemClass != Offsets::ITEM_CLASS_WEAPON)
+        return;
+    // The subclass switch (0x0060EC48): one-handed axe, mace, sword, exotic,
+    // misc and dagger Parry1H; two-handed axe, mace, sword and exotic
+    // Parry2H; polearm, staff and spear Parry2HL; fist ParryUnarmed. Any
+    // other weapon (bow, gun, thrown, crossbow, wand, fishing pole) none.
+    uint32_t anim;
+    switch (mainHand.subclass) {
+    case 0: case 4: case 7: case 11: case 14: case 15:
+        anim = Offsets::ANIM_PARRY_1H;
+        break;
+    case 1: case 5: case 8: case 12:
+        anim = Offsets::ANIM_PARRY_2H;
+        break;
+    case 6: case 10: case 17:
+        anim = Offsets::ANIM_PARRY_2HL;
+        break;
+    case 13:
+        anim = Offsets::ANIM_PARRY_UNARMED;
+        break;
+    default:
+        return;
+    }
+    PlayUnitAnimation(anim);
+}
+
+// CGUnit_C::PlayAnimation (0x005FE2F0, benilla animation/units) for a
+// one-shot request, as a unit routes it across its tracks: bone 0 of its
+// body (here the actor's own kit animation, which gives the actor's
+// animation back when it ends), the upper-body key bone (+0xD5C) and the
+// mount's bone 0. Left out: the hand-overs and demotions of move, ready and
+// Stand requests (the script sets those as the actor's own animation), the
+// stand state test (vtable +0xA4; an actor has no stand state), the swim
+// pose 41 under a request, and the move rate and phase.
+void Actor::PlayUnitAnimation(uint32_t anim) {
+    if (model == nullptr || !loaded)
+        return;
+    const int request = static_cast<int>(anim);
+    // A dead unit takes only a death (0x005FE381).
+    if (M2::IsDeathAnimation(CurrentAnimation()) && !M2::IsDeathAnimation(request))
+        return;
+    // GetTrackStates (0x005FE1F0): a track that has ended, or a key bone the
+    // model lacks, reads as none. The current upper animation is the key
+    // bone's while it plays, else bone 0's.
+    const bool keyBone = M2::HasKeyBone(model, Offsets::M2_KEY_BONE_UPPER_BODY);
+    const M2::AnimState body = M2::GetAnimState(model, -1);
+    const int bodyID = body.latch == 0 ? static_cast<int>(body.id) : -1;
+    int upperID = -1;
+    if (keyBone) {
+        const M2::AnimState upper = M2::GetAnimState(model, Offsets::M2_KEY_BONE_UPPER_BODY);
+        upperID = upper.latch == 0 ? static_cast<int>(upper.id) : -1;
+    }
+    const bool upperArmed = upperID != -1;
+    const int current = upperArmed ? upperID : bodyID;
+    // The combat fast path (0x005FE43C): a swing over a swing doubles the
+    // playing track and waits for its end (+0xD60); any other request drops
+    // the waiting one.
+    if (M2::IsSwingAnimation(current) && M2::IsSwingAnimation(request)) {
+        M2::SetAnimSpeed(model, upperArmed ? Offsets::M2_KEY_BONE_UPPER_BODY : -1, kSwingHurrySpeed);
+        queuedSwing = request;
+        return;
+    }
+    queuedSwing = -1;
+    // The mask rules (0x005FE6A1): an upper-body request while the unit
+    // turns, moves or swims; a jump over a swing or ready stance; a swing in
+    // a jump; any request while it moves with a spell under way. Then the
+    // overrides: a landing, a fighting or casting unit that turns without
+    // strafing, a special attack or a death take the whole body.
+    const uint32_t flags = MoverFlags(*this);
+    const bool turning = facings.shuffle != 0 || (flags & kTurnFlags) != 0;
+    const bool casting = Casting(*this);
+    bool upperBody = (M2::IsUpperBodyAnimation(request) && (turning || moving || (flags & kRouteMovingFlags) != 0)) ||
+                     (M2::IsJumpAnimation(request) && (M2::IsSwingAnimation(current) || M2::IsReadyAnimation(current))) ||
+                     (M2::IsSwingAnimation(request) && (flags & Mover::FLAG_FALLING) != 0) ||
+                     (casting && (moving || (flags & kPinMovingFlags) != 0));
+    if (M2::IsLandingAnimation(request) || (turning && (casting || attacking) && (flags & kStrafeFlags) == 0) ||
+        M2::IsSpecialAttackAnimation(request) || M2::IsDeathAnimation(request))
+        upperBody = false;
+    // ApplyEffectAnimation (0x005FDE80, unless a death): a state kit's pin
+    // takes the request's place on the body and the key bone; an animation
+    // speed plays it at speed 0.
+    const AuraVisuals::EffectAnimation effect =
+        M2::IsDeathAnimation(request) ? AuraVisuals::EffectAnimation{}
+                                      : AuraVisuals::Effect(*this, (flags & kPinMovingFlags) != 0);
+    if (effect.pinned > 0) {
+        if (upperArmed && upperID != effect.pinned)
+            M2::PlayAnimation(model, Offsets::M2_KEY_BONE_UPPER_BODY, static_cast<uint32_t>(effect.pinned), -1, 0,
+                              1.0f, 1, 1);
+        if (bodyID != effect.pinned)
+            PlayAnimation();
+        return;
+    }
+    const float speed = effect.frozen ? 0.0f : 1.0f;
+    // PlayTrack (0x005FDBA0) plays a key-bone track only on a model with the
+    // key bone, and no track again over the same animation.
+    const auto playUpper = [&] {
+        if (keyBone && upperID != request)
+            M2::PlayAnimation(model, Offsets::M2_KEY_BONE_UPPER_BODY, anim, -1, 0, speed, 1, 1);
+    };
+    // Mounted routing (0x005FE7B5): a full-body request goes to the mount's
+    // model, any other upper-body one to the upper body; the body keeps its
+    // seat.
+    if (Seated()) {
+        if (M2::IsFullBodyAnimation(request))
+            M2::PlayAnimation(M2::Parent(model), -1, anim, -1, 0, speed, 1, 1);
+        else if (M2::IsUpperBodyAnimation(request))
+            playUpper();
+        return;
+    }
+    // The routing (0x005FE834): with the route flag, a one-shot request goes
+    // to the upper body; without it, to bone 0.
+    if (upperBody)
+        playUpper();
+    else if (bodyID != request)
+        PlayKitAnimation(request, false);
+}
+
+void Actor::PlaySwing(Actor *victim, SwingResult result, bool critical, bool offHand) {
+    pendingSwing = {true, victim, result, critical};
+    // PlaySwingAnimation: nothing for an attacker without health.
+    if (model == nullptr || !loaded || M2::IsDeathAnimation(CurrentAnimation()))
+        return;
+    PlayUnitAnimation(SwingAnimation(*this, offHand));
 }
 
 void Actor::SetSpellVisualKit(uint32_t kitID, bool oneShot) {
@@ -944,15 +1196,13 @@ void ClearTwist(void *model) {
 // The model's twist bones, marked once it has loaded (OnModelLoaded
 // 0x0060CE70).
 void MarkTwistBones(Actor &actor) {
-    using Has_t = int(__thiscall *)(void *model, int bone);
     Actor::Facings &f = actor.facings;
     if (actor.model == f.bonesOf || !actor.loaded)
         return;
-    const auto has = reinterpret_cast<Has_t>(Offsets::FUN_M2MODEL_HAS_KEY_BONE);
     f.bits &= ~(kTwistLow | kTwistHigh);
-    if (has(actor.model, Offsets::M2_KEY_BONE_TWIST_LOW) != 0)
+    if (M2::HasKeyBone(actor.model, Offsets::M2_KEY_BONE_TWIST_LOW))
         f.bits |= kTwistLow;
-    if (has(actor.model, Offsets::M2_KEY_BONE_TWIST_HIGH) != 0)
+    if (M2::HasKeyBone(actor.model, Offsets::M2_KEY_BONE_TWIST_HIGH))
         f.bits |= kTwistHigh;
     f.bonesOf = actor.model;
 }
@@ -1265,6 +1515,9 @@ void Actor::Update(float elapsedSec, float sceneSec) {
     }
     if (model != nullptr && animFinished) {
         animFinished = false;
+        // A swing over a swing waits for the body track's end (the pick's
+        // attacking leg).
+        const int queued = std::exchange(queuedSwing, -1);
         if (kitAnimation >= 0) {
             // A kit's animation is the spell's, not the script's: no
             // OnAnimFinished. A ranged load goes on to its hold, as the
@@ -1278,9 +1531,10 @@ void Actor::Update(float elapsedSec, float sceneSec) {
                 kitAnimation = kitLoopAnimation;
                 kitAnimationLoops = kitLoopAnimation >= 0;
             }
-            PlayAnimation();
+            if (!PlayQueuedSwing(*this, queued))
+                PlayAnimation();
         } else {
-            if (!GameObjects::FollowOn(*this) && !Locomotion::FollowOn(*this))
+            if (!PlayQueuedSwing(*this, queued) && !GameObjects::FollowOn(*this) && !Locomotion::FollowOn(*this))
                 PlayAnimation();
             RunScript(S_ONANIMFINISHED, 0);
         }
@@ -1577,25 +1831,81 @@ int __fastcall Script_SetGameObjectState(void *L) {
     return 0;
 }
 
-// A reaction played once over the actor's own animation (a ClassicAPI
-// extension, for replays): a wound, parry, dodge or block, as a unit plays
-// one (CGUnit_C::PlayWoundAnimation 0x0060EA70). Nothing for a dead actor, an
-// unloaded model, or a model without the sequence. On the whole body it
-// gives back the actor's own animation when it ends; on the upper body (the
-// unit's split key bone, a moving or attacking unit's) the legs go on.
-int __fastcall Script_PlayOneShotAnimation(void *L) {
+// The unit state the reactions read (ClassicAPI extensions, for replays):
+// Actor::creatureID, attacking and moving.
+int __fastcall Script_SetCreatureID(void *L) {
     Actor *actor = Self(L);
-    if (actor == nullptr ||
-        !NumberArgs(L, 2, 1, actor->DisplayName(), "PlayOneShotAnimation(animation [, upperBodyOnly])"))
+    if (actor == nullptr || !NumberArgs(L, 2, 1, actor->DisplayName(), "SetCreatureID(creatureID)"))
         return 0;
-    const auto anim = static_cast<uint32_t>(Game::Lua::ToNumber(L, 2));
-    if (actor->model == nullptr || !actor->loaded || M2::IsDeathAnimation(actor->CurrentAnimation()) ||
-        M2::GetSequenceInfo(actor->model, anim, 0).length == 0)
+    const double id = Game::Lua::ToNumber(L, 2);
+    actor->creatureID = id > 0.0 ? static_cast<uint32_t>(id) : 0;
+    return 0;
+}
+
+int __fastcall Script_SetAttacking(void *L) {
+    if (Actor *actor = Self(L))
+        actor->attacking = Game::Lua::ToBoolean(L, 2) != 0;
+    return 0;
+}
+
+int __fastcall Script_SetMoving(void *L) {
+    if (Actor *actor = Self(L))
+        actor->moving = Game::Lua::ToBoolean(L, 2) != 0;
+    return 0;
+}
+
+// A unit's reactions (ClassicAPI extensions, for replays): Actor's
+// PlayWoundAnimation and PlayParryAnimation.
+int __fastcall Script_PlayWoundAnimation(void *L) {
+    if (Actor *actor = Self(L))
+        actor->PlayWoundAnimation(Game::Lua::ToBoolean(L, 2) != 0);
+    return 0;
+}
+
+int __fastcall Script_PlayParryAnimation(void *L) {
+    if (Actor *actor = Self(L))
+        actor->PlayParryAnimation();
+    return 0;
+}
+
+// A melee swing (a ClassicAPI extension, for replays): Actor::PlaySwing. The
+// result is the combat log's word, HIT or a missType, each the victim state
+// the swing's events read; a word not listed reads as none of them.
+int __fastcall Script_PlaySwing(void *L) {
+    constexpr char kUsage[] = "PlaySwing(victim, result [, critical, offHand])";
+    Actor *attacker = Self(L);
+    if (attacker == nullptr)
         return 0;
-    if (Game::Lua::ToBoolean(L, 3) != 0)
-        M2::PlayAnimation(actor->model, Offsets::M2_KEY_BONE_UPPER_BODY, anim, -1, 0, 1.0f, 0, 0);
-    else
-        actor->PlayKitAnimation(static_cast<int>(anim), false);
+    Actor *victim = nullptr;
+    if (Game::Lua::Type(L, 2) > Game::Lua::TYPE_NIL) {
+        victim = static_cast<Actor *>(Animation::Resolve(L, 2, Actor::s_class));
+        if (victim == nullptr) {
+            Game::Lua::Error(L, "Usage: %s:%s", attacker->DisplayName(), kUsage);
+            return 0;
+        }
+        if (victim->SceneFrame() != attacker->SceneFrame())
+            victim = nullptr;
+    }
+    if (!Game::Lua::IsString(L, 3)) {
+        Game::Lua::Error(L, "Usage: %s:%s", attacker->DisplayName(), kUsage);
+        return 0;
+    }
+    struct Word {
+        const char *name;
+        Actor::SwingResult result;
+    };
+    static constexpr Word kWords[] = {
+        {"HIT", Actor::SwingResult::Hit},       {"MISS", Actor::SwingResult::Miss},
+        {"DODGE", Actor::SwingResult::Dodge},   {"PARRY", Actor::SwingResult::Parry},
+        {"BLOCK", Actor::SwingResult::Block},   {"EVADE", Actor::SwingResult::Evade},
+        {"IMMUNE", Actor::SwingResult::Immune}, {"DEFLECT", Actor::SwingResult::Deflect},
+    };
+    const char *word = Game::Lua::ToString(L, 3);
+    Actor::SwingResult result = Actor::SwingResult::Other;
+    for (const Word &w : kWords)
+        if (std::strcmp(word, w.name) == 0)
+            result = w.result;
+    attacker->PlaySwing(victim, result, Game::Lua::ToBoolean(L, 4) != 0, Game::Lua::ToBoolean(L, 5) != 0);
     return 0;
 }
 
@@ -3096,7 +3406,12 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
     {"SetModelBySpellArea", &Script_SetModelBySpellArea},
     {"SetModelByGameObjectDisplayID", &Script_SetModelByGameObjectDisplayID},
     {"SetGameObjectState", &Script_SetGameObjectState},
-    {"PlayOneShotAnimation", &Script_PlayOneShotAnimation},
+    {"PlaySwing", &Script_PlaySwing},
+    {"SetCreatureID", &Script_SetCreatureID},
+    {"SetAttacking", &Script_SetAttacking},
+    {"SetMoving", &Script_SetMoving},
+    {"PlayWoundAnimation", &Script_PlayWoundAnimation},
+    {"PlayParryAnimation", &Script_PlayParryAnimation},
     {"SetModelByUnit", &Script_SetModelByUnit},
     {"SetModelByUnitCreatureDisplayID", &Script_SetModelByUnitCreatureDisplayID},
     {"GetModelUnitGUID", &Script_GetModelUnitGUID},
@@ -3818,14 +4133,57 @@ const Game::Doc::Field kGameObjectStateArgs[] = {
     Opt("previousState", "number", nullptr,
         "The state it was in: the open, close, destroy or rebuild animation plays first."),
 };
-const Game::Doc::Field kOneShotArgs[] = {
-    Req("animation", "number", "An AnimationData.dbc id, for example 9 CombatWound or 30 Dodge."),
-    Opt("upperBodyOnly", "bool", "false", "Plays it on the upper body, so the legs go on walking or running."),
+const Game::Doc::Field kPlaySwingArgs[] = {
+    Opt("victim", "ModelSceneFrameActor", nullptr,
+        "The actor that the swing strikes. Nil when the victim is not in the scene."),
+    Req("result", "cstring",
+        "\"HIT\", or a combat log missType: \"MISS\", \"DODGE\", \"PARRY\", \"BLOCK\", \"EVADE\", "
+        "\"IMMUNE\", \"DEFLECT\" and more."),
+    Opt("critical", "bool", "false", "The hit was a critical hit."),
+    Opt("offHand", "bool", "false", "The swing was made with the off hand."),
 };
-const Game::Doc::Function kPlayOneShotAnimation{
-    "Plays an animation once over the actor's own animation, as a unit plays a wound or a parry. Nothing "
-    "happens when the actor plays a death animation or its model has no such animation.",
-    kOneShotArgs, {}, nullptr, true};
+const Game::Doc::Function kPlaySwing{
+    "Plays a melee swing as a unit does in the world. The actor swings the weapon in its hand. The victim "
+    "reacts when the swing strikes: it parries, dodges or blocks at the parry point of the swing, and "
+    "flinches at its hit point. A swing that misses, is dodged or is evaded follows through at half speed "
+    "after its hit point. A swing over a swing plays the first at twice its speed, and the new result "
+    "shows at the hit point of the first. A swing animation without these points shows nothing on the "
+    "victim.",
+    kPlaySwingArgs, {}, nullptr, true};
+const Game::Doc::Field kCreatureIDArgs[] = {
+    Req("creatureID", "number", "The creature the actor stands for. 0 for none."),
+};
+const Game::Doc::Function kSetCreatureID{
+    "Sets the creature the actor stands for. A creature that never flinches or parries in the world does "
+    "not flinch or parry in the scene. The creature's data must be cached, for example with "
+    "C_CreatureInfo.RequestLoadCreatureByID. None by default.",
+    kCreatureIDArgs, {}, nullptr, true};
+const Game::Doc::Field kAttackingArgs[] = {Req("attacking", "bool")};
+const Game::Doc::Function kSetAttacking{
+    "Sets whether the actor attacks a target, as a unit in melee combat does. An attacking actor flinches "
+    "with CombatWound on its upper body. Off by default.",
+    kAttackingArgs, {}, nullptr, true};
+const Game::Doc::Field kMovingArgs[] = {Req("moving", "bool")};
+const Game::Doc::Function kSetMoving{
+    "Sets whether the actor moves. A moving actor swings, flinches and parries on its upper body, so its "
+    "legs go on. An actor with movement enabled also counts as moving while its own movement moves it. "
+    "A seated rider always uses its upper body. Off by default.",
+    kMovingArgs, {}, nullptr, true};
+const Game::Doc::Field kWoundArgs[] = {
+    Opt("critical", "bool", "false", "The hit was a critical hit."),
+};
+const Game::Doc::Function kPlayWoundAnimation{
+    "Flinches as a unit does when a hit lands: CombatCritical for a critical hit, CombatWound while it "
+    "attacks, else StandWound. The flinch is on the upper body while the actor moves, rides or attacks, "
+    "unless it plays a ready stance. Spells that the actor plays flinch their targets in the same way. "
+    "Nothing happens when the actor is dead, its creature never flinches, an aura holds it still (for "
+    "example Freezing Trap or Ice Block), or its model has no such animation.",
+    kWoundArgs, {}, nullptr, true};
+const Game::Doc::Function kPlayParryAnimation{
+    "Parries as a unit does, with the parry animation of the weapon in its main hand, on the upper body "
+    "while the actor moves or rides. Nothing happens without a melee weapon, when the actor is dead, or "
+    "when its creature never parries.",
+    {}, {}, nullptr, true};
 const Game::Doc::Function kSetGameObjectState{
     "Shows a game object model in a state, as the world animates a door or a chest when its state changes.",
     kGameObjectStateArgs, {}, nullptr, true};
@@ -3943,7 +4301,12 @@ const Game::Doc::Method kMethodDocs[] = {
     {"SetModelBySpellArea", &kSetModelBySpellArea},
     {"SetModelByGameObjectDisplayID", &kSetModelByGameObjectDisplayID},
     {"SetGameObjectState", &kSetGameObjectState},
-    {"PlayOneShotAnimation", &kPlayOneShotAnimation},
+    {"PlaySwing", &kPlaySwing},
+    {"SetCreatureID", &kSetCreatureID},
+    {"SetAttacking", &kSetAttacking},
+    {"SetMoving", &kSetMoving},
+    {"PlayWoundAnimation", &kPlayWoundAnimation},
+    {"PlayParryAnimation", &kPlayParryAnimation},
     {"SetModelByUnit", &kSetModelByUnit},
     {"SetModelByUnitCreatureDisplayID", &kSetModelByUnitCreatureDisplayID},
     {"GetModelUnitGUID", &kGetModelUnitGUID},

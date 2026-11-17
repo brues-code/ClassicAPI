@@ -413,6 +413,8 @@ int __fastcall Script_GetEvents(void *L) {
         }
         if (!e.missType.empty())
             Lua::SetFieldString(L, "missType", e.missType.c_str());
+        if (e.offHand)
+            Lua::SetFieldBool(L, "offHand", true);
         if (!e.text.empty())
             Lua::SetFieldString(L, "text", e.text.c_str());
         Lua::RawSetI(L, -2, ++i);
@@ -938,6 +940,7 @@ const Game::Doc::Structure kAppearance{
 const Game::Doc::Field kUnitIndexArg[] = {Req("unitIndex", "number")};
 const Game::Doc::Field kGetUnitAppearancesRets[] = {
     Req("appearances", "table",
+    Opt("offHand", "bool", nullptr, "True for a _MISSED event that the off hand made. The log does not say this for a hit."),
         "An array of CombatLogReplayAppearance in time order, each until the next; empty for a "
         "creature."),
 };

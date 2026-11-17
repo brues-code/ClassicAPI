@@ -22,30 +22,16 @@
 local ANIM_STAND, ANIM_WALK, ANIM_RUN, ANIM_MOUNT = 0, 4, 5, 91
 -- In the air (Offsets.h ANIM_JUMP, ANIM_FALL): from a jump, or off a ledge.
 local ANIM_JUMP, ANIM_FALL = 38, 40;
--- Combat (AnimationData.dbc): dying, then lying dead; a swing, unarmed (a
--- creature) or one-handed (a player).
+-- Combat (AnimationData.dbc): dying, then lying dead.
 local ANIM_DEATH, ANIM_DEAD = 1, 6;
-local ANIM_ATTACK_UNARMED = 16;
--- A swing by the main hand's weapon (item class 2), as the client picks it
--- (0x006246A0): the subclass indexes the bytes at 0x006247AC into 17
--- Attack1H, 18 Attack2H, 19 Attack2HL, 85 Attack1HPierce or 16 AttackUnarmed.
+-- An attacker's stance between swings, as the client picks it
+-- (GetReadyAnimation 0x005FCDC0): by the main hand's weapon subclass (item
+-- class 2) 26 Ready1H, 27 Ready2H, 28 Ready2HL, else 25 ReadyUnarmed.
 local ITEM_CLASS_WEAPON = 2;
-local SWING_BY_SUBCLASS = { [0] = 17, 18, 16, 16, 17, 18, 19, 17, 18, 16, 19, 17, 18, 16, 17, 85, 16, 19, 16, 16, 19 };
--- How long a swing holds its animation, in replay seconds, and how long the
--- dying animation plays before the corpse lies still, in real seconds.
-local SWING_TIME = 0.8;
--- A melee victim's reactions (AnimationData.dbc). CGUnit_C::PlayWoundAnimation
--- (0x0060EA70) plays CombatCritical for a critical, CombatWound while the
--- victim swings at someone, else StandWound. The attacker's $CPP swing event
--- plays Dodge or ShieldBlock, or the parry of the victim's main-hand weapon
--- (CGUnit_C::PlayParryAnimation 0x0060EC00, by item subclass).
-local ANIM_STAND_WOUND = 8;
-local ANIM_COMBAT_WOUND = 9;
-local ANIM_COMBAT_CRITICAL = 10;
-local ANIM_SHIELD_BLOCK = 24;
-local ANIM_DODGE = 30;
-local PARRY_BY_SUBCLASS = { [0] = 21, [4] = 21, [7] = 21, [11] = 21, [14] = 21, [15] = 21, [1] = 22, [5] = 22,
-	[8] = 22, [12] = 22, [6] = 23, [10] = 23, [17] = 23, [13] = 20 };
+local ANIM_READY_UNARMED = 25;
+local READY_BY_SUBCLASS = { [0] = 26, 27, nil, nil, 26, 27, 28, 26, 27, nil, 28, 26, 27, 26, 26, 26, nil, 28 };
+-- How long the dying animation plays before the corpse lies still, in real
+-- seconds.
 local DYING_TIME = 1.5;
 -- A step in time longer than this (replay seconds), or one back, is a jump:
 -- the combat state is set as it was, not played.
@@ -430,6 +416,9 @@ local function NewActor()
 	actor:SetSpellVisualKit(nil);
 	actor:SetNormalizedScaleAggressiveness(0);
 	actor:SetRequestedScale(1);
+	actor:SetCreatureID(0);
+	actor:SetAttacking(false);
+	actor:SetMoving(false);
 	return actor;
 end
 
@@ -539,6 +528,8 @@ local function ShowUnit(u, time, x, y, z, facing, speed, falling, jumping, displ
 		actor = Acquire(u);
 		u.actor = actor;
 		u.named = nil;
+		-- The creature's own data keeps its flinches and parries off.
+		actor:SetCreatureID(u.creatureID or 0);
 		for _, aura in ipairs(C_CombatLogReplay.GetUnitAuras(u.index, time)) do
 			actor:AddAuraVisual(aura.spellID);
 		end
@@ -586,7 +577,12 @@ local function ShowUnit(u, time, x, y, z, facing, speed, falling, jumping, displ
 		actor:SetRequestedScale(scale);
 		u.scale = scale;
 	end
-	u.moving = speed > MOVING_SPEED or falling or mountDisplay > 0;
+	-- What the actor's swings and reactions read: whether it moves, and
+	-- whether it swings at a target.
+	u.moving = speed > MOVING_SPEED or falling;
+	actor:SetMoving(u.moving);
+	local _, _, _, _, _, attackTarget = C_CombatLogReplay.GetUnitState(u.index, time);
+	actor:SetAttacking(attackTarget ~= nil);
 	local body = SetMount(u, mountDisplay);
 	body:SetPosition(x, y, z);
 	body:SetYaw(facing);
@@ -597,8 +593,11 @@ local function ShowUnit(u, time, x, y, z, facing, speed, falling, jumping, displ
 		animation = jumping and ANIM_JUMP or ANIM_FALL;
 	elseif speed > MOVING_SPEED then
 		animation = speed >= RUN_SPEED and ANIM_RUN or ANIM_WALK;
-	elseif u.swingUntil and time < u.swingUntil then
-		animation = u.swingAnimation;
+	elseif attackTarget and mountDisplay == 0 then
+		-- The pick's attacking leg (0x005FD360): an unmounted attacker
+		-- stands ready. Its swings play over this.
+		local itemClass, subclass = C_CombatLogReplay.GetUnitWeapons(u.index, time);
+		animation = itemClass == ITEM_CLASS_WEAPON and READY_BY_SUBCLASS[subclass] or ANIM_READY_UNARMED;
 	else
 		animation = STAND_ANIMATION[standState] or ANIM_STAND;
 	end
@@ -677,43 +676,6 @@ local function ShownActor(index)
 	local u = index and units[index];
 	local actor = u and u.actor;
 	return actor and actor:IsShown() and actor or nil, u;
-end
-
--- The swing animation of the unit's main hand at `time`.
-local function SwingAnimation(index, time)
-	local itemClass, subclass = C_CombatLogReplay.GetUnitWeapons(index, time);
-	return itemClass == ITEM_CLASS_WEAPON and SWING_BY_SUBCLASS[subclass] or ANIM_ATTACK_UNARMED;
-end
-
--- A melee hit's wound on its victim: on the upper body while it moves or
--- swings, as the client plays it.
-local function Wound(index, du, actor, critical, time)
-	local animation, upperBody = ANIM_COMBAT_CRITICAL, true;
-	if not critical then
-		local _, _, _, _, _, attackTarget = C_CombatLogReplay.GetUnitState(index, time);
-		if attackTarget then
-			animation = ANIM_COMBAT_WOUND;
-		else
-			animation, upperBody = ANIM_STAND_WOUND, du.moving;
-		end
-	end
-	actor:PlayOneShotAnimation(animation, upperBody);
-end
-
--- A parried, dodged or blocked swing's pose on its victim.
-local function Avoid(index, du, actor, missType, time)
-	local animation;
-	if missType == "PARRY" then
-		local itemClass, subclass = C_CombatLogReplay.GetUnitWeapons(index, time);
-		animation = itemClass == ITEM_CLASS_WEAPON and PARRY_BY_SUBCLASS[subclass];
-	elseif missType == "DODGE" then
-		animation = ANIM_DODGE;
-	elseif missType == "BLOCK" then
-		animation = ANIM_SHIELD_BLOCK;
-	end
-	if animation then
-		actor:PlayOneShotAnimation(animation, du.moving);
-	end
 end
 
 local function UnitName(index)
@@ -842,16 +804,14 @@ local function PlayEvent(e)
 			target:RemoveAuraVisual(e.spellID);
 		end
 	elseif kind == "SWING_DAMAGE" or kind == "SWING_MISSED" then
-		if u then
-			u.swingUntil = e.time + SWING_TIME;
-			u.swingAnimation = SwingAnimation(e.sourceIndex, e.time);
-		end
-		if target then
-			if kind == "SWING_DAMAGE" then
-				Wound(e.destIndex, du, target, e.critical, e.time);
-			else
-				Avoid(e.destIndex, du, target, e.missType, e.time);
-			end
+		-- The attacker swings, and the victim reacts when the swing strikes.
+		-- Without an attacker in view, a hit shows at once, as the client
+		-- shows a swing from a unit it does not know.
+		local result = kind == "SWING_DAMAGE" and "HIT" or e.missType;
+		if source then
+			source:PlaySwing(target, result, e.critical, e.offHand);
+		elseif target and result == "HIT" then
+			target:PlayWoundAnimation(e.critical);
 		end
 	elseif kind == "UNIT_DIED" then
 		if du then
@@ -870,7 +830,7 @@ local function SetCombatState(time)
 	end
 	for i = 1, #units do
 		local u = units[i];
-		u.casts, u.swingUntil, u.dyingUntil, u.stopCastID, u.stopCastAt = nil, nil, nil, nil, nil;
+		u.casts, u.dyingUntil, u.stopCastID, u.stopCastAt = nil, nil, nil, nil;
 		if u.actor then
 			u.actor:StopSpellVisual();
 			u.actor:RemoveAuraVisual();

@@ -38,6 +38,17 @@
 // stunned actor stands stunned. An aura's end does not pick again; its
 // animation plays on until its sequence ends, as on a unit.
 //
+// A state kit's animation speed procedure (kind 11 of PlayKitCharProcs
+// 0x0060D7C0, which only state kits have in the 1.12 data: Freezing Trap,
+// Ice Block, Ice Tomb, Frost Blast, Petrify and more, most at speed 0) holds
+// the actor while the aura lasts (AddAnimSpeedEffect 0x006201D0): the
+// mount's bone 0, the body's key bone 4 and bone 0 take its speed, and every
+// animation the actor plays meanwhile plays at speed 0 (ApplyEffectAnimation's
+// flag-0x4 leg). A held actor does not flinch (PlayWoundAnimation's walk,
+// 0x0060EAB6). The aura's end restores the nonzero speeds it replaced and
+// picks again (CEffect::Stop 0x006203E0); a sequence that ended while held
+// plays again.
+//
 // The kit's sound plays once per play at the actor (the first effect's arm
 // pass, 0x00620C10 to 0x006210B9), or loops on it when its definition has
 // bit 0x200 (AddEffectSound 0x0061FEC0) until the aura's end stops it with
@@ -89,12 +100,65 @@ bool Roots(const uint8_t *spell) {
     return false;
 }
 
+constexpr int kProcedures = 4;
+constexpr int32_t kProcAnimSpeed = 11; // PlayKitCharProcs's AddAnimSpeedEffect case (0x0060DBD0)
+enum { kSpeedMount, kSpeedKeyBone, kSpeedBody };
+
+// The mount model a seated rider hangs on (the unit's +0xDC), or null.
+void *MountModel(const Actor &actor) { return actor.Seated() ? M2::Parent(actor.model) : nullptr; }
+
+// AddAnimSpeedEffect for the kit's speed procedure (its first value): the
+// speeds it replaces are kept, 1.0 for a mount model not loaded and 0 (not
+// restored) for a body without key bone 4. The data gives a kit at most one.
+void HoldSpeed(Actor &actor, AuraVisual &aura) {
+    for (int i = 0; i < kProcedures && !aura.setsSpeed; ++i) {
+        if (Game::Read<int32_t>(aura.kit, Offsets::OFF_SPELLVISUALKIT_PROC_KIND + i * 4) != kProcAnimSpeed)
+            continue;
+        aura.setsSpeed = true;
+        aura.speed = Game::Read<float>(aura.kit, Offsets::OFF_SPELLVISUALKIT_PROC_VALUE + i * 4);
+    }
+    if (!aura.setsSpeed)
+        return;
+    aura.savedSpeeds[kSpeedMount] = 1.0f;
+    if (void *mount = MountModel(actor); mount != nullptr && M2::IsLoaded(mount, 0, 0)) {
+        aura.savedSpeeds[kSpeedMount] = M2::GetAnimSpeed(mount, -1);
+        M2::SetAnimSpeed(mount, -1, aura.speed);
+    }
+    aura.savedSpeeds[kSpeedKeyBone] = 0.0f;
+    if (M2::HasKeyBone(actor.model, Offsets::M2_KEY_BONE_ANIM_SPEED_EFFECT)) {
+        aura.savedSpeeds[kSpeedKeyBone] = M2::GetAnimSpeed(actor.model, Offsets::M2_KEY_BONE_ANIM_SPEED_EFFECT);
+        M2::SetAnimSpeed(actor.model, Offsets::M2_KEY_BONE_ANIM_SPEED_EFFECT, aura.speed);
+    }
+    aura.savedSpeeds[kSpeedBody] = M2::GetAnimSpeed(actor.model, -1);
+    M2::SetAnimSpeed(actor.model, -1, aura.speed);
+}
+
+// CEffect::Stop's restore: each nonzero speed kept, then a fresh pick, which
+// plays again only a body track that has ended (PlayTrack's dedup).
+void ReleaseSpeed(Actor &actor, AuraVisual &aura) {
+    if (!aura.setsSpeed)
+        return;
+    aura.setsSpeed = false;
+    if (actor.model == nullptr || !actor.loaded)
+        return;
+    if (void *mount = MountModel(actor); mount != nullptr && aura.savedSpeeds[kSpeedMount] != 0.0f)
+        M2::SetAnimSpeed(mount, -1, aura.savedSpeeds[kSpeedMount]);
+    if (aura.savedSpeeds[kSpeedKeyBone] != 0.0f &&
+        M2::HasKeyBone(actor.model, Offsets::M2_KEY_BONE_ANIM_SPEED_EFFECT))
+        M2::SetAnimSpeed(actor.model, Offsets::M2_KEY_BONE_ANIM_SPEED_EFFECT, aura.savedSpeeds[kSpeedKeyBone]);
+    if (aura.savedSpeeds[kSpeedBody] != 0.0f)
+        M2::SetAnimSpeed(actor.model, -1, aura.savedSpeeds[kSpeedBody]);
+    if (M2::GetAnimState(actor.model, -1).latch != 0)
+        actor.PlayAnimation();
+}
+
 void ShowOne(Actor &actor, AuraVisual &aura) {
     if (aura.shown || actor.model == nullptr || !actor.loaded)
         return;
     aura.shown = true;
     void *frame = actor.SceneFrame();
     Model::VisualKit::Apply(frame, actor.model, aura.kit, false, &aura.effects);
+    HoldSpeed(actor, aura);
     Shakes::PlayKit(actor, aura.kit);
     // The kit's sound, once per play: a looping one stays on the unit until
     // the aura's effects stop.
@@ -150,6 +214,11 @@ void HideOne(Actor &actor, AuraVisual &aura, bool stop) {
         aura.worldEffect = nullptr;
     }
     aura.shown = false;
+    // The aura's end gives the speeds back; a model that goes takes them
+    // along.
+    if (stop)
+        ReleaseSpeed(actor, aura);
+    aura.setsSpeed = false;
 }
 
 } // namespace
@@ -173,7 +242,7 @@ bool Add(Actor &actor, uint32_t spellID) {
     // the unit already plays it (0x0060F383 to 0x0060F399); the pick takes
     // the pin.
     if (actor.model != nullptr && actor.loaded) {
-        const int pinned = PinnedAnimation(actor);
+        const int pinned = Effect(actor, false).pinned;
         if (pinned > 0 && M2::GetAnimState(actor.model, -1).id != static_cast<uint32_t>(pinned))
             actor.PlayAnimation();
     }
@@ -213,15 +282,31 @@ void Drop(Actor &actor) {
         HideOne(actor, aura, false);
 }
 
-int PinnedAnimation(const Actor &actor) {
+// The walk of the unit's effect list, newest first. An aura's speed effect
+// is linked after its kit's own effects, so it comes first.
+EffectAnimation Effect(const Actor &actor, bool moving) {
+    EffectAnimation out;
     for (auto it = actor.auraVisuals.rbegin(); it != actor.auraVisuals.rend(); ++it) {
         if (!it->shown)
             continue;
+        if (it->setsSpeed) {
+            out.frozen = true;
+            return out;
+        }
         const auto anim = Game::Read<int32_t>(it->kit, Offsets::OFF_SPELLVISUALKIT_ANIMATION);
-        if (anim > 0)
-            return anim;
+        if (!moving && anim > 0) {
+            out.pinned = anim;
+            return out;
+        }
     }
-    return -1;
+    return out;
+}
+
+bool SetsSpeed(const Actor &actor) {
+    for (const AuraVisual &aura : actor.auraVisuals)
+        if (aura.shown && aura.setsSpeed)
+            return true;
+    return false;
 }
 
 void ApplyColors(Actor &actor) {

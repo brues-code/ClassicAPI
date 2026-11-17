@@ -110,6 +110,24 @@ inline void SetAnimPosition(void *model, int keyBone, int ms) {
     reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_SET_KEY_BONE_ANIM_TIME)(model, keyBone, ms);
 }
 
+// The key bone's playback speed. Waits for an unloaded instance.
+inline float GetAnimSpeed(void *model, int keyBone) {
+    using Fn = float(__thiscall *)(void *, int);
+    return reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_GET_KEY_BONE_ANIM_SPEED)(model, keyBone);
+}
+
+// Sets the key bone's playback speed, keeping its position.
+inline void SetAnimSpeed(void *model, int keyBone, float speed) {
+    using Fn = void(__thiscall *)(void *, int, float);
+    reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_SET_KEY_BONE_ANIM_SPEED)(model, keyBone, speed);
+}
+
+// Whether the model has the key bone. Waits for an unloaded instance.
+inline bool HasKeyBone(void *model, int keyBone) {
+    using Fn = int(__thiscall *)(void *, int);
+    return reinterpret_cast<Fn>(Offsets::FUN_M2MODEL_HAS_KEY_BONE)(model, keyBone) != 0;
+}
+
 inline void SetAnimDoneCallback(void *model, const void *callback, uint32_t userLow,
                                 uint32_t userHigh) {
     using Fn = void(__thiscall *)(void *, const void *, uint32_t, uint32_t);
@@ -452,6 +470,16 @@ inline bool IsThrownAnimation(int anim) { return Detail::AnimTest(Offsets::FUN_I
 inline bool IsEmoteAnimation(int anim) { return Detail::AnimTest(Offsets::FUN_IS_EMOTE_ANIMATION, anim); }
 inline bool IsSpellCastAnimation(int anim) { return Detail::AnimTest(Offsets::FUN_IS_SPELL_CAST_ANIMATION, anim); }
 inline bool IsMoveAnimation(int anim) { return Detail::AnimTest(Offsets::FUN_IS_MOVE_ANIMATION, anim); }
+inline bool IsReadyAnimation(int anim) { return Detail::AnimTest(Offsets::FUN_IS_READY_ANIMATION, anim); }
+inline bool IsWoundAnimation(int anim) { return Detail::AnimTest(Offsets::FUN_IS_WOUND_ANIMATION, anim); }
+inline bool IsUpperBodyAnimation(int anim) { return Detail::AnimTest(Offsets::FUN_IS_UPPER_BODY_ANIMATION, anim); }
+inline bool IsFullBodyAnimation(int anim) { return Detail::AnimTest(Offsets::FUN_IS_FULL_BODY_ANIMATION, anim); }
+inline bool IsSwingAnimation(int anim) { return Detail::AnimTest(Offsets::FUN_IS_SWING_ANIMATION, anim); }
+inline bool IsJumpAnimation(int anim) { return Detail::AnimTest(Offsets::FUN_IS_JUMP_ANIMATION, anim); }
+inline bool IsLandingAnimation(int anim) { return Detail::AnimTest(Offsets::FUN_IS_LANDING_ANIMATION, anim); }
+inline bool IsSpecialAttackAnimation(int anim) {
+    return Detail::AnimTest(Offsets::FUN_IS_SPECIAL_ATTACK_ANIMATION, anim);
+}
 inline bool IsMissileReleaseAnimation(int anim) {
     return Detail::AnimTest(Offsets::FUN_IS_MISSILE_RELEASE_ANIMATION, anim);
 }

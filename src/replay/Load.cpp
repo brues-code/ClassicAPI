@@ -743,7 +743,7 @@ void Loader::Combat(std::string_view body, int32_t t) {
         e.text = std::string(f.Rest(5));
     // Damage: amount, baseAmount, overkill, school, resisted, blocked,
     // absorbed, critical; heals: amount, baseAmount, overhealing, absorbed,
-    // critical; misses: missType first.
+    // critical; misses: missType, isOffHand.
     // The damage suffix also follows DAMAGE_SHIELD (Thorns) and DAMAGE_SPLIT,
     // whose names do not end in _DAMAGE.
     const int suffix = SuffixAt(type, advanced_);
@@ -895,6 +895,7 @@ double SpeedScale(const std::vector<double> &along, const std::vector<double> &t
 // ever early, only late. What is exact is the place in each, and while the
 // unit moves, how long it took from one to the next (Duration). So each
 // stretch of moves with known durations has a fixed shape in time, and only
+        e.offHand = f[suffix + 1] == "1";
 // its start is open: the start that puts no move before its clock and one
 // exactly on it, the move that came soonest (SpeedScale corrects a stale
 // speed first). A stretch also ends before the
