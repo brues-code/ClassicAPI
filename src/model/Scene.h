@@ -260,6 +260,11 @@ class Actor : public Animation::Object {
     const uint8_t *areaEffect = nullptr;
     float areaRadius = 0.0f;
     const uint8_t *areaVisual = nullptr; // the spell's SpellVisual row
+    // SetGameObjectState (model/SceneGameObject.cpp): the animation state a
+    // game object's handler plays (family A's +0x10, 0 to 12; -1 for none)
+    // and when it began on the scene clock.
+    int gameObjectAnim = -1;
+    uint32_t gameObjectAnimStartMs = 0;
     // The area's kit, and its shards, which play out after the area goes.
     AreaEmitter areaEmitter;
     std::vector<std::unique_ptr<AreaShard>> areaShards;
@@ -582,6 +587,23 @@ void Drop(Actor &actor);
 // at the next update.
 void Silence(Actor &actor);
 } // namespace Areas
+
+// A game object's open, close and destroy animations (model/SceneGameObject.cpp),
+// as a family A handler plays them on the world's game object.
+namespace GameObjects {
+// The model path of a GameObjectDisplayInfo row, as CGGameObject_C's
+// GetDisplayModelPath (0x005F8090) reads it; null for none.
+const char *ModelPath(uint32_t displayID);
+// GAMEOBJECT_STATE `state` (0 active, 1 ready, 2 alternative) comes in. With
+// `previous`, the state it left, it plays the moving animation first.
+void SetState(Actor &actor, uint32_t state, int previous);
+// Plays the actor's state again: from SetState, and once its model loads,
+// which picks the fallbacks for animations the model lacks.
+void Play(Actor &actor);
+// The animation ended: a moving state goes on to its end state. False for a
+// state that only plays again.
+bool FollowOn(Actor &actor);
+} // namespace GameObjects
 
 // The unit's movement animations (model/SceneLocomotion.cpp): an actor with
 // the mover on picks and plays them as the client's unit does from its own

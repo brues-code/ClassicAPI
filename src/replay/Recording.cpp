@@ -183,6 +183,27 @@ const Cast *CastAt(const Unit &unit, int32_t t) {
     return it == unit.casts.begin() ? nullptr : &*(it - 1);
 }
 
+namespace {
+
+// The last of a timeline's values that began by `t`, null before the first.
+template <class T>
+const T *At(const std::vector<std::pair<int32_t, T>> &timeline, int32_t t) {
+    const auto it = std::upper_bound(timeline.begin(), timeline.end(), t,
+                                     [](int32_t time, const std::pair<int32_t, T> &v) { return time < v.first; });
+    return it == timeline.begin() ? nullptr : &(it - 1)->second;
+}
+
+} // namespace
+
+const UnitState *StateAt(const Unit &unit, int32_t t) { return At(unit.states, t); }
+const Vitals *VitalsAt(const Unit &unit, int32_t t) { return At(unit.vitals, t); }
+int AuraSlotsIndexAt(const Unit &unit, int32_t t) {
+    const auto it = std::upper_bound(
+        unit.auraSlots.begin(), unit.auraSlots.end(), t,
+        [](int32_t time, const std::pair<int32_t, std::vector<AuraSlot>> &v) { return time < v.first; });
+    return static_cast<int>(it - unit.auraSlots.begin()) - 1;
+}
+
 int MarkAt(const Unit &unit, int32_t t) {
     const auto it = std::upper_bound(
         unit.marks.begin(), unit.marks.end(), t,
@@ -195,6 +216,12 @@ const Look *LookAt(const Unit &unit, int32_t t) {
         unit.looks.begin(), unit.looks.end(), t,
         [](int32_t time, const std::pair<int32_t, Look> &l) { return time < l.first; });
     return it == unit.looks.begin() ? nullptr : &(it - 1)->second;
+}
+
+const ObjectLook *ObjectLookAt(const GameObject &object, int32_t t) {
+    const bool inView = std::any_of(object.spans.begin(), object.spans.end(),
+                                    [t](const Span &s) { return s.from <= t && t < s.to; });
+    return inView ? At(object.looks, t) : nullptr;
 }
 
 } // namespace Replay

@@ -40,6 +40,8 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "aura/Data.h"
+#include "cache/Record.h"
 #include "combatlog/File.h"
 #include "combatlog/Movement.h"
 #include "guid/Guid.h"
@@ -48,6 +50,7 @@
 #include "object/Resolve.h"
 #include "spell/CastPacket.h"
 #include "tick/FrameTick.h"
+#include "unit/Identity.h"
 #include "unit/Position.h"
 
 #include <cstdint>
@@ -105,10 +108,41 @@ struct Cast {
     }
 };
 
+// A unit's UNIT_STATE fields. Plain data, so two compare with memcmp.
+struct State {
+    uint64_t target;
+    uint64_t owner;
+    uint32_t flags;
+    uint32_t level;
+    uint32_t faction;
+    uint32_t pad; // keeps the struct free of padding bytes for memcmp
+};
+
+// A unit's UNIT_POWER fields.
+struct Vitals {
+    uint32_t health;
+    uint32_t maxHealth;
+    uint32_t powerType;
+    uint32_t power;
+    uint32_t maxPower;
+};
+
+// A unit's UNIT_AURAS: each aura slot's spell (0 for an empty one), whether
+// it is harmful, and its stacks.
+struct Auras {
+    uint32_t spell[Offsets::UNIT_AURA_TOTAL];
+    uint8_t harmful[Offsets::UNIT_AURA_TOTAL];
+    uint8_t stacks[Offsets::UNIT_AURA_TOTAL];
+};
+
 struct Seen {
     Look look;
     Dress dress;
     Cast cast;
+    State state;
+    Vitals vitals;
+    Auras auras;
+    std::string name;
     uint32_t frame; // the last walk that found it
 };
 
@@ -199,6 +233,114 @@ void WriteCast(uint64_t guid, const Cast &cast) {
     Movement::Emit(line);
 }
 
+State ReadState(void *unit, const uint8_t *fields) {
+    State state{};
+    state.target = Game::Read<uint64_t>(fields, Offsets::OFF_UNIT_FIELD_TARGET);
+    state.owner = ::Unit::Identity::OwnerGuid(unit);
+    state.flags = Game::Read<uint32_t>(fields, Offsets::OFF_UNIT_FIELD_FLAGS);
+    state.level = Game::Read<uint32_t>(fields, Offsets::OFF_UNIT_FIELD_LEVEL);
+    state.faction = Game::Read<uint32_t>(fields, Offsets::OFF_UNIT_FIELD_FACTIONTEMPLATE);
+    return state;
+}
+
+void WriteState(uint64_t guid, const State &state) {
+    std::string line = "UNIT_STATE";
+    File::AppendGuid(line, guid);
+    File::AppendGuid(line, state.target);
+    File::AppendGuid(line, state.owner);
+    AppendHex(line, state.flags);
+    AppendUnsigned(line, state.level);
+    AppendUnsigned(line, state.faction);
+    Movement::Emit(line);
+}
+
+// Health, and the power of the unit's own type (UnitPowerType's byte), in
+// stored units as the descriptor has them (rage in tenths).
+Vitals ReadVitals(const uint8_t *fields) {
+    Vitals vitals{};
+    vitals.health = Game::Read<uint32_t>(fields, Offsets::OFF_UNIT_FIELD_HEALTH);
+    vitals.maxHealth = Game::Read<uint32_t>(fields, Offsets::OFF_UNIT_FIELD_MAXHEALTH);
+    vitals.powerType = fields[Offsets::OFF_UNIT_DESCRIPTOR_POWER_TYPE_BYTE];
+    if (vitals.powerType < Offsets::UNIT_POWER_TYPE_COUNT) {
+        vitals.power = Game::Read<uint32_t>(fields, Offsets::OFF_UNIT_FIELD_POWER1 + vitals.powerType * 4);
+        vitals.maxPower = Game::Read<uint32_t>(fields, Offsets::OFF_UNIT_FIELD_MAXPOWER1 + vitals.powerType * 4);
+    }
+    return vitals;
+}
+
+void WriteVitals(uint64_t guid, const Vitals &vitals) {
+    std::string line = "UNIT_POWER";
+    File::AppendGuid(line, guid);
+    for (const uint32_t v : {vitals.health, vitals.maxHealth, vitals.powerType, vitals.power, vitals.maxPower})
+        AppendUnsigned(line, v);
+    Movement::Emit(line);
+}
+
+// Each slot's aura, its polarity as this server encodes it
+// (Aura::Data::IsSlotHarmful: the slot range, or the flag nibble on Turtle,
+// which also puts debuffs in buff slots) and its stacks.
+Auras ReadAuras(const uint8_t *unit) {
+    Auras auras{};
+    for (int slot = 0; slot < Offsets::UNIT_AURA_TOTAL; ++slot) {
+        auras.spell[slot] = ::Aura::Data::ReadSpellID(unit, slot);
+        if (auras.spell[slot] == 0)
+            continue;
+        auras.harmful[slot] = ::Aura::Data::IsSlotHarmful(unit, slot) ? 1 : 0;
+        auras.stacks[slot] = static_cast<uint8_t>(::Aura::Data::ReadStacks(unit, slot));
+    }
+    return auras;
+}
+
+bool Empty(const Auras &auras) {
+    for (const uint32_t spell : auras.spell)
+        if (spell != 0)
+            return false;
+    return true;
+}
+
+// The occupied slots in slot order: spell, 1 for harmful else 0, stacks.
+void WriteAuras(uint64_t guid, const Auras &auras) {
+    std::string line = "UNIT_AURAS";
+    File::AppendGuid(line, guid);
+    for (int slot = 0; slot < Offsets::UNIT_AURA_TOTAL; ++slot) {
+        if (auras.spell[slot] == 0)
+            continue;
+        AppendUnsigned(line, auras.spell[slot]);
+        AppendUnsigned(line, auras.harmful[slot]);
+        AppendUnsigned(line, auras.stacks[slot]);
+    }
+    Movement::Emit(line);
+}
+
+// The name the client has for the unit, by the branches of its own namer
+// (CGUnit_C::GetUnitName, FUN_OBJECT_GET_NAME): a player's from the name
+// cache; a unit with a pet number from the pet name cache, while the record's
+// stamp matches the unit's; else the first name of the unit's creature
+// record. Empty while it has none, where the namer gives a placeholder. These
+// are passive peeks: the namer itself asks the server on every miss, without
+// dedupe, so calling it each frame would pile up pending callbacks.
+std::string ReadName(uint64_t guid, const void *unit, const uint8_t *fields) {
+    const char *name = nullptr;
+    if ((::Object::Type(unit) & Offsets::TYPEMASK_PLAYER) != 0) {
+        name = ::Unit::Identity::NameForGuid(guid);
+    } else if (const uint32_t pet = Game::Read<uint32_t>(fields, Offsets::OFF_UNIT_FIELD_PETNUMBER)) {
+        const uint8_t *rec = ::Cache::Record::Peek(Offsets::FUN_PET_NAME_GET_RECORD, Offsets::VAR_PET_NAME_CACHE, pet);
+        if (rec != nullptr && Game::Read<uint32_t>(rec, Offsets::OFF_PET_NAME_RECORD_TIMESTAMP) ==
+                                  Game::Read<uint32_t>(fields, Offsets::OFF_UNIT_FIELD_PET_NAME_TIMESTAMP))
+            name = reinterpret_cast<const char *>(rec);
+    } else if (const auto *rec = Game::Read<const uint8_t *>(unit, Offsets::OFF_UNIT_CREATURE_CACHE_ROW)) {
+        name = Game::Read<const char *>(rec, Offsets::OFF_CREATURE_NAME);
+    }
+    return name != nullptr ? name : "";
+}
+
+void WriteName(uint64_t guid, const std::string &name) {
+    std::string line = "UNIT_NAME";
+    File::AppendGuid(line, guid);
+    File::AppendQuoted(line, name.c_str());
+    Movement::Emit(line);
+}
+
 void WriteLook(uint64_t guid, void *unit, const Look &look) {
     std::string line = "UNIT_INFO";
     File::AppendGuid(line, guid);
@@ -256,6 +398,10 @@ void Visit(uint64_t guid) {
     const bool player = (::Object::Type(unit) & Offsets::TYPEMASK_PLAYER) != 0;
     const Dress dress = player ? ReadDress(guid, unit, fields) : Dress{};
     const Cast cast = ReadCast(guid, unit, fields);
+    const State state = ReadState(unit, fields);
+    const Vitals vitals = ReadVitals(fields);
+    const Auras auras = ReadAuras(static_cast<const uint8_t *>(unit));
+    const std::string name = ReadName(guid, unit, fields);
 
     const auto [it, added] = g_seen.try_emplace(guid);
     Seen &seen = it->second;
@@ -267,6 +413,22 @@ void Visit(uint64_t guid) {
     if (player && (added || std::memcmp(&seen.dress, &dress, sizeof dress) != 0)) {
         seen.dress = dress;
         WriteDress(guid, dress);
+    }
+    if (!name.empty() && name != seen.name) {
+        seen.name = name;
+        WriteName(guid, name);
+    }
+    if (added || std::memcmp(&seen.state, &state, sizeof state) != 0) {
+        seen.state = state;
+        WriteState(guid, state);
+    }
+    if (added || std::memcmp(&seen.vitals, &vitals, sizeof vitals) != 0) {
+        seen.vitals = vitals;
+        WriteVitals(guid, vitals);
+    }
+    if (added ? !Empty(auras) : std::memcmp(&seen.auras, &auras, sizeof auras) != 0) {
+        seen.auras = auras;
+        WriteAuras(guid, auras);
     }
     if (added ? !(cast == Cast{}) : !(seen.cast == cast)) {
         seen.cast = cast;

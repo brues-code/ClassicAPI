@@ -4350,6 +4350,31 @@ embedded load-on-demand addon. Layers:
   a display with flag +0x24 bit 0). Creatures hold their logged virtual
   items (`actor:SetHeldItem`, `GetUnitHeldItem`) and every unit takes the
   log's sheath state (`actor:SetSheatheState`, 2 = ranged in hand).
+- Game objects and ground areas (2026-11-17, recorder + reader + API; not yet
+  seen in game): ObjectInfo.cpp writes GAMEOBJECT_INFO (owner, display, type,
+  state, flags, place, GAMEOBJECT_ROTATION quaternion, scale, record name) on
+  view and on any change but place, DYNAMICOBJECT_INFO (caster, spell, bytes,
+  radius, place) on view, OBJECT_GONE. Reader + GetGameObjects /
+  GetGameObjectInfo (quaternion as actor yaw/pitch/roll, Z-Y-X; the order is
+  not yet checked against a tilted object) / GetGroundAreas. Lines seen in a
+  Stratholme log (door open/close, Blizzard 10187). Viewer (not yet seen in
+  game): actor:SetModelByGameObjectDisplayID (display row +0x04, WMO paths
+  refused) and actor:SetGameObjectState (model/SceneGameObject.cpp: the
+  0x005F3CB0 moving/end states, 0x008607E4 anims, 0x005F3930 fallbacks);
+  Replay.lua ApplyObjects / ApplyAreas. Open: check the tilted Stratholme
+  signs for the pitch/roll order; WMO game objects and transports (types
+  11/14/15: the model is the world entity's WMO, and a transport's place
+  moves but writes no line).
+- Unit state (2026-11-17, seen in a Stormwind log; pet names added after it):
+  the per-frame walk also writes UNIT_NAME (name / pet name / creature
+  cache), UNIT_STATE (target, owner,
+  UNIT_FIELD_FLAGS, level, faction template), UNIT_POWER (health and own
+  power) and UNIT_AURAS (all 48 slots, polarity from Aura::Data::IsSlotHarmful,
+  stacks), each on change. The reader prefers them: GetUnitHealth exact,
+  GetUnitAuras complete (source from the combat log when it saw the apply),
+  names for units the combat log never names; new GetUnitPower and
+  GetUnitState. Viewer use of target, owner, flags (crowd control
+  animations) and power is still to come.
 - Cast bars (2026-11-16, not yet seen in game): the movement file's
   UNIT_CAST (UnitInfo.cpp) writes each unit's cast spell (CGUnit +0xC8C,
   cleared by ClearCastingSpell 0x0060D040) with SMSG_SPELL_START's cast

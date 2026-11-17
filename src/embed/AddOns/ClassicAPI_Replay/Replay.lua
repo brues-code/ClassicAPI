@@ -134,6 +134,9 @@ local timelineValue, timeSecond; -- what the timeline and the time text show
 local pressX, pressY;
 local flying = {};     -- the fly keys held, by key name
 local combatTime;      -- the replay time the combat state is at, nil before the first
+local objects = {};    -- the replay's game objects, by objectIndex: { actor, display, state, ... }
+local objectTime;      -- the replay time the objects are at, nil before the first
+local areas = {};      -- the replay's ground areas, from GetGroundAreas, each with its actor once shown
 local freeBars = {};   -- health bars not in use
 local freeCastBars = {}; -- cast bars not in use
 local freeRaidIcons = {}; -- raid target icons not in use
@@ -388,6 +391,7 @@ end
 
 local function ReleaseUnits()
 	combatTime = nil;
+	objects, objectTime, areas = {}, nil, {};
 	for i = 1, #units do
 		HideBar(units[i]);
 		HideCastBar(units[i]);
@@ -404,7 +408,7 @@ end
 -- (useCenterForOriginZ, which sinks a unit by half its height) and carries a
 -- display info's scale, which the mixin applies again whenever a model
 -- loads. A new one stands on its position at its own size.
-local function Acquire(u)
+local function NewActor()
 	local actor = scene:AcquireActor();
 	actor:SetUseCenterForOrigin(false, false, false);
 	actor:SetPitch(0);
@@ -414,6 +418,11 @@ local function Acquire(u)
 	actor:SetSpellVisualKit(nil);
 	actor:SetNormalizedScaleAggressiveness(0);
 	actor:SetRequestedScale(1);
+	return actor;
+end
+
+local function Acquire(u)
+	local actor = NewActor();
 	unitOfActor[actor] = u;
 	return actor;
 end
@@ -583,6 +592,67 @@ local function ShowUnit(u, time, x, y, z, facing, speed, falling, jumping, displ
 	if u.animation ~= animation then
 		body:SetAnimation(animation);
 		u.animation = animation;
+	end
+end
+
+------------------------------------------------------------------------------
+-- Game objects and ground areas
+
+-- Puts every game object where it was at `time`, in its state. A state that
+-- changes as the replay plays plays its open or close animation first.
+local function ApplyObjects(time)
+	local played = objectTime and time >= objectTime and time - objectTime <= MAX_PLAYED_STEP;
+	objectTime = time;
+	local GetGameObjectInfo = C_CombatLogReplay.GetGameObjectInfo;
+	for i = 1, #objects do
+		local o = objects[i];
+		local x, y, z, yaw, pitch, roll, scale, display, _, state = GetGameObjectInfo(i, time);
+		if x and o.display ~= display then
+			o.actor = o.actor or NewActor();
+			o.hasModel = o.actor:SetModelByGameObjectDisplayID(display);
+			o.display, o.state, o.x = display, nil, nil;
+		end
+		if x and o.hasModel then
+			local actor = o.actor;
+			if not actor:IsShown() then
+				actor:Show();
+			end
+			if o.x ~= x or o.y ~= y or o.z ~= z or o.yaw ~= yaw or o.pitch ~= pitch or o.roll ~= roll
+					or o.scale ~= scale then
+				actor:SetPosition(x, y, z);
+				actor:SetYaw(yaw);
+				actor:SetPitch(pitch);
+				actor:SetRoll(roll);
+				actor:SetRequestedScale(scale);
+				o.x, o.y, o.z, o.yaw, o.pitch, o.roll, o.scale = x, y, z, yaw, pitch, roll, scale;
+			end
+			if o.state ~= state then
+				actor:SetGameObjectState(state, played and o.state or nil);
+				o.state = state;
+			end
+		elseif o.actor and o.actor:IsShown() then
+			o.actor:Hide();
+			o.state = nil;
+		end
+	end
+end
+
+-- Shows each spell's ground area while it was there.
+local function ApplyAreas(time)
+	for _, area in ipairs(areas) do
+		if time >= area.startTime and (not area.endTime or time < area.endTime) then
+			if not area.actor then
+				area.actor = NewActor();
+				area.hasModel = area.actor:SetModelBySpellArea(area.spellID, area.radius);
+				area.actor:SetPosition(area.x, area.y, area.z);
+				area.actor:SetYaw(area.facing);
+			end
+			if area.hasModel and not area.actor:IsShown() then
+				area.actor:Show();
+			end
+		elseif area.actor and area.actor:IsShown() then
+			area.actor:Hide();
+		end
 	end
 end
 
@@ -808,6 +878,8 @@ local function Apply(time)
 			HideUnit(u);
 		end
 	end
+	ApplyObjects(time);
+	ApplyAreas(time);
 	Combat(time);
 end
 
@@ -1205,6 +1277,10 @@ local function Build()
 	for i = 1, #units do
 		RequestName(units[i]);
 	end
+	for i in ipairs(C_CombatLogReplay.GetGameObjects()) do
+		objects[i] = { index = i };
+	end
+	areas = C_CombatLogReplay.GetGroundAreas();
 	duration = info.duration;
 	frame.Timeline:SetMinMaxValues(0, math.max(duration, 0.1));
 	frame.Timeline:SetValueStep(0.1);

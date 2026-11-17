@@ -95,9 +95,25 @@ private:
     void MonsterStop(const Line::Fields &f, int32_t t);
     void UnitSpeed(const Line::Fields &f, int32_t t);
     void UnitCast(const Line::Fields &f, int32_t t);
+    void UnitState(const Line::Fields &f, int32_t t);
+    void UnitPower(const Line::Fields &f, int32_t t);
+    void UnitAuras(const Line::Fields &f, int32_t t);
+    void GameObjectInfo(const Line::Fields &f, int32_t t);
+    void DynamicObjectInfo(const Line::Fields &f, int32_t t);
+    void ObjectGone(std::string_view guid, int32_t t);
+    // Adds a value to a timeline; before the stretch only the last counts.
+    template <class T>
+    static void AddAt(std::vector<std::pair<int32_t, T>> &timeline, int32_t t, T value) {
+        if (t < 0 && !timeline.empty() && timeline.back().first < 0)
+            timeline.back() = {t, std::move(value)};
+        else
+            timeline.emplace_back(t, std::move(value));
+    }
 
     Recording &r_;
     std::unordered_map<std::string, int32_t> index_;
+    std::unordered_map<std::string, int32_t> objectIndex_; // into r_.objects
+    std::unordered_map<std::string, std::size_t> openAreas_; // into r_.areas, while in view
     int combatMap_ = -1;
     // The SPELL_CAST_START each caster has open, by spell: an index into
     // the events.
@@ -210,6 +226,10 @@ void Loader::Close(Unit &unit, int32_t t) {
 void Loader::Header(const Line::Fields &f, int32_t t) {
     for (Unit &unit : r_.units)
         Close(unit, t);
+    for (const GameObject &object : r_.objects)
+        ObjectGone(object.guid, t);
+    while (!openAreas_.empty())
+        ObjectGone(openAreas_.begin()->first, t);
     if (t <= 0 || r_.map < 0)
         r_.map = f.Int(5);
 }
@@ -296,6 +316,129 @@ void Loader::UnitCast(const Line::Fields &f, int32_t t) {
     state.castMs = static_cast<uint32_t>(f.Int(3));
     state.channel = static_cast<uint32_t>(f.Int(4));
     AddCastState(Get(f[1]), state);
+}
+
+// A unit GUID's index, -1 for none (0000000000000000) or not a unit.
+void Loader::UnitState(const Line::Fields &f, int32_t t) {
+    Replay::UnitState state;
+    state.target = IsUnitGuid(f[2]) ? IndexOf(f[2]) : -1;
+    state.owner = IsUnitGuid(f[3]) ? IndexOf(f[3]) : -1;
+    state.flags = f.Hex(4);
+    state.level = static_cast<uint32_t>(f.Int(5));
+    state.faction = static_cast<uint32_t>(f.Int(6));
+    AddAt(Get(f[1]).states, t, state);
+}
+
+void Loader::UnitPower(const Line::Fields &f, int32_t t) {
+    Vitals vitals;
+    vitals.health = static_cast<uint32_t>(f.Int(2));
+    vitals.maxHealth = static_cast<uint32_t>(f.Int(3));
+    vitals.powerType = static_cast<uint32_t>(f.Int(4));
+    vitals.power = static_cast<uint32_t>(f.Int(5));
+    vitals.maxPower = static_cast<uint32_t>(f.Int(6));
+    AddAt(Get(f[1]).vitals, t, vitals);
+}
+
+// spellID, harmful, stacks for each aura, from field 2 on: up to 48 auras,
+// more fields than Line::Fields keeps, so read from the rest of the line.
+void Loader::UnitAuras(const Line::Fields &f, int32_t t) {
+    std::vector<uint32_t> values;
+    std::string_view rest = f.Rest(2);
+    while (!rest.empty()) {
+        const std::size_t comma = rest.find(',');
+        const std::string_view field = rest.substr(0, comma);
+        uint32_t v = 0;
+        std::from_chars(field.data(), field.data() + field.size(), v);
+        values.push_back(v);
+        rest = comma == std::string_view::npos ? std::string_view() : rest.substr(comma + 1);
+    }
+    std::vector<AuraSlot> slots;
+    for (std::size_t i = 0; i + 2 < values.size(); i += 3) {
+        AuraSlot slot;
+        slot.spellID = values[i];
+        slot.harmful = values[i + 1] != 0;
+        slot.stacks = values[i + 2];
+        slots.push_back(slot);
+    }
+    AddAt(Get(f[1]).auraSlots, t, std::move(slots));
+}
+
+void Loader::GameObjectInfo(const Line::Fields &f, int32_t t) {
+    const auto [it, added] =
+        objectIndex_.try_emplace(std::string(f[1]), static_cast<int32_t>(r_.objects.size()));
+    if (added) {
+        GameObject object;
+        object.guid = it->first;
+        object.objectID = CreatureID(it->first);
+        r_.objects.push_back(std::move(object));
+    }
+    GameObject &object = r_.objects[it->second];
+    if (object.spans.empty() || object.spans.back().to != INT32_MAX)
+        object.spans.push_back({t, INT32_MAX});
+    ObjectLook look;
+    look.owner = IsUnitGuid(f[2]) ? IndexOf(f[2]) : -1;
+    look.display = static_cast<uint32_t>(f.Int(3));
+    look.type = static_cast<uint32_t>(f.Int(4));
+    look.state = static_cast<uint32_t>(f.Int(5));
+    look.flags = f.Hex(6);
+    look.x = f.Float(7);
+    look.y = f.Float(8);
+    look.z = f.Float(9);
+    look.facing = f.Float(10);
+    for (int i = 0; i < 4; ++i)
+        look.rotation[i] = f.Float(11 + i);
+    look.scale = f.Float(15);
+    const std::string name = f.Text(16);
+    if (!name.empty())
+        object.name = name;
+    AddAt(object.looks, t, look);
+}
+
+void Loader::DynamicObjectInfo(const Line::Fields &f, int32_t t) {
+    const std::string guid(f[1]);
+    if (openAreas_.count(guid) != 0)
+        return;
+    GroundArea area;
+    area.guid = guid;
+    area.caster = IsUnitGuid(f[2]) ? IndexOf(f[2]) : -1;
+    area.spellID = static_cast<uint32_t>(f.Int(3));
+    area.bytes = f.Hex(4);
+    area.radius = f.Float(5);
+    area.x = f.Float(6);
+    area.y = f.Float(7);
+    area.z = f.Float(8);
+    area.facing = f.Float(9);
+    area.span.from = t;
+    openAreas_.emplace(guid, r_.areas.size());
+    r_.areas.push_back(std::move(area));
+}
+
+// A game object or ground area leaves view. One whose time in view ended
+// before the stretch is dropped.
+void Loader::ObjectGone(std::string_view guid, int32_t t) {
+    const std::string key(guid);
+    if (const auto it = objectIndex_.find(key); it != objectIndex_.end()) {
+        GameObject &object = r_.objects[it->second];
+        if (object.spans.empty() || object.spans.back().to != INT32_MAX)
+            return;
+        object.spans.back().to = t;
+        if (t < 0)
+            object.spans.pop_back();
+        return;
+    }
+    const auto open = openAreas_.find(key);
+    if (open == openAreas_.end())
+        return;
+    const std::size_t i = open->second;
+    openAreas_.erase(open);
+    r_.areas[i].span.to = t;
+    if (t >= 0)
+        return;
+    r_.areas.erase(r_.areas.begin() + static_cast<std::ptrdiff_t>(i));
+    for (auto &[other, index] : openAreas_) {
+        if (index > i)
+            --index;
+    }
 }
 
 void Loader::UnitMove(const Line::Fields &f, int32_t t) {
@@ -395,6 +538,20 @@ void Loader::Movement(std::string_view body, int32_t t) {
         UnitSpeed(f, t);
     else if (f[0] == "UNIT_CAST")
         UnitCast(f, t);
+    else if (f[0] == "UNIT_STATE")
+        UnitState(f, t);
+    else if (f[0] == "UNIT_POWER")
+        UnitPower(f, t);
+    else if (f[0] == "UNIT_AURAS")
+        UnitAuras(f, t);
+    else if (f[0] == "UNIT_NAME")
+        Get(f[1]).cachedName = f.Text(2);
+    else if (f[0] == "GAMEOBJECT_INFO")
+        GameObjectInfo(f, t);
+    else if (f[0] == "DYNAMICOBJECT_INFO")
+        DynamicObjectInfo(f, t);
+    else if (f[0] == "OBJECT_GONE")
+        ObjectGone(f[1], t);
     else if (f[0] == "MOVEMENT_LOG_VERSION")
         Header(f, t);
 }
@@ -947,6 +1104,11 @@ std::unique_ptr<Recording> Load(const std::string &log, int64_t startMs, int64_t
 
     for (Unit &unit : recording->units)
         Retime(unit);
+    // Objects that left view before the stretch.
+    auto &objects = recording->objects;
+    objects.erase(std::remove_if(objects.begin(), objects.end(),
+                                 [](const GameObject &object) { return object.spans.empty(); }),
+                  objects.end());
 
     const bool read = Line::ForEach(Catalog::CombatPath(log), [&](std::string_view line) {
         int64_t ms;

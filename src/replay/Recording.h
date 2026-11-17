@@ -141,9 +141,33 @@ struct Cast {
     int32_t interrupter = -1; // the unit whose SPELL_INTERRUPT stopped it
 };
 
+// UNIT_STATE: whom the unit targets and who owns it (unit indexes, -1 for
+// none), UNIT_FIELD_FLAGS, its level and its FactionTemplate id.
+struct UnitState {
+    int32_t target = -1;
+    int32_t owner = -1;
+    uint32_t flags = 0;
+    uint32_t level = 0;
+    uint32_t faction = 0;
+};
+
+// UNIT_POWER: health, and the power of the unit's own type in stored units.
+struct Vitals {
+    uint32_t health = 0, maxHealth = 0;
+    uint32_t powerType = 0, power = 0, maxPower = 0;
+};
+
+// One aura of a UNIT_AURAS line.
+struct AuraSlot {
+    uint32_t spellID = 0;
+    bool harmful = false;
+    uint32_t stacks = 0;
+};
+
 struct Unit {
     std::string guid; // as the logs write it
     std::string name; // from the combat log, empty when it is not in it
+    std::string cachedName; // the recorder's own name for it (UNIT_NAME)
     bool player = false;
     uint32_t creatureID = 0;
     std::vector<Key> keys;
@@ -165,6 +189,41 @@ struct Unit {
     // each combat line that names it, each time it changes. The log writes
     // marks only while its recorder was in a group.
     std::vector<std::pair<int32_t, uint8_t>> marks;
+    // From the movement file, each from the time it changed.
+    std::vector<std::pair<int32_t, UnitState>> states;
+    std::vector<std::pair<int32_t, Vitals>> vitals;
+    std::vector<std::pair<int32_t, std::vector<AuraSlot>>> auraSlots;
+};
+
+// A game object's GAMEOBJECT_INFO fields.
+struct ObjectLook {
+    int32_t owner = -1; // its creator's unit index, -1 for none
+    uint32_t display = 0;
+    uint32_t type = 0;  // GAMEOBJECT_TYPE_ID
+    uint32_t state = 0; // GAMEOBJECT_STATE
+    uint32_t flags = 0;
+    float x = 0, y = 0, z = 0, facing = 0;
+    float rotation[4] = {0, 0, 0, 1}; // the quaternion x, y, z, w
+    float scale = 1;
+};
+
+struct GameObject {
+    std::string guid; // as the logs write it
+    std::string name; // from its record, empty when the recorder had none
+    uint32_t objectID = 0;
+    std::vector<Span> spans; // while in view
+    std::vector<std::pair<int32_t, ObjectLook>> looks; // each from the time it changed
+};
+
+// A spell's ground area (DYNAMICOBJECT_INFO), for one time in view.
+struct GroundArea {
+    std::string guid;
+    int32_t caster = -1; // unit index
+    uint32_t spellID = 0;
+    uint32_t bytes = 0; // DYNAMICOBJECT_BYTES
+    float radius = 0;
+    float x = 0, y = 0, z = 0, facing = 0;
+    Span span;
 };
 
 // A combat log line of the stretch, as the replay plays it.
@@ -202,6 +261,8 @@ struct Recording {
     bool movement = false; // a movement file was read
     std::vector<Unit> units;
     std::vector<CombatEvent> events; // in time order
+    std::vector<GameObject> objects;
+    std::vector<GroundArea> areas; // in the order they came into view
 };
 
 // Where a unit is, which way it faces, and how fast it moves, in yards a
@@ -233,6 +294,16 @@ const Cast *CastAt(const Unit &unit, int32_t t);
 
 // The unit's raid target mark at `t`, 0 for none.
 int MarkAt(const Unit &unit, int32_t t);
+
+// The movement file's state, health and power, and auras of the unit at `t`;
+// null before the first, or with no movement file lines for it.
+const UnitState *StateAt(const Unit &unit, int32_t t);
+const Vitals *VitalsAt(const Unit &unit, int32_t t);
+// The index in `auraSlots` of the unit's UNIT_AURAS at `t`, -1 before its first.
+int AuraSlotsIndexAt(const Unit &unit, int32_t t);
+
+// The game object's fields at `t`; null while it is not in view.
+const ObjectLook *ObjectLookAt(const GameObject &object, int32_t t);
 
 // Loads the stretch [startMs, endMs] (stamps) of a log (a Catalog name). Null
 // when the combat log cannot be read. Worker thread safe.

@@ -393,6 +393,7 @@ void ReleaseModel(Actor &actor) {
     actor.areaRadius = 0.0f;
     actor.areaVisual = nullptr;
     Areas::Stop(actor);
+    actor.gameObjectAnim = -1;
     actor.unitGuid = 0;
     actor.splashSound = 0;
     actor.lanes[0] = actor.lanes[1] = Outfit::HeldLane{};
@@ -1246,6 +1247,7 @@ void Actor::Update(float elapsedSec, float sceneSec) {
             // The pick an unloaded model could not take (PlayAnimation keeps
             // it pending at +0xD64).
             Locomotion::Repick(*this);
+            GameObjects::Play(*this);
             if (areaEffect != nullptr)
                 SizeSpellArea(*this);
             RunScript(S_ONMODELLOADED, 0);
@@ -1278,7 +1280,7 @@ void Actor::Update(float elapsedSec, float sceneSec) {
             }
             PlayAnimation();
         } else {
-            if (!Locomotion::FollowOn(*this))
+            if (!GameObjects::FollowOn(*this) && !Locomotion::FollowOn(*this))
                 PlayAnimation();
             RunScript(S_ONANIMFINISHED, 0);
         }
@@ -1542,6 +1544,37 @@ int __fastcall Script_SetModelBySpellArea(void *L) {
     }
     Game::Lua::PushBool(L, model != nullptr);
     return 1;
+}
+
+// A game object's model (a ClassicAPI extension, for replays): the model of
+// its GameObjectDisplayInfo row, as CGGameObject_C shows it. False for a
+// display without a model, and for a map object's WMO, which the world
+// places as a world model, not as a game object's.
+int __fastcall Script_SetModelByGameObjectDisplayID(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr ||
+        !NumberArgs(L, 2, 1, actor->DisplayName(), "SetModelByGameObjectDisplayID(gameObjectDisplayID)"))
+        return 0;
+    const char *path = GameObjects::ModelPath(static_cast<uint32_t>(Game::Lua::ToNumber(L, 2)));
+    actor->Vacate();
+    void *model = path != nullptr && !World::IsWmoPath(path)
+                      ? M2::CreateModel(Model::Pane::Scene(actor->SceneFrame()), path)
+                      : nullptr;
+    actor->SetModel(model, path, nullptr);
+    Game::Lua::PushBool(L, model != nullptr);
+    return 1;
+}
+
+// A game object's state (a ClassicAPI extension, for replays): the
+// animation its GAMEOBJECT_STATE shows, a door open or closed; with the state
+// it came from, the open, close or destroy animation first.
+int __fastcall Script_SetGameObjectState(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr || !NumberArgs(L, 2, 1, actor->DisplayName(), "SetGameObjectState(state [, previousState])"))
+        return 0;
+    const int previous = Game::Lua::IsNumber(L, 3) ? static_cast<int>(Game::Lua::ToNumber(L, 3)) : -1;
+    GameObjects::SetState(*actor, static_cast<uint32_t>(Game::Lua::ToNumber(L, 2)), previous);
+    return 0;
 }
 
 // Retail's argument order: unit, sheatheWeapons, autoDress, hideWeapons,
@@ -2922,6 +2955,7 @@ int __fastcall Script_SetAnimation(void *L) {
     actor->kitAnimation = -1; // the script's animation replaces a spell kit's
     actor->kitAnimationLoops = false;
     actor->kitLoopAnimation = -1;
+    actor->gameObjectAnim = -1; // and a game object state's
     actor->PlayAnimation();
     return 0;
 }
@@ -3038,6 +3072,8 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
     {"SetModelByCharacterAppearance", &Script_SetModelByCharacterAppearance},
     {"SetModelByPath", &Script_SetModelByPath},
     {"SetModelBySpellArea", &Script_SetModelBySpellArea},
+    {"SetModelByGameObjectDisplayID", &Script_SetModelByGameObjectDisplayID},
+    {"SetGameObjectState", &Script_SetGameObjectState},
     {"SetModelByUnit", &Script_SetModelByUnit},
     {"SetModelByUnitCreatureDisplayID", &Script_SetModelByUnitCreatureDisplayID},
     {"GetModelUnitGUID", &Script_GetModelUnitGUID},
@@ -3747,6 +3783,21 @@ const Game::Doc::Function kSetModelBySpellArea{
     "Shows the ground area of a spell, as the world shows the area that a spell such as Blizzard leaves, "
     "sized to the radius. False when the spell has no ground area.",
     kSpellAreaArgs, kSuccessRet, nullptr, true};
+const Game::Doc::Field kGameObjectDisplayArgs[] = {
+    Req("gameObjectDisplayID", "number", "A GameObjectDisplayInfo.dbc id."),
+};
+const Game::Doc::Function kSetModelByGameObjectDisplayID{
+    "Shows the model of a game object display, as the world shows a door, a chest or a sign. False when the "
+    "display has no model, or its model is a world model.",
+    kGameObjectDisplayArgs, kSuccessRet, nullptr, true};
+const Game::Doc::Field kGameObjectStateArgs[] = {
+    Req("state", "number", "0 active (a door open), 1 ready (a door closed), 2 alternative (destroyed)."),
+    Opt("previousState", "number", nullptr,
+        "The state it was in: the open, close, destroy or rebuild animation plays first."),
+};
+const Game::Doc::Function kSetGameObjectState{
+    "Shows a game object model in a state, as the world animates a door or a chest when its state changes.",
+    kGameObjectStateArgs, {}, nullptr, true};
 const Game::Doc::Function kClearModel{"Removes the model.", {}, {}};
 const Game::Doc::Function kIsLoaded{"Returns whether the model has loaded.", {}, kLoadedRet};
 const Game::Doc::Function kGetModelPath{"Returns the file of the model.", {}, kPathRet};
@@ -3859,6 +3910,8 @@ const Game::Doc::Method kMethodDocs[] = {
     {"SetModelByPath", &kSetModelByPath},
     {"SetModelByCharacterAppearance", &kSetModelByCharacterAppearance},
     {"SetModelBySpellArea", &kSetModelBySpellArea},
+    {"SetModelByGameObjectDisplayID", &kSetModelByGameObjectDisplayID},
+    {"SetGameObjectState", &kSetGameObjectState},
     {"SetModelByUnit", &kSetModelByUnit},
     {"SetModelByUnitCreatureDisplayID", &kSetModelByUnitCreatureDisplayID},
     {"GetModelUnitGUID", &kGetModelUnitGUID},

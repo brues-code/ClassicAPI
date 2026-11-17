@@ -884,6 +884,8 @@ build instructions.
   - [`actor:SetModelByCharacterAppearance(appearance)`](#actorsetmodelbycharacterappearanceappearance)
   - [`actor:SetModelByPath(path [, useMips])`](#actorsetmodelbypathpath--usemips)
   - [`actor:SetModelBySpellArea(spellID, radius)`](#actorsetmodelbyspellareaspellid-radius)
+  - [`actor:SetModelByGameObjectDisplayID(gameObjectDisplayID)`](#actorsetmodelbygameobjectdisplayidgameobjectdisplayid)
+  - [`actor:SetGameObjectState(state [, previousState])`](#actorsetgameobjectstatestate--previousstate)
   - [`actor:SetModelByUnit(unit [, sheatheWeapons, autoDress, hideWeapons, usePlayerNativeForm, holdBowString, customRaceID])`](#actorsetmodelbyunitunit--sheatheweapons-autodress-hideweapons-useplayernativeform-holdbowstring-customraceid)
   - [`actor:SetModelByUnitCreatureDisplayID(unit)`](#actorsetmodelbyunitcreaturedisplayidunit)
   - [`actor:GetModelUnitGUID()`](#actorgetmodelunitguid)
@@ -3570,7 +3572,14 @@ movement of your character:
 | `UNIT_INFO` | What a unit looks like when it comes into view, and each time that this changes: its display, mount, scale, stand state, sheath state and held items. |
 | `PLAYER_INFO` | The body of a player and what it wears: race, sex, appearance, the 19 visible items with their enchants, and the tabard emblem of its guild. |
 | `UNIT_CAST` | Each time that a unit starts or stops a cast or a channel: the spell that it casts and its cast time, and the spell that it channels. |
+| `UNIT_STATE` | Each time that the target, the owner, the unit flags, the level or the faction of a unit changes. The owner is the master of a pet, a guardian or a totem, or the controller of a charmed unit. |
+| `UNIT_POWER` | Each time that the health or the power of a unit changes. |
+| `UNIT_AURAS` | Each time that the auras of a unit change: the spell, harmful or helpful, and the stacks of each aura. |
+| `UNIT_NAME` | The name that your client has for a player, a pet, or a creature. With it, a log that is read on a different computer still has the names. |
 | `UNIT_GONE` | A unit that went out of view. |
+| `GAMEOBJECT_INFO` | A game object, such as a door, a chest, a trap or a portal, when it comes into view and each time that it changes: its owner, display, type, state, flags, position, rotation, scale and name. |
+| `DYNAMICOBJECT_INFO` | The area that a spell such as Blizzard leaves on the ground, when it comes into view: its caster, spell, radius and position. |
+| `OBJECT_GONE` | A game object or a ground area that went out of view. |
 
 The replay functions read this file. A movement file from an earlier
 ClassicAPI version does not load, because its lines have a different
@@ -3613,8 +3622,8 @@ the replay. A unit is a number, `unitIndex`, its index in the list of
 | `GetUnits()` | An array of units. Each has `guid`, `name`, `isPlayer` and `creatureID`. |
 
 A `name` comes from the log. If the log does not name the unit, the name
-comes from the name cache or the creature cache of your client. If neither
-has it, `name` is nil. `C_CreatureInfo.RequestLoadCreatureByID` gets the
+comes from the `UNIT_NAME` lines of the movement file, then from the name
+cache or the creature cache of your client. If none has it, `name` is nil. `C_CreatureInfo.RequestLoadCreatureByID` gets the
 name of a creature from the server.
 
 ### Units at a time
@@ -3625,8 +3634,10 @@ name of a creature from the server.
 | `GetUnitLook(unitIndex, time)` | `displayID, nativeDisplayID, mountDisplayID, scale, standState, form, stealthed, sheathState, isDead, mainHandDisplayID, offHandDisplayID, rangedDisplayID`. The last three are the held items of a creature, `0` for none. |
 | `GetUnitHeldItem(unitIndex, time, inventorySlot)` | `itemDisplayID, itemClass, itemSubclass, inventoryType, sheatheType` for slot `16`, `17` or `18` of a creature. These are the values that [`actor:SetHeldItem`](#actorsethelditeminventoryslot--itemdisplayid-itemclass-itemsubclass-inventorytype-sheathetype) takes. |
 | `GetUnitAppearances(unitIndex)` | An array of the bodies of a player, in time order. Each has `time`, `raceID`, `classID`, `sex`, `skin`, `face`, `hairStyle`, `hairColor`, `facialHair`, the five tabard emblem values when the log has them, and `items`, a list of `ItemTransmogInfo` for slots 1 to 19. The table fits [`actor:SetModelByCharacterAppearance`](#actorsetmodelbycharacterappearanceappearance). |
-| `GetUnitHealth(unitIndex, time)` | `health, maxHealth`, from the data of `advancedCombatLogging`. Nil before the log gives it. `0` after the unit dies. |
-| `GetUnitAuras(unitIndex, time)` | An array of auras. Each has `spellID`, `auraType` (`BUFF` or `DEBUFF`), `sourceIndex` and `applied`. Only auras that the log saw applied are known. |
+| `GetUnitHealth(unitIndex, time)` | `health, maxHealth`. They come from the `UNIT_POWER` lines of the movement file, or else from the data of `advancedCombatLogging`. Nil before the log gives them. `0` after the unit dies. |
+| `GetUnitPower(unitIndex, time)` | `powerType, power, maxPower` from the movement file. Rage is in tenths. Nil when the file has no power for the unit. |
+| `GetUnitState(unitIndex, time)` | `targetIndex, ownerIndex, flags, level, factionTemplate` from the movement file. `flags` is `UNIT_FIELD_FLAGS`: `0x40000` stunned, `0x80000` in combat, `0x400000` confused, `0x800000` fleeing. Nil when the file has no state for the unit. |
+| `GetUnitAuras(unitIndex, time)` | An array of auras. Each has `spellID`, `auraType` (`BUFF` or `DEBUFF`), `sourceIndex`, `applied` and `applications`. With the `UNIT_AURAS` lines of the movement file, all the auras of the unit are known. Without them, only the auras that the log saw applied are known. `sourceIndex` is known only for an aura that the log saw applied. |
 | `GetUnitWeapons(unitIndex, time)` | The item class and subclass of the main hand and the off hand. |
 | `GetUnitDeaths(unitIndex)` | An array of the times when the unit died. |
 | `GetUnitCast(unitIndex, time)` | `spellID, startTime, endTime, stopTime, isChannel, interrupted, interrupterIndex` of the last cast or channel that the unit started by `time`. Nil when it started none. `endTime` is when the cast was due to end. `stopTime` is when it stopped, and is nil when the log does not say. `interrupted` is `true` for a cast that stopped before its end. `interrupterIndex` is the unit whose interrupt stopped it. |
@@ -3642,6 +3653,17 @@ not show other stops, for example when the caster moves or is stunned, and
 it does not show when a channel ends. `GetUnitCast` gets these times from the
 `UNIT_CAST` lines of the movement file. Without these lines, a cast with no
 end in the combat log has no bar, and there are no channels.
+
+### Game objects and ground areas
+
+These come from the movement file. Without it, the lists are empty. A game
+object is a number, `objectIndex`, its index in the list of `GetGameObjects`.
+
+| Function | Returns |
+|---|---|
+| `GetGameObjects()` | An array of the game objects that were in view during the replay. Each has `guid`, `name` and `gameObjectID`. `name` is nil when neither the recorder nor your client has a name for it. |
+| `GetGameObjectInfo(objectIndex, time)` | `x, y, z, yaw, pitch, roll, scale, displayID, gameObjectType, state, flags, ownerIndex`. Nil while the object is not in view. `yaw`, `pitch` and `roll` turn the model as `actor:SetYaw`, `actor:SetPitch` and `actor:SetRoll` take them. `displayID` is a `GameObjectDisplayInfo.dbc` id. `state` is `0` for an open door and `1` for a closed door. `ownerIndex` is the unit that made the object, for example the hunter of a trap. |
+| `GetGroundAreas()` | An array of the ground areas of spells, in the order that they came into view. Each has `spellID`, `sourceIndex`, `x`, `y`, `z`, `facing`, `radius` in yards, `startTime`, and `endTime`, which is nil when the area stayed past the end of the replay. `startTime` is negative for an area that was there before the replay started. [`actor:SetModelBySpellArea`](#actorsetmodelbyspellareaspellid-radius) shows an area. |
 
 ### `C_CombatLogReplay.GetEvents(startTime, endTime)`
 
@@ -19937,6 +19959,42 @@ local storm = scene:CreateActor()
 storm:SetPosition(x, y, z)
 storm:SetModelBySpellArea(10, 8) -- Blizzard, 8 yards
 storm:SetGroundReticle(8)
+```
+
+### `actor:SetModelByGameObjectDisplayID(gameObjectDisplayID)`
+
+Shows the model of a game object display on the actor, as the world shows a
+door, a chest or a sign. `gameObjectDisplayID` is a
+`GameObjectDisplayInfo.dbc` id. Returns `true`, or `false` when the display
+has no model. A display whose model is a world model (a WMO), for example a
+ship or an elevator, also returns `false`.
+
+This is a ClassicAPI extension.
+
+### `actor:SetGameObjectState(state [, previousState])`
+
+Shows a game object model in a state, as the world animates a door or a
+chest when its state changes:
+
+| `state` | Door | Animation |
+|---|---|---|
+| `0` (active) | Open | Opened |
+| `1` (ready) | Closed | Closed |
+| `2` (alternative) | Destroyed | Destroyed |
+
+If you give `previousState`, the change plays first: Open from `1` to `0`,
+Close from `0` to `1`, Rebuild from `2` to `1`, and Destroy from `1` to `2`.
+Then the end animation repeats. If the model has no Open or Close animation,
+the world's replacement plays, and some replacements hold still. A
+`SetAnimation` call stops the state.
+
+This is a ClassicAPI extension.
+
+```lua
+local door = scene:CreateActor()
+door:SetModelByGameObjectDisplayID(3614) -- a Stratholme portcullis
+door:SetGameObjectState(1)               -- closed
+door:SetGameObjectState(0, 1)            -- opens
 ```
 
 ### `actor:SetModelByUnit(unit [, sheatheWeapons, autoDress, hideWeapons, usePlayerNativeForm, holdBowString, customRaceID])`

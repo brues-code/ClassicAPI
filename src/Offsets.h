@@ -2449,6 +2449,18 @@ enum Offsets {
     // index 0, count 2), the first field of the block a CGGameObject_C holds
     // at `+0x110` — the same slot as a unit's descriptor (OFF_UNIT_DESCRIPTOR).
     OFF_GAMEOBJECT_FIELD_CREATED_BY = 0x00,
+    // The rest of that block, by the client's own field table (20-byte
+    // records from 0x0083B894: name, index, count, type; offset = index*4).
+    OFF_GAMEOBJECT_FIELD_DISPLAYID = 0x08,
+    OFF_GAMEOBJECT_FIELD_FLAGS = 0x0C,
+    OFF_GAMEOBJECT_FIELD_ROTATION = 0x10, // 4 floats, the quaternion x, y, z, w
+    OFF_GAMEOBJECT_FIELD_STATE = 0x20,
+    OFF_GAMEOBJECT_FIELD_TYPE_ID = 0x3C,
+    // A dynamic object's block at the same `+0x110` (records from 0x0083B9C0).
+    OFF_DYNAMICOBJECT_FIELD_CASTER = 0x00, // GUID
+    OFF_DYNAMICOBJECT_FIELD_BYTES = 0x08,  // low byte: 1 a spell's area, 2 far sight
+    OFF_DYNAMICOBJECT_FIELD_SPELLID = 0x0C,
+    OFF_DYNAMICOBJECT_FIELD_RADIUS = 0x10, // float, yards
 
     // UNIT_CREATED_BY_SPELL — the spell that summoned this unit (descriptor
     // byte +0x230, field index 0x8C). Set for every spell-summoned unit:
@@ -2966,6 +2978,10 @@ enum Offsets {
     // `Unit::Power::DisplayDivisor`.
     FUN_POWER_DISPLAY_DIVISOR = 0x006E7130,
     OFF_UNIT_FIELD_LEVEL = 0x70,
+    // UNIT_FIELD_FACTIONTEMPLATE: the unit's FactionTemplate.dbc id, which
+    // Script_UnitFactionGroup reads for a unit in view (descriptor +0x74; see
+    // FUN_SCRIPT_UNIT_FACTION_GROUP).
+    OFF_UNIT_FIELD_FACTIONTEMPLATE = 0x74,
     // UNIT_FIELD_BYTES_0 dword at +0x78; byte 3 (= +0x7B) is the unit's
     // primary power type (one of UNIT_POWER_MIN_TYPE..MAX_TYPE).
     // Verified at `0x005179E6` in vanilla's `Script_UnitPowerType`:
@@ -3007,6 +3023,10 @@ enum Offsets {
     // UNIT_FIELD_PETNUMBER: nonzero for a hunter / warlock pet.
     // CheckSpellTargetRange reads it at 0x006E4645 (`[fields+0x214]`).
     OFF_UNIT_FIELD_PETNUMBER = 0x214,
+    // UNIT_FIELD_PET_NAME_TIMESTAMP: the stamp of the pet's current name.
+    // CGUnit_C::GetUnitName (FUN_OBJECT_GET_NAME) drops a pet name cache
+    // record whose OFF_PET_NAME_RECORD_TIMESTAMP differs (0x006092D9).
+    OFF_UNIT_FIELD_PET_NAME_TIMESTAMP = 0x218,
     // The active mover's GUID (u64): the unit the client moves, the player
     // or a unit it controls. SetActiveMover 0x006006E0 writes it,
     // ReleaseActiveMover 0x006006B0 zeroes both halves (disassembled).
@@ -6525,6 +6545,11 @@ enum Offsets {
     OFF_SPELLVISUALKIT_PROC_VALUE = 0x4C,
     // SpellVisualEffectName.dbc: the model file at +0x08, which the ghost
     // kit's effect step (0x00472780) creates (0x004727AF).
+    // GameObjectDisplayInfo.dbc (docs/DBCs.md): the model file at +0x04,
+    // which CGGameObject_C::GetDisplayModelPath (0x005F8090) returns.
+    VAR_GAMEOBJECTDISPLAYINFO_RECORDS = 0x00C0DCEC,
+    VAR_GAMEOBJECTDISPLAYINFO_COUNT = 0x00C0DCF0,
+    OFF_GAMEOBJECTDISPLAYINFO_MODEL = 0x04,
     VAR_SPELLVISUALEFFECTNAME_RECORDS = 0x00C0D760,
     VAR_SPELLVISUALEFFECTNAME_COUNT = 0x00C0D764,
     OFF_SPELLVISUALEFFECTNAME_FILE = 0x08,
@@ -6651,6 +6676,18 @@ enum Offsets {
     // KitEffectDecayCallback (0x005FF1D0) plays it again until the effect's
     // end time, which a state kit leaves at 0, so it holds until the aura goes.
     ANIM_HOLD = 158,
+    // A family A game object handler's animation per state (+0x10, 0 to 12):
+    // the u32 table at 0x008607E4 that PlayAnimatedHandlerState (0x005F3930)
+    // indexes, holding 145, 147, 148, 149, 146, 150, 151, 152, 153 to 156 and
+    // 157 (read from the binary). The ones its fallbacks name, by their
+    // AnimationData.dbc names:
+    VAR_GAMEOBJECT_STATE_ANIMS = 0x008607E4,
+    ANIM_GAMEOBJECT_CLOSE = 146,
+    ANIM_GAMEOBJECT_CLOSED = 147,
+    ANIM_GAMEOBJECT_OPEN = 148,
+    ANIM_GAMEOBJECT_OPENED = 149,
+    ANIM_GAMEOBJECT_DESTROY = 150,
+    ANIM_GAMEOBJECT_DESTROYED = 151,
     // Decay (AnimationData.dbc), a held effect's end: when a spell's kits stop
     // with force (an aura's removal), an effect whose model is loaded and has
     // it plays it and stops when it ends (0x006141C0, done callback
@@ -8244,6 +8281,14 @@ enum Offsets {
     // `Cache::QueryLoad` hooks it to fire CREATURE_DATA_LOAD_RESULT. The
     // item/quest caches have their own parsers, so it's conflict-free.
     FUN_CREATURE_QUERY_RESPONSE = 0x00556E20,
+    // Pet name cache (CMSG_PET_NAME_QUERY 0x52), keyed by UNIT_FIELD_PETNUMBER,
+    // with the same `_GetRecord` shape as FUN_CREATURE_GET_RECORD.
+    // CGUnit_C::GetUnitName names a pet from it (0x006092B2-0x006092C7). The
+    // record holds the name inline at +0 (the namer returns the record
+    // itself) and its UNIT_FIELD_PET_NAME_TIMESTAMP at +0x54 (0x006092D6).
+    VAR_PET_NAME_CACHE = 0x00C0E138,
+    FUN_PET_NAME_GET_RECORD = 0x00566240,
+    OFF_PET_NAME_RECORD_TIMESTAMP = 0x54,
     // Creature-query record field offsets, within the data block returned
     // by FUN_CREATURE_GET_RECORD. Anchored by rank@+0x20 (read by the
     // classification helper FUN_00605620 as `[block+0x20]`) and the

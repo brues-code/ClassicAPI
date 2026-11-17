@@ -68,6 +68,25 @@
 //     emblem values are the guild's tabard emblem from the guild cache
 //     (GetGuildEmblem), all -1 while the client has no record of the guild
 //     or the player has none (version 5);
+//   UNIT_NAME,unitGUID,"name"
+//     the name the client has for a player (name cache), a pet (pet name
+//     cache) or a creature (its creature record), when it first has one and
+//     when it changes, so a log
+//     read elsewhere names units the combat log never does;
+//   UNIT_STATE,unitGUID,targetGUID,ownerGUID,flags,level,factionTemplate
+//     when the unit comes into view and each time one of these changes: its
+//     target (UNIT_FIELD_TARGET), its charmer or creator (a pet's, guardian's
+//     or totem's owner, a mind-controlled unit's controller), UNIT_FIELD_FLAGS
+//     (stunned 0x40000, confused 0x400000, fleeing 0x800000, in combat
+//     0x80000, ...), its level and its FactionTemplate id;
+//   UNIT_POWER,unitGUID,health,maxHealth,powerType,power,maxPower
+//     when the unit comes into view and each time one of these changes: its
+//     health, and the power of its own type in stored units (rage in tenths);
+//   UNIT_AURAS,unitGUID,spellID,harmful,stacks,...
+//     the auras in its 48 slots, in slot order, when it comes into view with
+//     any and each time they change: each one's spell, 1 when harmful (as
+//     this server encodes it) else 0, and its stacks. A line with no auras
+//     is the last one gone;
 //   UNIT_CAST,unitGUID,castSpellID,castTimeMs,channelSpellID
 //     a unit's cast state each time it changes (UnitInfo.cpp), and when a
 //     unit that casts or channels comes into view: the spell it casts with
@@ -76,9 +95,21 @@
 //     SPELL_CAST_SUCCESS was interrupted; a channel ends when its spell
 //     goes back to 0;
 //   UNIT_GONE,unitGUID
-//     the unit left view.
+//     the unit left view;
+//   GAMEOBJECT_INFO,objectGUID,ownerGUID,displayID,type,state,flags,x,y,z,
+//       facing,rotationX,rotationY,rotationZ,rotationW,scale,"name"
+//     a game object when it comes into view and each time a field but its
+//     place changes (ObjectInfo.cpp): its creator, display, GAMEOBJECT_TYPE_ID,
+//     GAMEOBJECT_STATE, GAMEOBJECT_FLAGS, place, the GAMEOBJECT_ROTATION
+//     quaternion the client turns its model by, scale, and the name from its
+//     record ("" until the record arrives);
+//   DYNAMICOBJECT_INFO,objectGUID,casterGUID,spellID,bytes,radius,x,y,z,facing
+//     a spell's ground area when it comes into view: its caster, spell,
+//     DYNAMICOBJECT_BYTES, radius in yards and place;
+//   OBJECT_GONE,objectGUID
+//     the game object or ground area left view.
 // GUIDs are written as the combat log writes them. After a header the unit
-// lines start over: every unit in view is written again.
+// and object lines start over: everything in view is written again.
 //
 // The wire formats are the client's own readers:
 //   - a movement status (0x0047EBA0): flags, time, x, y, z, facing; with

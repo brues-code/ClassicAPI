@@ -25,6 +25,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "cache/Record.h"
 #include "creature/Info.h"
 #include "event/Custom.h"
 #include "item/Data.h"
@@ -269,6 +270,8 @@ int __fastcall Script_GetReplayInfo(void *L) {
 std::string UnitName(const Unit &unit) {
     if (!unit.name.empty())
         return unit.name;
+    if (!unit.cachedName.empty())
+        return unit.cachedName;
     if (unit.player) {
         constexpr std::string_view kPrefix = "Player-0-";
         if (unit.guid.rfind(kPrefix, 0) != 0)
@@ -462,20 +465,82 @@ int __fastcall Script_GetUnitWeapons(void *L) {
     return 4;
 }
 
-// The unit's health at the time, as the log gives it.
+// The unit's health at the time: the movement file's (UNIT_POWER, exact and
+// whenever it changed), else the advanced blocks' (only on the lines that
+// describe the unit).
 int __fastcall Script_GetUnitHealth(void *L) {
     const Unit *unit = UnitArg(L, "Usage: C_CombatLogReplay.GetUnitHealth(unitIndex, time)");
-    const Health *health = unit != nullptr ? HealthAt(*unit, TimeArg(L)) : nullptr;
-    if (health == nullptr || health->max <= 0) {
+    if (unit != nullptr) {
+        const int32_t t = TimeArg(L);
+        if (const Vitals *vitals = VitalsAt(*unit, t); vitals != nullptr && vitals->maxHealth > 0) {
+            Lua::PushNumber(L, vitals->health);
+            Lua::PushNumber(L, vitals->maxHealth);
+            return 2;
+        }
+        if (const Health *health = HealthAt(*unit, t); health != nullptr && health->max > 0) {
+            Lua::PushNumber(L, health->current);
+            Lua::PushNumber(L, health->max);
+            return 2;
+        }
+    }
+    Lua::PushNil(L);
+    return 1;
+}
+
+// The unit's power at the time, from the movement file.
+int __fastcall Script_GetUnitPower(void *L) {
+    const Unit *unit = UnitArg(L, "Usage: C_CombatLogReplay.GetUnitPower(unitIndex, time)");
+    const Vitals *vitals = unit != nullptr ? VitalsAt(*unit, TimeArg(L)) : nullptr;
+    if (vitals == nullptr) {
         Lua::PushNil(L);
         return 1;
     }
-    Lua::PushNumber(L, health->current);
-    Lua::PushNumber(L, health->max);
-    return 2;
+    Lua::PushNumber(L, vitals->powerType);
+    Lua::PushNumber(L, vitals->power);
+    Lua::PushNumber(L, vitals->maxPower);
+    return 3;
 }
 
-// The auras on the unit at the time.
+void PushUnitIndex(void *L, int32_t index) {
+    if (index >= 0)
+        Lua::PushNumber(L, index + 1);
+    else
+        Lua::PushNil(L);
+}
+
+// Whom the unit targets, who owns it, its unit flags, level and faction
+// template at the time, from the movement file.
+int __fastcall Script_GetUnitState(void *L) {
+    const Unit *unit = UnitArg(L, "Usage: C_CombatLogReplay.GetUnitState(unitIndex, time)");
+    const UnitState *state = unit != nullptr ? StateAt(*unit, TimeArg(L)) : nullptr;
+    if (state == nullptr) {
+        Lua::PushNil(L);
+        return 1;
+    }
+    PushUnitIndex(L, state->target);
+    PushUnitIndex(L, state->owner);
+    Lua::PushNumber(L, state->flags);
+    Lua::PushNumber(L, state->level);
+    Lua::PushNumber(L, state->faction);
+    return 5;
+}
+
+// When the aura `spellID` came onto the unit: the first of the unbroken run
+// of the unit's UNIT_AURAS lines up to `at` that have it.
+int32_t SlotApplied(const Unit &unit, int at, uint32_t spellID) {
+    int first = at;
+    while (first > 0) {
+        const std::vector<AuraSlot> &slots = unit.auraSlots[first - 1].second;
+        if (std::none_of(slots.begin(), slots.end(), [&](const AuraSlot &s) { return s.spellID == spellID; }))
+            break;
+        --first;
+    }
+    return unit.auraSlots[first].first;
+}
+
+// The auras on the unit at the time: every one in its slots when the
+// movement file has them, else the ones the combat log saw applied. The
+// combat log's line names who applied one, when it saw it.
 int __fastcall Script_GetUnitAuras(void *L) {
     const Unit *unit = UnitArg(L, "Usage: C_CombatLogReplay.GetUnitAuras(unitIndex, time)");
     Lua::NewTable(L);
@@ -483,6 +548,23 @@ int __fastcall Script_GetUnitAuras(void *L) {
         return 1;
     const int32_t t = TimeArg(L);
     int i = 0;
+    if (const int at = AuraSlotsIndexAt(*unit, t); at >= 0) {
+        for (const AuraSlot &slot : unit->auraSlots[at].second) {
+            const auto span = std::find_if(unit->auras.begin(), unit->auras.end(), [&](const AuraSpan &a) {
+                return a.spellID == slot.spellID && a.from <= t && t < a.to;
+            });
+            Lua::NewTable(L);
+            Lua::SetFieldNumber(L, "spellID", slot.spellID);
+            Lua::SetFieldString(L, "auraType", slot.harmful ? "DEBUFF" : "BUFF");
+            Lua::SetFieldNumber(L, "applications", slot.stacks);
+            if (span != unit->auras.end() && span->caster >= 0)
+                Lua::SetFieldNumber(L, "sourceIndex", span->caster + 1);
+            Lua::SetFieldNumber(L, "applied",
+                                Seconds(span != unit->auras.end() ? span->from : SlotApplied(*unit, at, slot.spellID)));
+            Lua::RawSetI(L, -2, ++i);
+        }
+        return 1;
+    }
     for (const AuraSpan &a : unit->auras) {
         if (!(a.from <= t && t < a.to))
             continue;
@@ -597,6 +679,98 @@ int __fastcall Script_GetUnitAppearances(void *L) {
         Lua::PushString(L, "items");
         Model::TryOn::PushTransmogInfoList(L, worn);
         Lua::SetTable(L, -3);
+        Lua::RawSetI(L, -2, ++i);
+    }
+    return 1;
+}
+
+// A game object's name: the recorder's, else the client's record for it.
+std::string ObjectName(const GameObject &object) {
+    if (!object.name.empty())
+        return object.name;
+    const uint8_t *record = object.objectID != 0
+                                ? Cache::Record::Peek(Offsets::FUN_GAMEOBJECT_GET_RECORD,
+                                                      Offsets::VAR_GAMEOBJECT_CACHE, object.objectID)
+                                : nullptr;
+    const char *name = record != nullptr ? Game::Read<const char *>(record, Offsets::OFF_GAMEOBJECT_NAME) : nullptr;
+    return name != nullptr ? name : "";
+}
+
+int __fastcall Script_GetGameObjects(void *L) {
+    Lua::NewTable(L);
+    if (g_recording == nullptr)
+        return 1;
+    int i = 0;
+    for (const GameObject &object : g_recording->objects) {
+        Lua::NewTable(L);
+        Lua::SetFieldString(L, "guid", object.guid.c_str());
+        const std::string name = ObjectName(object);
+        if (!name.empty())
+            Lua::SetFieldString(L, "name", name.c_str());
+        Lua::SetFieldNumber(L, "gameObjectID", object.objectID);
+        Lua::RawSetI(L, -2, ++i);
+    }
+    return 1;
+}
+
+// Where a game object is, how it is turned, and what it shows at the time.
+// The rotation is the quaternion the client turns the model by, as the
+// angles of a ModelSceneActor: yaw about Z, then pitch about Y, then roll
+// about X.
+int __fastcall Script_GetGameObjectInfo(void *L) {
+    constexpr char kUsage[] = "Usage: C_CombatLogReplay.GetGameObjectInfo(objectIndex, time)";
+    if (!Lua::IsNumber(L, 1) || !Lua::IsNumber(L, 2)) {
+        Lua::Error(L, "%s", kUsage);
+        return 0;
+    }
+    const auto index = static_cast<int64_t>(Lua::ToNumber(L, 1));
+    const ObjectLook *look = nullptr;
+    if (g_recording != nullptr && index >= 1 && index <= static_cast<int64_t>(g_recording->objects.size()))
+        look = ObjectLookAt(g_recording->objects[static_cast<std::size_t>(index - 1)], TimeArg(L));
+    if (look == nullptr) {
+        Lua::PushNil(L);
+        return 1;
+    }
+    const double x = look->rotation[0], y = look->rotation[1], z = look->rotation[2], w = look->rotation[3];
+    constexpr double kTwoPi = 6.283185307179586;
+    double yaw = std::atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z));
+    if (yaw < 0)
+        yaw += kTwoPi;
+    const double pitch = std::asin(std::clamp(2.0 * (w * y - z * x), -1.0, 1.0));
+    const double roll = std::atan2(2.0 * (w * x + y * z), 1.0 - 2.0 * (x * x + y * y));
+    Lua::PushNumber(L, look->x);
+    Lua::PushNumber(L, look->y);
+    Lua::PushNumber(L, look->z);
+    Lua::PushNumber(L, yaw);
+    Lua::PushNumber(L, pitch);
+    Lua::PushNumber(L, roll);
+    Lua::PushNumber(L, look->scale);
+    Lua::PushNumber(L, look->display);
+    Lua::PushNumber(L, look->type);
+    Lua::PushNumber(L, look->state);
+    Lua::PushNumber(L, look->flags);
+    PushUnitIndex(L, look->owner);
+    return 12;
+}
+
+int __fastcall Script_GetGroundAreas(void *L) {
+    Lua::NewTable(L);
+    if (g_recording == nullptr)
+        return 1;
+    int i = 0;
+    for (const GroundArea &area : g_recording->areas) {
+        Lua::NewTable(L);
+        Lua::SetFieldNumber(L, "spellID", area.spellID);
+        if (area.caster >= 0)
+            Lua::SetFieldNumber(L, "sourceIndex", area.caster + 1);
+        Lua::SetFieldNumber(L, "x", area.x);
+        Lua::SetFieldNumber(L, "y", area.y);
+        Lua::SetFieldNumber(L, "z", area.z);
+        Lua::SetFieldNumber(L, "facing", area.facing);
+        Lua::SetFieldNumber(L, "radius", area.radius);
+        Lua::SetFieldNumber(L, "startTime", Seconds(area.span.from));
+        if (area.span.to != INT32_MAX)
+            Lua::SetFieldNumber(L, "endTime", Seconds(area.span.to));
         Lua::RawSetI(L, -2, ++i);
     }
     return 1;
@@ -821,16 +995,18 @@ const Game::Doc::Field kGetUnitHealthRets[] = {
     Opt("maxHealth", "number"),
 };
 const Game::Doc::Function kGetUnitHealth{
-    "Returns a replay unit's health at a time, from the log's advanced data (the advancedCombatLogging setting).",
+    "Returns a replay unit's health at a time: the movement file's when it has the unit's, else the log's advanced "
+    "data (the advancedCombatLogging setting).",
     kUnitTimeArgs, kGetUnitHealthRets, nullptr, true};
 const Game::Doc::Field kAuraFields[] = {
     Req("spellID", "number"),
     Req("auraType", "cstring", "BUFF or DEBUFF."),
     Opt("sourceIndex", "number", nullptr, "Nil when the log does not name a unit that applied it."),
     Req("applied", "number", "When it was applied, in seconds from the replay's start; negative before it."),
+    Opt("applications", "number", nullptr, "Its stacks, from the movement file."),
 };
 const Game::Doc::Structure kAura{"CombatLogReplayAura", "CombatLogReplay", kAuraFields,
-                                 "Only auras the log saw applied are known."};
+                                 "All of a unit's auras with the movement file, else only the ones the log saw applied."};
 const Game::Doc::Field kGetUnitAurasRets[] = {
     Req("auras", "table", "An array of CombatLogReplayAura."),
 };
@@ -863,8 +1039,87 @@ const Game::Doc::Function kGetUnitRaidTargetIndex{
     "has marks only while its recorder was in a group, and a change shows from the unit's next line.",
     kUnitTimeArgs, kGetUnitRaidTargetIndexRets, nullptr, true};
 
+const Game::Doc::Field kGetUnitPowerRets[] = {
+    Opt("powerType", "number", nullptr, "Nil when the movement file has no power for the unit at the time."),
+    Opt("power", "number", nullptr, "In stored units: rage is in tenths."),
+    Opt("maxPower", "number"),
+};
+const Game::Doc::Function kGetUnitPower{"Returns a replay unit's power at a time, from the movement file.",
+                                        kUnitTimeArgs, kGetUnitPowerRets, nullptr, true};
+const Game::Doc::Field kGetUnitStateRets[] = {
+    Opt("targetIndex", "number", nullptr, "The unit it targets; nil for none, or when the movement file has no state for it."),
+    Opt("ownerIndex", "number", nullptr, "Its charmer or creator: a pet's, guardian's or totem's owner."),
+    Opt("flags", "number", nullptr, "UNIT_FIELD_FLAGS: stunned 0x40000, in combat 0x80000, confused 0x400000, fleeing 0x800000."),
+    Opt("level", "number"),
+    Opt("factionTemplate", "number", nullptr, "Its FactionTemplate.dbc id."),
+};
+const Game::Doc::Function kGetUnitState{
+    "Returns whom a replay unit targets, who owns it, its unit flags, level and faction at a time, from the movement "
+    "file.",
+    kUnitTimeArgs, kGetUnitStateRets, nullptr, true};
+
 const Game::Doc::Function kGetUnitLook{"Returns what a replay unit looks like at a time.",
                                        kUnitTimeArgs, kGetUnitLookRets, nullptr, true};
+
+const Game::Doc::Field kGameObjectFields[] = {
+    Req("guid", "WOWGUID", "As the combat log writes it."),
+    Opt("name", "cstring", nullptr,
+        "The recorder's name for it, else the client's game object cache. Nil when neither has one."),
+    Req("gameObjectID", "number"),
+};
+const Game::Doc::Structure kGameObject{"CombatLogReplayGameObjectInfo", "CombatLogReplay", kGameObjectFields};
+const Game::Doc::Field kGetGameObjectsRets[] = {
+    Req("gameObjects", "table",
+        "An array of CombatLogReplayGameObjectInfo; an object's index in it is its objectIndex. Empty without a "
+        "movement file."),
+};
+const Game::Doc::Function kGetGameObjects{
+    "Returns the game objects in view during the loaded replay: doors, chests, traps, portals and more.", {},
+    kGetGameObjectsRets, nullptr, true};
+const Game::Doc::Field kObjectTimeArgs[] = {
+    Req("objectIndex", "number"),
+    Req("time", "number", "Seconds from the replay's start."),
+};
+const Game::Doc::Field kGetGameObjectInfoRets[] = {
+    Opt("x", "number", nullptr, "Nil while the object is not in the recorder's view."),
+    Opt("y", "number"),
+    Opt("z", "number"),
+    Opt("yaw", "number", nullptr,
+        "How the model is turned, in radians, as ModelSceneActor:SetYaw, SetPitch and SetRoll take it."),
+    Opt("pitch", "number"),
+    Opt("roll", "number"),
+    Opt("scale", "number"),
+    Opt("displayID", "number", nullptr, "Its GameObjectDisplayInfo.dbc id."),
+    Opt("gameObjectType", "number", nullptr,
+        "0 door, 3 chest, 6 trap, 8 spell focus, 18 summoning ritual, and more."),
+    Opt("state", "number", nullptr, "0 active (a door open), 1 ready (a door closed), 2 alternative."),
+    Opt("flags", "number"),
+    Opt("ownerIndex", "number", nullptr, "The unit that made it, such as a hunter's trap; nil for none."),
+};
+const Game::Doc::Function kGetGameObjectInfo{
+    "Returns where a replay game object is, how it is turned, and what it shows at a time.", kObjectTimeArgs,
+    kGetGameObjectInfoRets, nullptr, true};
+const Game::Doc::Field kGroundAreaFields[] = {
+    Req("spellID", "number"),
+    Opt("sourceIndex", "number", nullptr, "The unit that cast it; nil when it is not a unit."),
+    Req("x", "number"),
+    Req("y", "number"),
+    Req("z", "number"),
+    Req("facing", "number", "In radians."),
+    Req("radius", "number", "In yards."),
+    Req("startTime", "number",
+        "When it came into view, in seconds from the replay's start; negative before it."),
+    Opt("endTime", "number", nullptr, "When it left view; nil when it stayed past the replay's end."),
+};
+const Game::Doc::Structure kGroundArea{
+    "CombatLogReplayGroundArea", "CombatLogReplay", kGroundAreaFields,
+    "The area that a spell such as Blizzard or Consecration leaves on the ground. "
+    "ModelSceneActor:SetModelBySpellArea shows it."};
+const Game::Doc::Field kGetGroundAreasRets[] = {
+    Req("areas", "table", "An array of CombatLogReplayGroundArea in the order they came into view."),
+};
+const Game::Doc::Function kGetGroundAreas{"Returns the spells' ground areas in view during the loaded replay.",
+                                          {}, kGetGroundAreasRets, nullptr, true};
 
 void RegisterLuaFunctions() {
     constexpr char kTable[] = "C_CombatLogReplay";
@@ -886,7 +1141,13 @@ void RegisterLuaFunctions() {
     Lua::RegisterTableFunction(kTable, "GetUnitRaidTargetIndex", &Script_GetUnitRaidTargetIndex,
                                &kGetUnitRaidTargetIndex);
     Lua::RegisterTableFunction(kTable, "GetUnitHealth", &Script_GetUnitHealth, &kGetUnitHealth);
+    Lua::RegisterTableFunction(kTable, "GetUnitPower", &Script_GetUnitPower, &kGetUnitPower);
+    Lua::RegisterTableFunction(kTable, "GetUnitState", &Script_GetUnitState, &kGetUnitState);
     Lua::RegisterTableFunction(kTable, "GetUnitWeapons", &Script_GetUnitWeapons, &kGetUnitWeapons);
+    Lua::RegisterTableFunction(kTable, "GetGameObjects", &Script_GetGameObjects, &kGetGameObjects);
+    Lua::RegisterTableFunction(kTable, "GetGameObjectInfo", &Script_GetGameObjectInfo,
+                               &kGetGameObjectInfo);
+    Lua::RegisterTableFunction(kTable, "GetGroundAreas", &Script_GetGroundAreas, &kGetGroundAreas);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
