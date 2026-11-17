@@ -325,22 +325,39 @@ bool HookIntrinsic(void *L, void *frame, Binding binding) {
     uint32_t *slot = Resolve(frame, Game::Lua::ToString(L, 2));
     if (slot == nullptr)
         return false;
+    // The caller's context, read before anything here pushes a value (a
+    // copied nonzero word becomes current) and current again on return.
+    auto &context = Game::Ref<uint32_t>(Offsets::VAR_FRAMESCRIPT_EXEC_CONTEXT);
+    const uint32_t hookWord = context;
     Entry &e = Acquire(L, frame, slot);
     Normalize(L, e);
     Part &p = e.parts[binding];
     if (p.ref > 0) {
+        // The binding keeps its context and the wrapper carries it, as
+        // HookScript's store does for the extrinsic one.
         Game::Lua::RawGetI(L, Game::Lua::REGISTRY_INDEX, p.ref); // [.., old]
         Game::Lua::PushValue(L, 3);                              // [.., old, hook]
-        HookSecureFunc::PushWrapper(L);                          // [.., wrapper]
+        HookSecureFunc::PushWrapper(L, p.context, hookWord);     // [.., wrapper]
         Release(L, p.ref);
     } else {
         Game::Lua::PushValue(L, 3);
-        p.context = Game::Read<uint32_t>(Offsets::VAR_FRAMESCRIPT_EXEC_CONTEXT);
+        p.context = hookWord;
     }
     const int ref = Game::Lua::Ref(L, Game::Lua::REGISTRY_INDEX);
     p.ref = ref > 0 ? ref : 0;
     Install(L, e);
+    context = hookWord;
     return true;
+}
+
+// GetScript_h's extrinsic part: the entry's binding when the slot has one,
+// else the slot's own.
+uint32_t ExtrinsicContext(void *frame, const char *name) {
+    uint32_t *slot = Resolve(frame, name);
+    if (slot == nullptr)
+        return 0;
+    const Entry *e = Find(slot);
+    return e != nullptr ? e->parts[EXTRINSIC].context : slot[1];
 }
 
 } // namespace Frame::ScriptBindings

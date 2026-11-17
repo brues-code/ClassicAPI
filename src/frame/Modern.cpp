@@ -409,14 +409,16 @@ int __fastcall Script_SetResizeBounds(void *L) {
 
 // ---- HookScript (Frame) ----------------------------------------------------
 
-// `frame:HookScript("type", function)` — 4.3.4's
-// FrameScript_Object::HookScript, less taint:
+// `frame:HookScript("type", function)` — 3.3.5's Script_HookScript
+// (0x0049EDB0):
 //   * no script set: the hook becomes the script itself, so GetScript
 //     returns it;
 //   * otherwise the script becomes the hooksecurefunc wrapper over (old,
-//     hook) — 4.3.4 installs the same FrameScript_HookWrapper for both. The
+//     hook) — 3.3.5 installs the same FrameScript_HookWrapper for both. The
 //     old handler runs first with the script's arguments, then the hook with
-//     the same arguments under the engine's script error handler.
+//     the same arguments under the engine's script error handler. The slot
+//     keeps the script's context, so a client script hooked from an addon
+//     still passes the protected-action gate (HookSecureFunc::SetHookedScript).
 // The arguments are whatever the dispatch passes. Frame::ScriptArgs looks
 // inside the wrapper and passes positional args when either side declares
 // parameters; the engine sets the this/event/argN globals for vanilla
@@ -451,14 +453,11 @@ int __fastcall Script_HookScript(void *L) {
     }
 
     Game::Lua::SetTop(L, 3);                            // (self, type, hook)
+    const uint32_t hookWord = Game::Read<uint32_t>(Offsets::VAR_FRAMESCRIPT_EXEC_CONTEXT);
     Game::Lua::CallScript(Offsets::FUN_SCRIPT_FRAME_GETSCRIPT, L); // (.., old or nil)
-    if (Game::Lua::Type(L, 4) == Game::Lua::TYPE_FUNCTION) {
-        Game::Lua::Insert(L, 3);         // (self, type, old, hook)
-        HookSecureFunc::PushWrapper(L);  // (self, type, wrapper)
-    } else {
-        Game::Lua::SetTop(L, 3);         // (self, type, hook)
-    }
-    Game::Lua::CallScript(Offsets::FUN_SCRIPT_FRAME_SETSCRIPT, L);
+    HookSecureFunc::SetHookedScript(
+        L, hookWord, Frame::ScriptBindings::ExtrinsicContext(frame, Game::Lua::ToString(L, 2)),
+        reinterpret_cast<Game::Lua::CFunction>(Offsets::FUN_SCRIPT_FRAME_SETSCRIPT));
     return 0;
 }
 

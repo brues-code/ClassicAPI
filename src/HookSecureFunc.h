@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 // The one hook wrapper `hooksecurefunc` and `Frame:HookScript` both install —
 // 4.3.4 uses its FrameScript_HookWrapper for both, so a hooked function and a
 // hooked script behave the same way.
@@ -26,7 +28,19 @@ namespace HookSecureFunc {
 int __fastcall Wrapper(void *L);
 
 // Pops the hook (top) and the original (below it) and pushes the wrapper
-// closure over them.
-void PushWrapper(void *L);
+// closure over them. The original and the wrapper carry `origWord`, the
+// hook `hookWord` (context words, 1.12's taint); the current context is
+// left as it was.
+void PushWrapper(void *L, uint32_t origWord, uint32_t hookWord);
+
+// HookScript's store once GetScript has run: the stack is (self, type,
+// hook, old), `old` the script's handler or nil. `hookWord` is the context
+// that was current before GetScript (GetScript changes it), `scriptWord`
+// the context the script's slot holds. `setScript` is the object's
+// SetScript, which stores stack 3 with the current context. Stores the hook,
+// or the wrapper over (old, hook) under the script's own context, and
+// returns setScript's result.
+int SetHookedScript(void *L, uint32_t hookWord, uint32_t scriptWord,
+                    int(__fastcall *setScript)(void *L));
 
 } // namespace HookSecureFunc

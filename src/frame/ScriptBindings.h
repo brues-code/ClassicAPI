@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 // A script's three bindings — see ScriptBindings.cpp.
 
 namespace Frame::ScriptBindings {
@@ -30,6 +32,10 @@ void CaptureIntrinsic(void *frame, const void *def);
 // is at stack index 2 and the hook at 3. False when the frame has no such
 // script.
 bool HookIntrinsic(void *L, void *frame, Binding binding);
+
+// The context of the script's extrinsic binding — the handler GetScript
+// returns — or 0 when the frame has no such script.
+uint32_t ExtrinsicContext(void *frame, const char *name);
 
 // The dispatcher closure body, so Frame::ScriptArgs can look at the
 // bindings it runs (upvalues 1..3, in binding order).

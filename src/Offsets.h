@@ -10102,6 +10102,14 @@ enum Offsets {
     // Table* / TString* / double). luaH_getnum's node walk reads both
     // (`CMP [ECX],3` / `FLD [ECX+8]` at 0x006FA736 / 0x006FA73B).
     OFF_LUA_TVALUE_TT = 0x00,
+    // The context word — 3.3.5's TValue `taint`, set by its lua_settaint.
+    // A pushed value takes VAR_FRAMESCRIPT_EXEC_CONTEXT (lua_pushcclosure
+    // 0x006F39CC); copying a value moves all 16 bytes and, when this word is
+    // nonzero and the depth is nonzero, makes it the current context
+    // (lua_rawset 0x006F3F34, lua_pushcclosure's upvalue loop 0x006F399C).
+    // lua_gettable alone also stamps a zero word with the current context
+    // (0x006F3AF6), which is 3.3.5's taint propagation on read.
+    OFF_LUA_TVALUE_CONTEXT = 0x04,
     OFF_LUA_TVALUE_VALUE = 0x08,
     // Table: array size (int). luaH_getnum's array-part bound test
     // `CMP EDX,[ECX+0x1C]` at 0x006FA70E (array pointer at +0x0C).

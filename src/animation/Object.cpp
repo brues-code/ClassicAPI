@@ -315,18 +315,15 @@ int __fastcall Script_HookScript(void *L) {
         return 0;
     }
     Game::Lua::SetTop(L, 3); // (self, type, hook)
+    const uint32_t hookWord = Game::Read<uint32_t>(Offsets::VAR_FRAMESCRIPT_EXEC_CONTEXT);
     Game::Lua::PushValue(L, 1);
     Game::Lua::PushValue(L, 2);
     Game::Lua::PushCClosure(L, &Script_GetScript, 0);
     Game::Lua::Insert(L, -3);
     Game::Lua::Call(L, 2, 1); // (self, type, hook, old)
-    if (Game::Lua::Type(L, 4) == Game::Lua::TYPE_FUNCTION) {
-        Game::Lua::Insert(L, 3);        // (self, type, old, hook)
-        HookSecureFunc::PushWrapper(L); // (self, type, wrapper)
-    } else {
-        Game::Lua::SetTop(L, 3);
-    }
-    return Script_SetScript(L);
+    // Script_GetScript raised for an unknown name, so the slot exists.
+    const uint32_t *slot = V_ResolveScript(object, nullptr, Game::Lua::ToString(L, 2));
+    return HookSecureFunc::SetHookedScript(L, hookWord, slot[1], &Script_SetScript);
 }
 
 } // namespace Animation

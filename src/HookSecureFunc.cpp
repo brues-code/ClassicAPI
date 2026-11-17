@@ -52,21 +52,58 @@ bool IsUnhookable(const char *name) {
     return false;
 }
 
+// 1.12's taint is the context word: `lua_tainted` is
+// VAR_FRAMESCRIPT_EXEC_CONTEXT, `lua_taintexpected` its depth, and each
+// value carries a word at OFF_LUA_TVALUE_CONTEXT (see Offsets.h). A copied
+// value with a nonzero word makes that word current while the depth is
+// nonzero, and the protected-action gate (0x00494A50) refuses movement and
+// similar actions under any nonzero context. 3.3.5's taint calls map 1:1;
+// its `lua_taintedclosure` guard has no 1.12 counterpart (the engine's own
+// script runner restores on the depth alone).
+uint32_t &Context() {
+    return Game::Ref<uint32_t>(Offsets::VAR_FRAMESCRIPT_EXEC_CONTEXT);
+}
+
+int32_t &Depth() {
+    return Game::Ref<int32_t>(Offsets::VAR_FRAMESCRIPT_EXEC_CONTEXT_DEPTH);
+}
+
+using IndexAcceptable_t = uint8_t *(__fastcall *)(void *L, int idx);
+
+// `lua_settaint(L, idx, word)` — the value at a stack index takes `word`.
+void SetContextWord(void *L, int idx, uint32_t word) {
+    uint8_t *o = reinterpret_cast<IndexAcceptable_t>(Offsets::LUA_INDEX_ACCEPTABLE)(L, idx);
+    *reinterpret_cast<uint32_t *>(o + Offsets::OFF_LUA_TVALUE_CONTEXT) = word;
+}
+
+// `if (lua_taintexpected) lua_tainted = word; if (--lua_taintexpected <= 0)
+// lua_taintexpected = 0;` — the close of every 3.3.5 taint scope.
+void CloseContextScope(uint32_t word) {
+    if (Depth() != 0)
+        Context() = word;
+    if (--Depth() <= 0)
+        Depth() = 0;
+}
+
 } // namespace
 
 // Wrapper closure body — called when the hooked function is invoked.
 // Stack contains the wrapper's args (`[arg1..argN]`); the closure's
-// upvalues hold `(orig, callback)`. 4.3.4's FrameScript_HookWrapper, less
-// its taint bookkeeping (1.12 has no taint):
+// upvalues hold `(orig, callback)`. 3.3.5's FrameScript_HookWrapper
+// (0x00817050):
 //
-//   1. orig(...) with lua_call — an error in the original propagates to
-//      the caller, as it would unhooked.
+//   1. orig(...) with lua_call under the caller's context — an error in
+//      the original propagates to the caller, as it would unhooked, and a
+//      protected function hooked from an addon still runs for a key
+//      binding.
 //   2. Results sink below the args, so they end up as the wrapper's
 //      return frame without being copied again.
 //   3. callback(...) through lua_pcall with the engine's frame-script
 //      message handler as errfunc: a broken hook is REPORTED the way any
 //      script error is (the error frame / geterrorhandler), and the
-//      original's results still reach the caller.
+//      original's results still reach the caller. The callback's word
+//      becomes current when it is pushed; the caller's context is put back
+//      after, so the hook's taint does not leak into the caller.
 int __fastcall Wrapper(void *L) {
     const int nargs = Game::Lua::GetTop(L);
 
@@ -87,6 +124,8 @@ int __fastcall Wrapper(void *L) {
     // (3) Stack: `[res1..resM, errfunc, callback, arg1..argN]`. The
     //     handler ref is the one every engine script pcall passes; 0 (not
     //     yet set) falls back to no handler rather than a bad index.
+    ++Depth();
+    const uint32_t taint = Context();
     Game::Lua::PushValue(L, Game::Lua::UpvalueIndex(2));
     Game::Lua::Insert(L, nresults + 1);
     int errIdx = 0;
@@ -95,14 +134,46 @@ int __fastcall Wrapper(void *L) {
         errIdx = nresults + 1;
     }
     Game::Lua::PCall(L, nargs, 0, errIdx);
+    CloseContextScope(taint);
 
     // Drop the handler and any error value — `[res1..resM]` remains.
     Game::Lua::SetTop(L, nresults);
     return nresults;
 }
 
-void PushWrapper(void *L) {
+// 3.3.5's `lua_settaint` pair, `lua_pushcclosure`, `lua_settaint` on the
+// closure. Copying the upvalues makes a nonzero word current, so the
+// context is put back after, as 3.3.5's save/restore around it does.
+void PushWrapper(void *L, uint32_t origWord, uint32_t hookWord) {
+    const uint32_t saved = Context();
+    SetContextWord(L, -2, origWord);
+    SetContextWord(L, -1, hookWord);
     Game::Lua::PushCClosure(L, &Wrapper, 2);
+    SetContextWord(L, -1, origWord);
+    Context() = saved;
+}
+
+// 3.3.5's Script_HookScript (0x0049EDB0) from the script lookup on:
+//   * no handler: the hook becomes the handler, stored under the caller's
+//     context (3.3.5 `m_tainted = lua_tainted`);
+//   * otherwise the wrapper over (old, hook) is stored under the SCRIPT's
+//     context, which the slot keeps (3.3.5 leaves `m_tainted` alone), so a
+//     client script hooked from an addon still runs as the client's.
+// The caller's context is current again on return.
+int SetHookedScript(void *L, uint32_t hookWord, uint32_t scriptWord,
+                    int(__fastcall *setScript)(void *L)) {
+    if (Game::Lua::Type(L, 4) != Game::Lua::TYPE_FUNCTION) {
+        Game::Lua::SetTop(L, 3);    // (self, type, hook)
+        Context() = hookWord;
+        return setScript(L);
+    }
+    Game::Lua::Insert(L, 3);        // (self, type, old, hook)
+    PushWrapper(L, scriptWord, hookWord); // (self, type, wrapper)
+    if (++Depth() != 0)
+        Context() = scriptWord;
+    const int n = setScript(L);
+    CloseContextScope(hookWord);
+    return n;
 }
 
 namespace {
@@ -110,7 +181,7 @@ namespace {
 // `hooksecurefunc([table,] "function", hookfunc)` — replaces
 // `table[name]` (default `_G`) with a wrapper that runs the original, then
 // `hookfunc` with the same args, and returns the original's results.
-// 4.3.4's Script_hooksecurefunc, less taint:
+// 3.3.5's Script_hooksecurefunc (0x00817170):
 //   * a non-table first argument means `_G` is inserted at index 1, so
 //     both forms share one index layout;
 //   * the name only has to pass lua_isstring, so a number works (and is
@@ -118,7 +189,15 @@ namespace {
 //   * the original is read with lua_gettable (inherited methods resolve
 //     through __index) but the wrapper is written with lua_rawset, so a
 //     target's __newindex never runs;
-//   * the error texts are 4.3.4's.
+//   * the wrapper keeps the ORIGINAL's context word, so hooking a client
+//     function from an addon leaves it the client's: the JUMP binding
+//     calling a hooked JumpOrAscendStart still passes the protected-action
+//     gate. The original is read under a cleared context, so the context
+//     afterwards is the original's own word (lua_gettable makes a nonzero
+//     word current and stamps a zero one with the cleared context). The
+//     hook keeps the caller's word. Both keys are pushed fresh rather than
+//     copied, so the name's own word never becomes current;
+//   * the error texts are 3.3.5's.
 // The one addition is the 11.0 unhookable-name check for the `_G` form.
 int __fastcall Script_HookSecureFunc(void *L) {
     const bool implicitGlobals = Game::Lua::Type(L, 1) != Game::Lua::TYPE_TABLE;
@@ -146,16 +225,27 @@ int __fastcall Script_HookSecureFunc(void *L) {
         return 0;
     }
 
-    Game::Lua::PushValue(L, 2);
+    const uint32_t taint = Context();
+    if (++Depth() != 0)
+        Context() = 0;
+
+    Game::Lua::PushString(L, name);
     Game::Lua::GetTable(L, 1);                  // [t, name, hookfunc, orig]
-    if (Game::Lua::Type(L, -1) != Game::Lua::TYPE_FUNCTION) {
+    const bool hooked = Game::Lua::Type(L, -1) == Game::Lua::TYPE_FUNCTION;
+    if (hooked) {
+        const uint32_t functionTaint = Context();
+        Game::Lua::Insert(L, 3);                // [t, name, orig, hookfunc]
+        PushWrapper(L, functionTaint, taint);   // [t, name, wrapper]
+        Game::Lua::PushString(L, name);
+        Game::Lua::Insert(L, 3);                // [t, name, name, wrapper]
+        Game::Lua::RawSet(L, 1);                // t[name] = wrapper
+    }
+    CloseContextScope(taint);
+
+    if (!hooked) {
         Game::Lua::Error(L, "hooksecurefunc(): %s is not a function", name);
         return 0;
     }
-
-    Game::Lua::Insert(L, 3);                    // [t, name, orig, hookfunc]
-    PushWrapper(L);                             // [t, name, wrapper]
-    Game::Lua::RawSet(L, 1);                    // t[name] = wrapper
     return 0;
 }
 
