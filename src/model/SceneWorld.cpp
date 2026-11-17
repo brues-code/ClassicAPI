@@ -1731,8 +1731,12 @@ void Settle(const Backdrop *b, const Terrain::Land *terrain, Ambience &a, void *
         moved = !(std::fabs(Game::DistanceSq(position, a.position)) <
                   EngineFloat(Offsets::VAR_ONE_THOUSANDTH));
     }
-    if (!placed) {
-        // A new node (0x00670DB0): intensity 1.0, the day ambient.
+    if (a.model != model) {
+        // A new node (0x00670DB0): intensity 1.0, the day ambient. A unit
+        // keeps its node while the map around it streams in and out, so a
+        // new set of chunks or map objects places it again from the light it
+        // has, without the reset: resetting there flashed every actor that
+        // stood in a WMO as the camera moved.
         a.ambient = a.ambientTarget =
             SunBytes(Game::Ptr<uint8_t>(frame, Offsets::OFF_SIMPLEMODEL_LIGHT), Offsets::OFF_M2LIGHT_AMBIENT);
         a.intensity = a.intensityTarget = EngineFloat(Offsets::VAR_ONE);
