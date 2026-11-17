@@ -636,11 +636,40 @@ local function CreateEventElementData(event, ...)
 	return {event = event, args = SafePack(...)};
 end
 
+-- A UI object is a table whose [0] is its userdata, the test DevTools uses.
+-- Its other fields belong to the addons that decorated it (pfUI's nameplate
+-- overlay points back at its frame), so it stays the object itself and is
+-- never walked. NAME_PLATE_CREATED carries one.
+local function IsUIObject(value)
+	return type(rawget(value, 0)) == "userdata";
+end
+
+-- `copies` maps each table already copied to its copy, so a table reached
+-- twice, or one that contains itself, is copied once.
+local function CopyArgument(value, copies)
+	if type(value) ~= "table" or IsUIObject(value) then
+		return value;
+	end
+
+	local copy = copies[value];
+	if copy then
+		return copy;
+	end
+
+	copy = {};
+	copies[value] = copy;
+	for k, v in pairs(value) do
+		copy[k] = CopyArgument(v, copies);
+	end
+	return copy;
+end
+
+-- UNIT_AURA_DELTA refills the same tables on every fire, so a logged event
+-- keeps a copy of its table arguments.
 local function CopyTableArguments(args)
+	local copies = {};
 	for index = 1, args.n do
-		if type(args[index]) == "table" then
-			args[index] = CopyTable(args[index]);
-		end
+		args[index] = CopyArgument(args[index], copies);
 	end
 end
 
@@ -820,7 +849,15 @@ local function CompareTableKeys(a, b)
 	return tostring(a) < tostring(b);
 end
 
-local function AddTooltipTableContents(tbl, indent)
+-- Lists a plain table's contents. `listed` holds each table already listed in
+-- this tooltip, so a table reached again, or one that contains itself, shows
+-- as its name only. A UI object always shows as its name only.
+local function AddTooltipTableContents(tbl, indent, listed)
+	if type(tbl) ~= "table" or IsUIObject(tbl) or listed[tbl] then
+		return;
+	end
+	listed[tbl] = true;
+
 	local keys = {};
 	for key in pairs(tbl) do
 		table.insert(keys, key);
@@ -830,19 +867,18 @@ local function AddTooltipTableContents(tbl, indent)
 	for _, key in ipairs(keys) do
 		local value = tbl[key];
 		GameTooltip_AddColoredDoubleLine(EventTraceTooltip, indent .. tostring(key) .. ":", FormatArgument(value), HIGHLIGHT_FONT_COLOR, GetArgumentColor(value));
-		if type(value) == "table" then
-			AddTooltipTableContents(value, indent .. TableContentsIndent);
-		end
+		AddTooltipTableContents(value, indent .. TableContentsIndent, listed);
 	end
 end
 
 local function AddTooltipArguments(showTableContents, ...)
+	local listed = {};
 	local count = select("#", ...);
 	for index = 1, count do
 		local arg = select(index, ...);
 		GameTooltip_AddColoredDoubleLine(EventTraceTooltip, EVENTTRACE_ARG_FMT:format(index), FormatArgument(arg), HIGHLIGHT_FONT_COLOR, GetArgumentColor(arg));
-		if showTableContents and type(arg) == "table" then
-			AddTooltipTableContents(arg, TableContentsIndent);
+		if showTableContents then
+			AddTooltipTableContents(arg, TableContentsIndent, listed);
 		end
 	end
 end
