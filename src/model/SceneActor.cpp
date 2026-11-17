@@ -405,6 +405,7 @@ void ReleaseModel(Actor &actor) {
         slot = Outfit::Appearance{};
     actor.armorReady = true;
     actor.pendingTryOns.clear();
+    actor.pendingHeld.clear();
     actor.pendingKits.clear();
     actor.loaded = false;
     actor.animFinished = false;
@@ -573,6 +574,34 @@ void Actor::SheatheRanged() {
     reinterpret_cast<OpenHand_t>(Offsets::FUN_OPEN_HAND)(model, right ? 0 : 1);
 }
 
+void Actor::HoldItem(int invSlot, const Outfit::HeldLane &lane, const void *display) {
+    if (model == nullptr || !loaded) {
+        pendingHeld.push_back({invSlot, lane, display});
+        return;
+    }
+    if (invSlot == Offsets::INVSLOT_RANGED) {
+        if (lane.itemClass == 0 || display == nullptr) {
+            ClearRanged(*this);
+            return;
+        }
+        ranged = lane;
+        rangedDisplay = display;
+        worn[Offsets::INVSLOT_RANGED - 1] = Outfit::Appearance{};
+        if (rangedDrawn || rangedModel != nullptr)
+            HangRanged(*this, !rangedDrawn);
+    } else {
+        const int i = Outfit::LaneOfInvSlot(invSlot);
+        Outfit::HoldLane(model, lanes, weapons, i, lane, display, MeleeSheathed(), hideWeapons);
+        worn[invSlot - 1] = Outfit::Appearance{};
+        if (lanes[i].itemClass != 0)
+            TookLane(model, i);
+        // The hang empties the lane's hand, which may hold the drawn weapon.
+        if (rangedDrawn)
+            HangRanged(*this, false);
+    }
+    Model::DisplayInfo::LightChildren(SceneFrame(), model);
+}
+
 void Actor::TookLane(void *onModel, int i) {
     ownSheathe[i] = lanes[i].sheatheType;
     ApplySheatheCategory(onModel, i);
@@ -658,7 +687,8 @@ void PutOn(Actor &actor, const TryOn::Request &request, const uint8_t *record) {
     held.hide = actor.hideWeapons;
     held.enchant = request.enchant;
     const int invSlot = Outfit::TryOn(actor.model, actor.dresser, actor.armorReady, actor.lanes,
-                                      actor.weapons, record, held);
+                                      actor.weapons, record, held,
+                                      actor.body ? actor.body->emblem : Model::DisplayInfo::Emblem{});
     if (invSlot == 0)
         return;
     Outfit::Appearance &slot = actor.worn[invSlot - 1];
@@ -1200,6 +1230,10 @@ void Actor::Update(float elapsedSec, float sceneSec) {
         if (ready && M2::IsLoaded(model, 0, 1)) {
             loaded = true;
             PutOnWaiting(*this);
+            const std::vector<HeldRequest> held = std::move(pendingHeld);
+            pendingHeld.clear();
+            for (const HeldRequest &h : held)
+                HoldItem(h.invSlot, h.lane, h.display);
             ApplyKit(*this);
             AuraVisuals::Show(*this);
             for (const auto &[kitID, oneShot] : pendingKits) {
@@ -1407,6 +1441,13 @@ int __fastcall Script_SetModelByCharacterAppearance(void *L) {
     body.hairStyle = field("hairStyle");
     body.hairColor = field("hairColor");
     body.facialHair = field("facialHair");
+    // The guild emblem a tabard with the emblem flag shows; -1 unknown.
+    auto emblem = [L](const char *key) { return static_cast<int32_t>(Game::Lua::GetFieldNumber(L, 2, key, -1.0)); };
+    body.emblem.style = emblem("emblemStyle");
+    body.emblem.color = emblem("emblemColor");
+    body.emblem.border = emblem("emblemBorderStyle");
+    body.emblem.borderColor = emblem("emblemBorderColor");
+    body.emblem.background = emblem("emblemBackgroundColor");
     const uint32_t displayID = Model::DisplayInfo::BodyDisplay(body);
     const char *path = nullptr;
     actor->Vacate();
@@ -1684,6 +1725,56 @@ int __fastcall Script_SetSheathed(void *L) {
     actor->hideWeapons = Game::Lua::ToBoolean(L, 3) != 0;
     actor->SheatheRanged();
     actor->ApplyWeapons();
+    return 0;
+}
+
+// The unit's sheathe state (UNIT_FIELD_BYTES_2 byte 0), as SetSheatheState
+// (0x00611CF0) applies it: 0 every held item at its sheath point, 1 the melee
+// items in hand, 2 the ranged weapon in hand and the melee items sheathed.
+int __fastcall Script_SetSheatheState(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr || !NumberArgs(L, 2, 1, actor->DisplayName(), "SetSheatheState(state)"))
+        return 0;
+    const int state = static_cast<int>(Game::Lua::ToNumber(L, 2));
+    if (state == Offsets::SHEATH_STATE_RANGED) {
+        actor->sheathed = false;
+        actor->DrawRanged();
+        return 0;
+    }
+    actor->sheathed = state != Offsets::SHEATH_STATE_MELEE;
+    actor->SheatheRanged();
+    actor->ApplyWeapons();
+    return 0;
+}
+
+// A held item by its display, as a unit holds a virtual item (a creature's
+// UNIT_VIRTUAL_ITEM_SLOT_DISPLAY and UNIT_VIRTUAL_ITEM_INFO): the lane's
+// fields and the ItemDisplayInfo row, hung by the sheathe state. No display
+// empties the slot.
+int __fastcall Script_SetHeldItem(void *L) {
+    constexpr char kUsage[] =
+        "SetHeldItem(inventorySlot [, itemDisplayID, itemClass, itemSubclass, inventoryType, sheatheType])";
+    Actor *actor = Self(L);
+    if (actor == nullptr || !NumberArgs(L, 2, 1, actor->DisplayName(), kUsage))
+        return 0;
+    const int slot = static_cast<int>(Game::Lua::ToNumber(L, 2));
+    if (slot != Offsets::INVSLOT_MAINHAND && slot != Offsets::INVSLOT_OFFHAND && slot != Offsets::INVSLOT_RANGED)
+        return 0;
+    const auto number = [L](int index) {
+        return Game::Lua::IsNumber(L, index) ? static_cast<uint32_t>(Game::Lua::ToNumber(L, index)) : 0u;
+    };
+    const uint32_t displayID = number(3);
+    const void *display = displayID != 0 ? DBC::Record(Offsets::VAR_ITEMDISPLAYINFO_RECORDS,
+                                                       Offsets::VAR_ITEMDISPLAYINFO_COUNT, displayID)
+                                         : nullptr;
+    Outfit::HeldLane lane{};
+    if (display != nullptr) {
+        lane.itemClass = static_cast<uint8_t>(number(4));
+        lane.subclass = static_cast<uint8_t>(number(5));
+        lane.inventoryType = static_cast<uint8_t>(number(6));
+        lane.sheatheType = static_cast<uint8_t>(number(7));
+    }
+    actor->HoldItem(slot, lane, display);
     return 0;
 }
 
@@ -2961,6 +3052,8 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
     {"GetItemTransmogInfoList", &Script_GetItemTransmogInfoList},
     {"SetItemTransmogInfo", &Script_SetItemTransmogInfo},
     {"SetSheathed", &Script_SetSheathed},
+    {"SetSheatheState", &Script_SetSheatheState},
+    {"SetHeldItem", &Script_SetHeldItem},
     {"GetSheathed", &Script_GetSheathed},
     {"SetSheathedCategory", &Script_SetSheathedCategory},
     {"UseUnitSheatheCategory", &Script_UseUnitSheatheCategory},
@@ -3157,6 +3250,25 @@ const Game::Doc::Field kSheathedArgs[] = {
     Opt("hidden", "bool", "false", "True hides the held items."),
 };
 const Game::Doc::Field kSheathedRet[] = {Req("sheathed", "bool")};
+const Game::Doc::Field kSheatheStateArgs[] = {
+    Req("state", "number", "0 sheathed, 1 melee weapons in hand, 2 ranged weapon in hand."),
+};
+const Game::Doc::Function kSetSheatheState{
+    "Holds the items as a unit's sheathe state does: 2 takes the ranged weapon in hand and sheathes the "
+    "melee ones, as a ranged spell's start does.",
+    kSheatheStateArgs, {}, nullptr, true};
+const Game::Doc::Field kHeldItemArgs[] = {
+    Req("inventorySlot", "number", "16 main hand, 17 off hand, 18 ranged."),
+    Opt("itemDisplayID", "number", nullptr, "An ItemDisplayInfo id. Nil or 0 empties the slot."),
+    Opt("itemClass", "number", "0", "The item class, 0 for none, as a unit's virtual item info gives it."),
+    Opt("itemSubclass", "number", "0"),
+    Opt("inventoryType", "number", "0", "A shield (14) hangs on the arm, a right-hand ranged weapon (26) in the right hand."),
+    Opt("sheatheType", "number", "0", "Where it hangs while sheathed; 0 for no sheath point."),
+};
+const Game::Doc::Function kSetHeldItem{
+    "Holds an item by its display, as a unit holds a virtual item (a creature's weapons): no item record "
+    "is needed. It waits for the model to load and hangs by the sheathe state.",
+    kHeldItemArgs, {}, nullptr, true};
 const Game::Doc::Field kAutoDressArg[] = {Req("autoDress", "bool")};
 const Game::Doc::Field kAutoDressRet[] = {Req("autoDress", "bool")};
 const Game::Doc::Field kGeoReadyRet[] = {Req("isReady", "bool")};
@@ -3608,10 +3720,18 @@ const Game::Doc::Field kCharacterAppearanceFields[] = {
     Opt("hairStyle", "number", "0"),
     Opt("hairColor", "number", "0"),
     Opt("facialHair", "number", "0"),
+    Opt("emblemStyle", "number", nullptr,
+        "The guild tabard emblem: a tabard that shows one shows these five, all or none. As the guild "
+        "tabard designer numbers them."),
+    Opt("emblemColor", "number"),
+    Opt("emblemBorderStyle", "number"),
+    Opt("emblemBorderColor", "number"),
+    Opt("emblemBackgroundColor", "number"),
 };
 const Game::Doc::Structure kCharacterAppearance{
     "CharacterAppearance", "FrameAPIModelSceneFrameActor", kCharacterAppearanceFields,
-    "A player character's body: race, sex and the choices made at character creation."};
+    "A player character's body: race, sex, the choices made at character creation, and its guild's "
+    "tabard emblem."};
 const Game::Doc::Field kCharacterAppearanceArgs[] = {
     Req("appearance", "CharacterAppearance"),
 };
@@ -3753,6 +3873,8 @@ const Game::Doc::Method kMethodDocs[] = {
     {"GetItemTransmogInfoList", &kGetItemTransmogInfoList},
     {"SetItemTransmogInfo", &kSetItemTransmogInfo},
     {"SetSheathed", &kSetSheathed},
+    {"SetSheatheState", &kSetSheatheState},
+    {"SetHeldItem", &kSetHeldItem},
     {"GetSheathed", &kGetSheathed},
     {"SetSheathedCategory", &kSetSheathedCategory},
     {"UseUnitSheatheCategory", &kUseUnitSheatheCategory},

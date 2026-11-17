@@ -43,6 +43,16 @@ void *CreateDresser(void *instance, const uint8_t *extraRec);
 // A player's own look, as CGUnit_C::BuildCharacterComponent's player branch
 // reads it: race and sex from UNIT_FIELD_BYTES_0, the rest from PLAYER_BYTES
 // and PLAYER_BYTES_2.
+// A guild's tabard emblem, in GetGuildEmblem's order; -1 where unknown.
+struct Emblem {
+    int32_t style = -1;
+    int32_t color = -1;
+    int32_t border = -1;
+    int32_t borderColor = -1;
+    int32_t background = -1;
+    bool Known() const { return style != -1 && color != -1 && border != -1 && borderColor != -1 && background != -1; }
+};
+
 struct Body {
     uint32_t race = 0;
     uint32_t sex = 0; // 0 male, 1 female
@@ -51,6 +61,7 @@ struct Body {
     uint32_t hairStyle = 0;
     uint32_t hairColor = 0;
     uint32_t facialHair = 0;
+    Emblem emblem; // its tabard's, when it wears one that shows an emblem
 };
 
 // The display a player of `body`'s race and sex is shown in (ChrRaces), or 0.
@@ -71,6 +82,8 @@ void CloneDresser(void *dresser, void *model, void *source);
 // One component slot cleared, or set to an ItemDisplayInfo ID.
 void UnequipDresserSlot(void *dresser, uint32_t slot);
 void SetDresserItem(void *dresser, uint32_t slot, uint32_t displayID);
+// SetCharacterComponentEmblem (0x0047A610).
+void SetDresserEmblem(void *dresser, const Emblem &emblem);
 
 // Gives every model attached to `instance` the light and fog callback of
 // `instance` itself, else the one `frame` gives its own model, so the

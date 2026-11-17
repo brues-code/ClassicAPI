@@ -40,8 +40,8 @@ local MAX_PLAYED_STEP = 1;
 -- The animation a stand state shows, as the client's follow camera reads it
 -- (Offsets.h ANIM_*): sit, sleep, the three chairs, dead, kneel.
 local STAND_ANIMATION = { [1] = 97, [3] = 100, [4] = 102, [5] = 103, [6] = 104, [7] = 6, [8] = 115 };
--- The sheath state with melee weapons in hand.
-local SHEATH_MELEE = 1;
+-- A creature's held slots: main hand, off hand, ranged.
+local HELD_SLOTS = { 16, 17, 18 };
 -- Below this a moving unit walks (yards a second; walk speed is 2.5, run 7).
 local RUN_SPEED = 4;
 -- Faster than this a unit is moving, slower it stands.
@@ -82,6 +82,11 @@ local FEED_LINES, FEED_WIDTH, FEED_SECONDS = 8, 440, 12;
 local FEED_TEXT_COLOR = { 1, 1, 1 };
 local FEED_HEAL_COLOR = { 0.2, 1, 0.2 };
 local FEED_DEATH_COLOR = { 1, 0.25, 0.25 };
+-- A player's death on the timeline: its mark, and how many seconds before
+-- the death a click on it goes to, to see what killed it.
+local DEATH_MARK_WIDTH, DEATH_MARK_HEIGHT = 3, 14;
+local DEATH_MARK_COLOR = { 1, 0.15, 0.15, 0.9 };
+local DEATH_MARK_LEAD = 5;
 -- The client's combat log words for a missed swing and a missed spell, by
 -- miss type (GlobalStrings).
 local SWING_MISS_TEXT = {
@@ -113,6 +118,8 @@ local flying = {};     -- the fly keys held, by key name
 local combatTime;      -- the replay time the combat state is at, nil before the first
 local freeBars = {};   -- health bars not in use
 local feed;            -- the ScrollingMessageFrame of the log's lines
+local deathMarks = {}; -- the timeline's death marks in use
+local freeMarks = {};  -- death marks not in use
 local unitListChanged; -- a unit was named since the list was filled
 
 ------------------------------------------------------------------------------
@@ -327,8 +334,20 @@ local function Dress(actor, appearance)
 	end
 end
 
+-- A creature holds what its unit held (a player holds its items): set again
+-- with each new model, and when what it holds changes.
+local function Hold(u, time, held1, held2, held3)
+	if u.held1 == held1 and u.held2 == held2 and u.held3 == held3 then
+		return;
+	end
+	u.held1, u.held2, u.held3 = held1, held2, held3;
+	for _, slot in ipairs(HELD_SLOTS) do
+		u.actor:SetHeldItem(slot, C_CombatLogReplay.GetUnitHeldItem(u.index, time, slot));
+	end
+end
+
 local function ShowUnit(u, time, x, y, z, facing, speed, falling, jumping, display, nativeDisplay,
-		mountDisplay, scale, standState, sheathState, isDead)
+		mountDisplay, scale, standState, sheathState, isDead, held1, held2, held3)
 	local actor = u.actor;
 	if not actor then
 		actor = Acquire(u);
@@ -352,11 +371,6 @@ local function ShowUnit(u, time, x, y, z, facing, speed, falling, jumping, displ
 		end
 		u.named = named;
 	end
-	local sheathed = sheathState ~= SHEATH_MELEE;
-	if u.sheathed ~= sheathed then
-		actor:SetSheathed(sheathed);
-		u.sheathed = sheathed;
-	end
 	-- A player shown in its own display is its own body; in any other (a
 	-- form, a polymorph) it is that creature, as the client shows it.
 	local appearance = display == nativeDisplay and AppearanceAt(u, time);
@@ -370,6 +384,16 @@ local function ShowUnit(u, time, x, y, z, facing, speed, falling, jumping, displ
 		u.model = model;
 		u.animation = nil;
 		u.seated = false;
+		u.held1, u.held2, u.held3, u.sheathState = nil, nil, nil, nil;
+	end
+	if not appearance then
+		Hold(u, time, held1, held2, held3);
+	end
+	-- Weapons in hand or sheathed as the unit held them; 2 is the ranged
+	-- weapon drawn.
+	if u.sheathState ~= sheathState then
+		actor:SetSheatheState(sheathState);
+		u.sheathState = sheathState;
 	end
 	-- Through the mixin, which sets it again once the model has loaded.
 	if u.scale ~= scale then
@@ -462,11 +486,12 @@ local function FeedText(e)
 	end
 end
 
+-- A feed line links to its event's time: a click goes there.
 local function AddFeedLine(e)
 	local text, color = FeedText(e);
 	if text then
 		color = color or FEED_TEXT_COLOR;
-		feed:AddMessage(text, color[1], color[2], color[3]);
+		feed:AddMessage("|Hreplay:" .. e.time .. "|h" .. text .. "|h", color[1], color[2], color[3]);
 	end
 end
 
@@ -526,7 +551,11 @@ end
 -- Each unit's combat state as it was at `time`: no cast or swing under way,
 -- its auras then; a dead unit lies still.
 local function SetCombatState(time)
+	-- The feed holds the lines that would still show.
 	feed:Clear();
+	for _, e in ipairs(C_CombatLogReplay.GetEvents(math.max(0, time - FEED_SECONDS), time)) do
+		AddFeedLine(e);
+	end
 	for i = 1, #units do
 		local u = units[i];
 		u.casts, u.swingUntil, u.dyingUntil = nil, nil, nil;
@@ -563,14 +592,15 @@ local function Apply(time)
 		local u = units[i];
 		local x, y, z, facing, speed, falling, jumping = GetUnitPosition(i, time);
 		local display, nativeDisplay, mountDisplay, scale, standState, sheathState, isDead, _;
+		local held1, held2, held3;
 		if x then
-			display, nativeDisplay, mountDisplay, scale, standState, _, _, sheathState, isDead =
-				GetUnitLook(i, time);
+			display, nativeDisplay, mountDisplay, scale, standState, _, _, sheathState, isDead, held1, held2,
+				held3 = GetUnitLook(i, time);
 		end
 		u.inView, u.dead = display and display > 0, isDead;
 		if u.inView then
 			ShowUnit(u, time, x, y, z, facing, speed, falling, jumping, display, nativeDisplay,
-				mountDisplay, scale, standState, sheathState, isDead);
+				mountDisplay, scale, standState, sheathState, isDead, held1, held2, held3);
 			ShowBar(u, time, isDead);
 		else
 			HideUnit(u);
@@ -773,11 +803,25 @@ local function UpdatePlayButton()
 	frame.PlayButton:SetText(playing and REPLAY_PAUSE or REPLAY_PLAY);
 end
 
+-- Where the timeline's thumb centre sits for a time, from the slider's left
+-- edge, and how far it travels: the thumb stays inside the slider, so its
+-- centre runs half a thumb in from each end. The span comes from the
+-- slider's edges: GetWidth gives its XML size (10), not its anchored width.
+local function TimelinePlace(time)
+	local timeline = frame.Timeline;
+	local left, right = timeline:GetLeft(), timeline:GetRight();
+	local span = left and right and right - left or timeline:GetWidth();
+	local thumb = timeline:GetThumbTexture():GetWidth();
+	local travel = math.max(span - thumb, 1);
+	return thumb / 2 + travel * (duration > 0 and time / duration or 0), travel;
+end
+
 -- The timeline's thumb moves once it would move a pixel, and the time text
 -- once its second changes: setting the slider runs its scripts (about half a
 -- millisecond a call), too much for every frame. `force` sets both.
 local function UpdateTimeline(force)
-	local step = duration / math.max(frame.Timeline:GetWidth(), 1);
+	local _, travel = TimelinePlace(0);
+	local step = duration / travel;
 	if force or not timelineValue or math.abs(now - timelineValue) >= step then
 		settingTimeline = true;
 		frame.Timeline:SetValue(now);
@@ -871,6 +915,65 @@ local function Seek(time)
 	UpdateTimeline(true);
 end
 
+------------------------------------------------------------------------------
+-- Death marks
+
+local function OnMarkEnter(mark)
+	GameTooltip:SetOwner(mark, "ANCHOR_TOP");
+	GameTooltip:SetText(string.format(UNITDIESOTHER, mark.unit.name), FEED_DEATH_COLOR[1], FEED_DEATH_COLOR[2],
+		FEED_DEATH_COLOR[3]);
+	GameTooltip:AddLine(FormatTime(mark.time), 1, 1, 1);
+	GameTooltip:Show();
+end
+
+local function OnMarkLeave()
+	GameTooltip:Hide();
+end
+
+-- A click goes to just before the death and follows the player.
+local function OnMarkClick(mark)
+	SetFocus(mark.unit);
+	Seek(mark.time - DEATH_MARK_LEAD);
+end
+
+local function NewMark()
+	local mark = CreateFrame("Button", nil, frame.Timeline);
+	mark:SetWidth(DEATH_MARK_WIDTH);
+	mark:SetHeight(DEATH_MARK_HEIGHT);
+	local texture = mark:CreateTexture(nil, "OVERLAY");
+	texture:SetAllPoints(mark);
+	texture:SetTexture(DEATH_MARK_COLOR[1], DEATH_MARK_COLOR[2], DEATH_MARK_COLOR[3], DEATH_MARK_COLOR[4]);
+	mark:SetScript("OnEnter", OnMarkEnter);
+	mark:SetScript("OnLeave", OnMarkLeave);
+	mark:SetScript("OnClick", OnMarkClick);
+	return mark;
+end
+
+-- Each player's death, marked on the timeline where it falls.
+local function ShowDeathMarks()
+	for _, mark in ipairs(deathMarks) do
+		mark:Hide();
+		tinsert(freeMarks, mark);
+	end
+	deathMarks = {};
+	if duration <= 0 then
+		return;
+	end
+	for i = 1, #units do
+		local u = units[i];
+		if u.isPlayer then
+			for _, time in ipairs(C_CombatLogReplay.GetUnitDeaths(i)) do
+				local mark = tremove(freeMarks) or NewMark();
+				mark.unit, mark.time = u, time;
+				mark:ClearAllPoints();
+				mark:SetPoint("CENTER", frame.Timeline, "LEFT", (TimelinePlace(time)), 0);
+				mark:Show();
+				tinsert(deathMarks, mark);
+			end
+		end
+	end
+end
+
 -- The loaded replay, from the start.
 local function Build()
 	ReleaseUnits();
@@ -901,6 +1004,7 @@ local function Build()
 	ShowMap(info.mapID);
 	SetPlaying(false);
 	Seek(0);
+	ShowDeathMarks();
 end
 
 ------------------------------------------------------------------------------
@@ -1069,6 +1173,13 @@ function ClassicAPIReplay_OnLoad(self)
 	feed:SetFading(true);
 	feed:SetTimeVisible(FEED_SECONDS);
 	feed:SetFrameLevel(scene:GetFrameLevel() + 6);
+	feed:EnableMouse(true);
+	feed:SetScript("OnHyperlinkClick", function(_, link)
+		local _, _, time = string.find(link, "^replay:(.+)$");
+		if time then
+			Seek(tonumber(time));
+		end
+	end);
 	local view = CreateScrollBoxListLinearView();
 	view:SetElementExtent(UNIT_ROW_HEIGHT);
 	view:SetElementInitializer("ClassicAPIReplayUnitRowTemplate", InitUnitRow);

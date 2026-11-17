@@ -338,7 +338,31 @@ int __fastcall Script_GetUnitLook(void *L) {
     Lua::PushBool(L, (look->bytes1 & Offsets::UNIT_BYTES_1_STEALTH_FLAG) != 0);
     Lua::PushNumber(L, look->bytes2 & 0xFF); // sheath state
     Lua::PushBool(L, DeadAt(*unit, TimeArg(L)));
-    return 9;
+    for (const uint32_t display : look->heldDisplay)
+        Lua::PushNumber(L, display);
+    return 12;
+}
+
+// What a creature holds in one slot, as its unit's held lane gives it.
+int __fastcall Script_GetUnitHeldItem(void *L) {
+    const Unit *unit = UnitArg(L, "Usage: C_CombatLogReplay.GetUnitHeldItem(unitIndex, time, inventorySlot)");
+    const Look *look = unit != nullptr ? LookAt(*unit, TimeArg(L)) : nullptr;
+    const int slot = Lua::IsNumber(L, 3) ? static_cast<int>(Lua::ToNumber(L, 3)) : 0;
+    const int hand = slot == Offsets::INVSLOT_MAINHAND ? 0
+                     : slot == Offsets::INVSLOT_OFFHAND ? 1
+                     : slot == Offsets::INVSLOT_RANGED  ? 2
+                                                        : -1;
+    if (look == nullptr || hand < 0 || look->heldDisplay[hand] == 0) {
+        Lua::PushNil(L);
+        return 1;
+    }
+    const uint32_t info = look->heldInfo[hand * 2];
+    Lua::PushNumber(L, look->heldDisplay[hand]);
+    Lua::PushNumber(L, info & 0xFF);         // class
+    Lua::PushNumber(L, (info >> 8) & 0xFF);  // subclass
+    Lua::PushNumber(L, (info >> 24) & 0xFF); // inventory type
+    Lua::PushNumber(L, look->heldInfo[hand * 2 + 1] & 0xFF); // sheathe type
+    return 5;
 }
 
 // The events at or after `startTime` and before `endTime`, in time order.
@@ -418,9 +442,10 @@ int __fastcall Script_GetUnitWeapons(void *L) {
                                    classes[hand], subclasses[hand]);
     } else if (const Look *look = LookAt(*unit, t)) {
         for (int hand = 0; hand < 2; ++hand) {
-            held[hand] = look->heldInfo[hand] != 0;
-            classes[hand] = look->heldInfo[hand] & 0xFF;
-            subclasses[hand] = (look->heldInfo[hand] >> 8) & 0xFF;
+            const uint32_t info = look->heldInfo[hand * 2];
+            held[hand] = info != 0;
+            classes[hand] = info & 0xFF;
+            subclasses[hand] = (info >> 8) & 0xFF;
         }
     }
     for (int hand = 0; hand < 2; ++hand) {
@@ -470,6 +495,23 @@ int __fastcall Script_GetUnitAuras(void *L) {
     return 1;
 }
 
+// The times the unit died in the stretch (its UNIT_DIED lines), for a viewer
+// that marks them once rather than reading every event.
+int __fastcall Script_GetUnitDeaths(void *L) {
+    const Unit *unit = UnitArg(L, "Usage: C_CombatLogReplay.GetUnitDeaths(unitIndex)", false);
+    Lua::NewTable(L);
+    if (unit == nullptr)
+        return 1;
+    int i = 0;
+    for (const Span &death : unit->deaths) {
+        if (death.from < 0)
+            continue;
+        Lua::PushNumber(L, Seconds(death.from));
+        Lua::RawSetI(L, -2, ++i);
+    }
+    return 1;
+}
+
 // Each body the player had, from the time it took it: a list the viewer
 // reads once, not a lookup per frame. The items are what its model shows,
 // as CGPlayer_C::ApplyEquipmentDisplay (0x005ED700) leaves a hidden helm or
@@ -491,6 +533,13 @@ int __fastcall Script_GetUnitAppearances(void *L) {
         Lua::SetFieldNumber(L, "hairStyle", a.hairStyle);
         Lua::SetFieldNumber(L, "hairColor", a.hairColor);
         Lua::SetFieldNumber(L, "facialHair", a.facialHair);
+        if (std::find(std::begin(a.emblem), std::end(a.emblem), -1) == std::end(a.emblem)) {
+            Lua::SetFieldNumber(L, "emblemStyle", a.emblem[0]);
+            Lua::SetFieldNumber(L, "emblemColor", a.emblem[1]);
+            Lua::SetFieldNumber(L, "emblemBorderStyle", a.emblem[2]);
+            Lua::SetFieldNumber(L, "emblemBorderColor", a.emblem[3]);
+            Lua::SetFieldNumber(L, "emblemBackgroundColor", a.emblem[4]);
+        }
         Model::Outfit::Worn worn;
         for (int slot = 0; slot < Model::Outfit::kInventorySlots; ++slot)
             worn[slot] = {a.items[slot], a.enchants[slot]};
@@ -618,7 +667,27 @@ const Game::Doc::Field kGetUnitLookRets[] = {
     Opt("stealthed", "bool"),
     Opt("sheathState", "number"),
     Opt("isDead", "bool", nullptr, "From the unit's death until it next casts or attacks, is resurrected, or leaves view."),
+    Opt("mainHandDisplayID", "number", nullptr,
+        "A creature's held items (ItemDisplayInfo ids), 0 for none; a player's are its items."),
+    Opt("offHandDisplayID", "number"),
+    Opt("rangedDisplayID", "number"),
 };
+const Game::Doc::Field kGetUnitHeldItemArgs[] = {
+    Req("unitIndex", "number"),
+    Req("time", "number", "Seconds from the replay's start."),
+    Req("inventorySlot", "number", "16 main hand, 17 off hand, 18 ranged."),
+};
+const Game::Doc::Field kGetUnitHeldItemRets[] = {
+    Opt("itemDisplayID", "number", nullptr, "Nil when the creature holds nothing there."),
+    Opt("itemClass", "number"),
+    Opt("itemSubclass", "number"),
+    Opt("inventoryType", "number"),
+    Opt("sheatheType", "number"),
+};
+const Game::Doc::Function kGetUnitHeldItem{
+    "Returns what a replay creature holds in a slot at a time, as its unit's held lane gives it: the "
+    "arguments ModelSceneActor:SetHeldItem takes after the slot.",
+    kGetUnitHeldItemArgs, kGetUnitHeldItemRets, nullptr, true};
 const Game::Doc::Field kAppearanceFields[] = {
     Req("time", "number", "Seconds from the replay's start; negative when it began before it."),
     Req("raceID", "number"),
@@ -629,6 +698,12 @@ const Game::Doc::Field kAppearanceFields[] = {
     Req("hairStyle", "number"),
     Req("hairColor", "number"),
     Req("facialHair", "number"),
+    Opt("emblemStyle", "number", nullptr,
+        "The player's guild's tabard emblem, as the recorder's client had it: all five or none."),
+    Opt("emblemColor", "number"),
+    Opt("emblemBorderStyle", "number"),
+    Opt("emblemBorderColor", "number"),
+    Opt("emblemBackgroundColor", "number"),
     Req("items", "table",
         "ItemTransmogInfo for inventory slots 1 to 19, what the model shows: a hidden helm or "
         "cloak has none."),
@@ -642,6 +717,11 @@ const Game::Doc::Field kGetUnitAppearancesRets[] = {
         "An array of CombatLogReplayAppearance in time order, each until the next; empty for a "
         "creature."),
 };
+const Game::Doc::Field kGetUnitDeathsRets[] = {
+    Req("times", "table", "An array of seconds from the replay's start, in order: each UNIT_DIED of the unit."),
+};
+const Game::Doc::Function kGetUnitDeaths{"Returns when a replay unit died.", kUnitIndexArg, kGetUnitDeathsRets,
+                                         nullptr, true};
 const Game::Doc::Function kGetUnitAppearances{
     "Returns each body a replay player had and what it wore.", kUnitIndexArg,
     kGetUnitAppearancesRets, nullptr, true};
@@ -719,10 +799,12 @@ void RegisterLuaFunctions() {
     Lua::RegisterTableFunction(kTable, "GetUnitPosition", &Script_GetUnitPosition,
                                &kGetUnitPosition);
     Lua::RegisterTableFunction(kTable, "GetUnitLook", &Script_GetUnitLook, &kGetUnitLook);
+    Lua::RegisterTableFunction(kTable, "GetUnitHeldItem", &Script_GetUnitHeldItem, &kGetUnitHeldItem);
     Lua::RegisterTableFunction(kTable, "GetUnitAppearances", &Script_GetUnitAppearances,
                                &kGetUnitAppearances);
     Lua::RegisterTableFunction(kTable, "GetEvents", &Script_GetEvents, &kGetEvents);
     Lua::RegisterTableFunction(kTable, "GetUnitAuras", &Script_GetUnitAuras, &kGetUnitAuras);
+    Lua::RegisterTableFunction(kTable, "GetUnitDeaths", &Script_GetUnitDeaths, &kGetUnitDeaths);
     Lua::RegisterTableFunction(kTable, "GetUnitHealth", &Script_GetUnitHealth, &kGetUnitHealth);
     Lua::RegisterTableFunction(kTable, "GetUnitWeapons", &Script_GetUnitWeapons, &kGetUnitWeapons);
 }

@@ -34,9 +34,13 @@ struct Look {
     float scale = 1.0f;
     uint32_t bytes1 = 0; // UNIT_FIELD_BYTES_1: stand state, form, stealth
     uint32_t bytes2 = 0; // UNIT_FIELD_BYTES_2: sheath state
-    // UNIT_VIRTUAL_ITEM_INFO's first dword of the main and off hand: byte 0
-    // the item class, byte 1 the subclass (a creature's held items).
-    uint32_t heldInfo[2] = {};
+    // A creature's held items, main hand, off hand, ranged: each
+    // UNIT_VIRTUAL_ITEM_SLOT_DISPLAY (an ItemDisplayInfo id) and its two
+    // UNIT_VIRTUAL_ITEM_INFO dwords, which are the unit's held lane: class,
+    // subclass, material, inventory type, then the sheathe type.
+    static constexpr int kHands = 3;
+    uint32_t heldDisplay[kHands] = {};
+    uint32_t heldInfo[kHands * 2] = {};
 };
 
 // PLAYER_INFO: a player's own body and what it wears, as the movement file
@@ -48,6 +52,9 @@ struct Appearance {
     static constexpr int kSlots = 19;
     uint32_t items[kSlots] = {}; // inventory slot n at [n - 1]
     uint32_t enchants[kSlots] = {};
+    // Its guild's tabard emblem (style, colour, border, border colour,
+    // background); -1 unknown.
+    int32_t emblem[5] = {-1, -1, -1, -1, -1};
 };
 
 // The speeds the client moves a unit at (UNIT_INFO, then UNIT_SPEED).

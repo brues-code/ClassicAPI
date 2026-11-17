@@ -463,4 +463,12 @@ void SetDresserItem(void *dresser, uint32_t slot, uint32_t displayID) {
     reinterpret_cast<CharCompSetItem_t>(Offsets::FUN_CHARCOMP_SET_ITEM)(dresser, slot, displayID);
 }
 
+void SetDresserEmblem(void *dresser, const Emblem &emblem) {
+    using SetEmblem_t = void(__thiscall *)(void *dresser, int32_t style, int32_t color, int32_t border,
+                                           int32_t borderColor, int32_t background);
+    reinterpret_cast<SetEmblem_t>(Offsets::FUN_CHARCOMP_SET_EMBLEM)(dresser, emblem.style, emblem.color,
+                                                                    emblem.border, emblem.borderColor,
+                                                                    emblem.background);
+}
+
 } // namespace Model::DisplayInfo

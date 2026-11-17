@@ -208,8 +208,10 @@ void Loader::UnitInfo(const Line::Fields &f, int32_t t) {
     look.scale = f.Float(14);
     look.bytes1 = f.Hex(15);
     look.bytes2 = f.Hex(16);
-    look.heldInfo[0] = f.Hex(20);
-    look.heldInfo[1] = f.Hex(22);
+    for (int i = 0; i < Look::kHands; ++i)
+        look.heldDisplay[i] = static_cast<uint32_t>(f.Int(17 + i));
+    for (int i = 0; i < Look::kHands * 2; ++i)
+        look.heldInfo[i] = f.Hex(20 + i);
     AddLook(unit, t, look);
 }
 
@@ -230,6 +232,9 @@ void Loader::PlayerInfo(const Line::Fields &f, int32_t t) {
         a.items[i] = static_cast<uint32_t>(f.Int(11 + i * 2));
         a.enchants[i] = static_cast<uint32_t>(f.Int(12 + i * 2));
     }
+    constexpr int kEmblem = 11 + Appearance::kSlots * 2;
+    for (int i = 0; i < 5; ++i)
+        a.emblem[i] = f.Int(kEmblem + i);
     AddAppearance(Get(f[1]), t, a);
 }
 

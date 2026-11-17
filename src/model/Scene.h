@@ -227,6 +227,9 @@ class Actor : public Animation::Object {
     void DrawRanged();
     // Leaves sheathe state 2: the ranged weapon leaves the hand.
     void SheatheRanged();
+    // A held lane on a hand (inventory slot 16 or 17) or the ranged slot
+    // (18), as a unit's virtual item: once the model has loaded.
+    void HoldItem(int invSlot, const Outfit::HeldLane &lane, const void *display);
     // Whether the hand lanes hang at their sheath points: sheathed, or the
     // ranged weapon drawn.
     bool MeleeSheathed() const { return sheathed || rangedDrawn; }
@@ -337,6 +340,13 @@ class Actor : public Animation::Object {
     // unit's).
     bool armorReady = true;
     std::vector<Model::TryOn::Request> pendingTryOns; // waiting for the model or the record
+    // SetHeldItem calls waiting for the model to load, in order.
+    struct HeldRequest {
+        int invSlot;
+        Outfit::HeldLane lane;
+        const void *display;
+    };
+    std::vector<HeldRequest> pendingHeld;
     bool loaded = false; // OnModelLoaded has run for the model
     bool animFinished = false;
 

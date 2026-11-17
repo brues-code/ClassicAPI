@@ -3825,6 +3825,9 @@ enum Offsets {
     // `+0xD3C`). `Unit::Sheath::GetSheathState` reads the local player's value
     // and returns it 1-based (Lua's GetSheathState is 1=None/2=Melee/3=Ranged).
     OFF_UNIT_SHEATH_STATE = 0xD40,
+    SHEATH_STATE_NONE = 0,
+    SHEATH_STATE_MELEE = 1,
+    SHEATH_STATE_RANGED = 2,
 
     // NetClient message dispatch — `__thiscall void(void *conn, uint32_t
     // arg, CDataStore *packet)`. Reads the u16 opcode off the packet
@@ -4635,6 +4638,16 @@ enum Offsets {
     // equipment piece (validated against ItemDisplayInfo.dbc, no-op for 0 /
     // out-of-range). Units pass CreatureDisplayInfoExtra +0x20..+0x44.
     FUN_CHARCOMP_SET_ITEM = 0x00478AA0,
+    // SetCharacterComponentEmblem, __thiscall(builder, style, colour,
+    // border, borderColour, background) ret 0x14: the guild emblem a tabard
+    // with the emblem flag shows (ApplyTabard 0x005E07B2).
+    FUN_CHARCOMP_SET_EMBLEM = 0x0047A610,
+    // GetGuildEmblem, __fastcall(guildID, callback, guidLow, guidHigh, data,
+    // &style, &colour, &border, &borderColour, &background) ret 0x20
+    // (benilla objectlayer/party "The emblem lookup"): the guild cache's
+    // record (0x00C0E1EC, emblem at +0x2E4..+0x2F4); all five -1 and false
+    // with no record (a null callback asks for none) or any value -1.
+    FUN_GET_GUILD_EMBLEM = 0x006D6D20,
     // UpdateCharacterComponent — `bool __thiscall(builder, int force)`.
     // The per-frame pump: composites pending texture regions; the baked-NPC
     // path short-circuits to the geoset apply (FUN_00477520) and returns 1 on
@@ -5603,6 +5616,9 @@ enum Offsets {
     OFF_QUEST_SLOT_STATE = 0x07,
     QUEST_SLOT_STATE_COMPLETE = 0x02,
     OFF_PLAYER_INFO_FLAGS = 0x08,
+    // PLAYER_GUILDID (player index 3): CGPlayer_C::ApplyTabard (0x005E0762)
+    // and the dressing room's tabard arm (0x00504894) read it here.
+    OFF_PLAYER_INFO_GUILD_ID = 0x0C,
     // PLAYER_BYTES (player index 5) and PLAYER_BYTES_2 (index 6) in the same
     // block: skin, face, hair style and hair color at +0x14..+0x17, facial
     // hair at +0x18. CGUnit_C::BuildCharacterComponent (0x005FB200) reads the
@@ -6478,6 +6494,11 @@ enum Offsets {
     // model (0x00479F40) from name 1 and texture 1 (0x00479F58, 0x00479F64).
     OFF_ITEMDISPLAYINFO_MODEL_NAME = 0x04,
     OFF_ITEMDISPLAYINFO_MODEL_TEXTURE = 0x0C,
+    // The flags (+0x24): bit 0 a tabard that shows its wearer's guild emblem
+    // (ApplyTabard tests it at 0x005E075C, the dressing room's tabard arm
+    // likewise, benilla ui/dressup "Trying on a tabard").
+    OFF_ITEMDISPLAYINFO_FLAGS = 0x24,
+    ITEMDISPLAYINFO_FLAG_EMBLEM = 0x1,
 
     // ItemVisuals.dbc — an ID plus five ItemVisualEffects IDs (6 columns),
     // the glow AttachItemVisuals hangs on a weapon. Instance 0x00C0DB68.

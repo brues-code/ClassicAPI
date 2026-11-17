@@ -31,8 +31,8 @@
 // engine's worker itself (model/DressUp.cpp). Two differences:
 //   - An evicted lane is zeroed, as Undress zeroes one. The worker leaves its
 //     record, which only makes a later try-on detach it again.
-//   - A tabard keeps no guild emblem. The worker's emblem step reads the
-//     pane's player.
+//   - A tabard's emblem is the holder's (its body's), where the worker's
+//     emblem step reads the pane's player's guild (0x00504879).
 
 #include "model/Outfit.h"
 
@@ -293,7 +293,7 @@ bool CanDualWield(uint64_t guid) {
 }
 
 int TryOn(void *model, void *component, bool armorReady, Lanes &lanes, Weapons &weapons,
-          const uint8_t *record, const HeldTryOn &held) {
+          const uint8_t *record, const HeldTryOn &held, const DisplayInfo::Emblem &emblem) {
     const auto displayID = Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_DISPLAY_INFO_ID);
     if (model == nullptr || displayID == 0)
         return 0;
@@ -305,6 +305,14 @@ int TryOn(void *model, void *component, bool armorReady, Lanes &lanes, Weapons &
             return 0;
         DisplayInfo::UnequipDresserSlot(component, componentSlot);
         DisplayInfo::SetDresserItem(component, componentSlot, displayID);
+        if (type == Offsets::INVTYPE_TABARD && emblem.Known()) {
+            const uint8_t *display = DBC::Record(Offsets::VAR_ITEMDISPLAYINFO_RECORDS,
+                                                 Offsets::VAR_ITEMDISPLAYINFO_COUNT, displayID);
+            if (display != nullptr &&
+                (Game::Read<uint32_t>(display, Offsets::OFF_ITEMDISPLAYINFO_FLAGS) &
+                 Offsets::ITEMDISPLAYINFO_FLAG_EMBLEM) != 0)
+                DisplayInfo::SetDresserEmblem(component, emblem);
+        }
         return kInvSlotOfComponent[componentSlot];
     case Arm::Held:
         break;
@@ -352,6 +360,18 @@ void UndressSlot(void *model, void *component, Lanes &lanes, int invSlot) {
         if (compSlot >= 0)
             DisplayInfo::UnequipDresserSlot(component, static_cast<uint32_t>(compSlot));
     }
+}
+
+void HoldLane(void *model, Lanes &lanes, Weapons &weapons, int i, const HeldLane &lane, const void *display,
+              bool sheathed, bool hide) {
+    if (model == nullptr)
+        return;
+    ClearLane(model, lanes, i);
+    const bool held = lane.itemClass != 0 && display != nullptr;
+    lanes[i] = held ? lane : HeldLane{};
+    weapons.display[i] = held ? display : nullptr;
+    weapons.visual[i] = 0;
+    HangLane(model, i, lanes[i], weapons, sheathed, hide);
 }
 
 void DressSlot(void *model, void *component, bool armorReady, Lanes &lanes, Weapons &weapons,

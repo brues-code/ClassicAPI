@@ -129,6 +129,15 @@ build instructions.
   - [`CombatLogAddFilter([events [, source [, dest [, spell]]]])` / `CombatLogResetFilter()`](#combatlogaddfilterevents--source--dest--spell--combatlogresetfilter)
   - [`CombatLog_Object_IsA(flags, mask)`](#combatlog_object_isaflags-mask)
   - [Kept entries](#kept-entries)
+  - [Combat log file (`advancedCombatLogging`)](#combat-log-file-advancedcombatlogging)
+  - [`COMBATANT_INFO` line](#combatant_info-line)
+  - [Movement file (`advancedCombatLoggingMovement`)](#movement-file-advancedcombatloggingmovement)
+
+- [CombatLogReplay](#combatlogreplay)
+  - [Logs and replays](#logs-and-replays)
+  - [Units at a time](#units-at-a-time)
+  - [`C_CombatLogReplay.GetEvents(startTime, endTime)`](#c_combatlogreplaygeteventsstarttime-endtime)
+  - [`COMBAT_LOG_REPLAY_ENCOUNTERS_READY` / `COMBAT_LOG_REPLAY_LOADED` events](#combat_log_replay_encounters_ready--combat_log_replay_loaded-events)
 
 - [Console](#console)
   - [`ConsoleExec(command)`](#consoleexeccommand)
@@ -872,6 +881,7 @@ build instructions.
   - [`scene:SetMoveMarker(x, y, z)` / `scene:ClearMoveMarker()` / `scene:GetMoveMarker()`](#scenesetmovemarkerx-y-z--sceneclearmovemarker--scenegetmovemarker)
   - [`OnActorEnter` / `OnActorLeave`](#onactorenter--onactorleave)
   - [`actor:SetModelByCreatureDisplayID(displayID [, useActivePlayerCustomizations])`](#actorsetmodelbycreaturedisplayiddisplayid--useactiveplayercustomizations)
+  - [`actor:SetModelByCharacterAppearance(appearance)`](#actorsetmodelbycharacterappearanceappearance)
   - [`actor:SetModelByPath(path [, useMips])`](#actorsetmodelbypathpath--usemips)
   - [`actor:SetModelBySpellArea(spellID, radius)`](#actorsetmodelbyspellareaspellid-radius)
   - [`actor:SetModelByUnit(unit [, sheatheWeapons, autoDress, hideWeapons, usePlayerNativeForm, holdBowString, customRaceID])`](#actorsetmodelbyunitunit--sheatheweapons-autodress-hideweapons-useplayernativeform-holdbowstring-customraceid)
@@ -884,6 +894,8 @@ build instructions.
   - [`actor:GetItemTransmogInfo(slot)` / `actor:GetItemTransmogInfoList()`](#actorgetitemtransmoginfoslot--actorgetitemtransmoginfolist)
   - [`actor:SetItemTransmogInfo(info [, slot, ignoreChildItems])`](#actorsetitemtransmoginfoinfo--slot-ignorechilditems)
   - [`actor:SetSheathed(sheathed [, hidden])` / `actor:GetSheathed()`](#actorsetsheathedsheathed--hidden--actorgetsheathed)
+  - [`actor:SetSheatheState(state)`](#actorsetsheathestatestate)
+  - [`actor:SetHeldItem(inventorySlot [, itemDisplayID, itemClass, itemSubclass, inventoryType, sheatheType])`](#actorsethelditeminventoryslot--itemdisplayid-itemclass-itemsubclass-inventorytype-sheathetype)
   - [`actor:SetSheathedCategory(slot, category)`](#actorsetsheathedcategoryslot-category)
   - [`actor:UseUnitSheatheCategory(useCategory)`](#actoruseunitsheathecategoryusecategory)
   - [`actor:SetAutoDress(autoDress)` / `actor:GetAutoDress()`](#actorsetautodressautodress--actorgetautodress)
@@ -3453,6 +3465,209 @@ if CombatLogSetCurrentEntry(-4) then
     until not CombatLogAdvanceEntry(1)
 end
 ```
+
+### Combat log file (`advancedCombatLogging`)
+
+When combat logging is on (`/combatlog` or `LoggingCombat(true)`), the
+client writes two files in the `Logs` folder:
+
+- `WoWCombatLog.txt` keeps the chat-text lines of the client, for the log
+  readers that parse them.
+- `WoWCombatLog-MMDDYY_HHMMSS.txt` is a new file each time that logging
+  starts. The name has the local time of the start.
+
+The second file has the layout of the Classic Era combat log
+(`COMBAT_LOG_VERSION` 9), so tools that read Era logs can read it. Each line
+has a time stamp and one event, with GUIDs, names, flags and the values of
+the event. The file also has these lines:
+
+| Line | When |
+|---|---|
+| `COMBAT_LOG_VERSION` | At the start, and after each loading screen. |
+| `ZONE_CHANGE` | After each `COMBAT_LOG_VERSION` line, and when you go into a new zone. |
+| `ENCOUNTER_START`, `ENCOUNTER_END` | When the group starts and ends a fight with a world boss. The encounter ID is the creature ID of the boss. |
+| `COMBATANT_INFO` | For each group member, after an `ENCOUNTER_START`. Stats and talents are known only for you. |
+
+The `advancedCombatLogging` setting adds more data to most damage, heal,
+power and cast lines: the health, the power, the position, the facing and the
+level of a unit. It also adds a `SWING_DAMAGE_LANDED` line after each
+`SWING_DAMAGE` line. The setting is `0` by default. In the Settings window, it
+is in the Network category.
+
+The health of a player is a percent of 100, and the health of a creature is
+in hit points. The level of a player is the average item level of the
+player.
+
+### `COMBATANT_INFO` line
+
+After each `ENCOUNTER_START`, the file has one `COMBATANT_INFO` line for you
+and one for each group member in view. A group member that is out of view
+gets no line. The line has the layout of the Classic Era line:
+
+```
+COMBATANT_INFO,playerGUID,faction,strength,agility,stamina,intellect,spirit,
+  (15 zeros),armor,0,(talents),(),[gear],[auras],0,0,()
+```
+
+The values, in their order:
+
+| Value | Contents |
+|---|---|
+| `playerGUID` | The player, for example `Player-0-0000ABCD`. |
+| `faction` | `0` Horde, `1` Alliance. |
+| `strength`, `agility`, `stamina`, `intellect`, `spirit` | The stats of the player. Known only for you. Other players get `0`. |
+| 15 values | Always `0`. |
+| `armor` | The armor of the player. Known only for you. Other players get `0`. |
+| next value | Always `0`. |
+| `(talents)` | The talent points in each of the three trees, for example `(31,20,0)`. Known only for you. Other players get `(0,0,0)`. |
+| `()` | Always empty. |
+| `[gear]` | 19 items, one for each equipment slot, from slot 1 (head) to slot 19 (tabard). |
+| `[auras]` | The helpful auras on the player. |
+| `0,0,()` | Always these values. |
+
+Each gear item has this layout:
+
+```
+(itemID,itemLevel,(permanentEnchant,temporaryEnchant,0),(),())
+```
+
+- When the item has no enchant, the enchant group is `()`.
+- An empty slot is `(0,0,(),(),())`.
+- `itemLevel` is `0` when your client does not have the data of the item
+  yet. The client then gets the data from the server, and the next
+  `COMBATANT_INFO` line has the item level.
+- The gear of other players is known, with both enchants.
+
+The auras are a flat list of three values for each aura:
+`casterGUID,spellID,1`. The caster is `0000000000000000` when it is not
+known. The list has all the helpful auras on the player. A Classic Era log
+lists only some auras, for example world buffs.
+
+```
+[(19019,80,(1900,0,0),(),()),(0,0,(),(),()), ...]
+[Player-0-0000ABCD,10938,1,0000000000000000,25661,1]
+```
+
+### Movement file (`advancedCombatLoggingMovement`)
+
+The `advancedCombatLoggingMovement` setting writes a second file,
+`WoWMovementLog-MMDDYY_HHMMSS.txt`, next to the combat log file. The two
+files have the same name time. The setting has an effect only while
+`advancedCombatLogging` is on. It is `0` by default. In the Settings window,
+it is under the advanced combat logging box. This is a ClassicAPI
+extension.
+
+The file has each movement that the client gets from the server, and each
+movement of your character:
+
+| Line | Data |
+|---|---|
+| `UNIT_MOVE` | A move of a player: start, stop, turn, jump, heartbeat and more, with the position and the movement flags. |
+| `UNIT_SPEED` | A new speed of a unit. |
+| `MONSTER_MOVE`, `MONSTER_STOP` | A path that the server moves a creature on, with its points and its time. |
+| `UNIT_INFO` | What a unit looks like when it comes into view, and each time that this changes: its display, mount, scale, stand state, sheath state and held items. |
+| `PLAYER_INFO` | The body of a player and what it wears: race, sex, appearance, the 19 visible items with their enchants, and the tabard emblem of its guild. |
+| `UNIT_GONE` | A unit that went out of view. |
+
+The replay functions read this file. A movement file from an earlier
+ClassicAPI version does not load, because its lines have a different
+layout.
+
+## CombatLogReplay
+
+These functions read a combat log file and its movement file, and give the
+position, the look and the combat events of each unit at any time. The
+replay window (`/replay`) uses them. To record a log for replay, turn on
+`advancedCombatLogging` and `advancedCombatLoggingMovement`, then turn on
+combat logging. These functions are a ClassicAPI extension.
+
+The functions read the files on a separate thread, so the game does not
+stop. Two events tell when a read is complete:
+
+1. Call `C_CombatLogReplay.GetLogs()` to get the list of logs.
+2. Call `C_CombatLogReplay.GetEncounters(logName)`. The first call starts
+   the read and returns nil.
+3. When `COMBAT_LOG_REPLAY_ENCOUNTERS_READY` fires, call `GetEncounters`
+   again for the encounters and the length of the log.
+4. Call `C_CombatLogReplay.LoadReplay(logName, startTime, endTime)` for one
+   part of the log.
+5. When `COMBAT_LOG_REPLAY_LOADED` fires with `success`, read the replay
+   with the functions below.
+
+Times are in seconds. For `GetEncounters` and `LoadReplay`, a time is from
+the start of the log. For all other functions, a time is from the start of
+the replay. A unit is a number, `unitIndex`, its index in the list of
+`GetUnits`.
+
+### Logs and replays
+
+| Function | Returns |
+|---|---|
+| `GetLogs()` | An array of logs in the `Logs` folder, newest first. Each has `name` (the file name without `.txt`), `size` in bytes, `modified`, and `hasMovement`, which is `true` when the log has a movement file. |
+| `GetEncounters(logName)` | `encounters, duration`. Each encounter has `encounterID`, `encounterName`, `difficultyID`, `groupSize`, `mapID`, `success` (nil when the log has no end for it), `startTime` and `endTime`. Nil while the log is read. |
+| `LoadReplay(logName, startTime, endTime)` | `true` when the load started. `false` when `GetEncounters` did not read the log yet, or when `endTime` is before `startTime`. |
+| `GetReplayInfo()` | A table with `logName`, `startTime`, `duration`, `mapID` (`-1` when the log does not give it), `hasMovement` and `numUnits`. Nil when no replay is loaded. |
+| `GetUnits()` | An array of units. Each has `guid`, `name`, `isPlayer` and `creatureID`. |
+
+A `name` comes from the log. If the log does not name the unit, the name
+comes from the name cache or the creature cache of your client. If neither
+has it, `name` is nil. `C_CreatureInfo.RequestLoadCreatureByID` gets the
+name of a creature from the server.
+
+### Units at a time
+
+| Function | Returns |
+|---|---|
+| `GetUnitPosition(unitIndex, time)` | `x, y, z, facing, speed, isFalling, isJumping`. Nil while the unit is not in view. The position is on the map of the replay. `speed` is in yards per second, and `0` while the unit stands. |
+| `GetUnitLook(unitIndex, time)` | `displayID, nativeDisplayID, mountDisplayID, scale, standState, form, stealthed, sheathState, isDead, mainHandDisplayID, offHandDisplayID, rangedDisplayID`. The last three are the held items of a creature, `0` for none. |
+| `GetUnitHeldItem(unitIndex, time, inventorySlot)` | `itemDisplayID, itemClass, itemSubclass, inventoryType, sheatheType` for slot `16`, `17` or `18` of a creature. These are the values that [`actor:SetHeldItem`](#actorsethelditeminventoryslot--itemdisplayid-itemclass-itemsubclass-inventorytype-sheathetype) takes. |
+| `GetUnitAppearances(unitIndex)` | An array of the bodies of a player, in time order. Each has `time`, `raceID`, `classID`, `sex`, `skin`, `face`, `hairStyle`, `hairColor`, `facialHair`, the five tabard emblem values when the log has them, and `items`, a list of `ItemTransmogInfo` for slots 1 to 19. The table fits [`actor:SetModelByCharacterAppearance`](#actorsetmodelbycharacterappearanceappearance). |
+| `GetUnitHealth(unitIndex, time)` | `health, maxHealth`, from the data of `advancedCombatLogging`. Nil before the log gives it. `0` after the unit dies. |
+| `GetUnitAuras(unitIndex, time)` | An array of auras. Each has `spellID`, `auraType` (`BUFF` or `DEBUFF`), `sourceIndex` and `applied`. Only auras that the log saw applied are known. |
+| `GetUnitWeapons(unitIndex, time)` | The item class and subclass of the main hand and the off hand. |
+| `GetUnitDeaths(unitIndex)` | An array of the times when the unit died. |
+
+A unit is dead from its death until it next casts, attacks or is
+resurrected, or until it goes out of view. A hidden helm or a hidden cloak
+has no item in `items`.
+
+### `C_CombatLogReplay.GetEvents(startTime, endTime)`
+
+Returns an array of the combat log events from `startTime` up to, but not
+including, `endTime`, in time order. Each event has:
+
+| Field | Value |
+|---|---|
+| `time` | The time of the event. |
+| `event` | The subevent, as the log names it, for example `SPELL_CAST_START` or `SWING_DAMAGE`. |
+| `sourceIndex`, `destIndex` | The units. Nil when the source or the target is not a unit. |
+| `spellID` | For spell events. |
+| `auraType` | `BUFF` or `DEBUFF`, for aura events. |
+| `castTime` | For a `SPELL_CAST_START`: the seconds until the cast succeeded or failed. |
+| `castFailed` | For a `SPELL_CAST_START` with a `castTime`: `true` when the cast failed. |
+| `endsCast` | `true` for a `SPELL_CAST_SUCCESS` or `SPELL_CAST_FAILED` that ends a `SPELL_CAST_START`. |
+| `amount`, `critical` | For damage and heal events. |
+| `missType` | For miss events: `MISS`, `DODGE`, `PARRY`, `BLOCK`, `RESIST`, `ABSORB`, `IMMUNE` and more. |
+
+```lua
+-- Print the deaths in the first minute of the replay.
+for _, e in ipairs(C_CombatLogReplay.GetEvents(0, 60)) do
+    if e.event == "UNIT_DIED" then
+        print(e.time, C_CombatLogReplay.GetUnits()[e.destIndex].name)
+    end
+end
+```
+
+### `COMBAT_LOG_REPLAY_ENCOUNTERS_READY` / `COMBAT_LOG_REPLAY_LOADED` events
+
+```
+COMBAT_LOG_REPLAY_ENCOUNTERS_READY: logName
+COMBAT_LOG_REPLAY_LOADED: logName, success
+```
+
+`COMBAT_LOG_REPLAY_ENCOUNTERS_READY` fires when `GetEncounters` has read a
+log. `COMBAT_LOG_REPLAY_LOADED` fires when a `LoadReplay` is complete. When
+`success` is `false`, the read failed, and there is no replay.
 
 ## Console
 
@@ -19651,6 +19866,28 @@ Shows a creature by its display ID (a `CreatureDisplayInfo` ID) and returns
 display. A display of a character model is dressed in the clothes of its
 NPC. `useActivePlayerCustomizations` has no effect.
 
+### `actor:SetModelByCharacterAppearance(appearance)`
+
+Shows the body of a player character with no unit, and returns `true`.
+`appearance` is a table:
+
+| Field | Value |
+|---|---|
+| `raceID`, `sex` | The race (a `ChrRaces` ID) and the sex (`0` male, `1` female). |
+| `skin`, `face`, `hairStyle`, `hairColor`, `facialHair` | The choices made at character creation. The default is `0`. |
+| `emblemStyle`, `emblemColor`, `emblemBorderStyle`, `emblemBorderColor`, `emblemBackgroundColor` | The guild emblem of a tabard. Give all five, or none. |
+
+The body has no clothes. Put items on it with `TryOn` or
+`SetItemTransmogInfo`. These items wait for the model to load. A tabard
+that shows a guild emblem shows the emblem of the table. The function
+returns `false` when the race and sex have no model. This is a ClassicAPI
+extension.
+
+```lua
+actor:SetModelByCharacterAppearance({ raceID = 1, sex = 0, skin = 2, face = 3, hairStyle = 4 })
+actor:SetItemTransmogInfo(ItemUtil.CreateItemTransmogInfo(2575), 4) -- a shirt
+```
+
 ### `actor:SetModelByPath(path [, useMips])`
 
 Shows a model file, for example `"Creature\\Wolf\\Wolf.mdx"`, and returns
@@ -19863,6 +20100,37 @@ Puts the weapons of the actor in its hands or in their sheaths. `hidden`
 set to `true` hides them. The setting also applies to items that `TryOn`
 puts on later. After a ranged shot, the call also puts the ranged weapon
 away.
+
+### `actor:SetSheatheState(state)`
+
+Holds the weapons of the actor as the sheathe state of a unit holds them.
+`0` puts all the weapons in their sheaths. `1` puts the melee weapons in
+the hands. `2` puts the ranged weapon in the hand and the melee weapons in
+their sheaths, as the start of a ranged spell does. This is a ClassicAPI
+extension.
+
+### `actor:SetHeldItem(inventorySlot [, itemDisplayID, itemClass, itemSubclass, inventoryType, sheatheType])`
+
+Puts an item in a hand of the actor by its display, as a creature holds its
+weapons: the item needs no item record. `inventorySlot` is `16` (main hand),
+`17` (off hand) or `18` (ranged). `itemDisplayID` is a row of
+`ItemDisplayInfo.dbc`. The other values tell how the item hangs:
+
+- `inventoryType` `14` (a shield) hangs on the arm, and `26` (a right-hand
+  ranged weapon) in the right hand.
+- `sheatheType` is where the item hangs while the weapons are sheathed. `0`
+  has no sheath place, so the item does not show while sheathed.
+
+Without `itemDisplayID`, or with `0`, the slot becomes empty. The item hangs
+when the model has loaded, by `SetSheathed` or `SetSheatheState`. A ranged
+item shows only while the ranged weapon is in the hand. This is a ClassicAPI
+extension.
+
+```lua
+-- A short sword (display 679) in the main hand, sheathed at the hip (type 3).
+actor:SetHeldItem(16, 679, 2, 7, 13, 3)
+actor:SetSheatheState(1)
+```
 
 ### `actor:SetSheathedCategory(slot, category)`
 

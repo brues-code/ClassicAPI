@@ -60,10 +60,14 @@
 //     creature holds (UNIT_VIRTUAL_ITEM_SLOT_DISPLAY, and two
 //     UNIT_VIRTUAL_ITEM_INFO dwords per hand);
 //   PLAYER_INFO,unitGUID,race,class,sex,skin,face,hairStyle,hairColor,
-//     facialHair,playerFlags,item1,enchant1,...,item19,enchant19
+//     facialHair,playerFlags,item1,enchant1,...,item19,enchant19,
+//     emblemStyle,emblemColor,borderStyle,borderColor,backgroundColor
 //     after a player's UNIT_INFO, and each time it changes: what the client
 //     dresses a player in its own display with. Each inventory slot gives
-//     its item and the enchant whose glow it shows, 0 for none;
+//     its item and the enchant whose glow it shows, 0 for none; the five
+//     emblem values are the guild's tabard emblem from the guild cache
+//     (GetGuildEmblem), all -1 while the client has no record of the guild
+//     or the player has none (version 5);
 //   UNIT_GONE,unitGUID
 //     the unit left view.
 // GUIDs are written as the combat log writes them. After a header the unit

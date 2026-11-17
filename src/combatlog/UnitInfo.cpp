@@ -52,6 +52,7 @@ namespace {
 
 using File::AppendFixed;
 using File::AppendHex;
+using File::AppendSigned;
 using File::AppendUnsigned;
 
 constexpr int kHands = Offsets::UNIT_VIRTUAL_ITEM_SLOTS;
@@ -81,6 +82,7 @@ struct Dress {
     uint32_t facialHair;
     uint32_t flags;
     Model::Outfit::Worn worn;
+    int32_t emblem[5]; // its guild's tabard emblem, GetGuildEmblem's order; -1 unknown
 };
 
 struct Seen {
@@ -110,8 +112,23 @@ Look ReadLook(void *unit, const uint8_t *fields) {
     return look;
 }
 
-Dress ReadDress(void *player, const uint8_t *fields) {
+// The player's guild's emblem from the guild cache, as CGPlayer_C::ApplyTabard
+// asks for it (0x005E0762..0x005E078F) but without a callback: the engine
+// already asks for the guild of a player it draws in a tabard. All -1 while
+// the cache has no record (or the player has no guild).
+void ReadEmblem(uint64_t guid, uint32_t guild, int32_t (&emblem)[5]) {
+    using GetEmblem_t = bool(__fastcall *)(uint32_t guild, const void *callback, uint32_t guidLow, uint32_t guidHigh,
+                                           void *data, int32_t *style, int32_t *color, int32_t *border,
+                                           int32_t *borderColor, int32_t *background);
+    reinterpret_cast<GetEmblem_t>(Offsets::FUN_GET_GUILD_EMBLEM)(
+        guild, nullptr, static_cast<uint32_t>(guid), static_cast<uint32_t>(guid >> 32), nullptr, &emblem[0],
+        &emblem[1], &emblem[2], &emblem[3], &emblem[4]);
+}
+
+Dress ReadDress(uint64_t guid, void *player, const uint8_t *fields) {
     Dress dress{};
+    for (int32_t &v : dress.emblem)
+        v = -1;
     dress.race = fields[Offsets::OFF_UNIT_DESCRIPTOR_RACE_BYTE];
     dress.classId = fields[Offsets::OFF_UNIT_DESCRIPTOR_CLASS_BYTE];
     dress.sex = fields[Offsets::OFF_UNIT_DESCRIPTOR_SEX_BYTE];
@@ -125,6 +142,8 @@ Dress ReadDress(void *player, const uint8_t *fields) {
     dress.hairColor = bytes[3];
     dress.facialHair = info[Offsets::OFF_PLAYER_INFO_BYTES_2];
     dress.flags = Game::Read<uint32_t>(info, Offsets::OFF_PLAYER_INFO_FLAGS);
+    if (const uint32_t guild = Game::Read<uint32_t>(info, Offsets::OFF_PLAYER_INFO_GUILD_ID))
+        ReadEmblem(guid, guild, dress.emblem);
     for (int slot = 0; slot < Model::Outfit::kInventorySlots; ++slot) {
         const uint8_t *item = Item::ID::VisibleEntry(player, slot);
         if (item == nullptr)
@@ -177,6 +196,8 @@ void WriteDress(uint64_t guid, const Dress &dress) {
         AppendUnsigned(line, slot.item);
         AppendUnsigned(line, slot.enchant);
     }
+    for (const int32_t v : dress.emblem)
+        AppendSigned(line, v);
     Movement::Emit(line);
 }
 
@@ -189,7 +210,7 @@ void Visit(uint64_t guid) {
     const Look look = ReadLook(unit, fields);
     // Only a player has the player block (OFF_CGPLAYER_INFO's hazard).
     const bool player = (::Object::Type(unit) & Offsets::TYPEMASK_PLAYER) != 0;
-    const Dress dress = player ? ReadDress(unit, fields) : Dress{};
+    const Dress dress = player ? ReadDress(guid, unit, fields) : Dress{};
 
     const auto [it, added] = g_seen.try_emplace(guid);
     Seen &seen = it->second;

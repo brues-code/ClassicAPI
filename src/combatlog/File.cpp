@@ -697,6 +697,12 @@ void AppendUnsigned(std::string &line, uint32_t value) {
     line += text;
 }
 
+void AppendSigned(std::string &line, int32_t value) {
+    char text[16];
+    std::snprintf(text, sizeof text, ",%d", value);
+    line += text;
+}
+
 void AppendFixed(std::string &line, float value, int decimals) {
     char text[32];
     std::snprintf(text, sizeof text, ",%.*f", decimals, static_cast<double>(value));

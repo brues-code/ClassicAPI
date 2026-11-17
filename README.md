@@ -29,6 +29,8 @@ The headline features. The complete per-function reference is in
 | [Event-driven nameplates](docs/API.md#nameplate) | The `C_NamePlate` API, with `NAME_PLATE_UNIT_ADDED` and `NAME_PLATE_UNIT_REMOVED` events. The `nameplateN` unit tokens work with every `UnitX` function and unit event. |
 | [Focus target](docs/API.md#focus) | `FocusUnit` sets a focus unit, `ClearFocus` clears it, and `PLAYER_FOCUS_CHANGED` fires on each change. The `focus` and `focustarget` tokens work with every `UnitX` function and unit event. |
 | [Combat log events](docs/API.md#combat_log_event_unfiltered--combat_log_event-events) | `COMBAT_LOG_EVENT_UNFILTERED` and `CombatLogGetCurrentEventInfo` give each combat event with GUIDs and flags. Damage meters do not need to parse chat text. |
+| [Advanced combat log](docs/API.md#combat-log-file-advancedcombatlogging) | `/combatlog` also writes a log in the layout of the Classic Era combat log, with encounters, the health and position of each unit with `advancedCombatLogging`, and an optional [movement file](docs/API.md#movement-file-advancedcombatloggingmovement). |
+| [Encounter replay](#encounter-replay) | `/replay` plays a recorded log back in 3D: the map, each player in its own gear, each creature, their moves, casts, auras, health and deaths. [`C_CombatLogReplay`](docs/API.md#combatlogreplay) gives the same data to addons. |
 | [Modern script handlers](docs/API.md#setmodernscriptargsenable--getmodernscriptargs) | Frame scripts get their values as arguments, for example `OnClick(self, button, down)`. [XML script bodies](docs/API.md#xml-script-bodies-see-self-and-their-arguments) see `self` and their arguments by name. The `this` / `arg1` globals stay set. |
 | [Multi-flavor & conditional TOC](docs/API.md#conditional-and-multi-flavor-toc-loading) | Loads addons that ship one folder for many game versions. This includes `<Name>_ClassicAPI.toc` and `<Name>_Turtle.toc`, version lists in `## Interface:`, and conditions on TOC lines. |
 | [XML attributes](docs/API.md#parentkey-in-xml) | Modern XML works. This includes `parentKey`, `parentArray`, `mixin`, `<KeyValues>`, `inherits` with more than one template, `method` and `function` script handlers, and `intrinsic` frame types. Frames, textures, font strings and other widgets also take many new attributes. |
@@ -228,6 +230,8 @@ its ClassicAPI tab.
 | [Bindings](docs/API.md#actionbuttonusekeydown) | `ActionButtonUseKeyDown` | `0` | `1` uses an action-bar key binding when you press the key. `0` uses it when you release the key. |
 | [Combat](docs/API.md#stopautoattackontargetchange) | `stopAutoAttackOnTargetChange` | `0` | `1` stops melee auto-attack, Auto Shot and wand shots when you change target. |
 | [Combat log](docs/API.md#kept-entries) | `combatLogRetentionTime` | `300` | The number of seconds that the combat log keeps an entry. |
+| | [`advancedCombatLogging`](docs/API.md#combat-log-file-advancedcombatlogging) | `0` | `1` adds the health, power, position and level of units to the combat log file. |
+| | [`advancedCombatLoggingMovement`](docs/API.md#movement-file-advancedcombatloggingmovement) | `0` | `1` writes the movement of all units to a second file while advanced combat logging is on. `/replay` needs this file. |
 | [Stand, dismount and form](docs/API.md#stand-dismount-and-form-settings-autostand-autodismount-autounshift) | `autoStand` | `0` | `1` makes you stand up when you cast, loot or open the flight map while you sit. |
 | | `autoDismount` | `0` | `1` makes you dismount when you cast, use an object, loot, attack or open the flight map while you are mounted. |
 | | `autoUnshift` | `0` | `1` makes you leave your form when you cast a spell that cannot be cast in it, use an item, or open the flight map. It also lets you talk to NPCs and use objects in druid forms and Ghost Wolf. |
@@ -469,8 +473,8 @@ Download the prebuilt `ClassicAPI.dll` from the
 3. Add `ClassicAPI.dll` to `dlls.txt`.
 4. Launch the game with `VanillaFixes.exe`.
 
-The `!!!ClassicAPI`, `ClassicAPI_DebugTools` and `ClassicAPI_EventTrace`
-addons are *inside* the DLL. You do not download or install them. The
+The `!!!ClassicAPI`, `ClassicAPI_DebugTools`, `ClassicAPI_EventTrace` and
+`ClassicAPI_Replay` addons are *inside* the DLL. You do not download or install them. The
 `src/embed/AddOns/` folder in this repository is source code for the DLL.
 Do not copy it into your game.
 
@@ -553,6 +557,14 @@ that you use one of its commands:
 | `/framestack [showHidden [showRegions]]` (or `/fstack`) | Shows a tooltip with a list of the frames under the cursor. A `-->` mark shows one frame, with its anchors and the file and line that made it. Left Alt and Right Alt move the mark. Ctrl opens the marked frame in the table inspector. Shift shows its texture files. The tooltip also shows the addon that made the marked frame. When `scriptProfile` is `1`, it shows the CPU time of the frame scripts. |
 | `/tinspect [expr]` (or `/tins`) | Opens a table inspector on the result of `expr`. With no table, it opens on the frame under the cursor. The window shows the anchors and the fields of the table, grouped by type. You can edit numbers, strings and booleans, filter the lines, and open a child table or frame. |
 | `/profiler` (or `/prof`) | Opens the profiler. The profiler shows the Lua memory, the allocations and the CPU time of each addon, frame, event and global function. `/profiler widget` shows a small window with the Lua memory, the frame rate and the addons that use the most. `/profiler reset` sets the counters to zero. CPU times need `scriptProfile` `1`. `/profiler profile on` sets it and reloads the UI. |
+
+## Encounter replay
+
+`/replay` opens a window that plays back a combat log in 3D. To record a
+log for it, turn on advanced combat logging and its movement file (game
+menu, AddOn Options, Network category), then use `/combatlog`. The
+[CombatLogReplay](docs/API.md#combatlogreplay) section of the reference
+describes the files and the functions behind the window.
 
 ## Building
 

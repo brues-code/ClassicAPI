@@ -56,6 +56,7 @@ void AppendQuoted(std::string &line, const char *text);
 // `decimals` places.
 void AppendHex(std::string &line, uint32_t value);
 void AppendUnsigned(std::string &line, uint32_t value);
+void AppendSigned(std::string &line, int32_t value);
 void AppendFixed(std::string &line, float value, int decimals);
 
 } // namespace CombatLog::File

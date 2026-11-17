@@ -4335,6 +4335,24 @@ embedded load-on-demand addon. Layers:
   instance bare. The scene's terrain now streams around its camera with
   the world's windows (SetWorldTerrain(mapID); docs/notes/model-scene.md
   "Streaming"), not yet seen in game.
+- Navigation (2026-11-16, not yet seen in game): each player's death is a
+  mark on the timeline (`GetUnitDeaths`; hover names it, a click goes 5 s
+  before and follows the player), and a feed line is a `replay:<time>`
+  link whose click goes to its event; a jump refills the feed with the
+  lines of the last 12 s.
+- Units (2026-11-16, not yet seen in game): MOVEMENT_LOG_VERSION 5 adds
+  the guild tabard emblem to PLAYER_INFO (GetGuildEmblem 0x006D6D20, no
+  query); the actor's tabard takes it as ApplyTabard does (0x0047A610 on
+  a display with flag +0x24 bit 0). Creatures hold their logged virtual
+  items (`actor:SetHeldItem`, `GetUnitHeldItem`) and every unit takes the
+  log's sheath state (`actor:SetSheatheState`, 2 = ranged in hand).
+- Time of day (scoped 2026-11-16, deferred): the scene's sky, bodies and
+  water take the WORLD's time of day (light state 0x00CE9B64); its ground,
+  WMO exteriors and actors are lit by the scene's fixed light and fog
+  (the replay sets none). The log's stamps are the PC clock, not the
+  realm's game time. Plan: (1) the movement header records 0x00CE9B64;
+  (2) a scene time of day for the sky, bodies and water; (3) the scene's
+  sun direction, colours and fog from the map's light at that time.
 Maps (probe 2026-11-16, `SetWorldModelByMapID`): only Onyxia 249 and MC
 409 are single WMOs. BWL 469, ZG 309, AQ 509/531 and Naxx 533 need
 terrain plus the WMOs placed on tiles (MODF). DONE (2026-11-16):
