@@ -510,9 +510,11 @@ void Loader::Combat(std::string_view body, int32_t t) {
         return;
     const Line::Fields f(body);
     const int32_t source = UnitAt(f, 1, before);
-    const int32_t dest = UnitAt(f, 5, before);
+    // An EMOTE names its source and its target with no flags between them.
+    const bool emote = f[0] == "EMOTE";
+    const int32_t dest = UnitAt(f, emote ? 3 : 5, before);
     if (!before) {
-        for (const int32_t i : {1, 5}) {
+        for (const int32_t i : {1, emote ? 3 : 5}) {
             const int32_t unit = i == 1 ? source : dest;
             if (unit >= 0 && f.Quoted(i + 1) && r_.units[unit].name.empty())
                 r_.units[unit].name = f.Text(i + 1);
@@ -553,6 +555,8 @@ void Loader::Combat(std::string_view body, int32_t t) {
     if (type.rfind("SPELL_", 0) == 0 || type.rfind("RANGE_", 0) == 0 || type.rfind("DAMAGE_", 0) == 0)
         e.spellID = static_cast<uint32_t>(f.Int(9));
     e.debuff = type.rfind("SPELL_AURA_", 0) == 0 && f[12] == "DEBUFF";
+    if (emote)
+        e.text = std::string(f.Rest(5));
     // Damage: amount, baseAmount, overkill, school, resisted, blocked,
     // absorbed, critical; heals: amount, baseAmount, overhealing, absorbed,
     // critical; misses: missType first.

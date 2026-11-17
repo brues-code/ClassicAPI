@@ -7346,6 +7346,10 @@ enum Offsets {
     // → Elwynn Forest). GetFriendInfo resolves it to name the zone, not the
     // sub-area. 0 for a top-level zone.
     OFF_AREATABLE_PARENT_ID = 0x08,
+    // MapID @ +0x04 (column 1): the map the area is on. Verified by parsing
+    // the extracted AreaTable.dbc: 2159 "Onyxia's Lair" is on map 1
+    // (Kalimdor), not the instance map 249, while 3428 "Ahn'Qiraj" is on 531.
+    OFF_AREATABLE_MAP_ID = 0x04,
     // AreaBit @ +0x0C: the bit number FUN_IS_AREA_EXPLORED tests. Gate
     // @ +0x28 (ExplorationLevel): when < 0 the area needs no exploration
     // (always counts explored); when >= 0 the AreaBit test applies. Source:

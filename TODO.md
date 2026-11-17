@@ -4248,7 +4248,13 @@ creature ID as encounterID, no table), with COMBATANT_INFO per group member
 after each start (`combatlog/Combatant.cpp`; stats and talents for the
 player only, all buffs instead of Era's curated list). The rules and the
 Era-log evidence are in those files' comments. Not yet seen in game:
-energize and drain lines.
+energize and drain lines. EMOTE (2026-11-17, `combatlog/Emote.cpp`): MoP
+Classic's line for CHAT_MSG_RAID_BOSS_EMOTE only (DBM and AzerothCore
+checked against 22,495 MoP lines); Era writes none. MAP_CHANGE (2026-11-17,
+`combatlog/MapChange.cpp`, checked in game): Era's line from its 1.15.9
+UiMap/UiMapAssignment data; the rule reproduces all 14 Era logs. The header's
+ZONE_CHANGE after a map change now writes "UNKNOWN AREA", as Era does, not
+the last map's zone. Era lines still missing: SPELL_ABSORBED.
 
 Step 4 DONE (2026-11-16): `combatlog/Movement.cpp` writes
 `Logs\WoWMovementLog-<combat log's MMDDYY_HHMMSS>.txt` behind

@@ -186,6 +186,7 @@ struct CombatEvent {
     int32_t amount = 0;
     bool critical = false;
     std::string missType;
+    std::string text; // an EMOTE's text, as the chat frame showed it
 };
 
 struct Recording {

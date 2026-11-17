@@ -175,17 +175,20 @@ void Emit(const std::string &body) { g_log.Emit(body); }
 int g_zoneMap = -1;
 std::string g_zoneName;
 
+constexpr char kUnknownArea[] = "UNKNOWN AREA";
+
 // The real zone name (GetRealZoneText), or Era's "UNKNOWN AREA" while it is
 // empty.
 std::string ZoneName() {
     const char *name = Game::Read<const char *>(Offsets::VAR_REAL_ZONE_TEXT);
-    return name != nullptr && *name != '\0' ? name : "UNKNOWN AREA";
+    return name != nullptr && *name != '\0' ? name : kUnknownArea;
 }
 
-// ZONE_CHANGE,mapID,"zone",difficultyID
-void ZoneChange() {
+// ZONE_CHANGE,mapID,"zone",difficultyID. `unknown` writes "UNKNOWN AREA":
+// the zone text is still the last map's.
+void ZoneChange(bool unknown = false) {
     g_zoneMap = Game::Read<int>(Offsets::VAR_CURRENT_MAP_ID);
-    g_zoneName = ZoneName();
+    g_zoneName = unknown ? kUnknownArea : ZoneName();
     char text[32];
     std::snprintf(text, sizeof text, "ZONE_CHANGE,%d", g_zoneMap);
     std::string line = text;
@@ -196,7 +199,7 @@ void ZoneChange() {
 }
 
 // The header line, and the ZONE_CHANGE Era writes after each one.
-void Header() {
+void Header(bool unknownZone = false) {
     const char *version = reinterpret_cast<const char *>(
         static_cast<uintptr_t>(Offsets::VAR_BUILD_VERSION_STRING));
     g_headerAdvanced = Advanced();
@@ -206,7 +209,7 @@ void Header() {
                   "COMBAT_LOG_VERSION,%d,ADVANCED_LOG_ENABLED,%d,BUILD_VERSION,%s,PROJECT_ID,%d",
                   kLogVersion, g_headerAdvanced ? 1 : 0, version, kProjectId);
     Emit(text);
-    ZoneChange();
+    ZoneChange(unknownZone);
 }
 
 // A new log named for the local time now, and its header. True when it is open.
@@ -238,10 +241,16 @@ void OnFrame() {
 
 const Tick::FrameTick::AutoSubscribe _frame{&OnFrame};
 
-// Era writes the header again after each loading screen.
+// Era writes the header again after each loading screen. Entering the world
+// on another map comes before the zone commit (FUN_00494780) stores the new
+// zone's names, so the real zone text is still the last map's then (leaving GM
+// Island for Stormwind wrote ZONE_CHANGE,0,"GM Island"). Era writes "UNKNOWN
+// AREA" there, and the zone once it is known: the commit's
+// ZONE_CHANGED_NEW_AREA (OnSignal) writes that. A reload stays on its map, and
+// its zone text is right.
 void OnEnterWorld() {
     if (g_log.IsOpen())
-        Header();
+        Header(Game::Read<int>(Offsets::VAR_CURRENT_MAP_ID) != g_zoneMap);
 }
 
 const Event::EnteringWorld::AutoObserve _enterWorld{&OnEnterWorld};

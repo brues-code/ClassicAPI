@@ -408,6 +408,8 @@ int __fastcall Script_GetEvents(void *L) {
         }
         if (!e.missType.empty())
             Lua::SetFieldString(L, "missType", e.missType.c_str());
+        if (!e.text.empty())
+            Lua::SetFieldString(L, "text", e.text.c_str());
         Lua::RawSetI(L, -2, ++i);
     }
     return 1;
@@ -778,6 +780,7 @@ const Game::Doc::Field kEventFields[] = {
     Opt("missType", "cstring", nullptr, "For a _MISSED event: MISS, DODGE, PARRY, BLOCK, RESIST, ABSORB, IMMUNE, ..."),
     Opt("endsCast", "bool", nullptr, "True for a SPELL_CAST_SUCCESS or SPELL_CAST_FAILED that ends a SPELL_CAST_START."),
     Opt("extraSpellID", "number", nullptr, "For a SPELL_INTERRUPT: the spell it interrupted."),
+    Opt("text", "cstring", nullptr, "For an EMOTE: the raid boss emote's text, as the chat frame showed it."),
 };
 const Game::Doc::Structure kEvent{"CombatLogReplayEvent", "CombatLogReplay", kEventFields};
 const Game::Doc::Field kTimeRangeArgs[] = {

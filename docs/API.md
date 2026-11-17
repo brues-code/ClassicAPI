@@ -3485,8 +3485,10 @@ the event. The file also has these lines:
 |---|---|
 | `COMBAT_LOG_VERSION` | At the start, and after each loading screen. |
 | `ZONE_CHANGE` | After each `COMBAT_LOG_VERSION` line, and when you go into a new zone. |
+| `MAP_CHANGE` | When the world map that you are on changes: its Classic Era map ID, its name and its world bounds. In an instance with no map of its own, there is no line. |
 | `ENCOUNTER_START`, `ENCOUNTER_END` | When the group starts and ends a fight with a world boss. The encounter ID is the creature ID of the boss. |
 | `COMBATANT_INFO` | For each group member, after an `ENCOUNTER_START`. Stats and talents are known only for you. |
+| `EMOTE` | When a boss sends a raid boss emote: the boss, its target, and the text as the chat frame shows it. The boss GUID is `0000000000000000` when no unit in view has its name, or more than one does. Monster emotes and yells are not logged. |
 
 The `advancedCombatLogging` setting adds more data to most damage, heal,
 power and cast lines: the health, the power, the position, the facing and the
@@ -3655,6 +3657,7 @@ including, `endTime`, in time order. Each event has:
 | `castTime` | For a `SPELL_CAST_START`: the seconds until the cast succeeded, failed, was interrupted or stopped, or the caster died. |
 | `castFailed` | For a `SPELL_CAST_START` with a `castTime`: `true` when the cast failed or was interrupted. |
 | `extraSpellID` | For a `SPELL_INTERRUPT`: the spell that it interrupted. |
+| `text` | For an `EMOTE`: the text of the raid boss emote. |
 | `endsCast` | `true` for a `SPELL_CAST_SUCCESS` or `SPELL_CAST_FAILED` that ends a `SPELL_CAST_START`. |
 | `amount`, `critical` | For damage and heal events. |
 | `missType` | For miss events: `MISS`, `DODGE`, `PARRY`, `BLOCK`, `RESIST`, `ABSORB`, `IMMUNE` and more. |

@@ -95,6 +95,9 @@ local FEED_LINES, FEED_WIDTH, FEED_SECONDS = 8, 440, 12;
 local FEED_TEXT_COLOR = { 1, 1, 1 };
 local FEED_HEAL_COLOR = { 0.2, 1, 0.2 };
 local FEED_DEATH_COLOR = { 1, 0.25, 0.25 };
+-- A raid boss emote, in the chat frame's color for one once the chat colors
+-- have loaded, else its default (4.3.4 ChatFrame.cpp: FF DD 00).
+local FEED_EMOTE_COLOR = { 1, 0.87, 0 };
 -- A player's death on the timeline: its mark, and how many seconds before
 -- the death a click on it goes to, to see what killed it.
 local DEATH_MARK_WIDTH, DEATH_MARK_HEIGHT = 3, 14;
@@ -599,6 +602,9 @@ local function FeedText(e)
 		return string.format(SPELLINTERRUPTOTHEROTHER, source, dest, SpellName(e.extraSpellID));
 	elseif kind == "UNIT_DIED" then
 		return string.format(UNITDIESOTHER, dest), FEED_DEATH_COLOR;
+	elseif kind == "EMOTE" then
+		local info = ChatTypeInfo.RAID_BOSS_EMOTE;
+		return e.text, info and info.r and { info.r, info.g, info.b } or FEED_EMOTE_COLOR;
 	end
 end
 
