@@ -531,6 +531,17 @@ int __fastcall Script_GetUnitCast(void *L) {
     return 7;
 }
 
+// The unit's raid target mark at the time, as GetRaidTargetIndex gives one.
+int __fastcall Script_GetUnitRaidTargetIndex(void *L) {
+    const Unit *unit = UnitArg(L, "Usage: C_CombatLogReplay.GetUnitRaidTargetIndex(unitIndex, time)");
+    const int mark = unit != nullptr ? MarkAt(*unit, TimeArg(L)) : 0;
+    if (mark == 0)
+        Lua::PushNil(L);
+    else
+        Lua::PushNumber(L, mark);
+    return 1;
+}
+
 // The times the unit died in the stretch (its UNIT_DIED lines), for a viewer
 // that marks them once rather than reading every event.
 int __fastcall Script_GetUnitDeaths(void *L) {
@@ -843,6 +854,15 @@ const Game::Doc::Function kGetUnitCast{
     "channel come from the movement file.",
     kUnitTimeArgs, kGetUnitCastRets, nullptr, true};
 
+const Game::Doc::Field kGetUnitRaidTargetIndexRets[] = {
+    Opt("index", "number", nullptr,
+        "1 star, 2 circle, 3 diamond, 4 triangle, 5 moon, 6 square, 7 cross, 8 skull; nil for none."),
+};
+const Game::Doc::Function kGetUnitRaidTargetIndex{
+    "Returns the raid target mark a replay unit wore at a time, from the raid flags of the log's lines. The log "
+    "has marks only while its recorder was in a group, and a change shows from the unit's next line.",
+    kUnitTimeArgs, kGetUnitRaidTargetIndexRets, nullptr, true};
+
 const Game::Doc::Function kGetUnitLook{"Returns what a replay unit looks like at a time.",
                                        kUnitTimeArgs, kGetUnitLookRets, nullptr, true};
 
@@ -863,6 +883,8 @@ void RegisterLuaFunctions() {
     Lua::RegisterTableFunction(kTable, "GetUnitAuras", &Script_GetUnitAuras, &kGetUnitAuras);
     Lua::RegisterTableFunction(kTable, "GetUnitDeaths", &Script_GetUnitDeaths, &kGetUnitDeaths);
     Lua::RegisterTableFunction(kTable, "GetUnitCast", &Script_GetUnitCast, &kGetUnitCast);
+    Lua::RegisterTableFunction(kTable, "GetUnitRaidTargetIndex", &Script_GetUnitRaidTargetIndex,
+                               &kGetUnitRaidTargetIndex);
     Lua::RegisterTableFunction(kTable, "GetUnitHealth", &Script_GetUnitHealth, &kGetUnitHealth);
     Lua::RegisterTableFunction(kTable, "GetUnitWeapons", &Script_GetUnitWeapons, &kGetUnitWeapons);
 }

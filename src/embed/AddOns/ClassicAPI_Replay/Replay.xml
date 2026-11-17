@@ -14,9 +14,15 @@
 					<Size y="16"/>
 					<Anchors>
 						<Anchor point="LEFT" x="4"/>
-						<Anchor point="RIGHT" x="-4"/>
+						<Anchor point="RIGHT" x="-18"/>
 					</Anchors>
 				</FontString>
+				<Texture parentKey="Mark" file="Interface\TargetingFrame\UI-RaidTargetingIcons" hidden="true">
+					<Size x="12" y="12"/>
+					<Anchors>
+						<Anchor point="RIGHT" x="-3"/>
+					</Anchors>
+				</Texture>
 			</Layer>
 		</Layers>
 		<HighlightTexture file="Interface\QuestFrame\UI-QuestTitleHighlight" alphaMode="ADD"/>

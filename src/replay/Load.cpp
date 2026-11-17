@@ -78,6 +78,7 @@ private:
     void Aura(const Line::Fields &f, int32_t t, int32_t dest, bool applied);
     void Revive(int32_t unit, int32_t t);
     void AddHealth(int32_t unit, int32_t t, const Health &health);
+    void AddMark(int32_t unit, int32_t t, uint32_t raidFlags);
     void AdvancedBlock(const Line::Fields &f, int32_t t, bool before);
     Unit &Get(std::string_view guid) { return r_.units[IndexOf(guid)]; }
     void AddKey(Unit &unit, Key key, Spline *spline = nullptr);
@@ -448,6 +449,27 @@ void Loader::AddHealth(int32_t unit, int32_t t, const Health &health) {
         samples.emplace_back(t, health);
 }
 
+// The mark in a line's raid flags (COMBATLOG_OBJECT_RAIDTARGET1..8, bits 0
+// to 7), when it changes. 0x80000000 is a line's "no unit". Before the
+// stretch only the last counts.
+void Loader::AddMark(int32_t unit, int32_t t, uint32_t raidFlags) {
+    if (unit < 0 || (raidFlags & 0x80000000u) != 0)
+        return;
+    uint8_t mark = 0;
+    for (uint8_t bit = 0; bit < 8; ++bit)
+        if (raidFlags & (1u << bit)) {
+            mark = bit + 1;
+            break;
+        }
+    auto &marks = r_.units[unit].marks;
+    if (!marks.empty() && marks.back().second == mark)
+        return;
+    if (t < 0 && !marks.empty() && marks.back().first < 0)
+        marks.back() = {t, mark};
+    else
+        marks.emplace_back(t, mark);
+}
+
 // The subevents Era gives an advanced block; it follows the spell prefix,
 // or the unit parts on a line without one (a swing, environmental damage).
 bool HasAdvancedBlock(std::string_view type) {
@@ -522,6 +544,10 @@ void Loader::Combat(std::string_view body, int32_t t) {
     }
     const std::string_view type = f[0];
     AdvancedBlock(f, t, before);
+    if (!emote) {
+        AddMark(source, t, f.Hex(4));
+        AddMark(dest, t, f.Hex(8));
+    }
     if (type == "UNIT_DIED") {
         if (dest >= 0) {
             Revive(dest, t);

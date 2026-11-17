@@ -183,6 +183,13 @@ const Cast *CastAt(const Unit &unit, int32_t t) {
     return it == unit.casts.begin() ? nullptr : &*(it - 1);
 }
 
+int MarkAt(const Unit &unit, int32_t t) {
+    const auto it = std::upper_bound(
+        unit.marks.begin(), unit.marks.end(), t,
+        [](int32_t time, const std::pair<int32_t, uint8_t> &m) { return time < m.first; });
+    return it == unit.marks.begin() ? 0 : (it - 1)->second;
+}
+
 const Look *LookAt(const Unit &unit, int32_t t) {
     const auto it = std::upper_bound(
         unit.looks.begin(), unit.looks.end(), t,

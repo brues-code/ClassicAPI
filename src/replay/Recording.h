@@ -161,6 +161,10 @@ struct Unit {
     std::vector<std::pair<int32_t, Speeds>> speeds;
     std::vector<CastState> castStates;
     std::vector<Cast> casts; // in start order
+    // Its raid target mark (1 star to 8 skull, 0 none) from the raid flags of
+    // each combat line that names it, each time it changes. The log writes
+    // marks only while its recorder was in a group.
+    std::vector<std::pair<int32_t, uint8_t>> marks;
 };
 
 // A combat log line of the stretch, as the replay plays it.
@@ -226,6 +230,9 @@ const Health *HealthAt(const Unit &unit, int32_t t);
 
 // The cast the unit began last by `t`, null for none.
 const Cast *CastAt(const Unit &unit, int32_t t);
+
+// The unit's raid target mark at `t`, 0 for none.
+int MarkAt(const Unit &unit, int32_t t);
 
 // Loads the stretch [startMs, endMs] (stamps) of a log (a Catalog name). Null
 // when the combat log cannot be read. Worker thread safe.

@@ -3630,6 +3630,7 @@ name of a creature from the server.
 | `GetUnitWeapons(unitIndex, time)` | The item class and subclass of the main hand and the off hand. |
 | `GetUnitDeaths(unitIndex)` | An array of the times when the unit died. |
 | `GetUnitCast(unitIndex, time)` | `spellID, startTime, endTime, stopTime, isChannel, interrupted, interrupterIndex` of the last cast or channel that the unit started by `time`. Nil when it started none. `endTime` is when the cast was due to end. `stopTime` is when it stopped, and is nil when the log does not say. `interrupted` is `true` for a cast that stopped before its end. `interrupterIndex` is the unit whose interrupt stopped it. |
+| `GetUnitRaidTargetIndex(unitIndex, time)` | The raid target mark of the unit, `1` (star) to `8` (skull), as `GetRaidTargetIndex` gives it. Nil when it has none. The log has marks only while its recorder was in a group, and a new mark shows from the next line of the unit. |
 
 A unit is dead from its death until it next casts, attacks or is
 resurrected, or until it goes out of view. A hidden helm or a hidden cloak

@@ -10,7 +10,7 @@
 -- log's casts, auras, swings and deaths play on the actors; a jump in time
 -- sets each unit's auras and death as they were then. A hurt unit shows its
 -- health over its head, from the log's advanced data, a casting unit its
--- cast bar, and the log's lines
+-- cast bar, a marked unit its raid target icon, and the log's lines
 -- scroll by in the corner in the client's own combat log words. Scene
 -- positions are map positions. Click a unit, or its name in the unit list,
 -- to follow it with the camera, which then stops in front of walls as the
@@ -89,6 +89,8 @@ local CHANNEL_COLOR = { 0, 1, 0 };
 local CAST_DONE_COLOR = { 0, 1, 0 };
 local CAST_INTERRUPTED_COLOR = { 1, 0, 0 };
 local CAST_DONE_HOLD, CAST_INTERRUPTED_HOLD, CAST_FADE = 0.2, 1, 0.3;
+-- A marked unit's raid target icon, above its bars.
+local RAID_ICON_SIZE, RAID_ICON_GAP = 20, 2;
 -- The feed of the log's lines: how many show, how long each stays, and the
 -- colors of its lines, heals and deaths.
 local FEED_LINES, FEED_WIDTH, FEED_SECONDS = 8, 440, 12;
@@ -134,6 +136,7 @@ local flying = {};     -- the fly keys held, by key name
 local combatTime;      -- the replay time the combat state is at, nil before the first
 local freeBars = {};   -- health bars not in use
 local freeCastBars = {}; -- cast bars not in use
+local freeRaidIcons = {}; -- raid target icons not in use
 local feed;            -- the ScrollingMessageFrame of the log's lines
 local deathMarks = {}; -- the timeline's death marks in use
 local freeMarks = {};  -- death marks not in use
@@ -307,8 +310,42 @@ local function ShowCastBar(u, px, py, fill, color, text, alpha)
 	bar:Show();
 end
 
--- Over a living unit's name: its health below its full health, and its cast
--- bar while it casts or channels.
+local function HideRaidIcon(u)
+	if u.raidIcon then
+		u.raidIcon:Hide();
+		tinsert(freeRaidIcons, u.raidIcon);
+		u.raidIcon = nil;
+	end
+end
+
+-- A frame over the scene's models, as the bars are.
+local function NewRaidIcon()
+	local icon = CreateFrame("Frame", nil, scene);
+	icon:SetWidth(RAID_ICON_SIZE);
+	icon:SetHeight(RAID_ICON_SIZE);
+	icon:SetFrameLevel(scene:GetFrameLevel() + 5);
+	icon.Texture = icon:CreateTexture(nil, "ARTWORK");
+	icon.Texture:SetAllPoints(icon);
+	icon.Texture:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons");
+	return icon;
+end
+
+-- The unit's raid target icon over its bars, as the client draws one
+-- (SetRaidTargetIconTexture).
+local function ShowRaidIcon(u, px, py, rise)
+	local icon = u.raidIcon;
+	if not icon then
+		icon = tremove(freeRaidIcons) or NewRaidIcon();
+		u.raidIcon = icon;
+	end
+	SetRaidTargetIconTexture(icon.Texture, u.mark);
+	icon:ClearAllPoints();
+	icon:SetPoint("BOTTOM", scene, "BOTTOMLEFT", px, py + rise);
+	icon:Show();
+end
+
+-- Over a living unit's name: its health below its full health, its cast bar
+-- while it casts or channels, and its raid target mark above them.
 local function ShowBars(u, time, isDead)
 	local health, maxHealth, fill, color, text, alpha;
 	if not isDead then
@@ -316,13 +353,15 @@ local function ShowBars(u, time, isDead)
 		fill, color, text, alpha = CastBarState(u, time);
 	end
 	local hurt = health and health < maxHealth;
+	local marked = not isDead and u.mark;
 	local px, py;
-	if hurt or fill then
+	if hurt or fill or marked then
 		px, py = ScenePoint(u.actor);
 	end
 	if not px then
 		HideBar(u);
 		HideCastBar(u);
+		HideRaidIcon(u);
 		return;
 	end
 	if hurt then
@@ -335,6 +374,13 @@ local function ShowBars(u, time, isDead)
 	else
 		HideCastBar(u);
 	end
+	if marked then
+		local rise = HEALTH_BAR_RISE + (u.bar and HEALTH_BAR_HEIGHT + CAST_BAR_GAP or 0)
+			+ (u.castBar and CAST_BAR_HEIGHT + RAID_ICON_GAP or 0);
+		ShowRaidIcon(u, px, py, rise);
+	else
+		HideRaidIcon(u);
+	end
 end
 
 ------------------------------------------------------------------------------
@@ -345,6 +391,7 @@ local function ReleaseUnits()
 	for i = 1, #units do
 		HideBar(units[i]);
 		HideCastBar(units[i]);
+		HideRaidIcon(units[i]);
 	end
 	scene:ReleaseAllActors();
 	units = {};
@@ -375,6 +422,7 @@ end
 local function HideUnit(u)
 	HideBar(u);
 	HideCastBar(u);
+	HideRaidIcon(u);
 	if u.actor and u.actor:IsShown() then
 		u.actor:Hide();
 	end
@@ -751,6 +799,7 @@ local function Apply(time)
 				held3 = GetUnitLook(i, time);
 		end
 		u.inView, u.dead = display and display > 0, isDead;
+		u.mark = C_CombatLogReplay.GetUnitRaidTargetIndex(i, time);
 		if u.inView then
 			ShowUnit(u, time, x, y, z, facing, speed, falling, jumping, display, nativeDisplay,
 				mountDisplay, scale, standState, sheathState, isDead, held1, held2, held3);
@@ -793,6 +842,12 @@ local function UpdateUnitRow(row)
 	local color = u.dead and DEAD_NAME_COLOR or u.nameColor;
 	row.Text:SetTextColor(color[1], color[2], color[3]);
 	row:SetAlpha(u.inView and 1 or OUT_OF_VIEW_ALPHA);
+	if u.mark then
+		SetRaidTargetIconTexture(row.Mark, u.mark);
+		row.Mark:Show();
+	else
+		row.Mark:Hide();
+	end
 	if u == focus then
 		row.Selected:Show();
 	else
