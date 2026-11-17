@@ -4400,7 +4400,11 @@ embedded load-on-demand addon. Layers:
   cache), UNIT_STATE (target, owner,
   UNIT_FIELD_FLAGS, level, faction template), UNIT_POWER (health and own
   power) and UNIT_AURAS (all 48 slots, polarity from Aura::Data::IsSlotHarmful,
-  stacks), each on change. The reader prefers them: GetUnitHealth exact,
+  stacks), each on change. UNIT_AURAS since 2026-11-17: on view, then only
+  for a change the combat log does not write (CombatLog::LogsAura /
+  LogsAuraStacks; a death's losses); the reader merges the lines with the
+  SPELL_AURA_ lines (Loader::BuildAuras). Simulated on the 011328 log:
+  276 of 748 lines dropped, merged auras equal at all 748. The reader prefers them: GetUnitHealth exact,
   GetUnitAuras complete (source from the combat log when it saw the apply),
   names for units the combat log never names; new GetUnitPower and
   GetUnitState. Viewer use of target, owner, flags (crowd control

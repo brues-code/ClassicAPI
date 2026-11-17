@@ -530,22 +530,9 @@ int __fastcall Script_GetUnitState(void *L) {
     return 6;
 }
 
-// When the aura `spellID` came onto the unit: the first of the unbroken run
-// of the unit's UNIT_AURAS lines up to `at` that have it.
-int32_t SlotApplied(const Unit &unit, int at, uint32_t spellID) {
-    int first = at;
-    while (first > 0) {
-        const std::vector<AuraSlot> &slots = unit.auraSlots[first - 1].second;
-        if (std::none_of(slots.begin(), slots.end(), [&](const AuraSlot &s) { return s.spellID == spellID; }))
-            break;
-        --first;
-    }
-    return unit.auraSlots[first].first;
-}
-
-// The auras on the unit at the time: every one in its slots when the
-// movement file has them, else the ones the combat log saw applied. The
-// combat log's line names who applied one, when it saw it.
+// The auras on the unit at the time: the movement file's UNIT_AURAS lines
+// with the combat log's changes between them, or only the log's without a
+// movement file. The log's line names who applied one, when it saw it.
 int __fastcall Script_GetUnitAuras(void *L) {
     const Unit *unit = UnitArg(L, "Usage: C_CombatLogReplay.GetUnitAuras(unitIndex, time)");
     Lua::NewTable(L);
@@ -553,29 +540,14 @@ int __fastcall Script_GetUnitAuras(void *L) {
         return 1;
     const int32_t t = TimeArg(L);
     int i = 0;
-    if (const int at = AuraSlotsIndexAt(*unit, t); at >= 0) {
-        for (const AuraSlot &slot : unit->auraSlots[at].second) {
-            const auto span = std::find_if(unit->auras.begin(), unit->auras.end(), [&](const AuraSpan &a) {
-                return a.spellID == slot.spellID && a.from <= t && t < a.to;
-            });
-            Lua::NewTable(L);
-            Lua::SetFieldNumber(L, "spellID", slot.spellID);
-            Lua::SetFieldString(L, "auraType", slot.harmful ? "DEBUFF" : "BUFF");
-            Lua::SetFieldNumber(L, "applications", slot.stacks);
-            if (span != unit->auras.end() && span->caster >= 0)
-                Lua::SetFieldNumber(L, "sourceIndex", span->caster + 1);
-            Lua::SetFieldNumber(L, "applied",
-                                Seconds(span != unit->auras.end() ? span->from : SlotApplied(*unit, at, slot.spellID)));
-            Lua::RawSetI(L, -2, ++i);
-        }
-        return 1;
-    }
     for (const AuraSpan &a : unit->auras) {
         if (!(a.from <= t && t < a.to))
             continue;
         Lua::NewTable(L);
         Lua::SetFieldNumber(L, "spellID", a.spellID);
         Lua::SetFieldString(L, "auraType", a.debuff ? "DEBUFF" : "BUFF");
+        if (const uint32_t *stacks = StacksAt(a, t))
+            Lua::SetFieldNumber(L, "applications", *stacks);
         if (a.caster >= 0)
             Lua::SetFieldNumber(L, "sourceIndex", a.caster + 1);
         Lua::SetFieldNumber(L, "applied", Seconds(a.from));
@@ -940,7 +912,6 @@ const Game::Doc::Structure kAppearance{
 const Game::Doc::Field kUnitIndexArg[] = {Req("unitIndex", "number")};
 const Game::Doc::Field kGetUnitAppearancesRets[] = {
     Req("appearances", "table",
-    Opt("offHand", "bool", nullptr, "True for a _MISSED event that the off hand made. The log does not say this for a hit."),
         "An array of CombatLogReplayAppearance in time order, each until the next; empty for a "
         "creature."),
 };
@@ -969,6 +940,7 @@ const Game::Doc::Field kEventFields[] = {
     Opt("amount", "number", nullptr, "For a _DAMAGE or _HEAL event, DAMAGE_SHIELD and DAMAGE_SPLIT."),
     Opt("critical", "bool", nullptr, "For a _DAMAGE or _HEAL event."),
     Opt("missType", "cstring", nullptr, "For a _MISSED event: MISS, DODGE, PARRY, BLOCK, RESIST, ABSORB, IMMUNE, ..."),
+    Opt("offHand", "bool", nullptr, "True for a _MISSED event that the off hand made. The log does not say this for a hit."),
     Opt("endsCast", "bool", nullptr, "True for a SPELL_CAST_SUCCESS or SPELL_CAST_FAILED that ends a SPELL_CAST_START."),
     Opt("extraSpellID", "number", nullptr, "For a SPELL_INTERRUPT: the spell it interrupted."),
     Opt("castTargetIndex", "number", nullptr,
@@ -1012,7 +984,7 @@ const Game::Doc::Field kAuraFields[] = {
     Req("auraType", "cstring", "BUFF or DEBUFF."),
     Opt("sourceIndex", "number", nullptr, "Nil when the log does not name a unit that applied it."),
     Req("applied", "number", "When it was applied, in seconds from the replay's start; negative before it."),
-    Opt("applications", "number", nullptr, "Its stacks, from the movement file."),
+    Opt("applications", "number", nullptr, "Its stacks, from the movement file or a dose event."),
 };
 const Game::Doc::Structure kAura{"CombatLogReplayAura", "CombatLogReplay", kAuraFields,
                                  "All of a unit's auras with the movement file, else only the ones the log saw applied."};

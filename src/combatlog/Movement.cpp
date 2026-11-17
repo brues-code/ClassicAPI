@@ -86,9 +86,12 @@
 //     health, and the power of its own type in stored units (rage in tenths);
 //   UNIT_AURAS,unitGUID,spellID,harmful,stacks,...
 //     the auras in its 48 slots, in slot order, when it comes into view with
-//     any and each time they change: each one's spell, 1 when harmful (as
-//     this server encodes it) else 0, and its stacks. A line with no auras
-//     is the last one gone;
+//     any, and each time they change in a way the combat log does not
+//     write (the arrival or loss of a hidden or passive aura, a mount's for
+//     one, or any loss on a dead unit): each one's spell, 1 when harmful (as
+//     this server encodes it) else 0, and its stacks. Between two lines the
+//     log's SPELL_AURA_ lines give the changes. A line with no auras is the
+//     last one gone;
 //   UNIT_CAST,unitGUID,castSpellID,castTimeMs,channelSpellID
 //     a unit's cast state each time it changes (UnitInfo.cpp), and when a
 //     unit that casts or channels comes into view: the spell it casts with

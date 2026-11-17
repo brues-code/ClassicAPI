@@ -3579,7 +3579,7 @@ movement of your character:
 | `UNIT_CAST` | Each time that a unit starts or stops a cast or a channel: the spell that it casts and its cast time, and the spell that it channels. |
 | `UNIT_STATE` | Each time that the target, the owner, the unit flags, the level, the faction or the melee victim of a unit changes. The owner is the master of a pet, a guardian or a totem, or the controller of a charmed unit. |
 | `UNIT_POWER` | Each time that the health or the power of a unit changes. |
-| `UNIT_AURAS` | Each time that the auras of a unit change: the spell, harmful or helpful, and the stacks of each aura. |
+| `UNIT_AURAS` | The auras of a unit when it comes into view: the spell, harmful or helpful, and the stacks of each aura. After that, a new line comes only for a change that the combat log does not show, for example a mount aura or the auras that a unit loses when it dies. |
 | `UNIT_NAME` | The name that your client has for a player, a pet, or a creature. With it, a log that is read on a different computer still has the names. |
 | `UNIT_GONE` | A unit that went out of view. |
 | `GAMEOBJECT_INFO` | A game object, such as a door, a chest, a trap or a portal, when it comes into view and each time that it changes: its owner, display, type, state, flags, position, rotation, scale and name. |
@@ -3642,7 +3642,7 @@ name of a creature from the server.
 | `GetUnitHealth(unitIndex, time)` | `health, maxHealth`. They come from the `UNIT_POWER` lines of the movement file, or else from the data of `advancedCombatLogging`. Nil before the log gives them. `0` after the unit dies. |
 | `GetUnitPower(unitIndex, time)` | `powerType, power, maxPower` from the movement file. Rage is in tenths. Nil when the file has no power for the unit. |
 | `GetUnitState(unitIndex, time)` | `targetIndex, ownerIndex, flags, level, factionTemplate, attackTargetIndex` from the movement file. `attackTargetIndex` is the unit that it attacks with melee swings. `flags` is `UNIT_FIELD_FLAGS`: `0x40000` stunned, `0x80000` in combat, `0x400000` confused, `0x800000` fleeing. Nil when the file has no state for the unit. |
-| `GetUnitAuras(unitIndex, time)` | An array of auras. Each has `spellID`, `auraType` (`BUFF` or `DEBUFF`), `sourceIndex`, `applied` and `applications`. With the `UNIT_AURAS` lines of the movement file, all the auras of the unit are known. Without them, only the auras that the log saw applied are known. `sourceIndex` is known only for an aura that the log saw applied. |
+| `GetUnitAuras(unitIndex, time)` | An array of auras. Each has `spellID`, `auraType` (`BUFF` or `DEBUFF`), `sourceIndex`, `applied` and `applications`. With the `UNIT_AURAS` lines of the movement file, all the auras of the unit are known. Without them, only the auras that the log saw applied are known. `sourceIndex` is known only for an aura that the log saw applied. `applications` comes from the movement file or from the dose events of the log. |
 | `GetUnitWeapons(unitIndex, time)` | The item class and subclass of the main hand and the off hand. |
 | `GetUnitDeaths(unitIndex)` | An array of the times when the unit died. |
 | `GetUnitCast(unitIndex, time)` | `spellID, startTime, endTime, stopTime, isChannel, interrupted, interrupterIndex` of the last cast or channel that the unit started by `time`. Nil when it started none. `endTime` is when the cast was due to end. `stopTime` is when it stopped, and is nil when the log does not say. `interrupted` is `true` for a cast that stopped before its end. `interrupterIndex` is the unit whose interrupt stopped it. |

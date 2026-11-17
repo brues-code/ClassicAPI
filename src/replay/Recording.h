@@ -108,14 +108,18 @@ struct Health {
     int32_t max = 0;
 };
 
-// An aura on a unit, from its SPELL_AURA_APPLIED until before its
-// SPELL_AURA_REMOVED (or the stretch's end).
+// An aura on a unit, from its SPELL_AURA_APPLIED, or the UNIT_AURAS line
+// that first has it, until before its SPELL_AURA_REMOVED, the UNIT_AURAS
+// line that no longer has it, or the unit leaving view.
 struct AuraSpan {
     uint32_t spellID = 0;
     bool debuff = false;
     int32_t caster = -1; // the applier's unit index, -1 for none
     int32_t from = 0;
     int32_t to = INT32_MAX;
+    // Its stacks, each from the time it changed: from UNIT_AURAS lines and
+    // SPELL_AURA_APPLIED_DOSE / _REMOVED_DOSE. Empty when neither gives them.
+    std::vector<std::pair<int32_t, uint32_t>> stacks;
 };
 
 // UNIT_CAST: the spell a unit casts with its cast time, and the spell it
@@ -158,13 +162,6 @@ struct Vitals {
     uint32_t powerType = 0, power = 0, maxPower = 0;
 };
 
-// One aura of a UNIT_AURAS line.
-struct AuraSlot {
-    uint32_t spellID = 0;
-    bool harmful = false;
-    uint32_t stacks = 0;
-};
-
 struct Unit {
     std::string guid; // as the logs write it
     std::string name; // from the combat log, empty when it is not in it
@@ -193,7 +190,6 @@ struct Unit {
     // From the movement file, each from the time it changed.
     std::vector<std::pair<int32_t, UnitState>> states;
     std::vector<std::pair<int32_t, Vitals>> vitals;
-    std::vector<std::pair<int32_t, std::vector<AuraSlot>>> auraSlots;
 };
 
 // A game object's GAMEOBJECT_INFO fields.
@@ -250,11 +246,11 @@ struct CombatEvent {
     // A damage or heal event's amount (`hasAmount`) and whether it was
     // critical; a _MISSED event's miss type (MISS, DODGE, PARRY, ...) and
     // whether the off hand made it (the line's isOffHand).
-    bool offHand = false;
     bool hasAmount = false;
     int32_t amount = 0;
     bool critical = false;
     std::string missType;
+    bool offHand = false;
     std::string text; // an EMOTE's text, as the chat frame showed it
 };
 
@@ -301,12 +297,13 @@ const Cast *CastAt(const Unit &unit, int32_t t);
 // The unit's raid target mark at `t`, 0 for none.
 int MarkAt(const Unit &unit, int32_t t);
 
-// The movement file's state, health and power, and auras of the unit at `t`;
-// null before the first, or with no movement file lines for it.
+// The movement file's state, and health and power, of the unit at `t`; null
+// before the first, or with no movement file lines for it.
 const UnitState *StateAt(const Unit &unit, int32_t t);
 const Vitals *VitalsAt(const Unit &unit, int32_t t);
-// The index in `auraSlots` of the unit's UNIT_AURAS at `t`, -1 before its first.
-int AuraSlotsIndexAt(const Unit &unit, int32_t t);
+
+// The aura's stacks at `t`, null when the logs do not give them by then.
+const uint32_t *StacksAt(const AuraSpan &aura, int32_t t);
 
 // The game object's fields at `t`; null while it is not in view.
 const ObjectLook *ObjectLookAt(const GameObject &object, int32_t t);

@@ -56,6 +56,29 @@ constexpr int32_t kWentOffMs = 300;
 // server sends UNIT_FIELD_CHANNEL_SPELL up to about a second after the
 // SMSG_SPELL_GO that starts the channel (spell/Cast.cpp).
 constexpr int32_t kChannelLagMs = 2000;
+// A SPELL_AURA_APPLIED this close to the UNIT_AURAS line that first had its
+// aura is that aura's: the log's line comes from the aura handler, the
+// UNIT_AURAS line from the walk of the same frame or the next.
+constexpr int32_t kAuraMatchMs = 500;
+
+// One aura of a UNIT_AURAS line.
+struct AuraSlot {
+    uint32_t spellID = 0;
+    bool harmful = false;
+    uint32_t stacks = 0;
+};
+
+// A combat line's change to a unit's auras.
+struct AuraChange {
+    enum Kind : uint8_t { Applied, Refreshed, Removed, Dose };
+    int32_t t = 0;
+    int32_t unit = -1;
+    Kind kind = Applied;
+    uint32_t spellID = 0;
+    bool debuff = false;
+    int32_t caster = -1;
+    uint32_t stacks = 0; // a Dose's
+};
 
 class Loader {
 public:
@@ -66,6 +89,8 @@ public:
     void Combat(std::string_view body, int32_t t);
     // The map ZONE_CHANGE gives at the stretch's start, -1 for none.
     int CombatMap() const { return combatMap_; }
+    // Each unit's aura spans, from both files; after both are read.
+    void BuildAuras();
 
 private:
     // The unit's index, added when it is new. Adding one moves the others.
@@ -75,7 +100,7 @@ private:
     // The unit at a combat line's field `i`: before the stretch only a known
     // one (a unit with no place in it is not added for a line before it).
     int32_t UnitAt(const Line::Fields &f, int i, bool before);
-    void Aura(const Line::Fields &f, int32_t t, int32_t dest, bool applied);
+    void Aura(const Line::Fields &f, int32_t t, int32_t dest);
     void Revive(int32_t unit, int32_t t);
     void AddHealth(int32_t unit, int32_t t, const Health &health);
     void AddMark(int32_t unit, int32_t t, uint32_t raidFlags);
@@ -118,6 +143,10 @@ private:
     // The SPELL_CAST_START each caster has open, by spell: an index into
     // the events.
     std::unordered_map<uint64_t, size_t> openCasts_;
+    // Each unit's UNIT_AURAS lines, by unit index, and the combat lines'
+    // aura changes, for BuildAuras.
+    std::vector<std::vector<std::pair<int32_t, std::vector<AuraSlot>>>> auraLines_;
+    std::vector<AuraChange> auraChanges_;
     bool advanced_ = false; // COMBAT_LOG_VERSION's ADVANCED_LOG_ENABLED
 };
 
@@ -361,7 +390,10 @@ void Loader::UnitAuras(const Line::Fields &f, int32_t t) {
         slot.stacks = values[i + 2];
         slots.push_back(slot);
     }
-    AddAt(Get(f[1]).auraSlots, t, std::move(slots));
+    const auto unit = static_cast<std::size_t>(IndexOf(f[1]));
+    if (auraLines_.size() <= unit)
+        auraLines_.resize(unit + 1);
+    AddAt(auraLines_[unit], t, std::move(slots));
 }
 
 void Loader::GameObjectInfo(const Line::Fields &f, int32_t t) {
@@ -571,29 +603,137 @@ int32_t Loader::UnitAt(const Line::Fields &f, int i, bool before) {
     return before ? Find(f[i]) : IndexOf(f[i]);
 }
 
-// SPELL_AURA_APPLIED opens a span on the destination, SPELL_AURA_REMOVED
-// ends the last open one of that spell (its source is often nil), and
-// SPELL_AURA_REFRESH opens one only when none is open.
-void Loader::Aura(const Line::Fields &f, int32_t t, int32_t dest, bool applied) {
+// A SPELL_AURA_ line's change, kept for BuildAuras: spell, auraType, and a
+// dose line's stacks after them.
+void Loader::Aura(const Line::Fields &f, int32_t t, int32_t dest) {
     if (dest < 0)
         return;
-    std::vector<AuraSpan> &auras = r_.units[dest].auras;
-    const auto spellID = static_cast<uint32_t>(f.Int(9));
-    auto open = std::find_if(auras.rbegin(), auras.rend(),
-                             [&](const AuraSpan &a) { return a.spellID == spellID && a.to == INT32_MAX; });
-    if (!applied) {
-        if (open != auras.rend())
-            open->to = t;
+    AuraChange c;
+    const std::string_view type = f[0];
+    if (type == "SPELL_AURA_APPLIED")
+        c.kind = AuraChange::Applied;
+    else if (type == "SPELL_AURA_REFRESH")
+        c.kind = AuraChange::Refreshed;
+    else if (type == "SPELL_AURA_REMOVED")
+        c.kind = AuraChange::Removed;
+    else if (type == "SPELL_AURA_APPLIED_DOSE" || type == "SPELL_AURA_REMOVED_DOSE")
+        c.kind = AuraChange::Dose;
+    else
         return;
+    c.t = t;
+    c.unit = dest;
+    c.spellID = static_cast<uint32_t>(f.Int(9));
+    c.debuff = f[12] == "DEBUFF";
+    c.caster = Find(f[1]);
+    c.stacks = static_cast<uint32_t>(f.Int(13));
+    auraChanges_.push_back(c);
+}
+
+// The movement file's UNIT_AURAS lines give each unit's auras when it comes
+// into view and after each change the combat log does not write. Between
+// them the log's SPELL_AURA_ lines give the changes. Without a movement file
+// only the log's lines count.
+//
+// SPELL_AURA_APPLIED opens a span (or names the caster of the one a
+// UNIT_AURAS line just opened), SPELL_AURA_REMOVED ends the last open one of
+// that spell (its source is often nil), SPELL_AURA_REFRESH opens one only
+// when none is open, and a dose sets the open one's stacks. A UNIT_AURAS
+// line ends the open spans it does not have and opens one for each aura it
+// has with no open span, and the unit leaving view ends all of them. At one
+// time the log's lines go first: the walk that writes UNIT_AURAS comes after
+// the aura handlers of its frame.
+void Loader::BuildAuras() {
+    static const std::vector<std::pair<int32_t, std::vector<AuraSlot>>> kNoLines;
+    std::stable_sort(auraChanges_.begin(), auraChanges_.end(),
+                     [](const AuraChange &a, const AuraChange &b) { return a.unit < b.unit; });
+    auto change = auraChanges_.begin();
+    for (std::size_t u = 0; u < r_.units.size(); ++u) {
+        Unit &unit = r_.units[u];
+        const auto changesEnd = std::find_if(change, auraChanges_.end(), [&](const AuraChange &c) {
+            return c.unit != static_cast<int32_t>(u);
+        });
+        const auto &lines = u < auraLines_.size() ? auraLines_[u] : kNoLines;
+        auto line = lines.begin();
+        auto gone = unit.spans.begin();
+        std::vector<std::size_t> open; // indexes into unit.auras
+        const auto lastOpen = [&](uint32_t spellID) {
+            auto it = open.end();
+            while (it != open.begin())
+                if (unit.auras[*--it].spellID == spellID)
+                    return it;
+            return open.end();
+        };
+        const auto close = [&](std::vector<std::size_t>::iterator it, int32_t t) {
+            unit.auras[*it].to = t;
+            return open.erase(it);
+        };
+        const auto setStacks = [](AuraSpan &aura, int32_t t, uint32_t stacks) {
+            if (aura.stacks.empty() || aura.stacks.back().second != stacks)
+                aura.stacks.emplace_back(t, stacks);
+        };
+        const auto openSpan = [&](uint32_t spellID, bool debuff, int32_t caster, int32_t t) -> AuraSpan & {
+            AuraSpan span;
+            span.spellID = spellID;
+            span.debuff = debuff;
+            span.caster = caster;
+            span.from = t;
+            open.push_back(unit.auras.size());
+            unit.auras.push_back(std::move(span));
+            return unit.auras.back();
+        };
+        while (true) {
+            const int32_t tChange = change != changesEnd ? change->t : INT32_MAX;
+            const int32_t tGone = gone != unit.spans.end() ? gone->to : INT32_MAX;
+            const int32_t tLine = line != lines.end() ? line->first : INT32_MAX;
+            if (tChange == INT32_MAX && tGone == INT32_MAX && tLine == INT32_MAX)
+                break;
+            if (tChange <= tGone && tChange <= tLine) {
+                const AuraChange &c = *change++;
+                const auto it = lastOpen(c.spellID);
+                AuraSpan *aura = it != open.end() ? &unit.auras[*it] : nullptr;
+                if (c.kind == AuraChange::Removed) {
+                    if (aura != nullptr)
+                        close(it, c.t);
+                } else if (c.kind == AuraChange::Dose) {
+                    if (aura != nullptr)
+                        setStacks(*aura, c.t, c.stacks);
+                } else if (aura != nullptr && aura->caster < 0 &&
+                           (c.kind == AuraChange::Refreshed || c.t - aura->from <= kAuraMatchMs)) {
+                    aura->caster = c.caster;
+                } else if (c.kind == AuraChange::Applied || aura == nullptr) {
+                    openSpan(c.spellID, c.debuff, c.caster, c.t);
+                }
+            } else if (tGone <= tLine) {
+                for (auto it = open.begin(); it != open.end();)
+                    it = close(it, tGone);
+                ++gone;
+            } else {
+                const int32_t t = line->first;
+                const std::vector<AuraSlot> &slots = line->second;
+                // Each open span keeps the first aura of its spell in the
+                // line that no other open span took.
+                std::vector<bool> taken(slots.size());
+                for (auto it = open.begin(); it != open.end();) {
+                    AuraSpan &aura = unit.auras[*it];
+                    std::size_t s = 0;
+                    while (s < slots.size() && (taken[s] || slots[s].spellID != aura.spellID))
+                        ++s;
+                    if (s == slots.size()) {
+                        it = close(it, t);
+                        continue;
+                    }
+                    taken[s] = true;
+                    setStacks(aura, t, slots[s].stacks);
+                    ++it;
+                }
+                for (std::size_t s = 0; s < slots.size(); ++s)
+                    if (!taken[s])
+                        setStacks(openSpan(slots[s].spellID, slots[s].harmful, -1, t), t, slots[s].stacks);
+                ++line;
+            }
+        }
+        change = changesEnd;
     }
-    if (f[0] == "SPELL_AURA_REFRESH" && open != auras.rend())
-        return;
-    AuraSpan span;
-    span.spellID = spellID;
-    span.debuff = f[12] == "DEBUFF";
-    span.caster = Find(f[1]);
-    span.from = t;
-    auras.push_back(span);
 }
 
 // Before the stretch only the last sample counts.
@@ -725,10 +865,8 @@ void Loader::Combat(std::string_view body, int32_t t) {
         if (deaths.empty() || t - deaths.back().from >= kDeathSpellMs)
             Revive(source, t);
     }
-    if (type == "SPELL_AURA_APPLIED" || type == "SPELL_AURA_REFRESH")
-        Aura(f, t, dest, true);
-    else if (type == "SPELL_AURA_REMOVED")
-        Aura(f, t, dest, false);
+    if (type.rfind("SPELL_AURA_", 0) == 0)
+        Aura(f, t, dest);
     if (before)
         return;
     CombatEvent e;
@@ -757,6 +895,7 @@ void Loader::Combat(std::string_view body, int32_t t) {
         e.critical = f[suffix + 4] == "1";
     } else if (EndsWith(type, "_MISSED")) {
         e.missType = std::string(f[suffix]);
+        e.offHand = f[suffix + 1] == "1";
     }
     // A cast's start is open until the caster's success or failure of the
     // same spell, a SPELL_INTERRUPT of that spell on the caster, or the
@@ -895,7 +1034,6 @@ double SpeedScale(const std::vector<double> &along, const std::vector<double> &t
 // ever early, only late. What is exact is the place in each, and while the
 // unit moves, how long it took from one to the next (Duration). So each
 // stretch of moves with known durations has a fixed shape in time, and only
-        e.offHand = f[suffix + 1] == "1";
 // its start is open: the start that puts no move before its clock and one
 // exactly on it, the move that came soonest (SpeedScale corrects a stale
 // speed first). A stretch also ends before the
@@ -1158,6 +1296,7 @@ std::unique_ptr<Recording> Load(const std::string &log, int64_t startMs, int64_t
     });
     if (recording->map < 0)
         recording->map = loader.CombatMap();
+    loader.BuildAuras();
     BuildCasts(*recording);
     // A corpse leaving view ends its death: a creature can come back under
     // its GUID (a respawn), new to view.

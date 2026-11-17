@@ -197,12 +197,7 @@ const T *At(const std::vector<std::pair<int32_t, T>> &timeline, int32_t t) {
 
 const UnitState *StateAt(const Unit &unit, int32_t t) { return At(unit.states, t); }
 const Vitals *VitalsAt(const Unit &unit, int32_t t) { return At(unit.vitals, t); }
-int AuraSlotsIndexAt(const Unit &unit, int32_t t) {
-    const auto it = std::upper_bound(
-        unit.auraSlots.begin(), unit.auraSlots.end(), t,
-        [](int32_t time, const std::pair<int32_t, std::vector<AuraSlot>> &v) { return time < v.first; });
-    return static_cast<int>(it - unit.auraSlots.begin()) - 1;
-}
+const uint32_t *StacksAt(const AuraSpan &aura, int32_t t) { return At(aura.stacks, t); }
 
 int MarkAt(const Unit &unit, int32_t t) {
     const auto it = std::upper_bound(

@@ -76,12 +76,11 @@ int Health(const void *unit) {
 
 void OnAuraChange(const Aura::Source::Change &c) {
     const uint8_t *spell = SpellRecord(static_cast<int>(c.spellId));
-    if (c.spellId == 0 || Hidden(spell))
+    if (c.spellId == 0)
         return;
     const uint64_t unit = ::Object::Guid(c.unit);
     if (c.type == Aura::Source::ChangeType::Stacks) {
-        if (Game::Read<uint32_t>(spell, Offsets::OFF_SPELL_RECORD_STACK_AMOUNT) <= 1 ||
-            c.newStacks == c.oldStacks)
+        if (!LogsAuraStacks(spell) || c.newStacks == c.oldStacks)
             return;
         Entry e = Begin(c.caster, unit,
                         c.newStacks > c.oldStacks ? SPELL_AURA_APPLIED_DOSE
@@ -93,8 +92,7 @@ void OnAuraChange(const Aura::Source::Change &c) {
         Queue(e);
         return;
     }
-    if ((Game::Read<uint32_t>(spell, Offsets::OFF_SPELL_RECORD_ATTRIBUTES) &
-         Offsets::SPELL_ATTR_PASSIVE) != 0)
+    if (!LogsAura(spell))
         return;
     if (c.type == Aura::Source::ChangeType::Refreshed) {
         // UnitCombatLogAuraRefreshed: an application's tests, no health test.

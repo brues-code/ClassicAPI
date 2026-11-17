@@ -541,6 +541,15 @@ bool Hidden(const uint8_t *spell) {
            Spell::Lookup::Name(spell) == nullptr;
 }
 
+bool LogsAura(const uint8_t *spell) {
+    return !Hidden(spell) &&
+           (Game::Read<uint32_t>(spell, Offsets::OFF_SPELL_RECORD_ATTRIBUTES) & Offsets::SPELL_ATTR_PASSIVE) == 0;
+}
+
+bool LogsAuraStacks(const uint8_t *spell) {
+    return !Hidden(spell) && Game::Read<uint32_t>(spell, Offsets::OFF_SPELL_RECORD_STACK_AMOUNT) > 1;
+}
+
 bool Ranged(const uint8_t *spell) {
     return spell != nullptr &&
            (Game::Read<uint32_t>(spell, Offsets::OFF_SPELL_RECORD_ATTRIBUTES_EX3) &

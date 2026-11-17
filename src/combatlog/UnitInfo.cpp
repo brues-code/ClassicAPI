@@ -42,6 +42,7 @@
 #include "Offsets.h"
 #include "aura/Data.h"
 #include "cache/Record.h"
+#include "combatlog/Entry.h"
 #include "combatlog/File.h"
 #include "combatlog/Movement.h"
 #include "guid/Guid.h"
@@ -301,6 +302,28 @@ bool Empty(const Auras &auras) {
     return true;
 }
 
+// Whether the combat log writes every change from `before` to `after`: each
+// slot's arrival and loss of an aura it logs, or its stack change for one
+// whose stacks it logs, on a live unit (it writes no loss on a dead one).
+// Then a UNIT_AURAS line would only repeat it.
+bool LogWrites(const Auras &before, const Auras &after, bool dead) {
+    for (int slot = 0; slot < Offsets::UNIT_AURA_TOTAL; ++slot) {
+        const uint32_t was = before.spell[slot], now = after.spell[slot];
+        if (was == now) {
+            if (now != 0 && before.stacks[slot] != after.stacks[slot] &&
+                !LogsAuraStacks(SpellRecord(static_cast<int>(now))))
+                return false;
+            continue;
+        }
+        if (dead)
+            return false;
+        for (const uint32_t spell : {was, now})
+            if (spell != 0 && !LogsAura(SpellRecord(static_cast<int>(spell))))
+                return false;
+    }
+    return true;
+}
+
 // The occupied slots in slot order: spell, 1 for harmful else 0, stacks.
 void WriteAuras(uint64_t guid, const Auras &auras) {
     std::string line = "UNIT_AURAS";
@@ -429,9 +452,12 @@ void Visit(uint64_t guid) {
         seen.vitals = vitals;
         WriteVitals(guid, vitals);
     }
+    // All of them when the unit comes into view; then only the changes the
+    // combat log leaves out, such as a mount's aura or a death's losses.
     if (added ? !Empty(auras) : std::memcmp(&seen.auras, &auras, sizeof auras) != 0) {
+        if (added || !LogWrites(seen.auras, auras, vitals.health == 0))
+            WriteAuras(guid, auras);
         seen.auras = auras;
-        WriteAuras(guid, auras);
     }
     if (added ? !(cast == Cast{}) : !(seen.cast == cast)) {
         seen.cast = cast;

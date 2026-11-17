@@ -154,6 +154,16 @@ const uint8_t *SpellRecord(int spellId);
 // 0x100, or no name in the client's locale.
 bool Hidden(const uint8_t *spell);
 
+// Whether the log writes an aura's arrival and loss (SPELL_AURA_APPLIED,
+// _REMOVED, _REFRESH): 4.3.4's UnitCombatLogAuraAddedOrRemoved writes none
+// for a hidden or a passive spell.
+bool LogsAura(const uint8_t *spell);
+
+// Whether the log writes an aura's stack changes (SPELL_AURA_APPLIED_DOSE,
+// _REMOVED_DOSE): 4.3.4's UnitCombatLogAuraModifiedApplications writes them
+// for a spell that stacks and is not hidden, passive or not.
+bool LogsAuraStacks(const uint8_t *spell);
+
 // AttributesEx3 0x8000: the spell is a ranged attack (Auto Shot, Shoot,
 // Throw), logged as RANGE_* instead of SPELL_*.
 bool Ranged(const uint8_t *spell);
