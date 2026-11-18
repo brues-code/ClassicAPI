@@ -3375,7 +3375,8 @@ client).
 
 A setting for your attacks when you change target. At `0` (the default),
 melee auto-attack continues on the new target if you can attack it. At `1`,
-a target change stops melee auto-attack, Auto Shot and wand shots.
+a target change stops melee auto-attack, Auto Shot and wand shots. Each
+character has its own value.
 
 ```
 /console stopAutoAttackOnTargetChange 1
@@ -5381,7 +5382,7 @@ isLockedFromUser, isSecure, isReadOnly = C_CVar.GetCVarInfo(name)
 | `value` | string | the current value |
 | `defaultValue` | string | the value it was registered with |
 | `isStoredServerAccount` | boolean | always `false` |
-| `isStoredServerCharacter` | boolean | always `false` |
+| `isStoredServerCharacter` | boolean | `true` when each character has its own value (see [character cvars](#character-cvars)) |
 | `isLockedFromUser` | boolean | always `false` |
 | `isSecure` | boolean | always `false` |
 | `isReadOnly` | boolean | `true` when `SetCVar` will refuse to change it |
@@ -5396,8 +5397,21 @@ local _, _, _, _, _, _, readOnly = C_CVar.GetCVarInfo("realmList")
 
 `isReadOnly` is the useful one: it tells you in advance whether `SetCVar`
 will work, and `realmList`, `realmName` and `scriptMemory` are read-only.
-Cvars are stored on your own machine, so the two `isStoredServer` returns
-are always `false`, and no cvar is locked or secure.
+`isStoredServerAccount` is always `false`, and no cvar is locked or secure.
+
+#### Character cvars
+
+These cvars have a value for each character:
+
+- `damageMeterEnabled`
+- `damageMeterResetOnNewInstance`
+- `nameplateSelectedAlpha`
+- `stopAutoAttackOnTargetChange`
+
+The game saves them in
+`WTF\Account\<account>\<realm>\<character>\config-cache.wtf`, not in
+`WTF\Config.wtf`. When you log in, each one gets the value from that file. If
+the file does not have the cvar, it gets its default.
 
 Returns `nil` for a name that is not a cvar, so you can tell "no such cvar"
 from "set to an empty string". Console commands are not cvars, so a command
@@ -5719,7 +5733,8 @@ The meter's events are under [Events](#damage_meter_combat_session_updated--dama
 | `damageMeterEnabled` | `0` | `1` turns on the damage meter. `0` turns it off and clears all sessions. |
 | `damageMeterResetOnNewInstance` | `0` | `1` clears all sessions each time you enter an instance other than the last one. |
 
-The two cvars are saved for all characters, not for each character.
+Each character has its own values for the two cvars. The game saves them in
+`WTF\Account\<account>\<realm>\<character>\config-cache.wtf`.
 
 ## DeathInfo
 
@@ -22150,7 +22165,7 @@ alpha. Addons that draw their own plates keep their own settings.
 The alpha of a default nameplate whose unit is the current target. At
 the default `1`, the target plate draws at full alpha. At `0.5`, it
 draws half-faded like the rest. Addons that draw their own plates keep
-their own settings.
+their own settings. Each character has its own value.
 
 ```lua
 /console nameplateSelectedAlpha 0.5

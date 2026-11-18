@@ -60,6 +60,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "cvar/Character.h"
 #include "cvar/Factory.h"
 #include "frame/Destruction.h"
 #include "frame/ParentChange.h"
@@ -314,7 +315,8 @@ void RegisterCVar() {
         "nameplateNotSelectedAlpha",
         "The alpha of a nameplate whose unit is not the target, from 0 to 1",
         Offsets::CVAR_CATEGORY_GAME, "0.5");
-    g_selCVar = CVar::Factory::Register(
+    // Retail keeps this one per character and the other per install.
+    g_selCVar = CVar::Character::Register(
         "nameplateSelectedAlpha",
         "The alpha of a nameplate whose unit is the target, from 0 to 1",
         Offsets::CVAR_CATEGORY_GAME, "1");

@@ -54,6 +54,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "combatlog/Encounter.h"
+#include "cvar/Character.h"
 #include "cvar/Factory.h"
 #include "event/Custom.h"
 #include "event/EnteringWorld.h"
@@ -275,13 +276,13 @@ int __fastcall OnEnabledChanged(CVar::Factory::Handle, const char *, const char 
     return 1;
 }
 
-// Retail's help, category (4, Game) and default, from its cvar list
-// (Ketho/BlizzardInterfaceResources, live, Resources/CVars.lua).
+// Retail's help, category (4, Game), default and character scope, from its
+// cvar list (Ketho/BlizzardInterfaceResources, live, Resources/CVars.lua).
 void RegisterCVars() {
-    g_enabledCvar = CVar::Factory::Register("damageMeterEnabled",
-                                            "If true, show the damage meter UI.",
-                                            Offsets::CVAR_CATEGORY_GAME, "0", &OnEnabledChanged);
-    g_resetCvar = CVar::Factory::Register(
+    g_enabledCvar = CVar::Character::Register("damageMeterEnabled",
+                                              "If true, show the damage meter UI.",
+                                              Offsets::CVAR_CATEGORY_GAME, "0", &OnEnabledChanged);
+    g_resetCvar = CVar::Character::Register(
         "damageMeterResetOnNewInstance",
         "If true, reset the damage meter any time the player enters a new instance.",
         Offsets::CVAR_CATEGORY_GAME, "0");

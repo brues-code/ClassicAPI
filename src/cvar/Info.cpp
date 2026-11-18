@@ -17,19 +17,18 @@
 //   value, defaultValue, isStoredServerAccount, isStoredServerCharacter,
 //   isLockedFromUser, isSecure, isReadOnly
 //
-// Two of the seven are real here and five are structurally false, which is
+// Three of the seven are real here and four are structurally false, which is
 // worth stating precisely rather than leaving as "not implemented":
 //
 //   isReadOnly              REAL. Flag bit 0x4. Script_SetCVar tests it before
 //                           anything else and raises `"%s" is read only`, so a
 //                           caller checking this gets exactly the answer that
 //                           decides whether SetCVar will work.
-//   isStoredServerAccount   Always false. These describe a cvar the server
-//   isStoredServerCharacter stores per account or per character, synchronised
-//                           through the `synchronizeConfig` cvar. That whole
-//                           mechanism postdates this client — there is no
-//                           server cvar sync and no flag bit for one, so false
-//                           is the accurate answer, not a placeholder.
+//   isStoredServerCharacter REAL. True for a CVar::Character cvar, whose value
+//                           lives in the character's config-cache.wtf — the
+//                           file of the per-character account-data section.
+//   isStoredServerAccount   Always false. Config.wtf is the account-wide store
+//                           here, and no cvar is kept in the account section.
 //   isLockedFromUser        Always false. No flag governs it.
 //   isSecure                Always false. Marks cvars that cannot be set while
 //                           in combat, a protection this client has no notion
@@ -46,6 +45,7 @@
 // a console COMMAND's name finds nothing and returns nil — which is the
 // contract's "only accepts console variables" without needing a test for it.
 
+#include "Character.h"
 #include "Factory.h"
 
 #include "Game.h"
@@ -78,7 +78,7 @@ int __fastcall Script_C_CVar_GetCVarInfo(void *L) {
     Game::Lua::PushString(L, value != nullptr ? value : "");
     Game::Lua::PushString(L, defaultValue != nullptr ? defaultValue : "");
     Game::Lua::PushBool(L, false); // isStoredServerAccount
-    Game::Lua::PushBool(L, false); // isStoredServerCharacter
+    Game::Lua::PushBool(L, CVar::Character::Is(cvar)); // isStoredServerCharacter
     Game::Lua::PushBool(L, false); // isLockedFromUser
     Game::Lua::PushBool(L, false); // isSecure
     Game::Lua::PushBool(L, CVar::Factory::IsReadOnly(cvar));
@@ -135,7 +135,8 @@ const Game::Doc::Field kInfoRets[] = {
                    "Nil, with the rest, when no cvar has that name."),
     Game::Doc::Opt("defaultValue", "cstring"),
     Game::Doc::Opt("isStoredServerAccount", "bool", nullptr, "Always false."),
-    Game::Doc::Opt("isStoredServerCharacter", "bool", nullptr, "Always false."),
+    Game::Doc::Opt("isStoredServerCharacter", "bool", nullptr,
+                   "True when each character keeps its own value."),
     Game::Doc::Opt("isLockedFromUser", "bool", nullptr, "Always false."),
     Game::Doc::Opt("isSecure", "bool", nullptr, "Always false."),
     Game::Doc::Opt("isReadOnly", "bool", nullptr, "True when SetCVar refuses to change it."),

@@ -221,7 +221,9 @@ for what each command does, and
 <details>
 <summary><b>CVars</b> — new settings, set with <code>/console name value</code></summary>
 
-Each setting is saved in `WTF\Config.wtf`. Read and write them with `GetCVar`
+Each setting is saved in `WTF\Config.wtf`, except the
+[character cvars](docs/API.md#character-cvars), which each character keeps in
+its own `config-cache.wtf`. Read and write them with `GetCVar`
 / `SetCVar` or `/console`. Click a group name for the full rules. To change
 these settings, the player cache and the ClassicAPI key bindings in the game,
 open the game menu and click AddOn Options. The Settings window opens on

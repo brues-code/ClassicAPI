@@ -173,8 +173,19 @@ enum Offsets {
     // OsWriteFile — `int __fastcall(HANDLE /*ecx*/, const void *buffer /*edx*/,
     // uint32_t size, uint32_t *written)`, `ret 8`.
     FUN_OS_WRITE_FILE = 0x0042A5D0,
+    // "config-cache.wtf" — the file of account-data sections 0 (account) and
+    // 1 (character): the +8 name pointer of records 0x0085DCF0 and 0x0085DD1C
+    // in the 44-byte section table (read from the image). 1.12 lists both
+    // sections in its server sync but never reads or writes the file; 3.3.5
+    // keeps its character-scoped cvars in section 1
+    // (CVar::SaveAll(file, CVAR_SCOPE_CHARACTER)).
+    VAR_STR_CONFIG_CACHE_FILE = 0x0085DEB0,
     // " " — the token delimiter LoadBindings splits a `bind` line's key with.
     VAR_STR_SPACE_DELIM = 0x0082EE00,
+    // " ,;\t\"\r\n" — the console `set` command's token delimiters, which it
+    // splits a Config.wtf `SET name "value"` line with (bytes read from the
+    // image; benilla-re cvar/config, 0x0063D51D and 0x0063D539).
+    VAR_CONSOLE_SET_DELIMS = 0x0080E1D4,
 
     // `lua_touserdata` (per [[docs/LuaCAPI.md]]). With `lua_rawgeti`
     // (LUA_RAWGETI) it is the Set* method prologue's "Lua frame table → C++
