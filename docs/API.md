@@ -1112,6 +1112,7 @@ build instructions.
   - [`GetCritChance()` / `GetRangedCritChance()`](#getcritchance--getrangedcritchance)
   - [`IsUsableSpell(spell)` / `IsUsableSpell(slot, bookType)`](#isusablespellspell--isusablespellslot-booktype)
   - [`C_Spell.IsSpellUsable(spellID)`](#c_spellisspellusablespellid)
+  - [`C_Spell.IsSpellReactiveReady(spell)`](#c_spellisspellreactivereadyspell)
   - [`C_Spell.GetSpellCooldown(spellIdentifier)`](#c_spellgetspellcooldownspellidentifier)
   - [`GetSpellBaseCooldown(spellID)`](#getspellbasecooldownspellid)
   - [`IsAttackSpell(slot, bookType)`](#isattackspellslot-booktype)
@@ -24506,6 +24507,45 @@ local usable, noMana = C_Spell.IsSpellUsable(133)
 -- usable=true, noMana=false  → cast it
 -- usable=false, noMana=true  → drink up
 -- usable=false, noMana=false → unknown spell, wrong stance, dead, or another block
+```
+
+### `C_Spell.IsSpellReactiveReady(spell)`
+
+A ClassicAPI extension. Returns `isReady, comboTargetGUID`. `isReady`
+is `true` when the proc condition of a reactive spell is met now.
+Accepts a spellID, a spell link, or a spell name.
+
+The result tests only the requirements that the spell record gives:
+
+- Combo points. Overpower needs the hidden combo point that a dodge
+  gives. The combo target is not compared with your target.
+- An aura state on you. Revenge and Riposte need the state that a
+  dodge, a parry, or a block gives.
+- An aura state on your target. Execute and Hammer of Wrath need a
+  target below 20% health. The target must also be a valid target for
+  the spell: hostile for a harmful spell, friendly for a helpful spell.
+
+Stance, form, power, reagents, and cooldown are not part of the result.
+Thus a warrior in Defensive Stance can see that Overpower is ready
+before the change to Battle Stance. A spell with none of these
+requirements returns `true`. An unknown spell returns `false`.
+
+`comboTargetGUID` is the GUID of the unit that holds the combo points,
+in the `UnitGUID` format. It is set when the spell needs combo points
+and the count is more than 0. Otherwise it is `nil`. The points stay on
+the unit that gave them. If you dodge on mob A and then target mob B,
+`isReady` is `true`, but Overpower on mob B fails. Compare
+`comboTargetGUID` with `UnitGUID("target")` to find this case.
+
+`SPELL_UPDATE_USABLE` fires when an input of the result changes: your
+combo points, the aura state of you or your target, or your target.
+Read the result again in a handler for that event.
+
+```lua
+local ready, comboTarget = C_Spell.IsSpellReactiveReady("Overpower")
+if ready and (comboTarget == nil or comboTarget == UnitGUID("target")) then
+    -- the dodge window is open on this target, in any stance
+end
 ```
 
 ### `C_Spell.GetSpellCooldown(spellIdentifier)`

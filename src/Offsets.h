@@ -3154,6 +3154,13 @@ enum Offsets {
     // separate haste multiplier, so there is no client-side way to recover
     // the UNHASTED weapon delay from these — that has to come from the
     // weapon's own `OFF_ITEMSTATS_DELAY`. Used by `Combat::Swing`.
+    // `UNIT_FIELD_AURASTATE` (field 0x77): the unit's aura-state bits, bit
+    // n−1 set while aura state n holds (1 defense after a dodge / parry /
+    // block, 2 health below 20%, ...). FUN_SPELL_IS_USABLE tests a record's
+    // CasterAuraState against the player's word and its TargetAuraState
+    // against the target's (`test [eax+0x1dc],edx` at 0x006E3F1E /
+    // 0x006E3F6F; benilla-re spell/checks). Read by `Spell::Reactive`.
+    OFF_UNIT_FIELD_AURASTATE = 0x1DC,
     OFF_UNIT_FIELD_BASEATTACKTIME = 0x1E0,     // main-hand swing time, ms
     OFF_UNIT_FIELD_OFFHANDATTACKTIME = 0x1E4,  // off-hand swing time, ms
     OFF_UNIT_FIELD_RANGEDATTACKTIME = 0x1E8,   // ranged swing time, ms
@@ -13284,10 +13291,27 @@ enum Offsets {
     // Targets 0x8000 and no other spell does (extracted Spell.dbc).
     OFF_SPELL_RECORD_TARGETS = 0x34,
     OFF_SPELL_RECORD_TARGET_CREATURE_TYPE = 0x38,
+    // CasterAuraState / TargetAuraState (columns 16 / 17): aura state n
+    // (0 = none) the caster / target must hold, as bit n−1 of
+    // OFF_UNIT_FIELD_AURASTATE. FUN_SPELL_IS_USABLE reads `[edi+0x40]` /
+    // `[edi+0x44]` (0x006E3F07 / 0x006E3F2A). Extracted Spell.dbc: Revenge
+    // and Riposte caster 1, Execute and Hammer of Wrath target 2.
+    OFF_SPELL_RECORD_CASTER_AURA_STATE = 0x40,
+    OFF_SPELL_RECORD_TARGET_AURA_STATE = 0x44,
+    // AttributesEx REQ_TARGET_COMBO_POINTS (0x100000) | REQ_COMBO_POINTS
+    // (0x400000): FUN_SPELL_IS_USABLE refuses either while the player's
+    // combo point count is 0 (`test [edi+0x1c],0x500000` at 0x006E3E7A, then
+    // the CGPlayer +0x1029 byte; the combo target is not compared). Overpower
+    // carries 0x100000: the server grants a hidden point on a dodge.
+    SPELL_ATTR_EX_REQ_COMBO_POINTS = 0x500000,
     // Implicit target ids (vmangos SpellDefines.h). A Dispel effect (38) aimed
     // at one of these can remove an aura from an enemy: Purge, Shield Slam,
     // Tranquilizing Shot (6); Dispel Magic, Devour Magic (25, any unit).
+    // FUN_SPELL_IS_USABLE's TargetAuraState check also needs the target
+    // attackable for a first implicit target of 6 and assistable for 21
+    // (`cmp [edi+0x148],6` / `0x15` at 0x006E3F77 / 0x006E3F8F).
     TARGET_UNIT_ENEMY = 6,
+    TARGET_UNIT_FRIEND = 21,
     TARGET_UNIT = 25,
     SPELL_EFFECT_DISPEL = 38,
     OFF_SPELL_RECORD_EFFECT_IMPLICIT_TARGET_B = 0x154,// i32[3] implicit target B
