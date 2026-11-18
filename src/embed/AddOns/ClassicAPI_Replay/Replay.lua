@@ -179,6 +179,7 @@ function ClassicAPIReplay_OnLoad(self)
 	self:SetScript("OnHide", function()
 		ns.SetPlaying(false);
 		ns.flying = {};
+		ns.HideUnitTooltip();
 	end);
 	self:SetScript("OnEvent", OnEvent);
 	self:RegisterEvent("COMBAT_LOG_REPLAY_ENCOUNTERS_READY");
@@ -227,6 +228,7 @@ function ClassicAPIReplay_OnLoad(self)
 	-- on the same spell closes.
 	local spellTooltip = self.SpellTooltip;
 	ns.SetFrameLevels(spellTooltip, ns.scene:GetFrameLevel() + 10);
+	ns.SetFrameLevels(self.UnitTooltip, ns.scene:GetFrameLevel() + 10);
 	ns.feed:SetScript("OnHyperlinkClick", function(_, link)
 		local _, _, time = string.find(link, "^replay:(.+)$");
 		if time then
@@ -261,6 +263,15 @@ function ClassicAPIReplay_OnLoad(self)
 	ns.unitFrame.TargetOfTarget:SetScript("OnClick", function(tot)
 		ns.SetFocus(tot.unit);
 	end);
+	-- Each shows its unit's tooltip, as UnitFrame_OnEnter does.
+	ns.unitFrame:SetScript("OnEnter", function(f)
+		ns.ShowUnitTooltip(f, ns.focus);
+	end);
+	ns.unitFrame.TargetOfTarget:SetScript("OnEnter", function(tot)
+		ns.ShowUnitTooltip(tot, tot.unit);
+	end);
+	ns.unitFrame:SetScript("OnLeave", ns.HideUnitTooltip);
+	ns.unitFrame.TargetOfTarget:SetScript("OnLeave", ns.HideUnitTooltip);
 	local view = CreateScrollBoxListLinearView();
 	view:SetElementExtent(UNIT_ROW_HEIGHT);
 	view:SetElementInitializer("ClassicAPIReplayUnitRowTemplate", ns.InitUnitRow);

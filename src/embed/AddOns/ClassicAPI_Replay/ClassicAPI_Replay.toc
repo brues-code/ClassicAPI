@@ -12,6 +12,7 @@ Combat.lua
 Map.lua
 UnitFrame.lua
 UnitList.lua
+UnitTooltip.lua
 Playback.lua
 Replay.lua
 Replay.xml

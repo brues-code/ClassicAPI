@@ -41,6 +41,7 @@ local function ReleaseUnits()
 	ns.unitOfActor = {};
 	ns.focus = nil;
 	ns.unitFrame:Hide();
+	ns.HideUnitTooltip();
 end
 ns.ReleaseUnits = ReleaseUnits;
 

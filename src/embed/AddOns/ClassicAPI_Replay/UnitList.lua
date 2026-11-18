@@ -58,10 +58,20 @@ local function OnUnitRowClick(row)
 	SetFocus(row.unit);
 end
 
+local function OnUnitRowEnter(row)
+	ns.ShowUnitTooltip(row, row.unit);
+end
+
+local function OnUnitRowLeave(row)
+	ns.HideUnitTooltip(row);
+end
+
 local function InitUnitRow(row, u)
 	row.unit = u;
 	row.Text:SetText(u.name ~= "" and u.name or UNKNOWN);
 	row:SetScript("OnClick", OnUnitRowClick);
+	row:SetScript("OnEnter", OnUnitRowEnter);
+	row:SetScript("OnLeave", OnUnitRowLeave);
 	UpdateUnitRow(row);
 end
 ns.InitUnitRow = InitUnitRow;

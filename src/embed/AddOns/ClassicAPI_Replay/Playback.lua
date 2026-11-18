@@ -124,6 +124,7 @@ local function OnUpdate(self, elapsed)
 	ns.FollowFocus();
 	ns.UpdateUnitList();
 	ns.UpdateUnitFrame(ns.now);
+	ns.UpdateUnitTooltip();
 	UpdateTimeline(ns.now >= ns.duration);
 end
 ns.OnUpdate = OnUpdate;

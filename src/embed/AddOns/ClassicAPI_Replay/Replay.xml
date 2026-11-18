@@ -367,6 +367,17 @@
 					</OnDragStop>
 				</Scripts>
 			</GameTooltip>
+			<!-- A unit's tooltip, the window's own GameTooltip, at the scene's
+			     bottom right as the world's mouseover tooltip sits at the
+			     screen's (GameTooltip_SetDefaultAnchor). UnitTooltip.lua
+			     places it. -->
+			<GameTooltip name="ClassicAPIReplayUnitTooltip" parentKey="UnitTooltip" inherits="GameTooltipTemplate" hidden="true">
+				<Scripts>
+					<OnLoad>
+						GameTooltip_OnLoad();
+					</OnLoad>
+				</Scripts>
+			</GameTooltip>
 			<Button parentKey="BackButton">
 				<Size x="26" y="26"/>
 				<Anchors>
