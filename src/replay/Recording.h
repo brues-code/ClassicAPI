@@ -152,6 +152,16 @@ struct Cast {
     int32_t interrupter = -1; // the unit whose SPELL_INTERRUPT stopped it
 };
 
+// A player's guild from its PLAYER_INFO lines, as GetGuildInfo(unit) gave it
+// on the recorder's client: the guild's and the rank's names, empty until
+// that client had the guild, and the rank (0 the guild master).
+struct Guild {
+    std::string name;
+    std::string rankName;
+    int32_t rank = -1; // -1 with no guild
+    bool operator==(const Guild &o) const { return rank == o.rank && name == o.name && rankName == o.rankName; }
+};
+
 // UNIT_STATE: whom the unit targets and who owns it (unit indexes, -1 for
 // none), UNIT_FIELD_FLAGS, its level, its FactionTemplate id, its dynamic
 // flags, and from the recording player's view its reaction toward that
@@ -185,6 +195,7 @@ struct Unit {
     std::vector<Span> spans; // empty when the movement file has no UNIT_INFO for it
     std::vector<std::pair<int32_t, Look>> looks;
     std::vector<std::pair<int32_t, Appearance>> appearances; // a player's
+    std::vector<std::pair<int32_t, Guild>> guilds; // a player's, each from the time it changed
     std::vector<AuraSpan> auras;
     // Its health at each advanced block that describes it, and 0 at its
     // UNIT_DIED.
@@ -322,6 +333,9 @@ const Cast *CastAt(const Unit &unit, int32_t t);
 
 // The unit's raid target mark at `t`, 0 for none.
 int MarkAt(const Unit &unit, int32_t t);
+
+// The player's guild at `t`, null before its first PLAYER_INFO.
+const Guild *GuildAt(const Unit &unit, int32_t t);
 
 // The movement file's state, and health and power, of the unit at `t`; null
 // before the first, or with no movement file lines for it.

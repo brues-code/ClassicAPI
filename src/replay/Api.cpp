@@ -640,6 +640,21 @@ int __fastcall Script_GetUnitRaidTargetIndex(void *L) {
     return 1;
 }
 
+// A player's guild at a time, as GetGuildInfo(unit) gave it on the
+// recorder's client; nil with none, or before that client had the guild.
+int __fastcall Script_GetUnitGuild(void *L) {
+    const Unit *unit = UnitArg(L, "Usage: C_CombatLogReplay.GetUnitGuild(unitIndex, time)");
+    const Guild *guild = unit != nullptr ? GuildAt(*unit, TimeArg(L)) : nullptr;
+    if (guild == nullptr || guild->name.empty()) {
+        Lua::PushNil(L);
+        return 1;
+    }
+    Lua::PushString(L, guild->name.c_str());
+    Lua::PushString(L, guild->rankName.c_str());
+    Lua::PushNumber(L, guild->rank);
+    return 3;
+}
+
 // The time of day the recorder's world was lit by at a time (the movement
 // file's GAME_TIME lines), nil without them.
 int __fastcall Script_GetTimeOfDay(void *L) {
@@ -1084,6 +1099,16 @@ const Game::Doc::Function kGetUnitRaidTargetIndex{
     "has marks only while its recorder was in a group, and a change shows from the unit's next line.",
     kUnitTimeArgs, kGetUnitRaidTargetIndexRets, nullptr, true};
 
+const Game::Doc::Field kGetUnitGuildRets[] = {
+    Opt("guildName", "cstring", nullptr,
+        "Nil when the player had no guild, or before the recorder's client knew its guild."),
+    Opt("guildRankName", "cstring"),
+    Opt("guildRankIndex", "number", nullptr, "0 is the guild master."),
+};
+const Game::Doc::Function kGetUnitGuild{
+    "Returns a replay player's guild at a time, as GetGuildInfo gave it on the recorder's client.",
+    kUnitTimeArgs, kGetUnitGuildRets, nullptr, true};
+
 const Game::Doc::Field kGetTimeOfDayArgs[] = {
     Req("time", "number", "Seconds from the replay's start."),
 };
@@ -1213,6 +1238,7 @@ void RegisterLuaFunctions() {
     Lua::RegisterTableFunction(kTable, "GetUnitRaidTargetIndex", &Script_GetUnitRaidTargetIndex,
                                &kGetUnitRaidTargetIndex);
     Lua::RegisterTableFunction(kTable, "GetTimeOfDay", &Script_GetTimeOfDay, &kGetTimeOfDay);
+    Lua::RegisterTableFunction(kTable, "GetUnitGuild", &Script_GetUnitGuild, &kGetUnitGuild);
     Lua::RegisterTableFunction(kTable, "GetUnitHealth", &Script_GetUnitHealth, &kGetUnitHealth);
     Lua::RegisterTableFunction(kTable, "GetUnitPower", &Script_GetUnitPower, &kGetUnitPower);
     Lua::RegisterTableFunction(kTable, "GetUnitState", &Script_GetUnitState, &kGetUnitState);

@@ -86,7 +86,8 @@ struct Look {
     uint32_t heldInfo[kHands * 2];
 };
 
-// A player's PLAYER_INFO fields. Dwords only.
+// A player's PLAYER_INFO fields. Plain data, made zeroed, so two compare
+// with memcmp.
 struct Dress {
     uint32_t race;
     uint32_t classId;
@@ -99,6 +100,12 @@ struct Dress {
     uint32_t flags;
     Model::Outfit::Worn worn;
     int32_t emblem[5]; // its guild's tabard emblem, GetGuildEmblem's order; -1 unknown
+    // Its guild as GetGuildInfo gives it: the rank (-1 with no guild), and
+    // the guild's and the rank's names from the guild cache, empty until it
+    // has the guild. The rank name is masked only when written.
+    int32_t guildRank;
+    char guildName[Offsets::GUILD_RECORD_NAME_SIZE];
+    char rankName[Offsets::GUILD_RECORD_RANK_NAME_SIZE];
 };
 
 // A unit's UNIT_CAST fields; all 0 while it neither casts nor channels.
@@ -191,10 +198,41 @@ void ReadEmblem(uint64_t guid, uint32_t guild, int32_t (&emblem)[5]) {
         &emblem[1], &emblem[2], &emblem[3], &emblem[4]);
 }
 
+// Kept by the guild cache with a query: the next frame's walk finds the
+// record, and the changed dress writes a new line.
+void __fastcall OnGuildRecord(uint32_t, const uint64_t *, uint32_t, uint32_t) {}
+
+// A cache string into a zeroed field, cut to fit.
+template <std::size_t N>
+void CopyText(char (&out)[N], const uint8_t *text) {
+    for (std::size_t i = 0; i + 1 < N && text[i] != 0; ++i)
+        out[i] = static_cast<char>(text[i]);
+}
+
+// The player's guild and rank names from the guild cache, as GetGuildInfo
+// (0x004C9330) reads them, asking the server for a guild the cache does not
+// have, as GetGuildInfo does.
+void ReadGuild(uint64_t guid, uint32_t guild, uint32_t rank, Dress &dress) {
+    using GetRecord_t = const uint8_t *(__thiscall *)(void *cache, uint32_t guild, const uint64_t *owner,
+                                                       void(__fastcall *)(uint32_t, const uint64_t *, uint32_t,
+                                                                          uint32_t),
+                                                       void *data, bool once);
+    const uint8_t *record = reinterpret_cast<GetRecord_t>(Offsets::FUN_GUILD_GET_RECORD)(
+        reinterpret_cast<void *>(static_cast<uintptr_t>(Offsets::VAR_GUILD_CACHE)), guild, &guid, &OnGuildRecord,
+        nullptr, true);
+    if (record == nullptr)
+        return;
+    CopyText(dress.guildName, record + Offsets::OFF_GUILD_RECORD_NAME);
+    if (rank < Offsets::GUILD_RECORD_RANKS)
+        CopyText(dress.rankName,
+                 record + Offsets::OFF_GUILD_RECORD_RANK_NAMES + rank * Offsets::GUILD_RECORD_RANK_NAME_SIZE);
+}
+
 Dress ReadDress(uint64_t guid, void *player, const uint8_t *fields) {
     Dress dress{};
     for (int32_t &v : dress.emblem)
         v = -1;
+    dress.guildRank = -1;
     dress.race = fields[Offsets::OFF_UNIT_DESCRIPTOR_RACE_BYTE];
     dress.classId = fields[Offsets::OFF_UNIT_DESCRIPTOR_CLASS_BYTE];
     dress.sex = fields[Offsets::OFF_UNIT_DESCRIPTOR_SEX_BYTE];
@@ -208,8 +246,12 @@ Dress ReadDress(uint64_t guid, void *player, const uint8_t *fields) {
     dress.hairColor = bytes[3];
     dress.facialHair = info[Offsets::OFF_PLAYER_INFO_BYTES_2];
     dress.flags = Game::Read<uint32_t>(info, Offsets::OFF_PLAYER_INFO_FLAGS);
-    if (const uint32_t guild = Game::Read<uint32_t>(info, Offsets::OFF_PLAYER_INFO_GUILD_ID))
+    if (const uint32_t guild = Game::Read<uint32_t>(info, Offsets::OFF_PLAYER_INFO_GUILD_ID)) {
+        const uint32_t rank = Game::Read<uint32_t>(info, Offsets::OFF_PLAYER_INFO_GUILD_RANK);
+        dress.guildRank = static_cast<int32_t>(rank);
+        ReadGuild(guid, guild, rank, dress);
         ReadEmblem(guid, guild, dress.emblem);
+    }
     for (int slot = 0; slot < Model::Outfit::kInventorySlots; ++slot) {
         const uint8_t *item = Item::ID::VisibleEntry(player, slot);
         if (item == nullptr)
@@ -424,6 +466,12 @@ void WriteDress(uint64_t guid, const Dress &dress) {
     }
     for (const int32_t v : dress.emblem)
         AppendSigned(line, v);
+    AppendSigned(line, dress.guildRank);
+    File::AppendQuoted(line, dress.guildName);
+    char rankName[sizeof dress.rankName];
+    std::memcpy(rankName, dress.rankName, sizeof rankName);
+    reinterpret_cast<void(__fastcall *)(char *, bool)>(Offsets::FUN_MASK_PROFANITY)(rankName, true);
+    File::AppendQuoted(line, rankName);
     Movement::Emit(line);
 }
 

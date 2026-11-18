@@ -5647,6 +5647,30 @@ enum Offsets {
     // PLAYER_GUILDID (player index 3): CGPlayer_C::ApplyTabard (0x005E0762)
     // and the dressing room's tabard arm (0x00504894) read it here.
     OFF_PLAYER_INFO_GUILD_ID = 0x0C,
+    // PLAYER_GUILDRANK (player index 4), which Script_GetGuildInfo
+    // (0x004C9330, disassembled) reads here for the rank number and the
+    // rank name's index.
+    OFF_PLAYER_INFO_GUILD_RANK = 0x10,
+    // The guild cache (benilla-re ui/guild "The guild cache", dbcache
+    // "Asking for a record"): GuildGetRecord `__thiscall(cache, guildID,
+    // const uint64_t *owner, callback, data, bool once)` ret 0x14
+    // (0x00560E30) returns the record, else null; on a miss it sends
+    // CMSG_GUILD_QUERY only when given a callback, which it keeps (once: not
+    // again for the same function and data), and calls `__fastcall(guildID,
+    // const uint64_t *owner, status, data)` ret 8 when the answer comes
+    // (OnGuildInfoArrived 0x004C9470). The record: the name at +0x04 (the
+    // decoder bounds it at 0x60), ten rank names of 0x40 bytes from +0x64.
+    // GetGuildInfo returns the name as stored and the rank name copied and
+    // masked by MaskProfanity `__fastcall(char *text, bool)` (0x004A1A60,
+    // with 1), and does not bound the rank.
+    VAR_GUILD_CACHE = 0x00C0E1EC,
+    FUN_GUILD_GET_RECORD = 0x00560E30,
+    OFF_GUILD_RECORD_NAME = 0x04,
+    GUILD_RECORD_NAME_SIZE = 0x60,
+    OFF_GUILD_RECORD_RANK_NAMES = 0x64,
+    GUILD_RECORD_RANK_NAME_SIZE = 0x40,
+    GUILD_RECORD_RANKS = 10,
+    FUN_MASK_PROFANITY = 0x004A1A60,
     // PLAYER_BYTES (player index 5) and PLAYER_BYTES_2 (index 6) in the same
     // block: skin, face, hair style and hair color at +0x14..+0x17, facial
     // hair at +0x18. CGUnit_C::BuildCharacterComponent (0x005FB200) reads the

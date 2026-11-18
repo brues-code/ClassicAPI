@@ -5,7 +5,9 @@
 -- scene's bottom right as the world's mouseover tooltip sits at the screen's
 -- (GameTooltip_SetDefaultAnchor), above a spell link's tooltip while one is
 -- open there. A unit under the cursor in the scene shows it, and so do the
--- unit list's rows, the unit frame and its target of target.
+-- unit list's rows, the unit frame and its target of target. A player's
+-- guild is the line under its name, as the 3.3.5 and 4.3.4 builders add it
+-- (white, the guild's name alone); 1.12's has none.
 --
 -- Left out: a player's PvP rank title (not recorded), the owner line (the
 -- movement file does not tell a charmer from a creator, which picks its
@@ -95,8 +97,9 @@ local function LevelLine(u, time, level, reaction, info, dead)
 	return string.format(TOOLTIP_UNIT_LEVEL, levelText);
 end
 
--- The name, a creature's subtitle, the level line and the health bar. A new
--- build hides the bar (0x00530050), so each build shows it again.
+-- The name, a player's guild or a creature's subtitle, the level line and
+-- the health bar. A new build hides the bar (0x00530050), so each build
+-- shows it again.
 local function Build(u, time)
 	local tooltip = ns.frame.UnitTooltip;
 	local _, _, flags, level, _, _, reaction = C_CombatLogReplay.GetUnitState(u.index, time);
@@ -104,6 +107,10 @@ local function Build(u, time)
 	local info = not u.isPlayer and u.creatureID and C_CreatureInfo.GetCreatureInfoByID(u.creatureID);
 	local dead = u.dead or (health and health <= 0);
 	tooltip:SetText(u.name ~= "" and u.name or UNKNOWN, NameColor(u, flags or 0, reaction));
+	local guildName = u.isPlayer and C_CombatLogReplay.GetUnitGuild(u.index, time);
+	if guildName then
+		tooltip:AddLine(guildName, 1, 1, 1);
+	end
 	if info and info.subName and info.subName ~= "" then
 		tooltip:AddLine(info.subName, 1, 1, 1);
 	end

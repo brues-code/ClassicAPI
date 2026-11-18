@@ -314,7 +314,17 @@ void Loader::PlayerInfo(const Line::Fields &f, int32_t t) {
     constexpr int kEmblem = 11 + Appearance::kSlots * 2;
     for (int i = 0; i < 5; ++i)
         a.emblem[i] = f.Int(kEmblem + i);
-    AddAppearance(Get(f[1]), t, a);
+    Unit &unit = Get(f[1]);
+    AddAppearance(unit, t, a);
+    constexpr int kGuild = kEmblem + 5;
+    Guild guild;
+    guild.rank = f.Int(kGuild);
+    guild.name = f.Text(kGuild + 1);
+    guild.rankName = f.Text(kGuild + 2);
+    if (guild.rank < 0 || guild.name.empty())
+        guild = Guild{};
+    if (unit.guilds.empty() || !(unit.guilds.back().second == guild))
+        AddAt(unit.guilds, t, std::move(guild));
 }
 
 void Loader::UnitSpeed(const Line::Fields &f, int32_t t) {

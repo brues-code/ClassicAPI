@@ -69,13 +69,18 @@
 //     UNIT_VIRTUAL_ITEM_INFO dwords per hand);
 //   PLAYER_INFO,unitGUID,race,class,sex,skin,face,hairStyle,hairColor,
 //     facialHair,playerFlags,item1,enchant1,...,item19,enchant19,
-//     emblemStyle,emblemColor,borderStyle,borderColor,backgroundColor
+//     emblemStyle,emblemColor,borderStyle,borderColor,backgroundColor,
+//     guildRank,"guildName","guildRankName"
 //     after a player's UNIT_INFO, and each time it changes: what the client
-//     dresses a player in its own display with. Each inventory slot gives
-//     its item and the enchant whose glow it shows, 0 for none; the five
-//     emblem values are the guild's tabard emblem from the guild cache
-//     (GetGuildEmblem), all -1 while the client has no record of the guild
-//     or the player has none (version 5);
+//     dresses a player in its own display with, and its guild. Each
+//     inventory slot gives its item and the enchant whose glow it shows, 0
+//     for none; the five emblem values are the guild's tabard emblem from the
+//     guild cache (GetGuildEmblem), all -1 while the client has no record of
+//     the guild or the player has none (version 5). The guild is what
+//     GetGuildInfo(unit) gives: the rank (PLAYER_GUILDRANK, -1 with no
+//     guild), and the guild's name and the rank's (masked) from the guild
+//     cache, both "" until the cache has the guild, which the recorder asks
+//     the server for;
 //   UNIT_NAME,unitGUID,"name"
 //     the name the client has for a player (name cache), a pet (pet name
 //     cache) or a creature (its creature record), when it first has one and
