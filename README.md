@@ -169,7 +169,7 @@ the glue state because GlueXML had no way to reach them otherwise.
 | Group | Calls |
 |-------|-------|
 | [Account](docs/API.md#account) | `SaveAccount`, `DeleteAccount`, `GetSavedAccounts`, `LoginWithSavedAccount` (passwords encrypted in Windows Credential Manager, scoped per realmlist; plaintext never returned to Lua) |
-| [CharacterList](docs/API.md#characterlist) | `GetSavedCharacterOrder`, `SetSavedCharacterOrder` (persist to `WTF\Account\...\ClassicAPI.txt`) |
+| [CharacterList](docs/API.md#characterlist) | `SaveCharacterOrder` (persists to `WTF\Account\...\character-list-order.txt`; the list loads in the saved order) |
 | CVar | `GetCVar`, `SetCVar`, `RegisterCVar`, `GetCVarDefault`, `C_CVar.GetCVarBool`, `C_CVar.SetTempCVar`, `C_CVar.RemoveTempCVar` (storage is process-global — writes from glue are visible in-world and vice versa) |
 | [Glue](docs/API.md#glue) | `C_Glue.IsFirstLoadThisSession`, `C_Glue.IsOnGlueScreen` |
 | [Input](docs/API.md#getcursordelta) | `GetCursorDelta` |

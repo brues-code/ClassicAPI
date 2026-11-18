@@ -229,6 +229,12 @@ struct Function {
     bool extension;      // a ClassicAPI-original API, not a Blizzard one
 };
 
+// The descriptor of a DEPRECATED registration: a name kept working for code
+// written against it, superseded by another API. Passing it in place of a
+// real descriptor records nothing, so the name lists in no system and the
+// coverage report does not count it as undocumented.
+extern const Function Deprecated;
+
 // Pairs a frame method with its descriptor BY NAME (the engine's method
 // tables are name-keyed; `SetShown` exists on four registries with four
 // function pointers). Order is free; unmatched names are reported.

@@ -88,7 +88,7 @@ build instructions.
   - [`C_KeyBindings.GetBindingContextForAction(action)` / `C_KeyBindings.GetCustomBindingType(bindingIndex)`](#c_keybindingsgetbindingcontextforactionaction--c_keybindingsgetcustombindingtypebindingindex)
 
 - [CharacterList](#characterlist)
-  - [`GetSavedCharacterOrder(realm)` / `SetSavedCharacterOrder(realm, order)` — GlueXML only](#getsavedcharacterorderrealm--setsavedcharacterorderrealm-order--gluexml-only)
+  - [`SaveCharacterOrder(translationTable)` — GlueXML only](#savecharacterordertranslationtable--gluexml-only)
 
 - [Chat](#chat)
   - [`GetCurrentChatEvent()`](#getcurrentchatevent)
@@ -2934,66 +2934,53 @@ actions, so no action has a binding context of its own. The client has no
 custom binding types.
 ## CharacterList
 
-### `GetSavedCharacterOrder(realm)` / `SetSavedCharacterOrder(realm, order)` — GlueXML only
+### `SaveCharacterOrder(translationTable)` — GlueXML only
 
-Persists a user-chosen ordering for the character-select list, per realm,
-per account. Designed for GlueXML mods that add drag-to-reorder to the
-character-select screen — but since the storage is a plain text file
-you can also pre-populate it by hand.
+Saves the order of the character list on the character-select screen. The
+order is kept for each realm on the account. From the next time the
+character list arrives, the client gives the characters in this order:
+`GetCharacterInfo(1)` is the first character in the saved order, and
+`SelectCharacter` and `DeleteCharacter` use the same indices.
 
 > **Only callable from the login / character-select screens** (the
-> "glue" Lua state). Calling them from an in-world addon errors with
-> "attempt to call nil" — they aren't registered there.
+> "glue" Lua state). In-world Lua does not have this function.
 
-- `GetSavedCharacterOrder(realm)` — returns the saved order for
-  `realm` as a string, or `""` if none has been saved. Never `nil`.
-- `SetSavedCharacterOrder(realm, order)` — writes the order string.
-  Pass `""` to clear the saved entry for that realm.
+- `translationTable` — a table with one entry for each character. Entry
+  `i` is the character index (as `GetCharacterInfo` takes it) of the
+  character that shows at position `i`.
 
-The `order` value is a pipe-delimited list of character names, e.g.
-`"Thrall|Jaina|Sylvanas"`. Names are matched case-sensitively against
-what `GetCharacterInfo` returns.
+The function saves nothing when the table does not have a valid index for
+each character. It does not change the list that is on the screen now.
+The order applies when the client gets the character list again, for
+example after you log out of the world.
+
+The client remembers the last character that entered the world by its GUID
+(the `lastCharacterGuid` console variable). When the list loads, that
+character is selected, also after the order changes.
+
+Characters that are not in the saved order, for example a new character,
+show after the saved characters.
 
 #### Storage file
 
-Saved to `WTF\Account\<ACCOUNT>\ClassicAPI.txt`, one line per realm:
+The order is saved in `WTF\Account\<ACCOUNT>\character-list-order.txt`:
 
-```ini
-CharacterOrder.MyRealm=Thrall|Jaina|Sylvanas
-CharacterOrder.AnotherRealm=Foo|Bar
+```text
+Version: 1
+MyRealm 0x0000000000012A4F 1
+MyRealm 0x0000000000009C10 2
+Another Realm 0x0000000000031B77 1
 ```
 
-`<ACCOUNT>` is the account name the launcher logged in with
-(uppercase, the same folder name WoW uses for SavedVariables). The
-realm key on each line is whatever string was passed as `realm` —
-typically the result of `GetServerName()`. This file is shared with
-other ClassicAPI account-scoped settings, so don't be surprised to
-see unrelated `Key=Value` lines in it; leave them alone.
-
-You can pre-populate the file by hand if you don't have a GlueXML mod
-that calls `SetSavedCharacterOrder`. Just create or edit
-`ClassicAPI.txt` in the correct account folder before launching the
-game — any GlueXML code that reads `GetSavedCharacterOrder(realm)`
-will see your saved order.
+Each line has the realm name, the character GUID (in the format that
+`UnitGUID` uses) and the position of the character (1 is the first).
 
 #### Addon example
 
 ```lua
--- GlueXML, e.g. CharacterSelect.lua: persist the user's drag-reordered list
-local realm = GetServerName() or ""
-local names = {}
-for i = 1, GetNumCharacters() do
-    table.insert(names, (GetCharacterInfo(translationTable[i])))
-end
-SetSavedCharacterOrder(realm, table.concat(names, "|"))
-
--- On the next CHARACTER_LIST_UPDATE: read the saved order back
-local saved = GetSavedCharacterOrder(realm)
-if saved ~= "" then
-    for name in string.gfind(saved, "([^|]+)") do
-        -- reconcile against the current GetCharacterInfo names
-    end
-end
+-- GlueXML, e.g. CharacterSelect.lua. translationTable[i] is the
+-- character index shown at position i after a drag-to-reorder.
+SaveCharacterOrder(translationTable)
 ```
 
 ## Chat

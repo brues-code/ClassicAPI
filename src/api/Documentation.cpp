@@ -134,7 +134,7 @@ Entry *Find(Kind kind, const char *table, const char *name, const void *registry
 
 void Record(Kind kind, const char *table, const char *name, const void *registry,
             const Function *doc) {
-    if (g_pass == ENV_NONE || name == nullptr)
+    if (g_pass == ENV_NONE || name == nullptr || doc == &Game::Doc::Deprecated)
         return;
     if (Entry *e = Find(kind, table, name, registry)) {
         e->env |= g_pass;
@@ -746,6 +746,8 @@ void RecordConstants(const char *sub, Game::ArrayRef<Game::Lua::EnumIntegerEntry
 }
 
 } // namespace Api::Documentation
+
+const Game::Doc::Function Game::Doc::Deprecated{nullptr, {}, {}, nullptr, false};
 
 // The Structure constructor lives here so the list head is private to this
 // TU; declared in Game.h beside the other descriptor types.

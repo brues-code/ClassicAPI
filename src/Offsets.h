@@ -13722,11 +13722,10 @@ enum Offsets {
     // `FUN_0046B500` — the enter-world worker behind `Script_EnterWorld` (the
     // glue "Enter World" button: `Script_EnterWorld` is just `call this; ret`).
     // Computes the selected character's struct into VAR_GLUE_SELECTED_CHAR and,
-    // on success, sets VAR_GLUE_LOGIN_INPROGRESS = 8. `Unit::Identity` co-hooks
-    // it to capture the selected character's GUID *before* the engine creates
-    // the in-world player object — so `UnitGUID("player")` / `PlayerGuid()`
-    // answer from addon-load time instead of returning nil/0 until the
-    // SMSG_UPDATE_OBJECT that populates the player object (≈PLAYER_LOGIN).
+    // on success, sets VAR_GLUE_LOGIN_INPROGRESS = 8. Co-hooked once, by
+    // `Glue::EnterWorld`, which fans committed entries out to subscribers
+    // (`Unit::Identity` captures the GUID for `UnitGUID("player")` before the
+    // player object exists; `Charlist::Order` stores `lastCharacterGuid`).
     FUN_GLUE_ENTER_WORLD = 0x0046B500,
 
     // Selected-character struct pointer (glue): char-array base +
@@ -13736,6 +13735,25 @@ enum Offsets {
     // `0x004732A0`). Entries are filled from SMSG_CHAR_ENUM.
     VAR_GLUE_SELECTED_CHAR = 0x00B41DF4,
     OFF_GLUE_CHAR_GUID = 0x00,
+    OFF_GLUE_CHAR_NAME = 0x08,
+
+    // The character-select roster: a growable array of 0x120-byte records
+    // whose first 0x110 bytes copy net's records (OFF_CLIENT_CONNECTION_CHARS),
+    // count at VAR_GLUE_ROSTER_COUNT, records at VAR_GLUE_ROSTER_RECORDS. The
+    // glue script functions take a 1-based roster index (`GetCharacterInfo`,
+    // `SelectCharacter`, `DeleteCharacter`). Disassembled 0x004724D0 /
+    // 0x00472740; benilla-re glue/select.
+    VAR_GLUE_ROSTER_COUNT = 0x00B42140,
+    VAR_GLUE_ROSTER_RECORDS = 0x00B42144,
+    GLUE_ROSTER_STRIDE = 0x120,
+
+    // LoadCharSelectRoster — `void __cdecl(void)`, called only from the glue
+    // Idle in state 3 once a character list arrives. Empties the roster,
+    // copies net's records into it IN NET'S ARRAY ORDER (through
+    // ClientConnection::EnumerateCharacters 0x005AABE0, whose only caller this
+    // is), selects the `lastCharacterIndex` cvar's integer and fires
+    // CHARACTER_LIST_UPDATE. Disassembled; benilla-re glue/select#roster-load.
+    FUN_LOAD_CHAR_SELECT_ROSTER = 0x004724D0,
 
     // Cursor state — single global type-tag at VAR_CURSOR_TYPE
     // dispatches reads through one of several payload slots depending

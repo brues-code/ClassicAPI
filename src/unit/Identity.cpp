@@ -18,6 +18,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "glue/EnterWorld.h"
 #include "guid/Guid.h"
 #include "nameplate/Walk.h"
 #include "object/Resolve.h"
@@ -39,7 +40,7 @@ using FindUnitByName_t = uint64_t(__fastcall *)(const char *name, uint32_t typeM
 static constexpr uint32_t kMaxDistanceFltMax = 0x7F7FFFFF;
 
 // The selected character's GUID, captured at the glue "Enter World" click
-// (the FUN_GLUE_ENTER_WORLD co-hook below) — i.e. before the engine has
+// (the Glue::EnterWorld subscriber below) — i.e. before the engine has
 // created the in-world player object whose +0xC0 holds the live GUID.
 // `PlayerGuid()` serves this as a fallback during the early-login window so
 // `UnitGUID("player")` answers from addon-load time instead of returning nil
@@ -49,28 +50,11 @@ static constexpr uint32_t kMaxDistanceFltMax = 0x7F7FFFFF;
 // once that's populated.
 static uint64_t g_charSelectGuid = 0;
 
-// `FUN_GLUE_ENTER_WORLD` is `void(void)` (no args). Co-hook it to snapshot the
-// selected character's GUID once the entry is committed.
-using EnterWorld_t = void(__cdecl *)();
-static EnterWorld_t g_origEnterWorld = nullptr;
-
-static void __cdecl EnterWorld_h() {
-    g_origEnterWorld();
-    // Only on a genuine commit — the rename / char-locked bail paths return
-    // before the worker sets the state code to "entering world".
-    if (Game::Read<int>(Offsets::VAR_GLUE_LOGIN_INPROGRESS) !=
-        Offsets::GLUE_STATE_ENTERING_WORLD)
-        return;
-    const uintptr_t charStruct =
-        Game::Read<uintptr_t>(Offsets::VAR_GLUE_SELECTED_CHAR);
-    if (charStruct != 0)
-        g_charSelectGuid = *reinterpret_cast<const uint64_t *>(
-            charStruct + Offsets::OFF_GLUE_CHAR_GUID);
+static void OnEnterWorld(const uint8_t *character) {
+    g_charSelectGuid = Game::Read<uint64_t>(character, Offsets::OFF_GLUE_CHAR_GUID);
 }
 
-static const Game::HookAutoRegister _enterWorldHook{
-    Offsets::FUN_GLUE_ENTER_WORLD, reinterpret_cast<void *>(&EnterWorld_h),
-    reinterpret_cast<void **>(&g_origEnterWorld)};
+static const Glue::EnterWorld::AutoSubscribe _enterWorld{&OnEnterWorld};
 
 // FUN_TOKEN_TO_GUID's `"player"` path resolves the GUID by looking the
 // local player up in the engine's object manager: it calls FUN_00468550
