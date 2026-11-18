@@ -5,5 +5,13 @@
 ## Version: DEV
 ## LoadOnDemand: 1
 locales\enUS.lua
+Core.lua
+Bars.lua
+Units.lua
+Combat.lua
+Map.lua
+UnitFrame.lua
+UnitList.lua
+Playback.lua
 Replay.lua
 Replay.xml
