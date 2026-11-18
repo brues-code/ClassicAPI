@@ -54,6 +54,25 @@ const char *IconPath(const uint8_t *spellRecord, bool active) {
                             Offsets::OFF_SPELLICON_PATH);
 }
 
+const char *DisplayIconPath(const uint8_t *spellRecord) {
+    if (spellRecord == nullptr)
+        return nullptr;
+    using WeaponIconPath_t = const char *(__cdecl *)();
+    if (Game::Read<int32_t>(spellRecord, Offsets::OFF_SPELL_RECORD_EFFECT) ==
+        Offsets::SPELL_EFFECT_ATTACK)
+        return reinterpret_cast<WeaponIconPath_t>(
+            static_cast<uintptr_t>(Offsets::FUN_ATTACK_ICON_PATH))();
+    if ((Game::Read<uint32_t>(spellRecord, Offsets::OFF_SPELL_RECORD_ATTRIBUTES) &
+         Offsets::SPELL_ATTR_RANGED) != 0 &&
+        (Game::Read<uint32_t>(spellRecord, Offsets::OFF_SPELL_RECORD_ATTRIBUTES_EX2) &
+         Offsets::SPELL_ATTR_EX2_AUTOREPEAT_FLAG) != 0) {
+        if (const char *ranged = reinterpret_cast<WeaponIconPath_t>(
+                static_cast<uintptr_t>(Offsets::FUN_RANGED_ICON_PATH))())
+            return ranged;
+    }
+    return IconPath(spellRecord, false);
+}
+
 bool IsFitToFamily(const uint8_t *spellRecord, uint32_t family,
                    uint64_t flagMask) {
     if (spellRecord == nullptr)

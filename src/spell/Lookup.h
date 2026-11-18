@@ -127,6 +127,14 @@ int FindSpellbookSlot(int spellID, int *outBookType);
 // fallback to the base icon when the active one is 0.
 const char *IconPath(const uint8_t *spellRecord, bool active);
 
+// The icon the engine shows for the spell: the spellbook's getter
+// (0x004B3F50) by record. Attack gives the main-hand weapon's icon (or the
+// form's, or Spell-Reset); a ranged auto-repeat spell gives the ranged
+// weapon's icon when one is equipped; every other spell gives
+// `IconPath(record, false)`. The weapon paths live in engine static buffers
+// that the next call overwrites, so push or copy the result at once.
+const char *DisplayIconPath(const uint8_t *spellRecord);
+
 // Resolves a 0-based UI slot into the recipe's spellID. Used by the
 // tradeskill, craft and trainer windows — they share the same storage shape:
 // `[entriesVar]` is a pointer to a heap-allocated array of recipe-

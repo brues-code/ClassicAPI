@@ -46,8 +46,6 @@ namespace Spell::SlotTests {
 
 namespace {
 
-constexpr int kSpellEffectAttack = 78;
-
 using ReadBookSlotArgs_t = int(__fastcall *)(void *L, int *slot, int *pet);
 
 // The spellID in the slot named by stack[1..2], or 0 for an empty slot.
@@ -89,7 +87,7 @@ int __fastcall Script_IsAttackSpell(void *L) {
     const uint8_t *spell = Spell::Lookup::RecordForID(spellID);
     Game::Lua::PushBool(L, spell != nullptr &&
                                Game::Read<int32_t>(spell, Offsets::OFF_SPELL_RECORD_EFFECT) ==
-                                   kSpellEffectAttack);
+                                   Offsets::SPELL_EFFECT_ATTACK);
     return 1;
 }
 

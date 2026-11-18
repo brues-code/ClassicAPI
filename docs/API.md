@@ -23862,7 +23862,8 @@ Table fields:
 | Field        | Type    | Notes |
 |--------------|---------|-------|
 | `name`       | string  | Localized name |
-| `iconID`     | string  | Icon **path** (e.g. `"Interface\\Icons\\Spell_Fire_FlameBolt"`). See note below. |
+| `iconID`     | string  | Icon **path** (e.g. `"Interface\\Icons\\Spell_Fire_FlameBolt"`). See note below. For Attack and Auto Shot, the weapon icon — see [`C_Spell.GetSpellTexture`](#c_spellgetspelltexturespellid). |
+| `originalIconID` | string | The spell's own icon **path**. |
 | `castTime`   | number  | Your cast time in milliseconds, with talents and cast speed; 0 for an instant or passive spell |
 | `minRange`   | number  | Your minimum range in yards, with talents; 0 for a melee spell |
 | `maxRange`   | number  | Your maximum range in yards, with talents; 0 for a melee spell |
@@ -23906,8 +23907,20 @@ local name = C_Spell.GetSpellName(133)  -- "Fireball"
 
 ### `C_Spell.GetSpellTexture(spellID)`
 
-Returns the icon path string for `spellID`, or `nil` if the spell ID is out
-of range or the icon record is empty.
+Returns `iconID, originalIconID`: the icon path the game shows for
+`spellID`, then the spell's own icon path. Returns `nil` if the spell ID is
+out of range or the icon record is empty.
+
+The two values are different only for these spells:
+
+- Attack shows the icon of the main-hand weapon. In a shapeshift form, it
+  shows the icon of the form. Disarmed or without a weapon, it shows
+  `Interface\Buttons\Spell-Reset`.
+- Auto Shot, Shoot and Throw show the icon of the ranged weapon, if one is
+  equipped.
+
+`GetSpellInfo` and `C_Spell.GetSpellInfo` (`iconID`, `originalIconID`)
+follow the same rule.
 
 > **Path string, not fileID.** This value can be a `fileID:number`
 > elsewhere. There is no fileID system here — see the same

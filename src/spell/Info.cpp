@@ -90,7 +90,8 @@ struct SpellInfoData {
     int spellID;
     const char *name;       // localized; nullable if record's locale slot is unset
     const char *rank;       // localized; same nullability as name
-    const char *iconPath;   // SpellIcon.dbc path; null if icon record missing
+    const char *iconPath;   // the shown icon (weapon for Attack / Auto Shot); nullable
+    const char *originalIconPath; // the spell's own SpellIcon.dbc path; nullable
     int cost;               // effective cost, or power per second for a funnel
     bool isFunnel;          // the cost is per second
     int powerType;          // 0=mana, 1=rage, 2=focus, 3=energy, 4=happiness
@@ -119,7 +120,11 @@ static bool ReadSpellInfo(int spellID, int pet, SpellInfoData &out) {
     out.name = name != nullptr ? name : "";
     out.rank = rank != nullptr ? rank : "";
 
-    out.iconPath = Spell::Lookup::IconPath(record, false);
+    // 3.3.5's Script_GetSpellInfo shows the weapon for Attack and a ranged
+    // auto-repeat spell, as the 1.12 spellbook does; retail keeps the
+    // spell's own icon as originalIconID.
+    out.iconPath = Spell::Lookup::DisplayIconPath(record);
+    out.originalIconPath = Spell::Lookup::IconPath(record, false);
 
     out.powerType = Game::Read<int>(record, Offsets::OFF_SPELL_RECORD_POWER_TYPE);
 
@@ -267,6 +272,7 @@ static int __fastcall Script_C_GetSpellInfo(void *L) {
     // fileID system, so we surface the icon path string instead.
     // Practical: feed it directly to texture:SetTexture(...).
     SetField(L, "iconID", info.iconPath);
+    SetField(L, "originalIconID", info.originalIconPath);
     SetField(L, "castTime", static_cast<double>(info.castTimeMs));
     SetField(L, "minRange", static_cast<double>(info.minRange));
     SetField(L, "maxRange", static_cast<double>(info.maxRange));
@@ -300,11 +306,14 @@ static int __fastcall Script_C_GetSpellTexture(void *L) {
     if (record == nullptr)
         return 0;
 
-    const char *path = Spell::Lookup::IconPath(record, false);
-    if (path == nullptr)
+    // (iconID, originalIconID) as in retail: the shown icon, then the spell's own.
+    const char *original = Spell::Lookup::IconPath(record, false);
+    const char *shown = Spell::Lookup::DisplayIconPath(record);
+    if (shown == nullptr && original == nullptr)
         return 0;
-    Game::Lua::PushString(L, path);
-    return 1;
+    Game::Lua::PushString(L, shown);
+    Game::Lua::PushString(L, original);
+    return 2;
 }
 
 // Builds the spell hyperlink string `|cff71d5ff|Hspell:ID:0|h[Name]|h|r`
@@ -724,7 +733,8 @@ static const Game::Doc::Field kGetSpellInfoRets[] = {
     Game::Doc::Opt("name", "string", nullptr,
                    "Localized spell name; all returns are nil for an unknown spell."),
     Game::Doc::Opt("rank", "string", nullptr, "Localized rank text, such as \"Rank 2\"."),
-    Game::Doc::Opt("icon", "string", nullptr, "Icon texture path."),
+    Game::Doc::Opt("icon", "string", nullptr,
+                   "Icon texture path. Attack and Auto Shot show the equipped weapon's icon."),
     Game::Doc::Opt("cost", "number", nullptr,
                    "Power cost for the caster, with talents; per second when isFunnel."),
     Game::Doc::Opt("isFunnel", "bool", nullptr, "True when the cost is paid per second."),
@@ -745,7 +755,9 @@ static const Game::Doc::Function kGetSpellInfo{
 static const Game::Doc::Field kSpellInfoFields[] = {
     Game::Doc::Opt("name", "string", nullptr, "Localized spell name."),
     Game::Doc::Opt("iconID", "string", nullptr,
-                   "Icon texture path; give it to texture:SetTexture."),
+                   "Icon texture path; give it to texture:SetTexture. Attack and Auto Shot show the equipped weapon's icon."),
+    Game::Doc::Opt("originalIconID", "string", nullptr,
+                   "The spell's own icon texture path."),
     Game::Doc::Req("castTime", "number",
                    "Cast time for the player in milliseconds, with talents and cast speed; 0 when instant or passive."),
     Game::Doc::Req("minRange", "number",
@@ -777,8 +789,9 @@ static const Game::Doc::Function kCSpellGetSpellName{
     "Returns the localized name of a spell.", kSpellIdArgs, kSpellNameRets};
 
 static const Game::Doc::Field kSpellTextureRets[] = {
-    Game::Doc::Opt("texture", "string", nullptr,
-                   "Icon texture path; nil when the spell or its icon is unknown."),
+    Game::Doc::Opt("iconID", "string", nullptr,
+                   "Icon texture path; nil when the spell or its icon is unknown. Attack and Auto Shot show the equipped weapon's icon."),
+    Game::Doc::Opt("originalIconID", "string", nullptr, "The spell's own icon texture path."),
 };
 static const Game::Doc::Function kCSpellGetSpellTexture{
     "Returns the icon texture path for a spell.", kSpellIdArgs, kSpellTextureRets};

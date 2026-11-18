@@ -8542,6 +8542,19 @@ enum Offsets {
     // active (toggle / stance / auto-repeat up); the texture resolver then
     // shows Spell.dbc's `activeIconID` (+0x1D8) instead of `iconID` (+0x1D4).
     FUN_ACTION_SPELL_ICON_ACTIVE = 0x004E55F0,
+    // The weapon icons that stand in for the Attack and ranged auto-repeat
+    // spells' own icons — `const char *__cdecl()`, no arguments (the book
+    // icon getter 0x004B3F50 tail-jumps to the first with nothing pushed).
+    // Attack: the shapeshift form's icon, Spell-Reset when disarmed or
+    // empty-handed, else the main-hand item's icon (static 0xBC6698).
+    // Ranged: the ranged-slot item's icon (static 0xBC6578), or NULL with no
+    // ranged item or a subclass-16 one — the caller then shows the spell's
+    // own icon. The action bar (0x004E6AB2), the spellbook (0x004B3F8A) and
+    // the cursor (0x00494D56) all pick them with the same two tests:
+    // Effect[0] == SPELL_EFFECT_ATTACK, then SPELL_ATTR_RANGED together with
+    // SPELL_ATTR_EX2_AUTOREPEAT_FLAG.
+    FUN_ATTACK_ICON_PATH = 0x004E6870,
+    FUN_RANGED_ICON_PATH = 0x004E6990,
     // Per-slot cooldown — `void __fastcall(uint slot0, int *start, int
     // *duration, uint *enable)`, ms ticks (the triple
     // `Script_GetActionCooldown` scales by 0.001). Item-by-ID slots go through
@@ -13092,6 +13105,9 @@ enum Offsets {
     // Enchanting, 1 Beast Training). 3.3.5's GetTradeSkillListLink takes
     // only spells whose Effect[0] is this.
     SPELL_EFFECT_TRADE_SKILL = 47,
+    // Melee auto-attack (Attack 6603). The book icon getter tests Effect[0]
+    // for it (`cmp [esi+0xF4], 0x4E` at 0x004B3F8A).
+    SPELL_EFFECT_ATTACK = 78,
 
     // EffectBasePoints[3] — the base magnitude of each effect, stored as
     // (value - 1) for the fixed-die spells that back item stats (the
