@@ -311,11 +311,44 @@ int __fastcall Script_RegisterAtlas(void *L) {
 
 // --- texture:SetAtlas / GetAtlas -------------------------------------------
 
+// The coordinates SetAtlas keeps, in sprite space: what the addon last asked
+// for. A texture showing an atlas has them on record. Any other texture holds
+// them in the engine; on a tiled axis there, Texture::Tile has replaced each
+// non-zero value with its repeat count, and 4.3.4 allows only 0 and 1 on a
+// tiled axis, so a non-zero value is read back as 1.
+void KeptCoords(void *region, float user[8]) {
+    if (const Applied *entry = LiveEntry(region)) {
+        for (int i = 0; i < 8; ++i)
+            user[i] = entry->user[i];
+        return;
+    }
+    const float *coords = Game::Ptr<float>(region, Offsets::OFF_SIMPLETEXTURE_TEXCOORDS);
+    bool tileH, tileV;
+    Texture::Wrap::Tiles(region, tileH, tileV);
+    for (int i = 0; i < 4; ++i) {
+        const float x = coords[i * 2], y = coords[i * 2 + 1];
+        user[i * 2] = (tileH && x != 0.0f) ? 1.0f : x;
+        user[i * 2 + 1] = (tileV && y != 0.0f) ? 1.0f : y;
+    }
+}
+
 // `texture:SetAtlas(atlas [, useAtlasSize, filterMode, resetTexCoords,
 //                   wrapModeHorizontal, wrapModeVertical])`
-// The trailing arguments are accepted and ignored: 1.12 texture regions have no
-// filter or wrap mode to set, and dropping them silently is what lets modern call
-// sites pass through unchanged.
+//
+// Retail keeps the texture's coordinates and applies them inside the new
+// sprite unless resetTexCoords is true: NineSlice sets a piece's mirrored
+// coordinates before its atlas ("Change texture coordinates before applying
+// atlas"), and code that reuses pooled textures passes true to drop a flip an
+// earlier use set (Blizzard_OrderHallTalents.lua).
+//
+// It also re-applies the atlas's own wrap mode (Blizzard_LegacyChallengeButton
+// .lua: "SetAtlas re-applies the atlas wrap mode, clearing the tiling set in
+// XML"), so the tile flags become the atlas's tiling (Texture::Wrap::
+// ForAtlas) on each axis where it can repeat (Repeats).
+//
+// filterMode and the wrap mode arguments are accepted and ignored: 1.12 texture
+// regions have no filter to set, and dropping them silently is what lets modern
+// call sites pass through unchanged.
 int __fastcall Script_SetAtlas(void *L) {
     void *region = Game::Lua::ResolveTexture(L);
     if (region == nullptr)
@@ -330,6 +363,7 @@ int __fastcall Script_SetAtlas(void *L) {
 
     const char *name = Game::Lua::ToString(L, 2);
     const bool useAtlasSize = Game::Lua::ToBoolean(L, 3) != 0;
+    const bool resetTexCoords = Game::Lua::ToBoolean(L, 5) != 0;
 
     const Info *info = Find(name);
     if (info == nullptr) {
@@ -342,20 +376,33 @@ int __fastcall Script_SetAtlas(void *L) {
         return 0;
     }
 
-    // Retail's SetAtlas re-applies the atlas's own wrap mode, which clears
-    // tiling the texture had. An atlas never tiles here (the built-in ones are
-    // parts of their files), so that leaves it clamped.
-    Texture::Wrap::Clear(region);
+    Applied applied;
+    applied.name = info->name;
+    applied.info = info;
+    if (resetTexCoords) {
+        for (int i = 0; i < 8; ++i)
+            applied.user[i] = kIdentityCoords[i];
+    } else {
+        KeptCoords(region, applied.user);
+    }
+
+    // The atlas's wrap goes in before the file loads, so the load takes it.
+    Texture::Wrap::ForAtlas(region, Repeats(*info, 0), Repeats(*info, 1));
 
     // Reshaping the stack for each delegated handler leaves `info` untouched — it
     // points into the registry, which none of these calls can reach.
     Game::Lua::SetTop(L, 1); // (self)
     Game::Lua::PushString(L, info->file.c_str());
     Game::Lua::CallScript(Offsets::FUN_SCRIPT_TEXTURE_SET_TEXTURE, L);
+    Texture::Wrap::Settle(region);
 
-    // Identity in sprite space is the atlas's whole rectangle in file space.
+    // On record before the coordinates are written, so Texture::Tile counts
+    // them against the atlas.
+    applied.hTexture = RegionTexture(region);
+    g_applied[region] = applied;
+
     float corners[8];
-    Compose(*info, kIdentityCoords, corners);
+    Compose(*info, applied.user, corners);
     WriteCorners(L, corners);
 
     if (useAtlasSize && info->width > 0.0f && info->height > 0.0f) {
@@ -366,12 +413,6 @@ int __fastcall Script_SetAtlas(void *L) {
         Game::Lua::PushNumber(L, info->height);
         Game::Lua::CallScript(Offsets::FUN_SCRIPT_REGION_SETHEIGHT, L);
     }
-
-    Applied applied;
-    applied.name = info->name;
-    applied.info = info;
-    applied.hTexture = RegionTexture(region);
-    g_applied[region] = applied;
 
     // Retail's SetAtlas loads the atlas's slice data along with its rect.
     Texture::Slice::ApplyAtlas(region, *info);
@@ -559,7 +600,9 @@ const Game::Doc::Field kSetAtlasArgs[] = {
     Game::Doc::Opt("useAtlasSize", "bool", "false",
                    "True also resizes the texture to the art's own size."),
     Game::Doc::Opt("filterMode", "FilterMode", nullptr, "Ignored."),
-    Game::Doc::Opt("resetTexCoords", "bool", nullptr, "Ignored."),
+    Game::Doc::Opt("resetTexCoords", "bool", "false",
+                   "True shows the whole atlas. Otherwise the texture's texture "
+                   "coordinates stay and select part of the atlas."),
     Game::Doc::Opt("wrapModeHorizontal", "cstring", nullptr, "Ignored."),
     Game::Doc::Opt("wrapModeVertical", "cstring", nullptr, "Ignored."),
 };
@@ -760,6 +803,14 @@ bool ToSprite(void *region, float corners[8]) {
 const Info *Current(void *region) {
     const Applied *entry = LiveEntry(region);
     return entry != nullptr ? entry->info : nullptr;
+}
+
+bool Repeats(const Info &info, int axis) {
+    if (info.transposed)
+        return false;
+    if (axis == 0)
+        return info.tilesHorizontally && info.left == 0.0f && info.right == 1.0f;
+    return info.tilesVertically && info.top == 0.0f && info.bottom == 1.0f;
 }
 
 const Info *Find(const char *name) {

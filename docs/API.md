@@ -408,12 +408,13 @@ build instructions.
   - [`texture:GetNumMaskTextures()`](#texturegetnummasktextures)
   - [`texture:GetMaskTexture(index)`](#texturegetmasktextureindex)
   - [`texture:SetColorTexture(colorR, colorG, colorB [, a])`](#texturesetcolortexturecolorr-colorg-colorb--a)
-  - [`texture:SetAtlas(atlas [, useAtlasSize])`](#texturesetatlasatlas--useatlassize)
+  - [`texture:SetAtlas(atlas [, useAtlasSize, filterMode, resetTexCoords])`](#texturesetatlasatlas--useatlassize-filtermode-resettexcoords)
   - [`texture:GetAtlas()`](#texturegetatlas)
   - [`texture:ResetTexCoord()`](#textureresettexcoord)
   - [`texture:SetSpriteSheetCell(cell, numRows, numColumns)`](#texturesetspritesheetcellcell-numrows-numcolumns)
   - [`texture:SetTexture(file [, wrapModeHorizontal, wrapModeVertical])`](#texturesettexturefile--wrapmodehorizontal-wrapmodevertical)
   - [`texture:SetHorizTile(tiling)` / `texture:SetVertTile(tiling)`](#texturesethoriztiletiling--texturesetverttiletiling)
+  - [`texture:SetSnapToPixelGrid(snap)` / `texture:SetTexelSnappingBias(bias)`](#texturesetsnaptopixelgridsnap--texturesettexelsnappingbiasbias)
   - [`texture:SetTextureSliceMargins(left, top, right, bottom)` / `texture:GetTextureSliceMargins()`](#texturesettextureslicemarginsleft-top-right-bottom--texturegettextureslicemargins)
   - [`texture:SetTextureSliceMode(sliceMode)` / `texture:GetTextureSliceMode()`](#texturesettextureslicemodeslicemode--texturegettextureslicemode)
   - [`texture:ClearTextureSlice()`](#texturecleartextureslice)
@@ -9593,21 +9594,38 @@ Returns the number of masks attached to this texture.
 Returns the mask at `index` (1 is the first one added), or `nil` when there is
 no mask at that index.
 
-### `texture:SetAtlas(atlas [, useAtlasSize])`
+### `texture:SetAtlas(atlas [, useAtlasSize, filterMode, resetTexCoords])`
 
 Points the texture at a named piece of art. This sets the texture file and the
 coordinates of the rectangle inside it, so one call replaces a `SetTexture` and a
 `SetTexCoord`. See [Texture](#texture) for the atlas names and for
 `C_Texture.RegisterAtlas`.
 
-Pass `true` for `useAtlasSize` to also resize the texture to the art's own pixel
-size. Any further arguments are accepted and ignored.
+- `useAtlasSize` — `true` also resizes the texture to the art's own pixel size.
+- `filterMode` — accepted and ignored.
+- `resetTexCoords` — `true` shows the whole of the art. When it is `false` or
+  `nil`, the texture keeps its texture coordinates, and they select part of
+  the new art.
+
+Further arguments are accepted and ignored.
 
 After `SetAtlas`, texture coordinates address the art and not the file it sits
 in, so `0` to `1` covers the whole of the art. `SetTexCoord(0, 0.5, 0, 0.5)`
 shows the top-left quarter of the art, and `GetTexCoord` reads back what you
 asked for. `SetTexture` points the texture at a file again and clears the atlas.
-`SetAtlas` turns tiling off and sets both wrap modes to `"CLAMP"`.
+
+Because the coordinates stay, you can set a mirror before the art. A frame
+border uses this to draw four corners from one corner piece:
+
+```lua
+corner:SetTexCoord(1, 0, 0, 1)   -- mirror left to right
+corner:SetAtlas("MinimapArrow", true)
+```
+
+`SetAtlas` sets both wrap modes to `"CLAMP"`, and sets tiling to the
+atlas's own `tilesHorizontally` and `tilesVertically`. An atlas tiles only
+when its art fills its file in the direction it tiles. Otherwise tiling stays
+off for that direction.
 
 Some atlases draw as a nine-slice: the corners keep their size when the
 texture is larger than the art. For these atlases, `SetAtlas` sets the slice
@@ -9705,8 +9723,12 @@ more than three times across. The count changes when the texture changes size.
 Tiling sets each coordinate on that axis that is not `0` to the repeat count,
 so `GetTexCoord` returns the count. The count needs the size of the image, so
 for a new image it is set when the texture is first drawn. Tiling stays on when
-`SetTexture` sets a new file. A texture that shows an atlas does not tile, and
-neither does a texture with `SetTexCoordModifiesRect` on.
+`SetTexture` sets a new file. A texture with `SetTexCoordModifiesRect` on does
+not tile.
+
+A texture that shows an atlas repeats the art at the atlas's own size, not
+the size of the file. It tiles only in a direction where the art fills its
+file. In any other direction it shows the art once.
 
 A tiled status bar texture keeps the image at its own size as the bar fills.
 The bar shows more or fewer copies and does not squeeze the image.
@@ -9731,6 +9753,12 @@ so one strip of a file can tile:
   <TexCoords left="0" right="1" top="0.25" bottom="0.5"/>
 </Texture>
 ```
+
+### `texture:SetSnapToPixelGrid(snap)` / `texture:SetTexelSnappingBias(bias)`
+
+Both are accepted and ignored. This client does not move texture edges or
+texels onto whole screen pixels, so there is no snapping to turn off. There
+are no matching getters.
 
 ### `texture:SetTextureSliceMargins(left, top, right, bottom)` / `texture:GetTextureSliceMargins()`
 

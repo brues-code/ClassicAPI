@@ -34,8 +34,8 @@ void Settle(void *texture);
 bool Tiles(const void *texture, bool &h, bool &v);
 bool Tiles(const void *texture);
 
-// No modes and no tile flags, the image back on the engine's own wrap, as
-// SetAtlas leaves a texture.
-void Clear(void *texture);
+// SetAtlas's wrap: no modes, and the atlas's own tiling as the tile flags.
+// Recorded without touching the image; the atlas's file loads with it next.
+void ForAtlas(void *texture, bool tilesH, bool tilesV);
 
 } // namespace Texture::Wrap

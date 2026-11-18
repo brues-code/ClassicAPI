@@ -58,6 +58,12 @@ struct Info {
     int sliceMode = 0;
 };
 
+// Whether the atlas repeats on an axis (0 x, 1 y): it tiles there and fills
+// its file on that axis, as retail packs every tiling atlas (UI-Frame-Metal's
+// edges have their own Horizontal and Vertical files). A tiling atlas packed
+// with others, as some built-in ones are, cannot repeat alone.
+bool Repeats(const Info &info, int axis);
+
 // Resolves an atlas by name, case-insensitively. Null when the name is unbound.
 // The returned pointer stays valid for the life of the process.
 const Info *Find(const char *name);

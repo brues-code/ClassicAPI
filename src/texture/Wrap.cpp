@@ -34,10 +34,11 @@
 // The wrap arguments follow retail: true or "REPEAT" repeats, and anything
 // else clamps, nil included, so SetTexture(file) clamps again. The device has
 // no mirror or border mode, so "MIRROR", "CLAMPTOBLACK", "CLAMPTOBLACKADDITIVE"
-// and "CLAMPTOWHITE" clamp. Tile flags survive SetTexture, as 4.3.4's do;
-// SetAtlas clears modes and tiling (Clear), and while a texture shows an atlas
-// its image keeps the atlas's clamp: a reload would replace the image the
-// atlas binding is tied to.
+// and "CLAMPTOWHITE" clamp. Tile flags survive SetTexture, as 4.3.4's do.
+// SetAtlas clears the modes and sets the tile flags to the atlas's own tiling
+// before its file loads (ForAtlas), and while a texture shows an atlas its
+// image keeps that wrap: a reload would replace the image the atlas binding is
+// tied to.
 
 #include "texture/Wrap.h"
 
@@ -296,12 +297,13 @@ bool Tiles(const void *texture) {
     return Tiles(texture, h, v);
 }
 
-void Clear(void *texture) {
-    if (g_state.find(texture) == g_state.end())
+void ForAtlas(void *texture, bool tilesH, bool tilesV) {
+    if (!tilesH && !tilesV && g_state.find(texture) == g_state.end())
         return;
-    State &state = g_state[texture];
-    state.modeH = state.modeV = state.tileH = state.tileV = false;
-    Settle(texture);
+    State &state = Touch(texture);
+    state.modeH = state.modeV = false;
+    state.tileH = tilesH;
+    state.tileV = tilesV;
 }
 
 } // namespace Texture::Wrap

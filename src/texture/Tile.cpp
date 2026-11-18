@@ -38,9 +38,11 @@
 // the flag carries the wrap, and 4.3.4's CSimpleStatusBar::SetBarTexture
 // passes the tile flags as the wrap.
 //
-// Not counted: a texture showing an atlas (an atlas here is part of its file,
-// which a repeat cannot repeat alone) and one with SetTexCoordModifiesRect on
-// (its coordinates size its rect). A StatusBar's tiled bar texture takes the
+// A texture showing an atlas repeats at the atlas's own size, so a 2x atlas
+// repeats at its display size, not its texels, and only on an axis where the
+// atlas can repeat (Texture::Atlas::Repeats); elsewhere it stays on its rect.
+// Not counted: a texture with SetTexCoordModifiesRect on (its coordinates size
+// its rect). A StatusBar's tiled bar texture takes the
 // 4.3.4 layout, which moves the texture instead of cropping its coordinates
 // (StatusBar::Fill).
 //
@@ -72,39 +74,59 @@ using SetTexCoord_t = void(__fastcall *)(void *texture, void *edx, const float *
 // UL, LL, UR, LR: the whole image.
 constexpr float kWholeImage[8] = {0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f, 1.0f};
 
-// A length in rect units as script units.
-// 4.3.4's rule on one axis (0 x, 1 y) of the four corner pairs.
-void Count(float *coords, int axis, float length, uint32_t texels) {
-    if (texels == 0 || !(length > 0.0f))
+// 4.3.4's rule on one axis (0 x, 1 y) of the four corner pairs: the length
+// over the repeat, both in script units (one texel of the image is one).
+void Count(float *coords, int axis, float length, float repeat) {
+    if (!(repeat > 0.0f) || !(length > 0.0f))
         return;
-    const float count = length / static_cast<float>(texels);
+    const float count = length / repeat;
     for (int i = 0; i < 4; ++i)
         if (coords[i * 2 + axis] != 0.0f)
             coords[i * 2 + axis] = count;
+}
+
+// The repeat length of a tiled atlas on one axis (0 x, 1 y): its own size
+// where it can repeat (Texture::Atlas::Repeats); 0 elsewhere, and its
+// coordinates stay on its rect.
+float AtlasRepeat(const Texture::Atlas::Info &atlas, int axis) {
+    if (!Texture::Atlas::Repeats(atlas, axis))
+        return 0.0f;
+    return axis == 0 ? atlas.width : atlas.height;
 }
 
 void Apply(void *texture) {
     bool h, v;
     if (!Texture::Wrap::Tiles(texture, h, v))
         return;
-    if (Game::Read<int>(texture, Offsets::OFF_REGION_TEXCOORD_MODIFIES_RECT) != 0 || Texture::Atlas::Shows(texture))
+    if (Game::Read<int>(texture, Offsets::OFF_REGION_TEXCOORD_MODIFIES_RECT) != 0)
         return;
-    void *image = Game::Read<void *>(texture, Offsets::OFF_SIMPLETEXTURE_HTEXTURE);
-    const void *device = image != nullptr ? Game::Read<void *>(image, Offsets::OFF_HTEXTURE_DEVICE) : nullptr;
-    if (device == nullptr)
-        return; // the emit of the next batch build counts it
+    const Texture::Atlas::Info *atlas = Texture::Atlas::Current(texture);
+    const void *device = nullptr;
+    if (atlas == nullptr) {
+        void *image = Game::Read<void *>(texture, Offsets::OFF_SIMPLETEXTURE_HTEXTURE);
+        device = image != nullptr ? Game::Read<void *>(image, Offsets::OFF_HTEXTURE_DEVICE) : nullptr;
+        if (device == nullptr)
+            return; // the emit of the next batch build counts it
+    }
     float rect[4]; // bottom, left, top, right
     if (!Frame::Layout::GetRect(texture, rect))
         return;
     if (!(Frame::Layout::EffectiveScale(texture) > 0.0f))
         return;
     float *coords = Game::Ptr<float>(texture, Offsets::OFF_SIMPLETEXTURE_TEXCOORDS);
+    const float width = static_cast<float>(Frame::Layout::ToLocalUnits(texture, rect[3] - rect[1]));
+    const float height = static_cast<float>(Frame::Layout::ToLocalUnits(texture, rect[2] - rect[0]));
+    if (atlas != nullptr) {
+        if (h)
+            Count(coords, 0, width, AtlasRepeat(*atlas, 0));
+        if (v)
+            Count(coords, 1, height, AtlasRepeat(*atlas, 1));
+        return;
+    }
     if (h)
-        Count(coords, 0, static_cast<float>(Frame::Layout::ToLocalUnits(texture, rect[3] - rect[1])),
-              Game::Read<uint32_t>(device, Offsets::OFF_GXTEX_WIDTH));
+        Count(coords, 0, width, static_cast<float>(Game::Read<uint32_t>(device, Offsets::OFF_GXTEX_WIDTH)));
     if (v)
-        Count(coords, 1, static_cast<float>(Frame::Layout::ToLocalUnits(texture, rect[2] - rect[0])),
-              Game::Read<uint32_t>(device, Offsets::OFF_GXTEX_HEIGHT));
+        Count(coords, 1, height, static_cast<float>(Game::Read<uint32_t>(device, Offsets::OFF_GXTEX_HEIGHT)));
 }
 
 // --- what moves the count -----------------------------------------------------
