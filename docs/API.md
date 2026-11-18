@@ -23916,8 +23916,8 @@ The two values are different only for these spells:
 - Attack shows the icon of the main-hand weapon. In a shapeshift form, it
   shows the icon of the form. Disarmed or without a weapon, it shows
   `Interface\Buttons\Spell-Reset`.
-- Auto Shot, Shoot and Throw show the icon of the ranged weapon, if one is
-  equipped.
+- Auto Shot and the wand's Shoot show the icon of the ranged weapon, if one
+  is equipped.
 
 `GetSpellInfo` and `C_Spell.GetSpellInfo` (`iconID`, `originalIconID`)
 follow the same rule.
