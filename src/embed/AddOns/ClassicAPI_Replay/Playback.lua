@@ -318,7 +318,12 @@ local function Build()
 		end
 		local appearances = unit.isPlayer and C_CombatLogReplay.GetUnitAppearances(i) or nil;
 		ns.units[i] = { index = i, name = name, isPlayer = unit.isPlayer, creatureID = unit.creatureID,
-			mountDisplay = 0, appearances = appearances, nameColor = ns.NameColor(unit.isPlayer, appearances) };
+			mountDisplay = 0, appearances = appearances, nameColor = ns.NameColor(unit.isPlayer, appearances),
+			petOwnerIndex = unit.petOwnerIndex };
+	end
+	for i = 1, #ns.units do
+		local u = ns.units[i];
+		u.petOwner = u.petOwnerIndex and ns.units[u.petOwnerIndex];
 	end
 	ns.FillUnitList();
 	for i = 1, #ns.units do

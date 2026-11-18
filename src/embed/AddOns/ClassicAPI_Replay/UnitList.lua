@@ -8,6 +8,9 @@ local PLAYER_NAME_COLOR = { 0.4, 0.8, 1 };
 local CREATURE_NAME_COLOR = { 1, 0.82, 0 };
 local DEAD_NAME_COLOR = { 0.5, 0.5, 0.5 };
 local OUT_OF_VIEW_ALPHA = 0.4;
+-- A pet's row is under its owner's, its name this much further in.
+local PET_INDENT = 10;
+local TEXT_INSET = 4;
 
 ------------------------------------------------------------------------------
 -- The unit list
@@ -68,6 +71,7 @@ end
 
 local function InitUnitRow(row, u)
 	row.unit = u;
+	row.Text:SetPoint("LEFT", row, "LEFT", TEXT_INSET + (u.listDepth or 0) * PET_INDENT, 0);
 	row.Text:SetText(u.name ~= "" and u.name or UNKNOWN);
 	row:SetScript("OnClick", OnUnitRowClick);
 	row:SetScript("OnEnter", OnUnitRowEnter);
@@ -77,6 +81,7 @@ end
 ns.InitUnitRow = InitUnitRow;
 
 -- Players first, then creatures, each by name; units without a name last.
+-- Each pet follows its owner, in the same order.
 local function UnitOrder(a, b)
 	if (a.name == "") ~= (b.name == "") then
 		return b.name == "";
@@ -91,11 +96,41 @@ local function UnitOrder(a, b)
 end
 
 local function FillUnitList()
-	local list = {};
+	local tops, pets = {}, {};
 	for i = 1, #ns.units do
-		list[i] = ns.units[i];
+		local u = ns.units[i];
+		u.listDepth = nil;
+		if u.petOwner then
+			pets[u.petOwner] = pets[u.petOwner] or {};
+			tinsert(pets[u.petOwner], u);
+		else
+			tinsert(tops, u);
+		end
 	end
-	table.sort(list, UnitOrder);
+	local list = {};
+	-- Each unit once, should two players own each other.
+	local function Add(u, depth)
+		if u.listDepth then
+			return;
+		end
+		u.listDepth = depth;
+		tinsert(list, u);
+		local own = pets[u];
+		if own then
+			table.sort(own, UnitOrder);
+			for _, pet in ipairs(own) do
+				Add(pet, depth + 1);
+			end
+		end
+	end
+	table.sort(tops, UnitOrder);
+	for _, u in ipairs(tops) do
+		Add(u, 0);
+	end
+	-- Owners that own each other, which no top unit reached.
+	for owner in pairs(pets) do
+		Add(owner, 0);
+	end
 	ns.frame.UnitList.ScrollBox:SetDataProvider(CreateDataProvider(list), ScrollBoxConstants.RetainScrollPosition);
 	ns.unitListChanged = false;
 end

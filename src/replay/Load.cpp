@@ -369,7 +369,8 @@ void Loader::UnitState(const Line::Fields &f, int32_t t) {
     state.dynamicFlags = f.Hex(8);
     state.reaction = static_cast<uint32_t>(f.Int(9));
     state.selection = static_cast<uint32_t>(f.Int(10));
-    AddAt(Get(f[1]).states, t, state);
+    state.ownerTitle = f.Text(11);
+    AddAt(Get(f[1]).states, t, std::move(state));
 }
 
 void Loader::UnitPower(const Line::Fields &f, int32_t t) {

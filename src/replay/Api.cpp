@@ -293,6 +293,16 @@ std::string UnitName(const Unit &unit) {
     return {};
 }
 
+// A unit's pet owner: the player that owned it when the movement file first
+// gave its state. A pet, a guardian or a totem comes into view owned; a
+// creature a player charms later is first seen without one. -1 for none.
+int32_t PetOwner(const Recording &r, const Unit &unit) {
+    if (unit.states.empty())
+        return -1;
+    const int32_t owner = unit.states.front().second.owner;
+    return owner >= 0 && static_cast<size_t>(owner) < r.units.size() && r.units[owner].player ? owner : -1;
+}
+
 int __fastcall Script_GetUnits(void *L) {
     Lua::NewTable(L);
     if (g_recording == nullptr)
@@ -307,6 +317,8 @@ int __fastcall Script_GetUnits(void *L) {
         Lua::SetFieldBool(L, "isPlayer", unit.player);
         if (unit.creatureID != 0)
             Lua::SetFieldNumber(L, "creatureID", unit.creatureID);
+        if (const int32_t owner = PetOwner(*g_recording, unit); owner >= 0)
+            Lua::SetFieldNumber(L, "petOwnerIndex", owner + 1);
         Lua::RawSetI(L, -2, ++i);
     }
     return 1;
@@ -539,7 +551,11 @@ int __fastcall Script_GetUnitState(void *L) {
     Lua::PushNumber(L, state->reaction + 1);
     Lua::PushBool(L, (state->dynamicFlags & Offsets::UNIT_DYNFLAG_TAPPED) != 0 &&
                          (state->dynamicFlags & Offsets::UNIT_DYNFLAG_TAPPED_BY_PLAYER) == 0);
-    return 8;
+    if (state->ownerTitle.empty())
+        Lua::PushNil(L);
+    else
+        Lua::PushString(L, state->ownerTitle.c_str());
+    return 9;
 }
 
 // The unit's selection color at the time from the recording player's view,
@@ -899,6 +915,9 @@ const Game::Doc::Field kUnitFields[] = {
         "one: C_CreatureInfo.RequestLoadCreatureByID loads an uncached creature's."),
     Req("isPlayer", "bool"),
     Opt("creatureID", "number"),
+    Opt("petOwnerIndex", "number", nullptr,
+        "The player that owned the unit when it came into view: a pet, a guardian or a totem. Nil for a unit that "
+        "came into view without one, as a creature a player charms later does, or without a movement file."),
 };
 const Game::Doc::Structure kUnit{"CombatLogReplayUnitInfo", "CombatLogReplay", kUnitFields};
 const Game::Doc::Field kGetUnitsRets[] = {
@@ -1139,6 +1158,9 @@ const Game::Doc::Field kGetUnitStateRets[] = {
     Opt("reaction", "number", nullptr,
         "Its reaction toward the player who recorded the log, as UnitReaction gives it: 1 hated to 8 exalted."),
     Opt("isTapDenied", "bool", nullptr, "Another player tapped it, as UnitIsTapDenied."),
+    Opt("ownerTitle", "cstring", nullptr,
+        "The unit tooltip's owner line as the recorder's client wrote it, for example \"Name's Pet\"; nil with no "
+        "owner in sight."),
 };
 const Game::Doc::Function kGetUnitState{
     "Returns whom a replay unit targets, who owns it, its unit flags, level, faction and reaction at a time, from the "

@@ -2440,6 +2440,14 @@ enum Offsets {
     // sits between them at +0x18 (the binary's UpdateField table at
     // 0x0083D940: index 6, count 2); the combat log reads it to tell a pet
     // from a guardian, as 4.3.4's GetCombatLogObjectFlags does.
+    // The unit tooltip's owner line (benilla-re ui/tooltipunit "The subtitle
+    // and owner lines"; disassembled): `__fastcall(unit, char *buffer, int
+    // size)` ret 4 (0x0052FD30) formats the owner's name (0x00609210) into
+    // UNITNAME_TITLE_PET / _MINION (a charmer: a beast, else) or, for a
+    // creator, _GUARDIAN / _CREATION by its UNIT_CREATED_BY_SPELL's first
+    // effect (42; 50, 74, 87..90, 104..107), else the charmer's pair. It
+    // writes nothing with no owner, or one not in sight.
+    FUN_UNIT_OWNER_TITLE = 0x0052FD30,
     OFF_UNIT_FIELD_CHARMEDBY = 0x10,
     OFF_UNIT_FIELD_SUMMONEDBY = 0x18,
     OFF_UNIT_FIELD_CREATEDBY = 0x20,

@@ -176,6 +176,7 @@ struct UnitState {
     uint32_t dynamicFlags = 0;
     uint32_t reaction = 3;
     uint32_t selection = 2;
+    std::string ownerTitle; // the tooltip's owner line, empty for none
 };
 
 // UNIT_POWER: health, and the power of the unit's own type in stored units.

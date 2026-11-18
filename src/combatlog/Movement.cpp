@@ -87,7 +87,7 @@
 //     when it changes, so a log
 //     read elsewhere names units the combat log never does;
 //   UNIT_STATE,unitGUID,targetGUID,ownerGUID,flags,level,factionTemplate,
-//       attackTargetGUID,dynamicFlags,reaction,selectionType
+//       attackTargetGUID,dynamicFlags,reaction,selectionType,"ownerTitle"
 //     when the unit comes into view and each time one of these changes: its
 //     target (UNIT_FIELD_TARGET), its charmer or creator (a pet's, guardian's
 //     or totem's owner, a mind-controlled unit's controller), UNIT_FIELD_FLAGS
@@ -98,7 +98,10 @@
 //     the recording player's view its reaction toward that player
 //     (CGUnit_C::UnitReaction 0x006061E0, 0 hated .. 7 exalted: the
 //     nameplate's color) and its UnitSelectionType without the extended
-//     rungs (unit/SelectionColor.cpp: the target frame's name color);
+//     rungs (unit/SelectionColor.cpp: the target frame's name color); and
+//     the unit tooltip's owner line as the client words it (0x0052FD30:
+//     "<owner>'s Pet", "<owner>'s Guardian", ...), "" with no owner in
+//     sight;
 //   UNIT_POWER,unitGUID,health,maxHealth,powerType,power,maxPower
 //     when the unit comes into view and each time one of these changes: its
 //     health, and the power of its own type in stored units (rage in tenths);

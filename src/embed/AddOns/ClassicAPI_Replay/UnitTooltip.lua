@@ -9,10 +9,10 @@
 -- guild is the line under its name, as the 3.3.5 and 4.3.4 builders add it
 -- (white, the guild's name alone); 1.12's has none.
 --
--- Left out: a player's PvP rank title (not recorded), the owner line (the
--- movement file does not tell a charmer from a creator, which picks its
--- words), and the two parts that need the recording player, which the replay
--- does not know: the level shown as ?? for a hostile unit ten or more levels
+-- The owner line is the recorder's client's own (0x0052FD30, in the
+-- movement file). Left out: a player's PvP rank title (not recorded), and
+-- the two parts that need the recording player, which the replay does not
+-- know: the level shown as ?? for a hostile unit ten or more levels
 -- above it, and the faction line.
 
 local _, ns = ...;
@@ -97,12 +97,12 @@ local function LevelLine(u, time, level, reaction, info, dead)
 	return string.format(TOOLTIP_UNIT_LEVEL, levelText);
 end
 
--- The name, a player's guild or a creature's subtitle, the level line and
--- the health bar. A new build hides the bar (0x00530050), so each build
+-- The name, a player's guild or a creature's subtitle, the owner line, the
+-- level line and the health bar. A new build hides the bar (0x00530050), so each build
 -- shows it again.
 local function Build(u, time)
 	local tooltip = ns.frame.UnitTooltip;
-	local _, _, flags, level, _, _, reaction = C_CombatLogReplay.GetUnitState(u.index, time);
+	local _, _, flags, level, _, _, reaction, _, ownerTitle = C_CombatLogReplay.GetUnitState(u.index, time);
 	local health, maxHealth = C_CombatLogReplay.GetUnitHealth(u.index, time);
 	local info = not u.isPlayer and u.creatureID and C_CreatureInfo.GetCreatureInfoByID(u.creatureID);
 	local dead = u.dead or (health and health <= 0);
@@ -113,6 +113,9 @@ local function Build(u, time)
 	end
 	if info and info.subName and info.subName ~= "" then
 		tooltip:AddLine(info.subName, 1, 1, 1);
+	end
+	if ownerTitle then
+		tooltip:AddLine(ownerTitle, 1, 1, 1);
 	end
 	tooltip:AddLine(LevelLine(u, time, level, reaction, info, dead), 1, 1, 1);
 	if maxHealth and maxHealth > 0 then

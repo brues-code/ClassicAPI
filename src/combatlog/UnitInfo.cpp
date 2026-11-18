@@ -132,7 +132,11 @@ struct State {
     // 32 bits each keep the struct free of padding bytes for memcmp.
     uint32_t reaction;
     uint32_t selection;
+    // The unit tooltip's owner line, as the client words it (empty with no
+    // owner in sight). 256 bytes, so no padding follows.
+    char ownerTitle[256];
 };
+static_assert(sizeof(State) == 3 * 8 + 6 * 4 + 256, "State has no padding for memcmp");
 
 // A unit's UNIT_POWER fields.
 struct Vitals {
@@ -296,6 +300,9 @@ State ReadState(void *unit, const uint8_t *fields) {
     if (const uint8_t *player = ::Unit::Identity::PlayerObject())
         state.reaction = static_cast<uint32_t>(::Unit::Relation::Reaction(unit, player)) & 7;
     state.selection = static_cast<uint32_t>(::Unit::SelectionColor::TypeOf(::Object::Guid(unit), false));
+    reinterpret_cast<void(__fastcall *)(void *, char *, int)>(Offsets::FUN_UNIT_OWNER_TITLE)(
+        unit, state.ownerTitle, static_cast<int>(sizeof state.ownerTitle));
+    state.ownerTitle[sizeof state.ownerTitle - 1] = '\0';
     return state;
 }
 
@@ -311,6 +318,7 @@ void WriteState(uint64_t guid, const State &state) {
     AppendHex(line, state.dynamicFlags);
     AppendUnsigned(line, state.reaction);
     AppendUnsigned(line, state.selection);
+    File::AppendQuoted(line, state.ownerTitle);
     Movement::Emit(line);
 }
 

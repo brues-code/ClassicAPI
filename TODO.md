@@ -4420,8 +4420,7 @@ embedded load-on-demand addon. Layers:
   isTapDenied, new GetUnitSelectionColor. Overhead health bars take the
   nameplate color (0x007CBAA0), the frame's name background
   TargetFrame_CheckFaction's. Left out: the level's difficulty color and
-  skull (recorder-relative, 0x007CBB40 / 0x007CBD50), elite art, owner use
-  (pets in the unit list). Portraits come from the unit's actor
+  skull (recorder-relative, 0x007CBB40 / 0x007CBD50), elite art. Portraits come from the unit's actor
   (actor:SetPortraitTexture: Model::Portrait::Live, BakePortrait's copy
   of the live model behind its compositor + IsReady(0,1) gate, re-baked in
   place when the actor's model changes); before a unit has an actor, a
@@ -4451,13 +4450,26 @@ embedded load-on-demand addon. Layers:
   channel runs from its SPELL_CAST_SUCCESS until +0x228 clears. The viewer
   shows retail's Classic cast bar colors over the unit, stops an
   interrupted cast's visual and gives a channel's visual its logged length.
-- Time of day (scoped 2026-11-16, deferred): the scene's sky, bodies and
-  water take the WORLD's time of day (light state 0x00CE9B64); its ground,
-  WMO exteriors and actors are lit by the scene's fixed light and fog
-  (the replay sets none). The log's stamps are the PC clock, not the
-  realm's game time. Plan: (1) the movement header records 0x00CE9B64;
-  (2) a scene time of day for the sky, bodies and water; (3) the scene's
-  sun direction, colours and fog from the map's light at that time.
+- Time of day DONE (2026-11-17, f35c02ad; not yet seen in game): the
+  movement file's GAME_TIME line (the clock's day phase 0x00643A70 and its
+  scale, after each header and when the clock leaves the last line's
+  pace); C_CombatLogReplay.GetTimeOfDay; ModelScene:SetWorldTimeOfDay sets
+  the light state's time of day while the scene draws, lights the frame as
+  the world's sun (0x0066FF60: sun direction 0x006D3A10, ambient band 1,
+  diffuse band 0, specular band 9), takes the map light's fog when dry, and
+  the sky pass re-places the bodies and stars (0x006D3B80, 0x006D1B50).
+  Open: the frame light's direction space (assumed scene = map axes); not
+  mirrored: the underwater tint, the storm blend, the clouds (the world's).
+- Guild DONE (2026-11-17, a774620a; not yet seen in game): PLAYER_INFO ends
+  with GetGuildInfo's rank, guild name and masked rank name; the recorder
+  queries the guild cache (0x00560E30, with a callback) for an unknown
+  guild. C_CombatLogReplay.GetUnitGuild; the tooltip's guild line as the
+  3.3.5 / 4.3.4 builders add it.
+- Pets under their owners (2026-11-17, not yet seen in game): GetUnits'
+  petOwnerIndex is the player that owned the unit in its first UNIT_STATE
+  (a pet, guardian or totem comes into view owned; a creature charmed later
+  is first seen unowned); the unit list puts each pet under its owner,
+  indented.
 Maps (probe 2026-11-16, `SetWorldModelByMapID`): only Onyxia 249 and MC
 409 are single WMOs. BWL 469, ZG 309, AQ 509/531 and Naxx 533 need
 terrain plus the WMOs placed on tiles (MODF). DONE (2026-11-16):
