@@ -31,6 +31,19 @@ bool IsOpen();
 // The line, stamped, while the file is open.
 void Emit(const std::string &body);
 
+// While one is alive, the lines emitted share the stamp of its start. A walk
+// over the world's objects reads one frame, so the lines it writes are one
+// moment; stamped one by one, a walk over 300 units spreads them over 5 ms,
+// and a reader of the first frame sees only the units written in its first
+// millisecond.
+class Snapshot {
+public:
+    Snapshot();
+    ~Snapshot();
+    Snapshot(const Snapshot &) = delete;
+    Snapshot &operator=(const Snapshot &) = delete;
+};
+
 // Changes each time the file writes its header: when it opens and after each
 // loading screen. A reader starts over at a header, so a writer of lines that
 // describe state (what each unit looks like) writes them all again.

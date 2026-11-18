@@ -493,6 +493,7 @@ void OnFrame() {
         g_seen.clear();
     }
     ++g_frame;
+    const Movement::Snapshot snapshot;
     ::Object::ForEachVisible([](uint64_t guid) {
         // Most objects are items: the GUID's type skips them without a resolve.
         if (Guid::IsPlayer(guid) || Guid::IsCreature(guid) || Guid::IsPet(guid))

@@ -81,10 +81,25 @@ void LogFile::Close() {
 
 void LogFile::Emit(const std::string &body) {
     std::string line;
-    Stamp(line);
+    if (holds_ > 0)
+        line = held_;
+    else
+        Stamp(line);
     line += body;
     line += "\r\n";
     std::fwrite(line.data(), 1, line.size(), file_);
+}
+
+void LogFile::Hold() {
+    if (holds_++ == 0) {
+        held_.clear();
+        Stamp(held_);
+    }
+}
+
+void LogFile::Release() {
+    if (holds_ > 0)
+        --holds_;
 }
 
 void LogFile::Tick() {

@@ -168,6 +168,7 @@ void OnFrame() {
         g_seen.clear();
     }
     ++g_frame;
+    const Movement::Snapshot snapshot;
     ::Object::ForEachVisible([](uint64_t guid) {
         if (Guid::IsGameObject(guid))
             VisitGameObject(guid);

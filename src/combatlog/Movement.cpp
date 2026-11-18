@@ -23,6 +23,8 @@
 // the advancedCombatLoggingMovement cvar is on, to
 // Logs\WoWMovementLog-<the combat log's MMDDYY_HHMMSS>.txt, with the combat
 // log's stamp. A separate file keeps the combat log readable by Era parsers.
+// The lines one frame's walk over the units or objects writes share one
+// stamp (Snapshot).
 //
 // Lines (positions with two decimals, angles and speeds with four):
 //   MOVEMENT_LOG_VERSION,1,BUILD_VERSION,<version>,MAP_ID,<map>
@@ -491,5 +493,8 @@ void Emit(const std::string &body) {
 }
 
 uint32_t Generation() { return g_generation; }
+
+Snapshot::Snapshot() { g_log.Hold(); }
+Snapshot::~Snapshot() { g_log.Release(); }
 
 } // namespace CombatLog::Movement

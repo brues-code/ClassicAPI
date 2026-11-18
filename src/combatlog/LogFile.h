@@ -33,12 +33,19 @@ public:
     // The stamp, the body and a line end.
     void Emit(const std::string &body);
 
+    // Between Hold and Release (they nest), every line carries the stamp of
+    // the outermost Hold: lines that describe one moment.
+    void Hold();
+    void Release();
+
     // Flushes the buffer once a second; call it once a frame.
     void Tick();
 
 private:
     std::FILE *file_ = nullptr;
     uint32_t flushedMs_ = 0;
+    std::string held_; // the held stamp
+    int holds_ = 0;
 };
 
 } // namespace CombatLog
