@@ -999,13 +999,22 @@ bool PlayerAuraTiming(int slot, uint32_t *outExpirationMs, uint32_t *outDuration
 // time and, for an unbound entry sharing its spell with another caster's entry,
 // return a miss — dropping a caster Enumerate already knew. Null for the
 // descriptor / group-array paths, which have no per-entry attribution in hand.
-static void PushEnriched(void *L, uint64_t guid, uint32_t spellID,
-                         bool isHelpful, int applications,
-                         bool isPlayer, int slot,
-                         const Attribution *known = nullptr,
-                         Emit emit = Emit::Table, uint32_t instanceID = 0) {
+//
+// The timing and caster resolve lives in `ResolveTiming`, shared with
+// `SlotExpiration` so the aura tooltip's time-left line reads the same
+// expiration `UnitAura` reports.
+namespace {
+
+struct Timing {
+    double duration;       // seconds; 0 whenever expirationMs is 0
+    uint32_t expirationMs; // Time::Clock tick; 0 = no end / unknown
+    uint64_t caster;
+};
+
+Timing ResolveTiming(uint64_t guid, uint32_t spellID, bool isPlayer, int slot,
+                     const Attribution *known) {
     double duration = 0.0;
-    double expirationTime = 0.0;
+    uint32_t expirationMs = 0;
     uint64_t casterGuid = 0;
     bool untilCancelled = false;
     bool exactDuration = false;
@@ -1016,7 +1025,7 @@ static void PushEnriched(void *L, uint64_t guid, uint32_t spellID,
         untilCancelled = record != nullptr && PlayerBuffUntilCancelled(record);
         uint32_t expMs = 0, durMs = 0;
         if (PlayerAuraTiming(slot, &expMs, &durMs)) {
-            expirationTime = static_cast<double>(expMs) * 0.001;
+            expirationMs = expMs;
             if (durMs != 0) {
                 duration = static_cast<double>(durMs) * 0.001;
                 exactDuration = true;
@@ -1037,19 +1046,33 @@ static void PushEnriched(void *L, uint64_t guid, uint32_t spellID,
         // present (non-player casters get an underestimated base duration)
         // is not meaningful — report unknown (0) rather than a negative
         // remaining time.
-        if (expirationTime == 0.0 && a.expirationMs != 0 &&
+        if (expirationMs == 0 && a.expirationMs != 0 &&
             !ExpirationElapsed(a.expirationMs))
-            expirationTime = static_cast<double>(a.expirationMs) * 0.001;
+            expirationMs = a.expirationMs;
         if (a.durationMs != 0 && !exactDuration)
             duration = static_cast<double>(a.durationMs) * 0.001;
         casterGuid = a.caster;
     }
     // The engine's own word that the player's aura has no end wins over
     // every other source of timing.
-    if (untilCancelled || expirationTime == 0.0) {
+    if (untilCancelled || expirationMs == 0) {
         duration = 0.0;
-        expirationTime = 0.0;
+        expirationMs = 0;
     }
+    return {duration, expirationMs, casterGuid};
+}
+
+} // namespace
+
+static void PushEnriched(void *L, uint64_t guid, uint32_t spellID,
+                         bool isHelpful, int applications,
+                         bool isPlayer, int slot,
+                         const Attribution *known = nullptr,
+                         Emit emit = Emit::Table, uint32_t instanceID = 0) {
+    const Timing t = ResolveTiming(guid, spellID, isPlayer, slot, known);
+    const double duration = t.duration;
+    const double expirationTime = static_cast<double>(t.expirationMs) * 0.001;
+    const uint64_t casterGuid = t.caster;
     if (emit == Emit::Positional)
         PushPositional(L, guid, spellID, applications, isHelpful, duration,
                        expirationTime, casterGuid);
@@ -1070,6 +1093,19 @@ void Push(void *L, const uint8_t *unit, int slot, Emit emit) {
     PushEnriched(L, ::Object::Guid(unit), spellID, isHelpful, ReadStacks(unit, slot),
                  unit != nullptr && unit == Unit::Identity::PlayerObject(), slot,
                  /*known*/ nullptr, emit, Aura::Instance::IDForSlot(unit, slot));
+}
+
+bool SlotExpiration(const uint8_t *unit, int slot, uint32_t *outExpirationMs) {
+    const uint32_t spellID = ReadSpellID(unit, slot);
+    if (spellID == 0)
+        return false;
+    const Timing t = ResolveTiming(::Object::Guid(unit), spellID,
+                                   unit == Unit::Identity::PlayerObject(), slot,
+                                   /*known*/ nullptr);
+    if (t.expirationMs == 0)
+        return false;
+    *outExpirationMs = t.expirationMs;
+    return true;
 }
 
 namespace {

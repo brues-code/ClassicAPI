@@ -18,6 +18,8 @@
 #include "aura/Data.h"
 #include "guid/Guid.h"
 #include "object/Resolve.h"
+#include "time/Clock.h"
+#include "tooltip/Lines.h"
 #include "unit/Identity.h"
 #include "unit/TokenResolve.h"
 
@@ -38,6 +40,35 @@ static int EngineIndexForSlot(const uint8_t *unit, int slot) {
             ++index;
     }
     return index;
+}
+
+// The time-left line under an aura tooltip — 4.3.4's SetTooltipUnitAura
+// (0x0046DF90): an aura with a known end gets
+// GetDurationString(remaining, "SPELL_TIME_REMAINING", roundUp) through the
+// two-argument AddLine (title colour, wrap 0), then the tooltip is shown
+// again. 1.12 draws the same line for the player's own buffs in
+// SetPlayerBuff (0x00532BE8..0x00532C1C) with the same formatter, colour and
+// wrap; this reuses them. The text is a snapshot, as in both clients: it
+// counts down only when the caller sets the tooltip again.
+static void AddTimeLeft(void *L, const uint8_t *unit, int slot) {
+    uint32_t expirationMs = 0;
+    if (!Aura::Data::SlotExpiration(unit, slot, &expirationMs))
+        return;
+    void *self = Game::Lua::ResolveTooltip(L, 1, /*raiseError*/ false);
+    if (self == nullptr)
+        return;
+
+    using FormatDuration_t = char *(__fastcall *)(char *out, uint32_t size, uint32_t ms,
+                                                   const char *token, const char *prefix,
+                                                   int roundUp);
+    char text[32]; // SetPlayerBuff's own buffer size
+    reinterpret_cast<FormatDuration_t>(Offsets::FUN_TOOLTIP_FORMAT_DURATION)(
+        text, sizeof text, Time::Clock::Remaining(expirationMs), "SPELL_TIME_REMAINING",
+        nullptr, 1);
+    ::Tooltip::Lines::Add(self, text,
+                          *reinterpret_cast<const uint32_t *>(
+                              static_cast<uintptr_t>(Offsets::VAR_TOOLTIP_TITLE_COLOR)));
+    ::Tooltip::Lines::Show(L);
 }
 
 // `GameTooltip:SetUnitAura(unit, index, [filter])` — modern unified-aura
@@ -85,8 +116,9 @@ static int __fastcall Script_GameTooltipSetUnitAura(void *L) {
     bool useDebuffMethod = isHarmful;
     const auto *unit = static_cast<const uint8_t *>(
         Game::ResolveUnitToken(Game::Lua::ToString(L, 2)));
+    int slot = -1;
     if (unit != nullptr) {
-        const int slot = Aura::Data::FindNthSlot(
+        slot = Aura::Data::FindNthSlot(
             unit, index,
             isHarmful ? Aura::Data::Filter::Harmful : Aura::Data::Filter::Helpful);
         if (slot >= 0) {
@@ -106,7 +138,14 @@ static int __fastcall Script_GameTooltipSetUnitAura(void *L) {
     auto fn = reinterpret_cast<Script_t>(
         useDebuffMethod ? Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_UNIT_DEBUFF
                         : Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_UNIT_BUFF);
-    return fn(L);
+    fn(L);
+
+    // The engine built and showed the aura tooltip for `slot` (the index
+    // above lands on it). A slot it never reached, or a groupmate read from
+    // the group array, gets no time line — as in 4.3.4.
+    if (slot >= 0)
+        AddTimeLeft(L, unit, slot);
+    return 0;
 }
 
 // The unit a tooltip shows lives in the engine as a GUID only: the builder
@@ -427,7 +466,9 @@ static const Game::Doc::Field kSetUnitAuraArgs[] = {
                    "HARMFUL counts harmful auras; anything else counts helpful ones."),
 };
 static const Game::Doc::Function kSetUnitAura{
-    "Shows the tooltip of an aura on a unit.", kSetUnitAuraArgs, {}};
+    "Shows the tooltip of an aura on a unit. An aura with a known end time gets a last line "
+    "with the time left.",
+    kSetUnitAuraArgs, {}};
 
 static const Game::Doc::Field kSetUnitArgs[] = {
     Game::Doc::Req("unit", "UnitToken"),

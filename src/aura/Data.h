@@ -188,6 +188,12 @@ bool IsPlayerCast(const uint8_t *unit, int slot);
 // `outDurationMs` is 0 when no duration packet was seen for the slot.
 bool PlayerAuraTiming(int slot, uint32_t *outExpirationMs, uint32_t *outDurationMs);
 
+// The expiration `UnitAura` reports for the aura in absolute `slot` of `unit`
+// (a `Time::Clock` tick) — the same resolve, so a tooltip and the aura API
+// never disagree. False when that expiration is 0: empty slot, an aura with
+// no end, or a timing nobody observed.
+bool SlotExpiration(const uint8_t *unit, int slot, uint32_t *outExpirationMs);
+
 // Applies a `CasterMode` to a per-aura "was cast by the player or a unit
 // they own" answer. `Any` → always true; `PlayerOnly` → the answer;
 // `NotPlayer` → its negation.

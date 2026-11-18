@@ -567,6 +567,14 @@ enum Offsets {
     // FUN_FRAME_INVOKE_SCRIPT) before the offline roster build.
     OFF_TOOLTIP_SET_DEFAULT_ANCHOR_HANDLER = 0x444,
     FUN_GAMETOOLTIP_ADD_LINE = 0x00530270,        // __thiscall(self, left, right, lColorBGRA*, rColorBGRA*, wrap)
+    // FormatDuration — 4.3.4's CGTooltip::GetDurationString (0x004652A0):
+    // `char *__fastcall(char *out /*ecx*/, uint32_t size /*edx*/, uint32_t ms,
+    // const char *token, const char *prefix, int roundUp)`, `ret 0x10`.
+    // Formats through the global `<token>_DAYS/_HOURS/_MIN/_SEC`; roundUp
+    // counts days/hours/minutes up, seconds always down. SetPlayerBuff's
+    // time-left line calls it as (ms, "SPELL_TIME_REMAINING", 0, 1) into a
+    // 32-byte buffer (0x00532BE8..0x00532BFA, verified by disassembly).
+    FUN_TOOLTIP_FORMAT_DURATION = 0x0052FA50,
     OFF_GAMETOOLTIP_NUM_LINES = 0x31C,            // int — live line count (AddLine index; +0x320 is the cap)
     // The displayed item's identity is read via the existing
     // OFF_TOOLTIP_ITEM_ID (+0x398) / OFF_TOOLTIP_ITEM_GUID_LO (+0x380) —

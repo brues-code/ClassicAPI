@@ -11943,9 +11943,13 @@ Unified-aura method. `index` is in the same `HELPFUL` / `HARMFUL` index
 space as `C_UnitAuras.GetAuraDataByIndex`, so an index you got from
 `C_UnitAuras` always opens the matching tooltip. That includes a debuff
 that the server parked in a buff slot. The tooltip is the same as the one
-from `SetUnitBuff` or `SetUnitDebuff`. `filter` defaults to
-helpful when omitted. Only its `HELPFUL` or `HARMFUL` token is read, so
-pass an index from the same plain list.
+from `SetUnitBuff` or `SetUnitDebuff`, plus a last line with the time
+left, when the aura has a known end time. That end time is the
+`expirationTime` that `UnitAura` gives. The line does not update by
+itself. To make it count down, call `SetUnitAura` again while the
+tooltip is open. `filter` defaults to helpful when omitted. Only its
+`HELPFUL` or `HARMFUL` token is read, so pass an index from the same
+plain list.
 
 ```lua
 GameTooltip:SetOwner(UIParent, "ANCHOR_CURSOR")
