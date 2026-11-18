@@ -39,3 +39,271 @@ function SecondsToClock(seconds, displayZeroHours)
         return string.format(MINUTES_SECONDS, units.minutes, units.seconds);
     end
 end
+
+-- SecondsFormatter, from retail's Blizzard_SharedXML/TimeUtil.lua.
+-- - The Truncate abbreviation reads SECONDS_ABBR, MINUTES_ABBR, HOURS_ABBR and
+--   DAYS_ABBR. This client's own strings by those names are plain words
+--   ("Sec") where retail's are formats ("%d |4Sec:Sec;"), and its FrameXML
+--   uses them, so they stay as they are: Truncate shows the word alone. None
+--   and OneLetter are retail's (D_SECONDS etc. come from locales\).
+
+-- Set to false in some locale specific files.
+TIME_UTIL_WHITE_SPACE_STRIPPABLE = true;
+
+SecondsFormatter = {};
+
+SecondsFormatterConstants = 
+{
+	ZeroApproximationThreshold = 0,
+	ConvertToLower = true,
+	DontConvertToLower = false,
+	RoundUpLastUnit = true,
+	DontRoundUpLastUnit = false,
+	RoundUpIntervals = true,
+	DontRoundUpIntervals = false,
+}
+
+SecondsFormatter.Abbreviation = 
+{
+	None = 1, -- seconds, minutes, hours...
+	Truncate = 2, -- sec, min, hr...
+	OneLetter = 3, -- s, m, h...
+}
+
+SecondsFormatter.Interval = {
+	Seconds = 1,
+	Minutes = 2,
+	Hours = 3,
+	Days = 4,
+}
+
+SecondsFormatter.IntervalDescription = {
+	[SecondsFormatter.Interval.Seconds] = {seconds = 1, formatString = { D_SECONDS, SECONDS_ABBR, SECOND_ONELETTER_ABBR}},
+	[SecondsFormatter.Interval.Minutes] = {seconds = SECONDS_PER_MIN, formatString = {D_MINUTES, MINUTES_ABBR, MINUTE_ONELETTER_ABBR}},
+	[SecondsFormatter.Interval.Hours] = {seconds = SECONDS_PER_HOUR, formatString = {D_HOURS, HOURS_ABBR, HOUR_ONELETTER_ABBR}},
+	[SecondsFormatter.Interval.Days] = {seconds = SECONDS_PER_DAY, formatString = {D_DAYS, DAYS_ABBR, DAY_ONELETTER_ABBR}},
+}
+
+--[[ Seconds formatter to standardize representations of seconds. When adding a new formatter
+please consider if a prexisting formatter suits your needs, otherwise, before adding a new formatter,
+consider adding it to a file appropriate to it's intended use. For example, "WorldQuestsSecondsFormatter"
+could be added to QuestUtil.h so it's immediately apparent the scenarios the formatter is appropriate.]]
+
+SecondsFormatterMixin = {}
+-- defaultAbbreviation: the default abbreviation for the format. Can be overrridden in SecondsFormatterMixin:Format()
+-- approximationSeconds: threshold for representing the seconds as an approximation (ex. "< 2 hours").
+-- roundUpLastUnit: determines if the last unit in the output format string is ceiled (floored by default).
+-- convertToLower: converts the format string to lowercase.
+-- roundUpIntervals: determines if units can be promoted to a higher interval after (ex. 60m -> 1h).
+function SecondsFormatterMixin:Init(approximationSeconds, defaultAbbreviation, roundUpLastUnit, convertToLower, roundUpIntervals)
+	self:SetApproximationSeconds(approximationSeconds or 0);
+	self:SetMinInterval(SecondsFormatter.Interval.Seconds);
+	self:SetDefaultAbbreviation(defaultAbbreviation or SecondsFormatter.Abbreviation.None);
+	self:SetCanRoundUpLastUnit(roundUpLastUnit or SecondsFormatterConstants.DontRoundUpLastUnit);
+	self:SetCanRoundUpIntervals(roundUpIntervals or SecondsFormatterConstants.DontRoundUpIntervals);
+	self:SetDesiredUnitCount(2);
+	self:SetStripIntervalWhitespace(false);
+	self:SetConvertToLower(convertToLower or false);
+end
+
+function SecondsFormatterMixin:SetStripIntervalWhitespace(strip)
+	self.stripIntervalWhitespace = strip;
+end
+
+function SecondsFormatterMixin:GetStripIntervalWhitespace()
+	return self.stripIntervalWhitespace;
+end
+
+function SecondsFormatterMixin:SetConvertToLower(convertToLower)
+	self.convertToLower = convertToLower;
+end
+
+function SecondsFormatterMixin:GetMaxInterval()
+	return #SecondsFormatter.IntervalDescription;
+end
+
+function SecondsFormatterMixin:GetIntervalDescription(interval)
+	return SecondsFormatter.IntervalDescription[interval];
+end
+
+function SecondsFormatterMixin:GetIntervalSeconds(interval)
+	local intervalDescription = self:GetIntervalDescription(interval);
+	return intervalDescription and intervalDescription.seconds or nil;
+end
+
+function SecondsFormatterMixin:CanApproximate(seconds)
+	return (seconds > 0 and seconds < self:GetApproximationSeconds());
+end
+
+function SecondsFormatterMixin:SetDefaultAbbreviation(defaultAbbreviation)
+	self.defaultAbbreviation = defaultAbbreviation;
+end
+
+function SecondsFormatterMixin:GetDefaultAbbreviation()
+	return self.defaultAbbreviation;
+end
+
+function SecondsFormatterMixin:SetApproximationSeconds(approximationSeconds)
+	self.approximationSeconds = approximationSeconds;
+end
+
+function SecondsFormatterMixin:GetApproximationSeconds()
+	return self.approximationSeconds;
+end
+
+function SecondsFormatterMixin:SetCanRoundUpLastUnit(roundUpLastUnit)
+	self.roundUpLastUnit = roundUpLastUnit;
+end
+
+function SecondsFormatterMixin:CanRoundUpLastUnit()
+	return self.roundUpLastUnit;
+end
+
+function SecondsFormatterMixin:SetCanRoundUpIntervals(roundUpIntervals)
+	self.roundUpIntervals = roundUpIntervals;
+end
+
+function SecondsFormatterMixin:CanRoundUpIntervals()
+	return self.roundUpIntervals;
+end
+
+function SecondsFormatterMixin:SetDesiredUnitCount(unitCount)
+	self.unitCount = unitCount;
+end
+
+function SecondsFormatterMixin:GetDesiredUnitCount(seconds)
+	-- seconds ignored in base implementation, but instances of this mixin can override this function
+	return self.unitCount;
+end
+
+function SecondsFormatterMixin:SetMinInterval(interval)
+	self.minInterval = interval;
+end
+
+function SecondsFormatterMixin:GetMinInterval(seconds)
+	-- seconds ignored in base implementation, but instances of this mixin can override this function
+	return self.minInterval;
+end
+
+function SecondsFormatterMixin:GetFormatString(interval, abbreviation, convertToLower)
+	local intervalDescription = self:GetIntervalDescription(interval);
+	local formatString = intervalDescription.formatString[abbreviation];
+	if convertToLower then
+		formatString = formatString:lower();
+	end
+	local strip = TIME_UTIL_WHITE_SPACE_STRIPPABLE and self:GetStripIntervalWhitespace();
+	return strip and formatString:gsub(" ", "") or formatString;
+end
+
+function SecondsFormatterMixin:FormatZero(abbreviation, convertToLower)
+	local seconds = 0;
+	local minInterval = self:GetMinInterval(seconds);
+	local formatString = self:GetFormatString(minInterval, abbreviation, convertToLower);
+	return formatString:format(0);
+end
+
+function SecondsFormatterMixin:FormatMillseconds(millseconds, abbreviation)
+	return self:Format(millseconds/1000, abbreviation);
+end
+
+function SecondsFormatterMixin:Format(seconds, abbreviation)
+	if (seconds == nil) then
+		return "";
+	end
+
+	seconds = math.ceil(seconds);
+	abbreviation = abbreviation or self:GetDefaultAbbreviation();
+
+	if (seconds <= 0) then
+		return self:FormatZero(abbreviation, self.convertToLower);
+	end
+
+	local minInterval = self:GetMinInterval(seconds);
+	local maxInterval = self:GetMaxInterval();
+
+	if (self:CanApproximate(seconds)) then
+		local interval = math.max(minInterval, SecondsFormatter.Interval.Minutes);
+		while (interval < maxInterval) do
+			local nextInterval = interval + 1; 
+			if (seconds > self:GetIntervalSeconds(nextInterval)) then
+				interval = nextInterval;
+			else
+				break;
+			end
+		end
+
+		local formatString = self:GetFormatString(interval, abbreviation, self.convertToLower);
+		local unit = formatString:format(math.ceil(seconds / self:GetIntervalSeconds(interval)));
+		return string.format(LESS_THAN_OPERAND, unit);
+	end
+	
+	local output = "";
+	local appendedCount = 0;
+	local desiredCount = self:GetDesiredUnitCount(seconds);
+	local convertToLower = self.convertToLower;
+
+	local intervalUnits = {};
+	for interval, value in pairs(SecondsFormatter.Interval) do
+		intervalUnits[value] = 0;
+	end
+
+	local currentInterval = maxInterval;
+	while ((appendedCount < desiredCount) and (currentInterval >= minInterval)) do
+		local intervalDescription = self:GetIntervalDescription(currentInterval);
+		local intervalSeconds = intervalDescription.seconds;
+		if (seconds >= intervalSeconds) then
+			appendedCount = appendedCount + 1;
+
+			local quotient = seconds / intervalSeconds;
+			if (quotient > 0) then
+				if (self:CanRoundUpLastUnit() and ((minInterval == currentInterval) or (appendedCount == desiredCount))) then
+					intervalUnits[currentInterval] = math.ceil(quotient);
+				else
+					intervalUnits[currentInterval] = math.floor(quotient);
+				end
+			else
+				break;
+			end
+
+			seconds = math.fmod(seconds, intervalSeconds);
+		end
+
+		currentInterval = currentInterval - 1;
+	end
+
+	if self:CanRoundUpIntervals() then
+		-- Intervals are promoted to a higher interval if possible (60m -> 1h) so that a value isn't expressed
+		-- as 1h 60m as a result of individual interval round-up. This promotion can only happen within the
+		-- min interval, max interval band so that we don't promote to an interval we don't intend to display.
+		for interval, value in ipairs(intervalUnits) do
+			local intervalDescription = self:GetIntervalDescription(interval);
+			local intervalSeconds = intervalDescription.seconds;
+
+			if value == intervalSeconds then
+				local nextInterval = interval + 1;
+				if nextInterval <= maxInterval then
+					intervalUnits[nextInterval] = intervalUnits[nextInterval] + 1;
+					intervalUnits[interval] = 0;
+				end
+			end
+		end
+	end
+
+	for interval, value in ipairs_reverse(intervalUnits) do
+		if value > 0 then
+			if (output ~= "") then
+				output = output..TIME_UNIT_DELIMITER;
+			end
+
+			local formatString = self:GetFormatString(interval, abbreviation, convertToLower);
+			output = output..formatString:format(value);
+		end
+	end
+
+	-- Return the zero format if an acceptable representation couldn't be formed.
+	if (output == "") then
+		return self:FormatZero(abbreviation, self.convertToLower);
+	end
+
+	return output;
+end

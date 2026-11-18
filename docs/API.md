@@ -222,6 +222,13 @@ build instructions.
   - [`C_CVar.GetCVarBool(cvar)`](#c_cvargetcvarboolcvar)
   - [The interface memory limit](#the-interface-memory-limit)
 
+- [DamageMeter](#damagemeter)
+  - [Damage meter sessions](#damage-meter-sessions)
+  - [Damage meter functions](#damage-meter-functions)
+  - [Damage meter types](#damage-meter-types)
+  - [Damage meter tables](#damage-meter-tables)
+  - [Damage meter cvars (`damageMeterEnabled`, `damageMeterResetOnNewInstance`)](#damage-meter-cvars-damagemeterenabled-damagemeterresetonnewinstance)
+
 - [DeathInfo](#deathinfo)
   - [`C_DeathInfo.GetSelfResurrectOptions()`](#c_deathinfogetselfresurrectoptions)
   - [`C_DeathInfo.UseSelfResurrectOption(optionType, id)`](#c_deathinfouseselfresurrectoptionoptiontype-id)
@@ -269,6 +276,7 @@ build instructions.
   - [`COMBAT_LOG_EVENT_UNFILTERED` / `COMBAT_LOG_EVENT` events](#combat_log_event_unfiltered--combat_log_event-events)
   - [`CURSOR_CHANGED` event](#cursor_changed-event)
   - [`CVAR_UPDATE` event (fires for every change)](#cvar_update-event-fires-for-every-change)
+  - [`DAMAGE_METER_COMBAT_SESSION_UPDATED` / `DAMAGE_METER_CURRENT_SESSION_UPDATED` / `DAMAGE_METER_RESET` events](#damage_meter_combat_session_updated--damage_meter_current_session_updated--damage_meter_reset-events)
   - [`EQUIPMENT_SETS_CHANGED` event](#equipment_sets_changed-event)
   - [`EQUIPMENT_SWAP_PENDING` event](#equipment_swap_pending-event)
   - [`EQUIPMENT_SWAP_FINISHED` event](#equipment_swap_finished-event)
@@ -284,6 +292,7 @@ build instructions.
   - [`MODIFIER_STATE_CHANGED` event](#modifier_state_changed-event)
   - [`NAME_PLATE_CREATED` / `NAME_PLATE_UNIT_ADDED` / `NAME_PLATE_UNIT_REMOVED` events](#name_plate_created--name_plate_unit_added--name_plate_unit_removed-events)
   - [`PLAYER_FOCUS_CHANGED` event](#player_focus_changed-event)
+  - [`PLAYER_IN_COMBAT_CHANGED` event](#player_in_combat_changed-event)
   - [`PLAYER_MOUNT_DISPLAY_CHANGED` event](#player_mount_display_changed-event)
   - [`PLAYER_SOFT_ENEMY_CHANGED` / `PLAYER_SOFT_FRIEND_CHANGED` events](#player_soft_enemy_changed--player_soft_friend_changed-events)
   - [`PLAYER_SOFT_INTERACT_CHANGED` event](#player_soft_interact_changed-event)
@@ -403,6 +412,10 @@ build instructions.
   - [`texture:SetSpriteSheetCell(cell, numRows, numColumns)`](#texturesetspritesheetcellcell-numrows-numcolumns)
   - [`texture:SetTexture(file [, wrapModeHorizontal, wrapModeVertical])`](#texturesettexturefile--wrapmodehorizontal-wrapmodevertical)
   - [`texture:SetHorizTile(tiling)` / `texture:SetVertTile(tiling)`](#texturesethoriztiletiling--texturesetverttiletiling)
+  - [`texture:SetTextureSliceMargins(left, top, right, bottom)` / `texture:GetTextureSliceMargins()`](#texturesettextureslicemarginsleft-top-right-bottom--texturegettextureslicemargins)
+  - [`texture:SetTextureSliceMode(sliceMode)` / `texture:GetTextureSliceMode()`](#texturesettextureslicemodeslicemode--texturegettextureslicemode)
+  - [`texture:ClearTextureSlice()`](#texturecleartextureslice)
+  - [`Enum.UITextureSliceMode`](#enumuitextureslicemode)
   - [`texture:SetDesaturation(amount)`](#texturesetdesaturationamount)
   - [`texture:GetDesaturation()`](#texturegetdesaturation)
   - [`IsDesaturateSupported()`](#isdesaturatesupported)
@@ -3679,6 +3692,16 @@ object is a number, `objectIndex`, its index in the list of `GetGameObjects`.
 | `GetGameObjects()` | An array of the game objects that were in view during the replay. Each has `guid`, `name` and `gameObjectID`. `name` is nil when neither the recorder nor your client has a name for it. |
 | `GetGameObjectInfo(objectIndex, time)` | `x, y, z, yaw, pitch, roll, scale, displayID, gameObjectType, state, flags, ownerIndex`. Nil while the object is not in view. `yaw`, `pitch` and `roll` turn the model as `actor:SetYaw`, `actor:SetPitch` and `actor:SetRoll` take them. `displayID` is a `GameObjectDisplayInfo.dbc` id. `state` is `0` for an open door and `1` for a closed door. `ownerIndex` is the unit that made the object, for example the hunter of a trap. |
 | `GetGroundAreas()` | An array of the ground areas of spells, in the order that they came into view. Each has `spellID`, `sourceIndex`, `x`, `y`, `z`, `facing`, `radius` in yards, `startTime`, and `endTime`, which is nil when the area stayed past the end of the replay. `startTime` is negative for an area that was there before the replay started. [`actor:SetModelBySpellArea`](#actorsetmodelbyspellareaspellid-radius) shows an area. |
+| `GetDamageMeterSession(type, time)` | The damage meter of the replay up to `time`, as a `DamageMeterCombatSession` from [`C_DamageMeter`](#damage-meter-functions). `type` is an `Enum.DamageMeterType`. |
+| `GetDamageMeterSessionSource(type, time, sourceGUID, sourceCreatureID)` | One source of the replay's damage meter up to `time`, as a `DamageMeterCombatSessionSource`. Give the `sourceGUID` or the `sourceCreatureID` from the session's source. |
+
+The replay's damage meter is one session. It starts at the first hit
+between the recorder's group and an enemy, and it does not stop
+before the end of the replay. Before that first hit, the session is empty.
+The meter counts as [`C_DamageMeter`](#damage-meter-types) does. The group
+and the enemies are as the recorder's client saw them. `isLocalPlayer`
+is `true` for the recorder. Without a movement file, the class of a player
+is empty, and a pet is a source of its own.
 
 ### `C_CombatLogReplay.GetEvents(startTime, endTime)`
 
@@ -5542,6 +5565,157 @@ SET scriptMemory "65536"
 
 That asks for a 64 MB limit, and any value above 0 turns the check back on.
 
+## DamageMeter
+
+`C_DamageMeter` gives the damage, the healing and the other totals of you
+and your group, one set for each fight. The functions take and give the
+enumerations `Enum.DamageMeterType`, `Enum.DamageMeterSessionType` and
+`Enum.DamageMeterSourceDisplayType`. A damage meter window also has
+`Enum.DamageMeterStyle`, `Enum.DamageMeterVisibility` and
+`Enum.DamageMeterNumbers`.
+
+The meter counts nothing while the cvar `damageMeterEnabled` is off. When you
+turn it off, the meter clears all sessions.
+
+### Damage meter sessions
+
+A session is one fight. Each session has a `sessionID`. The IDs count up and
+do not start again after a reset. The meter keeps the last 30 sessions. When
+a 31st session starts, the oldest session goes out of the list.
+
+- During a boss encounter, the session is the encounter. The session has the
+  name of the boss. A boss encounter always starts a new session, also in the
+  middle of another fight. The encounter is the one that `ENCOUNTER_START`
+  and `ENCOUNTER_END` show in the [combat log file](#combat-log-file-advancedcombatlogging).
+  Your own death does not end it.
+- At other times, a session starts when you or a group member in view goes
+  into combat. The first hit between your group and an enemy also
+  starts it. The session ends when nobody in your group in view is in
+  combat. The session has the name of the first enemy that your
+  group fights.
+- After a boss encounter ends, a new session starts only after your group
+  leaves combat.
+
+Until your group fights an enemy, the session has no name, and `name`
+is an empty string.
+
+There are three session types:
+
+| `Enum.DamageMeterSessionType` | What it holds |
+|---|---|
+| `Overall` | All the sessions since the last reset. |
+| `Current` | The last session. It stays after the fight ends. |
+| `Expired` | The sessions that went out of the list of 30 since the last reset. |
+
+For `Overall` and `Expired`, the duration is the sum of the durations of
+their sessions. The time between fights is not part of it.
+
+Only `C_DamageMeter.ResetAllCombatSessions()` clears the sessions. The other
+reset is the cvar `damageMeterResetOnNewInstance`: when it is on, entering
+an instance clears the sessions. Entering the same instance again does not
+clear them.
+
+### Damage meter functions
+
+| Function | Returns |
+|---|---|
+| `GetAvailableCombatSessions()` | An array of the kept sessions, oldest first. Each has `sessionID`, `name` and `durationSeconds`. |
+| `GetCombatSessionFromID(sessionID, type)` | A `DamageMeterCombatSession` for the session with that ID. |
+| `GetCombatSessionFromType(sessionType, type)` | A `DamageMeterCombatSession` for the session type. |
+| `GetCombatSessionSourceFromID(sessionID, type, sourceGUID, sourceCreatureID)` | A `DamageMeterCombatSessionSource`: the spells of one source in the session with that ID. |
+| `GetCombatSessionSourceFromType(sessionType, type, sourceGUID, sourceCreatureID)` | A `DamageMeterCombatSessionSource` for the session type. |
+| `GetSessionDurationSeconds(sessionType)` | The duration of the session in seconds. Nil when the session type has no session. |
+| `IsDamageMeterAvailable()` | `true, ""`. |
+| `ResetAllCombatSessions()` | Nothing. It clears all sessions and sends `DAMAGE_METER_RESET`. |
+
+`type` is an `Enum.DamageMeterType`. For a session ID that the meter does not
+keep, or a `type` that is not a value of the enumeration, you get an empty
+session: no sources, and `0` for the amounts.
+
+To find a source, give its `sourceGUID`. For a creature, give its
+`sourceCreatureID` and `nil` for `sourceGUID`. Use the values from the
+`DamageMeterCombatSource`.
+
+```lua
+local session = C_DamageMeter.GetCombatSessionFromType(
+    Enum.DamageMeterSessionType.Current, Enum.DamageMeterType.DamageDone)
+for i, source in ipairs(session.combatSources) do
+    print(i, source.name, source.totalAmount, source.amountPerSecond)
+end
+```
+
+### Damage meter types
+
+| `Enum.DamageMeterType` | What it counts |
+|---|---|
+| `DamageDone`, `Dps` | The damage that your group did. Damage to a member of your group is not part of it. |
+| `HealingDone`, `Hps` | The healing that your group did, without overhealing. |
+| `Absorbs` | Always empty. |
+| `Interrupts` | One for each interrupt. The spells are the spells that were interrupted. |
+| `Dispels` | One for each dispel. The spells are the auras that were removed. |
+| `DamageTaken` | The damage that each member of your group took. |
+| `AvoidableDamageTaken` | Always empty. |
+| `Deaths` | The deaths of your group. The spell of a death is the last hit that the unit took before it died. |
+| `EnemyDamageTaken` | The damage that each enemy took from your group. |
+
+Your group is you, your party or raid, and the units that one of you
+controls. The damage or the healing of a pet, a guardian or a totem counts
+for its owner. Its spells show the name of the pet in `creatureName`. A pet
+that takes damage or dies is a source of its own.
+
+An enemy is a hostile or a neutral unit. A neutral creature that your group
+fights is an enemy.
+
+`amountPerSecond` is `totalAmount` divided by the duration of the session.
+A melee swing has the spell ID of Attack (`6603`).
+
+### Damage meter tables
+
+A `DamageMeterCombatSession` has `combatSources`, an array of
+`DamageMeterCombatSource`, and `maxAmount`, `totalAmount` and
+`durationSeconds`. The sources are in order of `totalAmount`, the highest
+first. For `Deaths`, the order is the time of the death, the earliest first.
+
+A `DamageMeterCombatSource` has these fields:
+
+| Field | Value |
+|---|---|
+| `sourceGUID` | The GUID of a player or a pet, as `UnitGUID` gives it. Nil for a creature. |
+| `sourceCreatureID` | The creature ID of a creature. Nil for a player or a pet. All creatures with one creature ID are one source. |
+| `name`, `classFilename` | `classFilename` is the class of a player, for example `MAGE`, and empty for other units. |
+| `classification` | As `UnitClassification` gives it. |
+| `totalAmount`, `amountPerSecond` | For `Deaths`, `totalAmount` is the number of deaths. |
+| `isLocalPlayer` | `true` for you. |
+| `deathTimeSeconds` | For `Deaths`: the seconds from the start of the session to the last death of the source. `-1` for `Overall` and `Expired`. `0` for the other types. |
+| `sourceDisplayType` | `Enum.DamageMeterSourceDisplayType`: `Ally` for your group, `Enemy` for an enemy, and `None` for other units. |
+| `factionGroup` | `Alliance` or `Horde` for a player. Nil for other units. |
+| `specIconID`, `deathRecapID` | Always `0`. |
+
+A `DamageMeterCombatSessionSource` has `combatSpells`, an array of
+`DamageMeterCombatSpell` with the highest amount first, and `maxAmount` and
+`totalAmount`. `totalAmount` is the sum of its spells. For `Deaths`, this
+is the damage of the hits that killed the source.
+
+A `DamageMeterCombatSpell` has `spellID`, `totalAmount`, `amountPerSecond`,
+`creatureName`, `overkillAmount`, `isAvoidable` (always `false`), `isDeadly`
+and `combatSpellDetails`. For `DamageTaken`, `EnemyDamageTaken` and
+`Deaths`, there is one entry for each spell and each unit that used it, and
+`combatSpellDetails` names that unit. For the other types, there is one
+entry for each spell, and `combatSpellDetails.unitName` is empty.
+`combatSpellDetails` has `unitName`, `unitClassFilename`, `classification`,
+`isPet`, `isMob`, `amount` and `specIconID` (always `0`).
+
+The meter's events are under [Events](#damage_meter_combat_session_updated--damage_meter_current_session_updated--damage_meter_reset-events).
+
+### Damage meter cvars (`damageMeterEnabled`, `damageMeterResetOnNewInstance`)
+
+| Cvar | Default | Value |
+|---|---|---|
+| `damageMeterEnabled` | `0` | `1` turns on the damage meter. `0` turns it off and clears all sessions. |
+| `damageMeterResetOnNewInstance` | `0` | `1` clears all sessions each time you enter an instance other than the last one. |
+
+The two cvars are saved for all characters, not for each character.
+
 ## DeathInfo
 
 ### `C_DeathInfo.GetSelfResurrectOptions()`
@@ -6607,6 +6781,22 @@ and `value` is its new value as a string. The Settings window and
 - `SetCVar(name, value, eventName)` fires a second `CVAR_UPDATE`, with
   `eventName` in place of the cvar name.
 
+### `DAMAGE_METER_COMBAT_SESSION_UPDATED` / `DAMAGE_METER_CURRENT_SESSION_UPDATED` / `DAMAGE_METER_RESET` events
+
+```
+DAMAGE_METER_COMBAT_SESSION_UPDATED: type, sessionID
+DAMAGE_METER_CURRENT_SESSION_UPDATED
+DAMAGE_METER_RESET
+```
+
+Each event fires one time in a frame at most.
+
+- `DAMAGE_METER_COMBAT_SESSION_UPDATED` fires when the data of a type
+  changes. It fires two times: one time with `sessionID` `0` for `Overall`,
+  and one time with the ID of the session that changed.
+- `DAMAGE_METER_CURRENT_SESSION_UPDATED` fires when a new session starts.
+- `DAMAGE_METER_RESET` fires when the sessions are cleared.
+
 ### `EQUIPMENT_SETS_CHANGED` event
 
 Fires (with no payload) after any mutation: `Create`, `Save`,
@@ -6929,6 +7119,24 @@ end)
 **Identity-checked**: assigning the same GUID twice is a no-op
 (no event refires). Fired whenever the player's focus target is
 changed, including when the focus target is lost or cleared.
+
+### `PLAYER_IN_COMBAT_CHANGED` event
+
+Fires when the player enters or leaves combat. The payload is `inCombat`, a
+boolean: `true` when the player enters combat, `false` when the player
+leaves it. The value is the same as `UnitAffectingCombat("player")` at that
+time.
+
+It fires at the same time as `PLAYER_REGEN_DISABLED` (enter) and
+`PLAYER_REGEN_ENABLED` (leave), immediately before them.
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterEvent("PLAYER_IN_COMBAT_CHANGED")
+f:SetScript("OnEvent", function(self, event, inCombat)
+    print(inCombat and "In combat" or "Out of combat")
+end)
+```
 
 ### `PLAYER_MOUNT_DISPLAY_CHANGED` event
 
@@ -9371,6 +9579,11 @@ shows the top-left quarter of the art, and `GetTexCoord` reads back what you
 asked for. `SetTexture` points the texture at a file again and clears the atlas.
 `SetAtlas` turns tiling off and sets both wrap modes to `"CLAMP"`.
 
+Some atlases draw as a nine-slice: the corners keep their size when the
+texture is larger than the art. For these atlases, `SetAtlas` sets the slice
+margins and the slice mode of the atlas. Any other atlas clears the margins. See
+[`texture:SetTextureSliceMargins`](#texturesettextureslicemarginsleft-top-right-bottom--texturegettextureslicemargins).
+
 When the name is not known, the texture keeps whatever it was showing. Call
 `_classicapi_DumpAtlasMisses()` to list the names that were asked for and not
 found.
@@ -9488,6 +9701,67 @@ so one strip of a file can tile:
   <TexCoords left="0" right="1" top="0.25" bottom="0.5"/>
 </Texture>
 ```
+
+### `texture:SetTextureSliceMargins(left, top, right, bottom)` / `texture:GetTextureSliceMargins()`
+
+Draws the texture as a nine-slice. The margins cut the image into nine pieces:
+four corners, four edges and the center. The corners keep their size. The top
+and bottom edges stretch across, and the left and right edges stretch down. The
+center stretches in both directions. Thus a panel background keeps its corners
+and its border at the same size when the panel changes size.
+
+The margins are in the pixels of the image. One pixel of a corner covers one
+unit of the width or the height of the texture. If the texture is smaller than
+the two margins of one direction, the two margins shrink by the same ratio.
+
+`GetTextureSliceMargins()` returns the four margins. It returns nothing when no
+margins are set. Margins of `0` draw the image whole.
+
+`SetTexture` keeps the margins. `SetAtlas` replaces them with the slice data of
+the atlas, and an atlas without slice data clears them.
+
+```lua
+local bg = frame:CreateTexture(nil, "BACKGROUND")
+bg:SetAllPoints()
+bg:SetTexture("Interface\\AddOns\\MyAddon\\panel")   -- a 64x64 image
+bg:SetTextureSliceMargins(16, 16, 16, 16)
+```
+
+Notes on a sliced texture:
+
+- `SetTexCoord` selects the part of the image that the pieces come from. A
+  margin that is outside this part does not show.
+- Coordinates that turn the image by a quarter turn draw the image whole.
+- A texture with `SetHorizTile` or `SetVertTile` on draws the image whole.
+- `SetRotation`, `SetVertexOffset` and animations move all the pieces together.
+- A gradient from `SetGradient` or `SetGradientAlpha` applies to each piece
+  separately, not once across the texture.
+
+### `texture:SetTextureSliceMode(sliceMode)` / `texture:GetTextureSliceMode()`
+
+Sets whether the edges and the center of a sliced texture stretch or tile.
+`sliceMode` is a value of [`Enum.UITextureSliceMode`](#enumuitextureslicemode).
+A value that is not in this enum is an error.
+
+The `Tiled` mode draws the same as `Stretched`.
+
+`GetTextureSliceMode()` returns the mode. It returns nothing when the texture
+has no margins and no mode. The default mode is `Stretched`.
+
+### `texture:ClearTextureSlice()`
+
+Clears the slice margins and the slice mode. The texture then draws the image
+whole. To draw a sliced atlas without slices, call `ClearTextureSlice()` after
+`SetAtlas`.
+
+### `Enum.UITextureSliceMode`
+
+How the edges and the center of a sliced texture fill their space.
+
+| Field | Value |
+|---|---|
+| `Stretched` | 0 |
+| `Tiled` | 1 |
 
 ### `texture:SetDesaturation(amount)`
 
@@ -26591,6 +26865,7 @@ Table fields:
 | `bottomTexCoord` | number | Bottom edge of the rectangle, from 0 to 1. |
 | `tilesHorizontally` | boolean | True when the art repeats across its width. |
 | `tilesVertically` | boolean | True when the art repeats down its height. |
+| `sliceData` | table | Set only for an atlas that draws as a nine-slice. The fields are `marginLeft`, `marginTop`, `marginRight`, `marginBottom` (in pixels of the art) and `sliceMode` (`Enum.UITextureSliceMode`). |
 | `filename` | string | Path of the texture that holds the art. |
 
 Textures are named by path, so `filename` carries the texture and the `file` field

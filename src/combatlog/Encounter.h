@@ -18,11 +18,30 @@
 
 #include "combatlog/Entry.h"
 
+#include <cstdint>
+#include <string>
+
 namespace CombatLog::Encounter {
 
 // Sees each entry before its line is written, so an ENCOUNTER_START comes
 // before the line that starts the fight.
 void Observe(const Entry &entry);
+
+// Whether an encounter is under way: from its start until its kill, wipe or a
+// loading screen.
+bool Active();
+
+// Counts encounter starts: it changes each time an encounter starts, and not
+// while one runs.
+uint32_t Serial();
+
+// The name of the boss whose fight started the encounter under way, or of
+// the last one.
+const std::string &BossName();
+
+// The player or a member of its group in view is in combat
+// (UNIT_FLAG_IN_COMBAT). Members out of view count as out of combat.
+bool GroupFighting();
 
 // The group's size: the raid roster, else the party and the player.
 int GroupSize();

@@ -23,15 +23,6 @@ namespace {
 
 using ReserveQuads_t = void(__thiscall *)(void *array, uint32_t extra, int round);
 
-struct QuadRecord {
-    void *deviceTexture;
-    const C3Vector *positions;
-    const C2Vector *texCoords;
-    uint32_t blend;
-    const uint32_t *color;
-    uint32_t colorStride;
-    void *shader;
-};
 static_assert(sizeof(QuadRecord) == Offsets::RENDERBATCH_QUAD_SIZE, "quad record layout");
 
 } // namespace

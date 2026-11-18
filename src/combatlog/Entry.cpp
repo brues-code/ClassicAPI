@@ -39,6 +39,7 @@
 #include "combatlog/Encounter.h"
 #include "combatlog/File.h"
 #include "combatlog/History.h"
+#include "damagemeter/Live.h"
 #include "Offsets.h"
 #include "event/Custom.h"
 #include "group/Roster.h"
@@ -129,26 +130,7 @@ constexpr uint32_t kHiddenAttributes =
 constexpr uint32_t kRangedAttributeEx3 = 0x8000;
 constexpr int kSchoolCount = 7;
 
-// COMBATLOG_OBJECT_* — 4.3.4's GetCombatLogObjectFlags.
-constexpr uint32_t AFFILIATION_MINE = 0x1;
-constexpr uint32_t AFFILIATION_PARTY = 0x2;
-constexpr uint32_t AFFILIATION_RAID = 0x4;
-constexpr uint32_t AFFILIATION_OUTSIDER = 0x8;
-constexpr uint32_t AFFILIATION_MASK = 0xF;
-constexpr uint32_t REACTION_FRIENDLY = 0x10;
-constexpr uint32_t REACTION_NEUTRAL = 0x20;
-constexpr uint32_t REACTION_HOSTILE = 0x40;
-constexpr uint32_t REACTION_MASK = 0xF0;
-constexpr uint32_t CONTROL_PLAYER = 0x100;
-constexpr uint32_t CONTROL_NPC = 0x200;
-constexpr uint32_t TYPE_PLAYER = 0x400;
-constexpr uint32_t TYPE_NPC = 0x800;
-constexpr uint32_t TYPE_PET = 0x1000;
-constexpr uint32_t TYPE_GUARDIAN = 0x2000;
-constexpr uint32_t TYPE_OBJECT = 0x4000;
-constexpr uint32_t TARGET = 0x10000;
-constexpr uint32_t FOCUS = 0x20000;
-constexpr uint32_t NONE = 0x80000000;
+using namespace ObjectFlag;
 
 uint32_t g_startTime = 0;
 uint32_t g_startTimeMs = 0;
@@ -180,22 +162,8 @@ uint32_t ObjectFlags(uint64_t guid) {
     const bool inGroup = inRaid || Group::Roster::PartyCount() != 0;
     const uint64_t player = Unit::Identity::PlayerGuid();
 
-    uint64_t owner = guid;
+    const uint64_t owner = Controller(guid);
     void *unit = Object::ByGuid(Offsets::TYPEMASK_UNIT, guid);
-    if (unit != nullptr) {
-        const uint64_t controller = Unit::Identity::OwnerGuid(unit);
-        if (controller != 0)
-            owner = controller;
-    } else if (void *object = Object::ByGuid(Offsets::TYPEMASK_GAMEOBJECT, guid)) {
-        owner = ReadGuidField(object, Offsets::OFF_GAMEOBJECT_FIELD_CREATED_BY);
-    }
-    // A minion's minion answers to its master's controller (a totem's totem).
-    if (owner != guid && !IsPlayerGuid(owner)) {
-        void *ownerUnit = Object::ByGuid(Offsets::TYPEMASK_UNIT, owner);
-        const uint64_t controller = Unit::Identity::OwnerGuid(ownerUnit);
-        if (controller != 0)
-            owner = controller;
-    }
 
     // 4.3.4's tests read `(high & 0xF0F00000) == 0xF1300000` and the like,
     // which no GUID can pass; the types are the GUID prefixes (Guid::Classify).
@@ -535,6 +503,32 @@ const char *EnvironmentalName(int type) {
 
 int PushEvent(void *L, const Entry &entry) { return Push(L, entry); }
 
+uint64_t Controller(uint64_t guid) {
+    uint64_t owner = guid;
+    if (void *unit = Object::ByGuid(Offsets::TYPEMASK_UNIT, guid)) {
+        const uint64_t controller = Unit::Identity::OwnerGuid(unit);
+        if (controller != 0)
+            owner = controller;
+    } else if (void *object = Object::ByGuid(Offsets::TYPEMASK_GAMEOBJECT, guid)) {
+        owner = ReadGuidField(object, Offsets::OFF_GAMEOBJECT_FIELD_CREATED_BY);
+    }
+    // A minion's minion answers to its master's controller (a totem's totem).
+    if (owner != guid && !IsPlayerGuid(owner)) {
+        void *ownerUnit = Object::ByGuid(Offsets::TYPEMASK_UNIT, owner);
+        const uint64_t controller = Unit::Identity::OwnerGuid(ownerUnit);
+        if (controller != 0)
+            owner = controller;
+    }
+    return owner;
+}
+
+std::string NameOf(uint64_t guid) {
+    bool named = false;
+    std::string name;
+    SetName(guid, named, name);
+    return name;
+}
+
 const uint8_t *SpellRecord(int spellId) { return Spell::Lookup::RecordForID(spellId); }
 
 bool Hidden(const uint8_t *spell) {
@@ -647,6 +641,7 @@ void Queue(Entry &e) {
     }
     History::Record(e);
     Encounter::Observe(e);
+    DamageMeter::Live::Observe(e);
     File::Write(e);
     Send(e);
 }

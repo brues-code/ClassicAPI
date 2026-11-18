@@ -1,0 +1,21 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/
+..\Blizzard_SharedXML\UI.xsd">
+	<!--
+	Backport of retail's Blizzard_DamageMeter/DamageMeter.xml.
+	- DamageMeterTemplate inherits DamageMeterSystemTemplate, ClassicAPI's
+	  stand-in for EditModeDamageMeterSystemTemplate (DamageMeterSystem.xml).
+	-->
+	<Frame name="DamageMeterTemplate" mixin="DamageMeterMixin" inherits="DamageMeterSystemTemplate" virtual="true">
+		<Size x="400" y="200"/>
+		<Scripts>
+			<OnLoad method="OnLoad"/>
+			<OnEvent method="OnEvent"/>
+		</Scripts>
+	</Frame>
+
+	<Frame name="DamageMeter" inherits="DamageMeterTemplate" parent="UIParent">
+		<Anchors>
+			<Anchor point="TOPLEFT"/>
+		</Anchors>
+	</Frame>
+</Ui>

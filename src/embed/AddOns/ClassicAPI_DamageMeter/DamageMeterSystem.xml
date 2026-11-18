@@ -1,0 +1,9 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\FrameXML\UI.xsd">
+	<!--
+	ClassicAPI's stand-in for retail's EditModeDamageMeterSystemTemplate
+	(Blizzard_EditMode/Shared/EditModeSystemTemplates.xml). This client has no
+	Edit Mode, so the template carries only the system's mixin: no selection
+	frame and no Edit Mode resize button. See DamageMeterSystem.lua.
+	-->
+	<Frame name="DamageMeterSystemTemplate" mixin="DamageMeterSystemMixin" virtual="true"/>
+</Ui>

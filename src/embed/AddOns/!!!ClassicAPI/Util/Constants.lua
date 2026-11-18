@@ -261,3 +261,8 @@ SCHOOL_MASK_ARCANE		= 64;
 
 -- Retail defines this in Blizzard_UIPanels_Game/MerchantFrame.lua.
 LIST_DELIMITER = ", ";
+
+-- Retail defines this in Blizzard_SharedXML/SharedConstants.lua.
+function GetClassAtlas(className)
+	return ("classicon-%s"):format(className);
+end

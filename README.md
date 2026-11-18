@@ -31,6 +31,7 @@ The headline features. The complete per-function reference is in
 | [Combat log events](docs/API.md#combat_log_event_unfiltered--combat_log_event-events) | `COMBAT_LOG_EVENT_UNFILTERED` and `CombatLogGetCurrentEventInfo` give each combat event with GUIDs and flags. Damage meters do not need to parse chat text. |
 | [Advanced combat log](docs/API.md#combat-log-file-advancedcombatlogging) | `/combatlog` also writes a log in the layout of the Classic Era combat log, with encounters, the health and position of each unit with `advancedCombatLogging`, and an optional [movement file](docs/API.md#movement-file-advancedcombatloggingmovement). |
 | [Encounter replay](#encounter-replay) | `/replay` plays a recorded log back in 3D: the map, each player in its own gear, each creature, doors and other objects, spell areas on the ground, their moves, casts, auras, health and deaths. [`C_CombatLogReplay`](docs/API.md#combatlogreplay) gives the same data to addons. |
+| [Damage meter](#damage-meter) | The retail damage meter. It shows the damage, healing, interrupts, dispels, damage taken and deaths of your group for each fight, and keeps the last 30 fights. [`C_DamageMeter`](docs/API.md#damagemeter) gives the same totals to addons. |
 | [Modern script handlers](docs/API.md#setmodernscriptargsenable--getmodernscriptargs) | Frame scripts get their values as arguments, for example `OnClick(self, button, down)`. [XML script bodies](docs/API.md#xml-script-bodies-see-self-and-their-arguments) see `self` and their arguments by name. The `this` / `arg1` globals stay set. |
 | [Multi-flavor & conditional TOC](docs/API.md#conditional-and-multi-flavor-toc-loading) | Loads addons that ship one folder for many game versions. This includes `<Name>_ClassicAPI.toc` and `<Name>_Turtle.toc`, version lists in `## Interface:`, and conditions on TOC lines. |
 | [XML attributes](docs/API.md#parentkey-in-xml) | Modern XML works. This includes `parentKey`, `parentArray`, `mixin`, `<KeyValues>`, `inherits` with more than one template, `method` and `function` script handlers, and `intrinsic` frame types. Frames, textures, font strings and other widgets also take many new attributes. |
@@ -74,6 +75,7 @@ In the Frame rows, a name that starts with `:` is a method of the widget that th
 | [Cursor](docs/API.md#cursor) | `CursorHasMacro`, `GetCursorInfo` |
 | [Container](docs/API.md#container) | `C_Container.AutoStoreItem`, `C_Container.CalculateTotalNumberOfFreeBagSlots`, `C_Container.GetContainerItemCharges`, `C_Container.GetContainerItemDurability`, `C_Container.GetContainerItemID`, `C_Container.GetContainerItemInfo`, `C_Container.GetContainerItemEquipmentSetInfo`, `C_Container.GetContainerItemQuestInfo`, `C_Container.GetContainerItemRepairCost`, `C_Container.GetContainerFreeSlots`, `C_Container.GetContainerNumFreeSlots`, `C_Container.GetBackpackAutosortDisabled`, `C_Container.GetBankAutosortDisabled`, `C_Container.GetItemCooldown`, `C_Container.GetSortBagsRightToLeft`, `C_Container.HasContainerItem`, `C_Container.IsContainerFiltered`, `C_Container.IsContainerItemOpenable`, `C_Container.MoveItem`, `C_Container.PlayerHasHearthstone`, `C_Container.SetBackpackAutosortDisabled`, `C_Container.SetBagPortraitTexture`, `C_Container.SetBankAutosortDisabled`, `C_Container.SetItemSearch`, `C_Container.SetSortBagsRightToLeft`, `C_Container.SortBags`, `C_Container.SortBankBags`, `C_Container.SwapItems`, `C_Container.UseHearthstone`, `GetItemCooldown`, `SetBagPortraitTexture` |
 | [Creature](docs/API.md#creature) | `C_CreatureInfo.GetCreatureID`, `C_CreatureInfo.GetCreatureInfoByID`, `C_CreatureInfo.RequestLoadCreatureByID`, `C_CreatureInfo.GetRaceInfo`, `C_CreatureInfo.GetClassInfo`, `C_CreatureInfo.GetCreatureFamilyInfo`, `C_CreatureInfo.GetCreatureFamilyIDs`, `C_CreatureInfo.GetFactionInfo`, `C_CreatureInfo.GetCreatureTypeInfo`, `C_CreatureInfo.GetCreatureTypeIDs` |
+| [DamageMeter](docs/API.md#damagemeter) | `C_DamageMeter.GetAvailableCombatSessions`, `C_DamageMeter.GetCombatSessionFromID`, `C_DamageMeter.GetCombatSessionFromType`, `C_DamageMeter.GetCombatSessionSourceFromID`, `C_DamageMeter.GetCombatSessionSourceFromType`, `C_DamageMeter.GetSessionDurationSeconds`, `C_DamageMeter.IsDamageMeterAvailable`, `C_DamageMeter.ResetAllCombatSessions` |
 | [Currency](docs/API.md#currency) | `GetCoinText`, `C_CurrencyInfo.GetCoinText`, `GetCoinTextureString`, `C_CurrencyInfo.GetCoinTextureString`, `Constants.MoneyFormattingConstants` |
 | EncodingUtil | `C_EncodingUtil.CompressString`, `C_EncodingUtil.DecompressString`, `C_EncodingUtil.EncodeBase64`, `C_EncodingUtil.DecodeBase64`, `C_EncodingUtil.EncodeHex`, `C_EncodingUtil.DecodeHex`, `C_EncodingUtil.SerializeJSON`, `C_EncodingUtil.DeserializeJSON`, `C_EncodingUtil.SerializeCBOR`, `C_EncodingUtil.DeserializeCBOR` |
 | [DeathInfo](docs/API.md#deathinfo) | `C_DeathInfo.GetSelfResurrectOptions`, `C_DeathInfo.UseSelfResurrectOption` |
@@ -87,7 +89,7 @@ In the Frame rows, a name that starts with `:` is a method of the widget that th
 | [Frame: Frame](docs/API.md#createframeframetype--name-parent-template-id) | `CreateFrame` template lists and `id`, `GetMouseFoci`, `:SetShown`, `:SetClampRectInsets` / `:GetClampRectInsets`, `:SetResizeBounds`, `:SetClipsChildren` / `:DoesClipChildren`, `:GetBoundsRect`, `:GetEffectiveAlpha`, `:SetAlphaGradient` / `:ClearAlphaGradient` / `:HasAlphaGradient`, `:DesaturateHierarchy`, `:HookScript`, `:IsEventRegistered`, `:RegisterUnitEvent`, `:SetPropagateKeyboardInput` / `:GetPropagateKeyboardInput`, `:SetMouseClickEnabled` / `:IsMouseClickEnabled`, `:SetMouseMotionEnabled` / `:IsMouseMotionEnabled`, `:IsMouseMotionFocus`, `:SetPropagateMouseClicks` / `:CanPropagateMouseClicks`, `:SetPropagateMouseMotion` / `:CanPropagateMouseMotion`, `:SetPassThroughButtons`, `:SetDontSavePosition` / `:GetDontSavePosition`, `:SetAttribute`, `:SetAttributeNoHandler`, `:ClearAttribute`, `:GetAttribute`, `:CanChangeAttribute`, `:AllowAttributeChanges` |
 | [Frame: Button](docs/API.md#buttonsetnormalfontobjectfont--buttongetnormalfontobject) | `:SetEnabled`, `:SetFormattedText`, `:SetNormalFontObject` / `:GetNormalFontObject`, `:SetMotionScriptsWhileDisabled` / `:GetMotionScriptsWhileDisabled`, `:RegisterForClicks("AnyUp"/"AnyDown")`, `:RegisterForMouse`, `GetClickFrame` |
 | [Frame: FontString](docs/API.md#fontstringgetstringheight) | `:GetStringHeight`, `:GetUnboundedStringWidth`, `:GetWrappedWidth`, `:GetNumLines`, `:GetLineHeight`, `:GetFontHeight` / `:SetFontHeight` (also on fonts), `:GetFieldSize`, `:IsTruncated`, `:SetMaxLines` / `:GetMaxLines`, `:SetWordWrap` / `:CanWordWrap`, `:SetIndentedWordWrap` / `:GetIndentedWordWrap` (also on fonts, edit boxes, message frames, and SimpleHTML), `:SetFormattedText`, `:SetRotation` / `:GetRotation` |
-| [Frame: Texture](docs/API.md#texturesetrotationangle--cx-cy) | `:SetRotation` / `:GetRotation`, `:SetVertexOffset` / `:GetVertexOffset`, `:SetColorTexture`, `:SetAtlas` / `:GetAtlas`, `:ResetTexCoord`, `:SetSpriteSheetCell`, `:SetTexture` wrap modes, `:SetHorizTile` / `:GetHorizTile`, `:SetVertTile` / `:GetVertTile`, `:SetDesaturation` / `:GetDesaturation`, `IsDesaturateSupported`, `:SetMask`, `frame:CreateMaskTexture`, `:AddMaskTexture` / `:RemoveMaskTexture`, `:GetNumMaskTextures`, `:GetMaskTexture` |
+| [Frame: Texture](docs/API.md#texturesetrotationangle--cx-cy) | `:SetRotation` / `:GetRotation`, `:SetVertexOffset` / `:GetVertexOffset`, `:SetColorTexture`, `:SetAtlas` / `:GetAtlas`, `:ResetTexCoord`, `:SetSpriteSheetCell`, `:SetTexture` wrap modes, `:SetHorizTile` / `:GetHorizTile`, `:SetVertTile` / `:GetVertTile`, `:SetDesaturation` / `:GetDesaturation`, `IsDesaturateSupported`, `:SetMask`, `frame:CreateMaskTexture`, `:AddMaskTexture` / `:RemoveMaskTexture`, `:GetNumMaskTextures`, `:GetMaskTexture`, `:SetTextureSliceMargins` / `:GetTextureSliceMargins`, `:SetTextureSliceMode` / `:GetTextureSliceMode`, `:ClearTextureSlice` |
 | [Frame: EditBox](docs/API.md#editboxsetcursorpositionposition) | `:SetCursorPosition` / `:GetCursorPosition`, `:GetUTF8CursorPosition`, `:ClearHighlightText`, `:SetHighlightColor` / `:GetHighlightColor`, `:HasFocus`, `GetCurrentKeyBoardFocus`, `:HasText`, `:ClearHistory`, `:Enable` / `:Disable` / `:IsEnabled`, `:SetCountInvisibleLetters` / `:IsCountInvisibleLetters`, `:IsInIMECompositionMode` |
 | [Frame: StatusBar](docs/API.md#statusbarsetreversefillisreversefill--statusbargetreversefill) | `:SetReverseFill` / `:GetReverseFill`, `:SetRotatesTexture` / `:GetRotatesTexture`, `:SetFillStyle` / `:GetFillStyle`, `:SetColorFill`, `:SetStatusBarDesaturated` / `:IsStatusBarDesaturated`, `:SetStatusBarDesaturation` / `:GetStatusBarDesaturation`, `:SetTimerDuration` / `:GetTimerDuration`, `:SetValue` / `:SetMinMaxValues` with `interpolation`, `:GetInterpolatedValue`, `:IsInterpolating`, `:SetToTargetValue` |
 | [Frame: Slider](docs/API.md#sliderenable--sliderdisable--slidersetenabledenabled--sliderisenabled) | `:Enable` / `:Disable` / `:SetEnabled` / `:IsEnabled` |
@@ -232,6 +234,8 @@ its ClassicAPI tab.
 | [Combat log](docs/API.md#kept-entries) | `combatLogRetentionTime` | `300` | The number of seconds that the combat log keeps an entry. |
 | | [`advancedCombatLogging`](docs/API.md#combat-log-file-advancedcombatlogging) | `0` | `1` adds the health, power, position and level of units to the combat log file. |
 | | [`advancedCombatLoggingMovement`](docs/API.md#movement-file-advancedcombatloggingmovement) | `0` | `1` writes the movement of all units to a second file while advanced combat logging is on. `/replay` needs this file. |
+| [Damage meter](docs/API.md#damage-meter-cvars-damagemeterenabled-damagemeterresetonnewinstance) | `damageMeterEnabled` | `0` | `1` turns on the damage meter. While it is `0`, the game counts nothing and the meter window does not load. |
+| | `damageMeterResetOnNewInstance` | `0` | `1` clears the damage meter each time you enter a different instance. |
 | [Stand, dismount and form](docs/API.md#stand-dismount-and-form-settings-autostand-autodismount-autounshift) | `autoStand` | `0` | `1` makes you stand up when you cast, loot or open the flight map while you sit. |
 | | `autoDismount` | `0` | `1` makes you dismount when you cast, use an object, loot, attack or open the flight map while you are mounted. |
 | | `autoUnshift` | `0` | `1` makes you leave your form when you cast a spell that cannot be cast in it, use an item, or open the flight map. It also lets you talk to NPCs and use objects in druid forms and Ghost Wolf. |
@@ -303,6 +307,9 @@ when launching with `-console`), not as Lua functions. See the
 | `COMBAT_LOG_EVENT_UNFILTERED` | same as `COMBAT_LOG_EVENT` |
 | `CURSOR_CHANGED` | `isDefault, newCursorType, oldCursorType, oldCursorVirtualID` |
 | `CVAR_UPDATE` | `cvarName, value` — fires for every cvar change ([details](docs/API.md#cvar_update-event-fires-for-every-change)) |
+| `DAMAGE_METER_COMBAT_SESSION_UPDATED` | `type, sessionID` ([details](docs/API.md#damage_meter_combat_session_updated--damage_meter_current_session_updated--damage_meter_reset-events)) |
+| `DAMAGE_METER_CURRENT_SESSION_UPDATED` | *(none)* |
+| `DAMAGE_METER_RESET` | *(none)* |
 | `DYNAMIC_GOSSIP_POI_UPDATED` | *(none)* |
 | `EQUIPMENT_SETS_CHANGED` | *(none)* |
 | `EQUIPMENT_SWAP_PENDING` | `setID` |
@@ -328,6 +335,7 @@ when launching with `-console`), not as Lua functions. See the
 | `PLAYER_AVG_ITEM_LEVEL_READY` | *(none)* |
 | `PLAYER_EQUIPMENT_CHANGED` | `equipmentSlot, hasCurrent` |
 | `PLAYER_FOCUS_CHANGED` | *(none)* |
+| `PLAYER_IN_COMBAT_CHANGED` | `inCombat` |
 | `PLAYER_MOUNT_DISPLAY_CHANGED` | *(none)* |
 | `PLAYER_SOFT_ENEMY_CHANGED` | *(none)* |
 | `PLAYER_SOFT_FRIEND_CHANGED` | *(none)* |
@@ -410,6 +418,8 @@ when launching with `-console`), not as Lua functions. See the
 | Item class | `Enum.ItemClass.{Consumable,Container,Weapon,Gem,Armor,Reagent,Projectile,Tradegoods,ItemEnhancement,Recipe,Quiver,Questitem,Key,Miscellaneous,…}` (0–19) |
 | Item quality | `Enum.ItemQuality.{Poor,Common,Uncommon,Rare,Epic,Legendary,Artifact}` (0–6) |
 | Cursor type | `Enum.UICursorType.{Default,Item,Money,Spell,PetAction,Merchant,Macro,Pet,…}` (0–20; this client yields 0–5, 7 and 9) |
+| Damage meter | `Enum.DamageMeterType`, `Enum.DamageMeterSessionType`, `Enum.DamageMeterSourceDisplayType`, `Enum.DamageMeterStyle`, `Enum.DamageMeterVisibility`, `Enum.DamageMeterNumbers` |
+| Texture slice mode | `Enum.UITextureSliceMode.{Stretched,Tiled}` (0–1) |
 | Spellbook bank | `Enum.SpellBookSpellBank.{Player,Pet}` (0–1) |
 | Spellbook item type | `Enum.SpellBookItemType.{None,Spell,FutureSpell,PetAction,Flyout}` (0–4; 1.12 only yields `Spell`/`PetAction`) |
 | Player swing type | `Enum.PlayerSwingType.{MainHand,OffHand,Ranged}` (0–2) |
@@ -565,6 +575,44 @@ log for it, turn on advanced combat logging and its movement file (game
 menu, AddOn Options, Network category), then use `/combatlog`. The
 [CombatLogReplay](docs/API.md#combatlogreplay) section of the reference
 describes the files and the functions behind the window.
+
+The replay window also shows a damage meter. It counts the fight up to the
+time of the replay, so it changes as the replay plays.
+
+## Damage meter
+
+ClassicAPI contains a backport of the retail damage meter
+(`Blizzard_DamageMeter`), with the name `ClassicAPI_DamageMeter`. The DLL
+contains the addon, so you do not install it.
+
+To turn the meter on:
+
+1. Open the game menu and click **AddOn Options**.
+2. Select the **Advanced** category.
+3. Select **Enable Damage Meter**.
+4. To clear the meter each time you enter a different instance, also select
+   **Auto Reset Damage Meter**.
+
+The meter starts a session for each fight. A fight against a world boss is
+one session from the pull to the kill or the wipe, also when you die before
+the end. Other fights last while you or a member of your group near you is
+in combat. The meter keeps the last 30 sessions. It counts only what your
+client sees, so a member of your group that is far away can show less than
+the real amount.
+
+In the window:
+
+- The menu at the top changes what the window shows, for example damage
+  done, healing done, interrupts or deaths.
+- The session menu shows the current session, all sessions together
+  (**Overall**), or one earlier session.
+- Click a row to see the spells of that unit.
+- The gear button opens the settings menu. Click **Unlock Window**, then
+  drag the window or its corner to move or resize it. The menu also has
+  **Create New Window**, the style, the number format and when the window
+  shows.
+
+Absorbs and avoidable damage taken are always empty on this client.
 
 ## Building
 

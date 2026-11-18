@@ -114,6 +114,35 @@ enum MissType : int {
     MISS_COUNT = 12,
 };
 
+// COMBATLOG_OBJECT_* — 4.3.4's GetCombatLogObjectFlags, the bits of an
+// entry's sourceFlags / destFlags.
+namespace ObjectFlag {
+constexpr uint32_t AFFILIATION_MINE = 0x1;
+constexpr uint32_t AFFILIATION_PARTY = 0x2;
+constexpr uint32_t AFFILIATION_RAID = 0x4;
+constexpr uint32_t AFFILIATION_OUTSIDER = 0x8;
+constexpr uint32_t AFFILIATION_MASK = 0xF;
+// The player, a party or raid member, or a unit one of them controls.
+constexpr uint32_t AFFILIATION_GROUP = AFFILIATION_MINE | AFFILIATION_PARTY | AFFILIATION_RAID;
+constexpr uint32_t REACTION_FRIENDLY = 0x10;
+constexpr uint32_t REACTION_NEUTRAL = 0x20;
+constexpr uint32_t REACTION_HOSTILE = 0x40;
+constexpr uint32_t REACTION_MASK = 0xF0;
+// A unit the player can fight: hostile or neutral (a neutral creature the
+// group attacks is its enemy all the same).
+constexpr uint32_t REACTION_ENEMY = REACTION_NEUTRAL | REACTION_HOSTILE;
+constexpr uint32_t CONTROL_PLAYER = 0x100;
+constexpr uint32_t CONTROL_NPC = 0x200;
+constexpr uint32_t TYPE_PLAYER = 0x400;
+constexpr uint32_t TYPE_NPC = 0x800;
+constexpr uint32_t TYPE_PET = 0x1000;
+constexpr uint32_t TYPE_GUARDIAN = 0x2000;
+constexpr uint32_t TYPE_OBJECT = 0x4000;
+constexpr uint32_t TARGET = 0x10000;
+constexpr uint32_t FOCUS = 0x20000;
+constexpr uint32_t NONE = 0x80000000;
+} // namespace ObjectFlag
+
 struct Entry {
     uint32_t timeMs = 0;
     int event = -1;
@@ -173,6 +202,17 @@ uint32_t SchoolMask(uint32_t school);
 
 // The spell's school as a mask (4.3.4's SpellRec m_schoolMask), 0 for nullptr.
 uint32_t SpellSchoolMask(const uint8_t *spell);
+
+// The GUID the object answers to, the one its flags take their affiliation
+// from: a unit's charmer or creator (Unit::Identity::OwnerGuid), a game
+// object's creator, and for a minion's minion (a totem's totem) its master's
+// controller. The object itself when nothing controls it; 0 for a game object
+// nobody created.
+uint64_t Controller(uint64_t guid);
+
+// The object's name as an entry names it: the combat log namer's steps, else
+// UNKNOWNOBJECT.
+std::string NameOf(uint64_t guid);
 
 // GetCombatLogEntry: an entry for `event` from `source` to `dest` (either may
 // be 0), with the spell prefix when `spell` is a record.

@@ -85,9 +85,6 @@ namespace CombatLog::Encounter {
 namespace {
 
 constexpr uint32_t kWorldBossRank = 3;
-// COMBATLOG_OBJECT_AFFILIATION_MINE | _PARTY | _RAID.
-constexpr uint32_t kGroupAffiliation = 0x1 | 0x2 | 0x4;
-constexpr uint32_t kReactionHostile = 0x40; // COMBATLOG_OBJECT_REACTION_HOSTILE
 constexpr int kStartTail = 2;
 constexpr int kInstanceDungeon = 1;
 constexpr int kInstanceRaid = 2;
@@ -102,6 +99,7 @@ struct Boss {
 };
 
 bool g_active = false;
+uint32_t g_serial = 0; // counts encounter starts
 bool g_sawFighting = false;
 // The log file the start line went to (File::Session), 0 when logging was off.
 uint32_t g_session = 0;
@@ -131,22 +129,6 @@ bool InCombat(uint64_t guid) {
                                  Offsets::UNIT_FLAG_IN_COMBAT) != 0;
 }
 
-// The player or a member of its group in view is in combat.
-bool GroupFighting() {
-    if (InCombat(Unit::Identity::PlayerGuid()))
-        return true;
-    for (int i = 0; i < Group::Roster::RaidCount(); ++i) {
-        if (InCombat(Group::Roster::RaidGuid(i)))
-            return true;
-    }
-    for (int i = 0; i < Offsets::PARTY_MAX_SLOTS; ++i) {
-        const uint64_t guid = Group::Roster::PartyGuid(i);
-        if (guid != 0 && InCombat(guid))
-            return true;
-    }
-    return false;
-}
-
 // Every engaged boss is beaten: dead or friendly, and with `goneCounts` also
 // gone from view.
 bool Beaten(bool goneCounts) {
@@ -173,6 +155,7 @@ std::string Fields() {
 
 void Start(uint64_t boss, const std::string &name) {
     g_active = true;
+    ++g_serial;
     g_sawFighting = false;
     g_id = Unit::CreatureID::ForGuid(boss);
     g_name = name;
@@ -215,7 +198,7 @@ bool Dead(const void *unit) {
 // after the death, and a dead boss's area spells (Gehennas's Rain of Fire)
 // keep hitting.
 void Engage(uint64_t boss, uint32_t bossFlags, const std::string &name) {
-    if ((bossFlags & kReactionHostile) == 0 || !IsWorldBoss(boss) || Dead(UnitOf(boss)))
+    if ((bossFlags & ObjectFlag::REACTION_HOSTILE) == 0 || !IsWorldBoss(boss) || Dead(UnitOf(boss)))
         return;
     if (!g_active)
         Start(boss, name);
@@ -247,6 +230,27 @@ const Event::EnteringWorld::AutoObserve _enterWorld{&OnEnterWorld};
 
 } // namespace
 
+bool GroupFighting() {
+    if (InCombat(Unit::Identity::PlayerGuid()))
+        return true;
+    for (int i = 0; i < Group::Roster::RaidCount(); ++i) {
+        if (InCombat(Group::Roster::RaidGuid(i)))
+            return true;
+    }
+    for (int i = 0; i < Offsets::PARTY_MAX_SLOTS; ++i) {
+        const uint64_t guid = Group::Roster::PartyGuid(i);
+        if (guid != 0 && InCombat(guid))
+            return true;
+    }
+    return false;
+}
+
+bool Active() { return g_active; }
+
+uint32_t Serial() { return g_serial; }
+
+const std::string &BossName() { return g_name; }
+
 int GroupSize() {
     const int raid = Group::Roster::RaidCount();
     return raid != 0 ? raid : Group::Roster::PartyCount() + 1;
@@ -277,9 +281,9 @@ void Observe(const Entry &e) {
     if (e.event == PARTY_KILL || e.event == SPELL_AURA_REMOVED ||
         e.event == SPELL_AURA_REMOVED_DOSE)
         return;
-    if (e.source != 0 && (e.destFlags & kGroupAffiliation) != 0)
+    if (e.source != 0 && (e.destFlags & ObjectFlag::AFFILIATION_GROUP) != 0)
         Engage(e.source, e.sourceFlags, e.sourceName);
-    if (e.dest != 0 && (e.sourceFlags & kGroupAffiliation) != 0)
+    if (e.dest != 0 && (e.sourceFlags & ObjectFlag::AFFILIATION_GROUP) != 0)
         Engage(e.dest, e.destFlags, e.destName);
 }
 

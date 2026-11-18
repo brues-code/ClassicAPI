@@ -113,7 +113,6 @@ int g_regionsWithGroups = 0;
 
 using FrameUpdate_t = void(__fastcall *)(void *frame, void *edx, float elapsed);
 using SetFrameAlpha_t = void(__fastcall *)(void *frame, void *edx, uint32_t alpha);
-using StoreCorners_t = void(__fastcall *)(void *region, void *edx, float *rect);
 using SetStringPos_t = void(__fastcall *)(void *block, const float *position);
 using SizeChanged_t = void(__fastcall *)(void *layout, void *edx, const float *oldRect);
 using InvalidateNode_t = void(__fastcall *)(void *node);
@@ -171,16 +170,6 @@ void SetVertexAlpha(void *region, uint8_t alpha) { Frame::Region::SetAlpha(regio
 
 float *Corners(void *texture) { return Game::Ptr<float>(texture, Offsets::OFF_SIMPLETEXTURE_CORNERS); }
 
-// CSimpleTexture::SetPosition(m_rect, m_positions): the corners from the rect,
-// written the way the texture's layout callback (FUN_TEXTURE_ON_FRAME_SIZE_CHANGED)
-// writes them - cropped when SetTexCoordModifiesRect is on - so the corner
-// store's co-hooks (Texture::Transform) shape them as they do on a layout.
-void StoreTextureCorners(void *texture) {
-    float rect[4];
-    std::memcpy(rect, Game::Ptr<float>(texture, Offsets::OFF_REGION_RECT), sizeof(rect));
-    Texture::CornerStore::CropInput(texture, rect);
-    reinterpret_cast<StoreCorners_t>(Offsets::FUN_REGION_STORE_CORNERS)(texture, nullptr, rect);
-}
 
 void *StringBlock(void *fontString) { return Game::Read<void *>(fontString, Offsets::OFF_FONTSTRING_TEXT_BLOCK); }
 
@@ -213,7 +202,7 @@ void SetStringPos(void *block, const float position[3]) {
 // CSimpleTexture / CSimpleFontString::StoreAnimPosition.
 void StoreAnimPosition(void *region, AnimData &data) {
     if (IsTexture(region)) {
-        StoreTextureCorners(region);
+        Texture::CornerStore::StoreFromRect(region);
         std::memcpy(data.position, Corners(region), sizeof(data.position));
         data.hasPosition = true;
     } else if (IsFontString(region)) {
@@ -241,7 +230,7 @@ void RebakeIfChanged(void *fontString, const AnimData &data) {
 void ResetPosition(void *region, AnimData &data) {
     data.hasPosition = false;
     if (IsTexture(region)) {
-        StoreTextureCorners(region);
+        Texture::CornerStore::StoreFromRect(region);
     } else if (IsFontString(region)) {
         // 4.3.4 leaves the string where the last update put it until the next
         // layout; it goes back now, as the corners of a texture do.

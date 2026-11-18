@@ -13,6 +13,7 @@ Map.lua
 UnitFrame.lua
 UnitList.lua
 UnitTooltip.lua
+Meter.lua
 Playback.lua
 Replay.lua
 Replay.xml

@@ -1,8 +1,10 @@
 <Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/
 ..\FrameXML\UI.xsd">
-	<!-- From retail's Blizzard_Menu/MenuTemplates.xml. WowStyle2DropdownTemplate
-	and WowStyle2IconButtonTemplate are not here: they draw Mainline atlases
-	that need their own 1.12 art. The highlight button's art is
+	<!-- From retail's Blizzard_Menu/MenuTemplates.xml. WowStyle2IconButtonTemplate
+	is not here: it draws Mainline atlases that need their own 1.12 art.
+	WowStyle2DropdownTemplate is, for the damage meter's session dropdown; its
+	common-dropdown-c-button atlases have no 1.12 art yet, so until they do it
+	draws only its text. The highlight button's art is
 	DarkMenuElementTemplate's (FrameXML/SharedUIPanelTemplates.xml). -->
 	<Button name="WowMenuAutoHideButtonTemplate" propagateMouseInput="Motion" virtual="true">
 		<Layers>
@@ -12,4 +14,55 @@
 		</Layers>
 	</Button>
 	<Button name="WowMenuDropdownHighlightButtonTemplate" inherits="DarkMenuElementTemplate" motionScriptsWhileDisabled="true" virtual="true"/>
+
+	<DropdownButton name="WowStyle2DropdownTemplate" mixin="WowStyle2DropdownMixin" virtual="true">
+		<KeyValues>
+			<KeyValue key="menuMixin" value="MenuStyle2Mixin" type="global"/>
+		</KeyValues>
+		<Size x="122" y="25"/>
+		<Frames>
+			<!--This button template is not typically intended to be used as a filter button, but because an instance
+			exists in the trading post, this reset button was added.-->
+			<Button parentKey="ResetButton" inherits="UIResetButtonTemplate" hidden="true">
+				<Anchors>
+					<Anchor point="CENTER" relativePoint="TOPRIGHT" x="-3" y="-5"/>
+				</Anchors>
+			</Button>
+		</Frames>
+		<Layers>
+			<Layer level="BACKGROUND">
+				<Texture parentKey="Background" atlas="common-dropdown-c-button" useAtlasSize="true">
+					<Anchors>
+						<Anchor point="TOPLEFT" x="-7" y="7"/>
+						<Anchor point="BOTTOMRIGHT" x="7" y="-7"/>
+					</Anchors>
+				</Texture>
+			</Layer>
+			<Layer level="OVERLAY">
+				<Texture parentKey="Arrow" atlas="common-dropdown-c-button-hover-arrow" useAtlasSize="true">
+					<Anchors>
+						<Anchor point="BOTTOM" y="-5"/>
+					</Anchors>
+				</Texture>
+				<FontString parentKey="Text" inherits="GameFontNormal" wordwrap="false" justifyH="CENTER">
+					<Size x="0" y="20"/>
+					<Anchors>
+						<Anchor point="LEFT" x="13"/>
+						<Anchor point="RIGHT" x="-13"/>
+					</Anchors>
+				</FontString>
+			</Layer>
+		</Layers>
+		<Scripts>
+			<OnLoad method="OnLoad"/>
+			<!--OnShow attempts to generate the menu description if one was not ready.-->
+			<OnShow method="OnShow"/>
+			<OnMouseDown method="OnMouseDown"/>
+			<OnMouseUp method="OnMouseUp"/>
+			<OnEnter method="OnEnter"/>
+			<OnLeave method="OnLeave"/>
+			<OnEnable method="OnEnable"/>
+			<OnDisable method="OnDisable"/>
+		</Scripts>
+	</DropdownButton>
 </Ui>

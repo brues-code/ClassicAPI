@@ -26,9 +26,10 @@
 // whenever an input changes: after each corner store (every layout, through
 // Texture::CornerStore), after each coordinate write (both SetTexCoord
 // forms), on a tile change, and after the batch build's per-texture emit
-// (FUN_SIMPLETEXTURE_EMIT), where the image is first loaded and its size
-// known. The script units are the engine's own push of a script coordinate,
-// DivideByScreenScaleX(aspect * 1024 * length), over the effective scale.
+// (FUN_SIMPLETEXTURE_EMIT, through Texture::Emit), where the image is first
+// loaded and its size known. The script units are the engine's own push of a
+// script coordinate, DivideByScreenScaleX(aspect * 1024 * length), over the
+// effective scale.
 // Counting after a coordinate write goes past 4.3.4, which waits for the next
 // size change: NineSlice calls SetTexCoord after SetHorizTile.
 //
@@ -55,6 +56,7 @@
 #include "frame/Layout.h"
 #include "texture/Atlas.h"
 #include "texture/CornerStore.h"
+#include "texture/Emit.h"
 #include "texture/Wrap.h"
 #include "xml/FrameLoad.h"
 #include "xml/TypeLoad.h"
@@ -66,7 +68,6 @@ namespace Texture::Tile {
 namespace {
 
 using SetTexCoord_t = void(__fastcall *)(void *texture, void *edx, const float *values);
-using Emit_t = void(__fastcall *)(void *texture, void *edx, void *batch);
 
 // UL, LL, UR, LR: the whole image.
 constexpr float kWholeImage[8] = {0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f, 1.0f};
@@ -114,7 +115,6 @@ const Texture::CornerStore::AutoSubscribe _cornerSub{&OnCornersStored};
 
 SetTexCoord_t g_origSetRect = nullptr;
 SetTexCoord_t g_origSetCorners = nullptr;
-Emit_t g_origEmit = nullptr;
 
 void __fastcall SetTexCoordRect_h(void *texture, void *edx, const float *rect) {
     g_origSetRect(texture, edx, rect);
@@ -126,10 +126,9 @@ void __fastcall SetTexCoordCorners_h(void *texture, void *edx, const float *corn
     Apply(texture);
 }
 
-void __fastcall Emit_h(void *texture, void *edx, void *batch) {
-    g_origEmit(texture, edx, batch);
-    Apply(texture);
-}
+void OnEmitted(void *texture, void * /*batch*/, bool /*appended*/) { Apply(texture); }
+
+const Texture::Emit::AutoSubscribe _emitSub{&OnEmitted};
 
 const Game::HookAutoRegister _setRectHook{Offsets::FUN_SIMPLETEXTURE_SET_TEXCOORD,
                                           reinterpret_cast<void *>(&SetTexCoordRect_h),
@@ -137,8 +136,6 @@ const Game::HookAutoRegister _setRectHook{Offsets::FUN_SIMPLETEXTURE_SET_TEXCOOR
 const Game::HookAutoRegister _setCornersHook{Offsets::FUN_SIMPLETEXTURE_SET_TEXCOORD_CORNERS,
                                              reinterpret_cast<void *>(&SetTexCoordCorners_h),
                                              reinterpret_cast<void **>(&g_origSetCorners)};
-const Game::HookAutoRegister _emitHook{Offsets::FUN_SIMPLETEXTURE_EMIT, reinterpret_cast<void *>(&Emit_h),
-                                       reinterpret_cast<void **>(&g_origEmit)};
 
 // --- Lua -----------------------------------------------------------------------
 

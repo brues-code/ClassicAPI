@@ -920,6 +920,17 @@ enum Offsets {
     // with an image it runs the quad append FUN_00772FD0, whose device-texture
     // lookup loads the texture, so after it the device texture exists.
     FUN_SIMPLETEXTURE_EMIT = 0x007706E0,
+    // The quad append the emit runs — `void __thiscall(batch, texture)`,
+    // `ret 4` (0x007706F1: ecx = the batch, the texture pushed): resolves the
+    // image's device texture (0x00770700), returns with nothing added when it
+    // has none, else reserves one record (FUN_RENDERBATCH_RESERVE_QUADS),
+    // fills it from the texture (handle, &+0xD4, &+0x104, blend +0xD0, the
+    // colour pointer +0xB8 or 0 by the count +0xB4, stride 4 or 0, shader
+    // +0x128) and bumps both counts (OFF_RENDERBATCH_QUAD_COUNT,
+    // OFF_RENDERBATCH_ENTRY_COUNT). Verified by disassembly (0x00772FD0 ..
+    // 0x00773071). Texture::Slice calls it again per extra piece so every
+    // piece record carries the engine's own fields.
+    FUN_SIMPLETEXTURE_APPEND_QUAD = 0x00772FD0,
     // CSimpleFontString::Emit — `void __thiscall(fs, batch)`, `ret 4`, the
     // font string's slot of the same call (4.3.4's CSimpleFontString::Draw):
     // with a font and a nonempty text it runs AppendToBatch (0x00773080),
@@ -2687,6 +2698,11 @@ enum Offsets {
     // (GLUE_EVENT_COUNT ids), so code that also runs on glue looks events up
     // by name instead.
     EVENT_UNIT_FACTION = 0x1D,
+    // Signalled (FUN_FIRE_EVENT_NO_ARGS) by CGUnit_C::OnActivePlayerFlagsChanged
+    // at 0x005FF527 when the player's UNIT_FLAG_IN_COMBAT bit changes: 0xBE
+    // when it is set, 0xBF when it clears (boot stores at 0x0051AD25/0x0051AD2F).
+    EVENT_PLAYER_REGEN_DISABLED = 0xBE,
+    EVENT_PLAYER_REGEN_ENABLED = 0xBF,
     EVENT_UI_ERROR_MESSAGE = 0xE0,
     EVENT_SPELLS_CHANGED = 0x104,
     EVENT_LOOT_OPENED = 0x10B,
@@ -8403,6 +8419,14 @@ enum Offsets {
     OFF_CREATURE_TYPE = 0x18,      // CreatureType (1=Beast, 7=Humanoid, ...)
     OFF_CREATURE_FAMILY = 0x1C,    // CreatureFamily
     OFF_CREATURE_RANK = 0x20,      // 0=normal,1=elite,2=rareelite,3=worldboss,4=rare
+    // UnitClassification's words, a `const char *[5]` indexed by the rank:
+    // "normal", "elite", "rareelite", "worldboss", "rare" (Script_
+    // UnitClassification 0x00516D90 pushes `[0x850424 + rank*4]`; the five
+    // pointers read from WoW.exe resolve to those strings, benilla-re
+    // systems/ui/unitinfo.md). The table is not bounded by the engine; the
+    // next words are the function registrar's name pointers.
+    VAR_UNIT_CLASSIFICATION_NAMES = 0x00850424,
+    UNIT_CLASSIFICATION_COUNT = 5,
     OFF_CREATURE_DISPLAYID = 0x2C, // creature model display ID
     // CreatureTypeFlags bit 0x8: no wound and no parry animation
     // (CGUnit_C::SuppressesWoundAnim 0x006125F0, `>> 3 & 1`, which

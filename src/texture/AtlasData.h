@@ -80,8 +80,13 @@
 
 namespace Texture::AtlasData {
 
+struct Slice {
+    int16_t left, top, right, bottom;
+    uint8_t mode;
+};
+
 struct Entry {
-    const char *name;   // Blizzard's canonical casing, returned as `elementName`
+    const char *name;  // Blizzard's canonical casing, returned as `elementName`
     const char *file;   // 1.12 texture path, extension omitted as WoW expects
     int16_t width;      // sprite size, used by SetAtlas's `useAtlasSize`
     int16_t height;
@@ -96,6 +101,11 @@ struct Entry {
     // horizontal scroll bar art; transposing the vertical art keeps its
     // top-left lighting, which a quarter turn would move.
     bool transposed;
+    // The nine-slice data SetAtlas applies (Texture::Slice): margins in the
+    // sprite's pixels and the mode (Enum.UITextureSliceMode, 0 stretched,
+    // 1 tiled). Retail keeps it in UiTextureAtlasElementSliceData, one row
+    // per sliced element; all zero here means the sprite is not sliced.
+    Slice slice;
 };
 
 constexpr Entry kAtlases[] = {
@@ -236,6 +246,65 @@ constexpr Entry kAtlases[] = {
      0.5f, 0.75f, 1563, 11968, false, false},
     {"common-icon-undo", "Interface\\Common\\ModelSceneControl", 25, 25, 0.0f, 0.25f, 0.75f,
      1.0f, 1563, 11969, false, false},
+    // EMBEDDED ART. The damage meter (ClassicAPI_DamageMeter, a port of
+    // Blizzard_DamageMeter) and its dropdowns draw retail art 1.12 has none of,
+    // so the DLL carries it (Texture::Builtin) in two sheets: the window,
+    // bars and buttons in DamageMeter, the class, elite, rare and faction
+    // icons in DamageMeterIcons (its own sheet so each keeps a 256-colour
+    // palette). Each sprite is cut from the retail sheet named after its row
+    // at the rect of the _forever_ build's UiTextureAtlasMember (1.60.1.70959,
+    // the build the art came from; the live build's coordinates differ, e.g.
+    // ui-damagemeters-header-bar is 263 wide there and 280 here, and
+    // ObjectIconsAtlas was repacked), with a 1-pixel extruded border so
+    // filtering never reaches a neighbour. The class icons are cut down from
+    // 128 to 64 and the elite icons from 80 to 32 (drawn at bar and text
+    // height). Size is OverrideWidth/Height when set, else Width/Height: the
+    // size retail lays the sprite out at. IDs are that build's atlas and
+    // element IDs. The slice data is that build's
+    // UiTextureAtlasElementSliceData (wago.tools export: Left, Top, Right,
+    // Bottom, SliceMode), matched to these rows by UiTextureAtlasElementID.
+    {"ui-damagemeters-header-bar", "Interface\\DamageMeter\\DamageMeter", 280, 28, 0.322265625f, 0.869140625f, 0.58984375f, 0.69921875f, 3658, 32444, false, false, false, {80, 14, 80, 22, 0}}, // interface/hud/uidamagemeters
+    {"damagemeters-background", "Interface\\DamageMeter\\DamageMeter", 154, 148, 0.001953125f, 0.302734375f, 0.00390625f, 0.58203125f, 3658, 32562, false, false, false, {20, 80, 20, 20, 0}}, // interface/hud/uidamagemeters
+    {"damagemeters-scalehandle", "Interface\\DamageMeter\\DamageMeter", 60, 60, 0.443359375f, 0.560546875f, 0.00390625f, 0.23828125f, 3658, 32492, false, false}, // interface/hud/uidamagemeters
+    {"damagemeters-scalehandle-hover", "Interface\\DamageMeter\\DamageMeter", 60, 60, 0.564453125f, 0.681640625f, 0.00390625f, 0.23828125f, 3658, 32563, false, false}, // interface/hud/uidamagemeters
+    {"damagemeters-scalehandle-pressed", "Interface\\DamageMeter\\DamageMeter", 60, 60, 0.685546875f, 0.802734375f, 0.00390625f, 0.23828125f, 3658, 32564, false, false}, // interface/hud/uidamagemeters
+    {"ui-hud-cooldownmanager-bar", "Interface\\DamageMeter\\DamageMeter", 124, 10, 0.255859375f, 0.498046875f, 0.86328125f, 0.90234375f, 3147, 30193, false, false, false, {4, 5, 4, 4, 0}}, // interface/hud/uicooldownmanager
+    {"ui-hud-cooldownmanager-bar-bg", "Interface\\DamageMeter\\DamageMeter", 132, 19, 0.228515625f, 0.486328125f, 0.75f, 0.82421875f, 3147, 30191, false, false, false, {121, 7, 10, 11, 1}}, // interface/hud/uicooldownmanager
+    {"ui-damagemeters-bar-shadowbg", "Interface\\DamageMeter\\DamageMeter", 128, 14, 0.685546875f, 0.935546875f, 0.75f, 0.8046875f, 3658, 32496, false, false, false, {24, 10, 24, 10, 0}}, // interface/hud/uidamagemeters
+    {"ui-damagemeters-bar-shadowedge", "Interface\\DamageMeter\\DamageMeter", 128, 14, 0.001953125f, 0.251953125f, 0.86328125f, 0.91796875f, 3658, 32443, false, false, false, {4, 5, 4, 4, 0}}, // interface/hud/uidamagemeters
+    {"ui-questtrackerbutton-collapse-all", "Interface\\DamageMeter\\DamageMeter", 18, 19, 0.490234375f, 0.525390625f, 0.75f, 0.82421875f, 2547, 12246, false, false}, // interface/questframe/questtracker
+    {"ui-questtrackerbutton-collapse-all-pressed", "Interface\\DamageMeter\\DamageMeter", 18, 19, 0.529296875f, 0.564453125f, 0.75f, 0.82421875f, 2547, 12245, false, false}, // interface/questframe/questtracker
+    {"ui-questtrackerbutton-expand-all", "Interface\\DamageMeter\\DamageMeter", 18, 19, 0.568359375f, 0.603515625f, 0.75f, 0.82421875f, 2547, 12250, false, false}, // interface/questframe/questtracker
+    {"ui-questtrackerbutton-expand-all-pressed", "Interface\\DamageMeter\\DamageMeter", 18, 19, 0.607421875f, 0.642578125f, 0.75f, 0.82421875f, 2547, 12249, false, false}, // interface/questframe/questtracker
+    {"ui-questtrackerbutton-red-highlight", "Interface\\DamageMeter\\DamageMeter", 18, 19, 0.646484375f, 0.681640625f, 0.75f, 0.82421875f, 2547, 24977, false, false}, // interface/questframe/questtracker
+    {"common-dropdown-bg", "Interface\\DamageMeter\\DamageMeter", 68, 68, 0.306640625f, 0.439453125f, 0.00390625f, 0.26953125f, 2634, 25557, false, false, false, {16, 13, 16, 19, 0}}, // interface/common/commondropdown
+    {"common-dropdown-a-button-settings-disabled-shadowless", "Interface\\DamageMeter\\DamageMeter", 27, 27, 0.873046875f, 0.92578125f, 0.58984375f, 0.6953125f, 3678, 32612, false, false}, // interface/common/commondropdownsettings
+    {"common-dropdown-a-button-settings-shadowless", "Interface\\DamageMeter\\DamageMeter", 27, 27, 0.9296875f, 0.982421875f, 0.58984375f, 0.6953125f, 3678, 32617, false, false}, // interface/common/commondropdownsettings
+    {"common-dropdown-a-button-settings-pressed-shadowless", "Interface\\DamageMeter\\DamageMeter", 27, 27, 0.001953125f, 0.0546875f, 0.75f, 0.85546875f, 3678, 32615, false, false}, // interface/common/commondropdownsettings
+    {"common-dropdown-a-button-settings-hover-shadowless", "Interface\\DamageMeter\\DamageMeter", 27, 27, 0.05859375f, 0.111328125f, 0.75f, 0.85546875f, 3678, 32613, false, false}, // interface/common/commondropdownsettings
+    {"common-dropdown-a-button-settings-pressedhover-shadowless", "Interface\\DamageMeter\\DamageMeter", 27, 27, 0.115234375f, 0.16796875f, 0.75f, 0.85546875f, 3678, 32616, false, false}, // interface/common/commondropdownsettings
+    {"common-dropdown-a-button-settings-open-shadowless", "Interface\\DamageMeter\\DamageMeter", 27, 27, 0.171875f, 0.224609375f, 0.75f, 0.85546875f, 3678, 32614, false, false}, // interface/common/commondropdownsettings
+    {"common-dropdown-c-button", "Interface\\DamageMeter\\DamageMeter", 39, 39, 0.806640625f, 0.8828125f, 0.00390625f, 0.15625f, 2634, 25502, false, false, false, {12, 0, 12, 0, 0}}, // interface/common/commondropdown
+    {"common-dropdown-c-button-hover-1", "Interface\\DamageMeter\\DamageMeter", 39, 39, 0.88671875f, 0.962890625f, 0.00390625f, 0.15625f, 2634, 25728, false, false, false, {12, 0, 12, 0, 0}}, // interface/common/commondropdown
+    {"common-dropdown-c-button-pressed-1", "Interface\\DamageMeter\\DamageMeter", 39, 39, 0.001953125f, 0.078125f, 0.58984375f, 0.7421875f, 2634, 25730, false, false, false, {14, 0, 12, 0, 0}}, // interface/common/commondropdown
+    {"common-dropdown-c-button-pressedhover-1", "Interface\\DamageMeter\\DamageMeter", 39, 39, 0.08203125f, 0.158203125f, 0.58984375f, 0.7421875f, 2634, 25732, false, false, false, {14, 0, 12, 0, 0}}, // interface/common/commondropdown
+    {"common-dropdown-c-button-open", "Interface\\DamageMeter\\DamageMeter", 39, 39, 0.162109375f, 0.23828125f, 0.58984375f, 0.7421875f, 2634, 25513, false, false, false, {12, 0, 12, 0, 0}}, // interface/common/commondropdown
+    {"common-dropdown-c-button-disabled", "Interface\\DamageMeter\\DamageMeter", 39, 39, 0.2421875f, 0.318359375f, 0.58984375f, 0.7421875f, 2634, 25591, false, false, false, {12, 0, 12, 0, 0}}, // interface/common/commondropdown
+    {"common-dropdown-c-button-hover-arrow", "Interface\\DamageMeter\\DamageMeter", 12, 5, 0.501953125f, 0.525390625f, 0.86328125f, 0.8828125f, 2634, 25565, false, false}, // interface/common/commondropdown
+    {"classicon-warrior", "Interface\\DamageMeter\\DamageMeterIcons", 128, 128, 0.00390625f, 0.25390625f, 0.00390625f, 0.25390625f, 897, 12069, false, false}, // interface/glues/charactercreate/charactercreateicons
+    {"classicon-paladin", "Interface\\DamageMeter\\DamageMeterIcons", 128, 128, 0.26171875f, 0.51171875f, 0.00390625f, 0.25390625f, 897, 12064, false, false}, // interface/glues/charactercreate/charactercreateicons
+    {"classicon-hunter", "Interface\\DamageMeter\\DamageMeterIcons", 128, 128, 0.51953125f, 0.76953125f, 0.00390625f, 0.25390625f, 897, 12061, false, false}, // interface/glues/charactercreate/charactercreateicons
+    {"classicon-rogue", "Interface\\DamageMeter\\DamageMeterIcons", 128, 128, 0.00390625f, 0.25390625f, 0.26171875f, 0.51171875f, 897, 12066, false, false}, // interface/glues/charactercreate/charactercreateicons
+    {"classicon-priest", "Interface\\DamageMeter\\DamageMeterIcons", 128, 128, 0.26171875f, 0.51171875f, 0.26171875f, 0.51171875f, 897, 12065, false, false}, // interface/glues/charactercreate/charactercreateicons
+    {"classicon-shaman", "Interface\\DamageMeter\\DamageMeterIcons", 128, 128, 0.51953125f, 0.76953125f, 0.26171875f, 0.51171875f, 897, 12067, false, false}, // interface/glues/charactercreate/charactercreateicons
+    {"classicon-mage", "Interface\\DamageMeter\\DamageMeterIcons", 128, 128, 0.00390625f, 0.25390625f, 0.51953125f, 0.76953125f, 897, 12062, false, false}, // interface/glues/charactercreate/charactercreateicons
+    {"classicon-warlock", "Interface\\DamageMeter\\DamageMeterIcons", 128, 128, 0.26171875f, 0.51171875f, 0.51953125f, 0.76953125f, 897, 12068, false, false}, // interface/glues/charactercreate/charactercreateicons
+    {"classicon-druid", "Interface\\DamageMeter\\DamageMeterIcons", 128, 128, 0.51953125f, 0.76953125f, 0.51953125f, 0.76953125f, 897, 12060, false, false}, // interface/glues/charactercreate/charactercreateicons
+    {"nameplates-icon-elite-gold", "Interface\\DamageMeter\\DamageMeterIcons", 40, 40, 0.77734375f, 0.90234375f, 0.51953125f, 0.64453125f, 731, 5444, false, false}, // interface/targetingframe/nameplates
+    {"nameplates-icon-elite-silver", "Interface\\DamageMeter\\DamageMeterIcons", 40, 40, 0.00390625f, 0.12890625f, 0.77734375f, 0.90234375f, 731, 5470, false, false}, // interface/targetingframe/nameplates
+    {"ui-hud-unitframe-target-portraiton-boss-rare-star", "Interface\\DamageMeter\\DamageMeterIcons", 20, 20, 0.40234375f, 0.50390625f, 0.77734375f, 0.87890625f, 2130, 20547, false, false}, // interface/hud/uiunitframeboss
+    {"hordesymbol", "Interface\\DamageMeter\\DamageMeterIcons", 32, 32, 0.13671875f, 0.26171875f, 0.77734375f, 0.90234375f, 647, 6902, false, false}, // interface/minimap/objecticonsatlas
+    {"alliancesymbol", "Interface\\DamageMeter\\DamageMeterIcons", 32, 32, 0.26953125f, 0.39453125f, 0.77734375f, 0.90234375f, 647, 6901, false, false}, // interface/minimap/objecticonsatlas
 };
 
 constexpr int kAtlasCount = sizeof(kAtlases) / sizeof(kAtlases[0]);

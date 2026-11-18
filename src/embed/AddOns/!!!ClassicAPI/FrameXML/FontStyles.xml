@@ -9,6 +9,8 @@
 	- GameFontHighlightMedium: retail's SystemFont_Shadow_Med3 (14 px, with a
 	  shadow) in white, so 1.12's GameFontNormal (which has the shadow) at
 	  14 px.
+	- GameFontNormalMed1: retail's SystemFont_Med2 (13 px) with a shadow, in
+	  gold, so 1.12's GameFontNormal (which has the shadow) at 13 px.
 	-->
 	<Font name="GameFontHighlightHuge" inherits="GameFontNormalHuge" virtual="true">
 		<Color r="1.0" g="1.0" b="1.0"/>
@@ -18,5 +20,11 @@
 			<AbsValue val="14"/>
 		</FontHeight>
 		<Color r="1.0" g="1.0" b="1.0"/>
+	</Font>
+	<Font name="GameFontNormalMed1" inherits="GameFontNormal" virtual="true">
+		<FontHeight>
+			<AbsValue val="13"/>
+		</FontHeight>
+		<Color r="1.0" g="0.82" b="0"/>
 	</Font>
 </Ui>

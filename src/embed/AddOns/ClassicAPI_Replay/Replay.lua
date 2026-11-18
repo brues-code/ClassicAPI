@@ -308,6 +308,7 @@ function ClassicAPIReplay_Toggle()
 		ns.frame:Hide();
 	else
 		ns.frame:Show();
+		ns.ShowMeter();
 		ns.frame.LogDropdown:GenerateMenu();
 	end
 end

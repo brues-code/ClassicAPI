@@ -275,8 +275,11 @@ end
 -- ---------------------------------------------------------------------------
 
 local function RegisterAdvanced()
-	local category = Settings.RegisterVerticalLayoutCategory(CLASSICAPI_ADVANCED);
+	local category, layout = Settings.RegisterVerticalLayoutCategory(CLASSICAPI_ADVANCED);
 	Settings.RegisterCategory(category);
+	-- Retail's AdvancedOptions.lua names its page this way; the damage meter's
+	-- Settings button opens it.
+	Settings.ADVANCED_OPTIONS_CATEGORY_ID = category:GetID();
 
 	local function GetRemember()
 		return C_PlayerCache.IsEnabled() and true or false;
@@ -289,6 +292,34 @@ local function RegisterAdvanced()
 
 	AddNumberBox(category, "combatLogRetentionTime", CLASSICAPI_COMBAT_LOG_RETENTION, CLASSICAPI_COMBAT_LOG_RETENTION_TOOLTIP);
 	AddCVarCheckbox(category, "scriptProfile", CLASSICAPI_SCRIPT_PROFILE, CLASSICAPI_SCRIPT_PROFILE_TOOLTIP);
+
+	-- Damage Meter, as retail's AdvancedOptions.lua sets it up. Here the
+	-- auto-reset checkbox is a child of the enable checkbox.
+	local sectionNewTagID = "DAMAGE_METER_LABEL";
+	layout:AddInitializer(CreateSettingsListSectionHeaderInitializer(DAMAGE_METER_LABEL, nil, sectionNewTagID));
+
+	local function TooltipFn()
+		local isAvailable, failureReason = C_DamageMeter.IsDamageMeterAvailable();
+		if isAvailable then
+			return ENABLE_DAMAGE_METER_TOOLTIP;
+		else
+			return format("%s|n|n%s", ENABLE_DAMAGE_METER_TOOLTIP, failureReason);
+		end
+	end
+
+	local damageMeter, damageMeterInitializer = Settings.SetupCVarCheckbox(category, "damageMeterEnabled", ENABLE_DAMAGE_METER, TooltipFn);
+
+	local function AutoResetTooltipFn()
+		local isAvailable, failureReason = C_DamageMeter.IsDamageMeterAvailable();
+		if isAvailable then
+			return AUTO_RESET_DAMAGE_METER_TOOLTIP;
+		else
+			return format("%s|n|n%s", AUTO_RESET_DAMAGE_METER_TOOLTIP, failureReason);
+		end
+	end
+
+	local autoReset = AddCVarCheckbox(category, "damageMeterResetOnNewInstance", AUTO_RESET_DAMAGE_METER, AutoResetTooltipFn);
+	autoReset:SetParentInitializer(damageMeterInitializer, function() return damageMeter:GetValue(); end);
 end
 
 SettingsRegistrar:AddRegistrant(function()

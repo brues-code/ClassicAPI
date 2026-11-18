@@ -15,9 +15,10 @@
 // this module makes the engine think they do — without writing anything
 // to the filesystem. The addons are `Manifest::kAddons` (the `ADDONS`
 // list in CMakeLists.txt): `!!!ClassicAPI`, which loads at login, and
-// `ClassicAPI_DebugTools`, `ClassicAPI_EventTrace` and `ClassicAPI_Replay`,
-// which are `## LoadOnDemand` behind the `/dump` / `/fstack` / `/etrace` /
-// `/replay` stubs in `!!!ClassicAPI` — retail's chat-frame +
+// `ClassicAPI_DebugTools`, `ClassicAPI_EventTrace`, `ClassicAPI_Replay` and
+// `ClassicAPI_DamageMeter`, which are `## LoadOnDemand` behind the `/dump` /
+// `/fstack` / `/etrace` / `/replay` stubs and the `damageMeterEnabled` cvar in
+// `!!!ClassicAPI` — retail's chat-frame +
 // Blizzard_DebugTools / Blizzard_EventTrace split. (The `Blizzard_` name is not
 // available to us: the engine moves loose `Interface\AddOns\Blizzard*`
 // folders aside at startup, `MoveAsideLooseInterface`, and refuses a

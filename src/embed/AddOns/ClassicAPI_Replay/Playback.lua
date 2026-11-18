@@ -125,6 +125,7 @@ local function OnUpdate(self, elapsed)
 	ns.UpdateUnitList();
 	ns.UpdateUnitFrame(ns.now);
 	ns.UpdateUnitTooltip();
+	ns.UpdateMeter(elapsed);
 	UpdateTimeline(ns.now >= ns.duration);
 end
 ns.OnUpdate = OnUpdate;
@@ -135,6 +136,7 @@ local function Seek(time)
 	ns.FollowFocus();
 	ns.UpdateUnitList();
 	ns.UpdateUnitFrame(ns.now);
+	ns.RefreshMeter();
 	UpdateTimeline(true);
 end
 ns.Seek = Seek;
@@ -304,9 +306,11 @@ ns.SetupTimeline = SetupTimeline;
 -- The loaded replay, from the start.
 local function Build()
 	ns.ReleaseUnits();
+	ns.ResetMeter();
 	local info = C_CombatLogReplay.GetReplayInfo();
 	if not info then
 		ns.FillUnitList();
+		ns.RefreshMeter();
 		ns.SetStatus(REPLAY_LOAD_FAILED);
 		return;
 	end

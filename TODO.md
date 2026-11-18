@@ -4586,3 +4586,46 @@ the advanced block's X/Y). High-frequency movement is opt-in:
   (BWL+MC+Ony), gzip about 12:1. Movement, NOT measured: an estimated
   50-100 lines/s, 45-90 MB per night. Nobody can test a raid right now.
   Measure the real rate with an opcode counter once someone can.
+
+## 111. Damage meter (C_DamageMeter + Blizzard_DamageMeter) — built 2026-11-17, not seen in game
+
+Built, unverified in game:
+- `src/damagemeter/`: totals (Totals), retail table builders (Tables),
+  live front end (Live: the `damageMeterEnabled` and
+  `damageMeterResetOnNewInstance` cvars, sessions, the three events),
+  `C_DamageMeter` (Api), the six enums (Enums). Nothing is collected while
+  `damageMeterEnabled` is off. Sessions: an encounter (combatlog/Encounter)
+  is one session named after the boss; otherwise a session lasts while the
+  group in view is in combat. 30 kept, oldest first (retail, probed).
+- `PLAYER_IN_COMBAT_CHANGED` (src/unit/InCombatChanged.cpp), on the engine's
+  PLAYER_REGEN_DISABLED/ENABLED signals.
+- `ClassicAPI_DamageMeter`: Blizzard_DamageMeter ported, load-on-demand,
+  loaded by !!!ClassicAPI only while the cvar is on. Edit Mode replaced by
+  `DamageMeterSystem` (preset defaults, move/resize when unlocked,
+  Style/Numbers/Visibility in the settings menu). Settings > Advanced has
+  the two checkboxes.
+- Replay: `C_CombatLogReplay.GetDamageMeterSession` /
+  `GetDamageMeterSessionSource` (replay/Meter.cpp, one session from the
+  first group-vs-hostile hit); a session window in /replay
+  (ClassicAPI_Replay/Meter.lua).
+
+Open:
+- Art (2026-11-17, not seen in game): the 42 atlases are embedded as two
+  built-in sheets (src/embed/Textures/Interface/DamageMeter/), cut from
+  _forever_\BlizzardInterfaceArt at the _forever_ build's
+  UiTextureAtlasMember rects (1.60.1.70959 CSVs in Downloads; Ketho's live
+  AtlasInfo does not match that art). Seen in game 2026-11-18: bars fill
+  (StatusBar::Fill maps atlas coordinates, rewrites the quad uncropped), and
+  texture slicing (src/texture/Slice.cpp, retail's SetTextureSliceMargins
+  family, atlas slice data from wago UiTextureAtlasElementSliceData) draws
+  the source window's common-dropdown-bg as a nine-slice. Open: tiled slice
+  mode draws stretched; the header bar and bar shadow slice rows exceed their
+  sprite heights (wago build vs the art's) and are scaled to fit.
+- Events the UI registers that nothing fires: GROUP_JOINED, GROUP_LEFT,
+  PLAYER_LEVEL_CHANGED ("In Group" visibility does not update on join/leave).
+- Not applied: text scale (1.12 FontStrings have no SetTextScale); the
+  Edit Mode sliders (size, bar height, padding, opacity, background, text
+  size, spec icon, class colour) keep the preset values.
+- Our choices where retail's rule is C-side: session boundaries and names,
+  creatures grouped by creature ID, Expired = sessions dropped since reset,
+  interrupts/dispels listed under the stopped/removed spell.

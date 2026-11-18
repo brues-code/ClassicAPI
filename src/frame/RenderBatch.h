@@ -38,6 +38,21 @@ enum Blend : uint32_t {
     BLEND_ADD = 3,
 };
 
+// One quad of a layer batch (OFF_RENDERBATCH_QUAD_RECORDS), what the texture
+// append FUN_SIMPLETEXTURE_APPEND_QUAD fills: the device texture, pointers to
+// the four positions and the four texture coordinates (UL, LL, UR, LR, read
+// on every draw), the blend mode, the colour pointer or null, the colour
+// stride (4 = one colour per vertex, 0 = one for all) and the pixel shader.
+struct QuadRecord {
+    void *deviceTexture;
+    const C3Vector *positions;
+    const C2Vector *texCoords;
+    uint32_t blend;
+    const uint32_t *color;
+    uint32_t colorStride;
+    void *shader;
+};
+
 // Appends one strip of `texture` (an HTEXTURE) to `batch`, the way a
 // texture region emits itself (FUN_00772FD0). `color` is one BGRA colour for
 // all four vertices. The batch keeps the three pointers and reads them on

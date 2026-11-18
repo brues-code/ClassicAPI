@@ -264,6 +264,11 @@ struct CombatEvent {
     std::string type; // the subevent as the log names it: SPELL_CAST_START, SWING_DAMAGE, ...
     int32_t source = -1; // unit indexes, -1 for none or not a unit
     int32_t dest = -1;
+    // The line's source and dest flags (COMBATLOG_OBJECT_*): affiliation,
+    // reaction, control and type as the recorder's client saw them. 0 on an
+    // EMOTE, which has none.
+    uint32_t sourceFlags = 0;
+    uint32_t destFlags = 0;
     uint32_t spellID = 0; // a SPELL_, RANGE_ or DAMAGE_ event's, else 0
     std::string spellName; // its name as the log writes it
     bool debuff = false; // an aura event's type
@@ -278,13 +283,16 @@ struct CombatEvent {
     // it, where its missile flies; -1 for none.
     int32_t castTarget = -1;
     bool endsCast = false; // a SPELL_CAST_SUCCESS or FAILED that ends a SPELL_CAST_START
-    uint32_t extraSpellID = 0; // a SPELL_INTERRUPT's interrupted spell
+    uint32_t extraSpellID = 0; // a SPELL_INTERRUPT's interrupted or a SPELL_DISPEL's removed spell
     std::string extraSpellName;
     // A damage or heal event's amount (`hasAmount`) and whether it was
     // critical; a _MISSED event's miss type (MISS, DODGE, PARRY, ...) and
     // whether the off hand made it (the line's isOffHand).
     bool hasAmount = false;
     int32_t amount = 0;
+    // A damage event's overkill or a heal's overhealing, 0 for none (Era
+    // writes -1 for no overkill).
+    int32_t overAmount = 0;
     bool critical = false;
     std::string missType;
     bool offHand = false;

@@ -901,6 +901,10 @@ void Loader::Combat(std::string_view body, int32_t t) {
     e.type = std::string(type);
     e.source = source;
     e.dest = dest;
+    if (!emote) {
+        e.sourceFlags = f.Hex(3);
+        e.destFlags = f.Hex(7);
+    }
     if (type.rfind("SPELL_", 0) == 0 || type.rfind("RANGE_", 0) == 0 || type.rfind("DAMAGE_", 0) == 0) {
         e.spellID = static_cast<uint32_t>(f.Int(9));
         e.spellName = f.Text(10);
@@ -917,10 +921,12 @@ void Loader::Combat(std::string_view body, int32_t t) {
     if (EndsWith(type, "_DAMAGE") || type == "DAMAGE_SHIELD" || type == "DAMAGE_SPLIT") {
         e.hasAmount = true;
         e.amount = f.Int(suffix);
+        e.overAmount = std::max(0, f.Int(suffix + 2));
         e.critical = f[suffix + 7] == "1";
     } else if (EndsWith(type, "_HEAL")) {
         e.hasAmount = true;
         e.amount = f.Int(suffix);
+        e.overAmount = std::max(0, f.Int(suffix + 2));
         e.critical = f[suffix + 4] == "1";
     } else if (EndsWith(type, "_MISSED")) {
         e.missType = std::string(f[suffix]);
@@ -957,6 +963,9 @@ void Loader::Combat(std::string_view body, int32_t t) {
             start.interrupter = source;
             openCasts_.erase(open);
         }
+    } else if (type == "SPELL_DISPEL") {
+        e.extraSpellID = static_cast<uint32_t>(f.Int(suffix));
+        e.extraSpellName = f.Text(suffix + 1);
     } else if (type == "UNIT_DIED" && dest >= 0) {
         for (auto open = openCasts_.begin(); open != openCasts_.end();) {
             if (static_cast<int32_t>(open->first >> 32) != dest) {

@@ -34,6 +34,12 @@ namespace Texture::CornerStore {
 // With the flag clear, a partial texcoord draws at the region's full size.
 void CropInput(void *region, float (&rect)[4]);
 
+// Writes the texture's quad from its layout rect (OFF_REGION_RECT), cropped
+// by CropInput, through the corner store: what the texture's layout callback
+// writes, for a caller that changed what the quad depends on (the crop flag,
+// the coordinates) without a layout that would rewrite it.
+void StoreFromRect(void *texture);
+
 using Listener = void (*)(void *region);
 
 using AutoSubscribe = AutoList<struct AutoSubscribeTag, Listener>;

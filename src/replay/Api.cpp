@@ -28,6 +28,7 @@
 #include "aura/Data.h"
 #include "cache/Record.h"
 #include "creature/Info.h"
+#include "damagemeter/Tables.h"
 #include "event/Custom.h"
 #include "item/Data.h"
 #include "item/Record.h"
@@ -35,6 +36,8 @@
 #include "model/TryOn.h"
 #include "player/Info.h"
 #include "replay/Catalog.h"
+#include "replay/Meter.h"
+#include "replay/Names.h"
 #include "replay/Recording.h"
 #include "spell/Lookup.h"
 #include "tick/WorldTick.h"
@@ -117,6 +120,7 @@ void OnWorldTick() {
         Event::Custom::Fire(kEncountersReady.Slot(), "%s", log.c_str());
     }
     if (g_loading != nullptr && g_loading->done.load(std::memory_order_acquire)) {
+        Meter::Forget();
         g_recording = std::move(g_loading->result);
         g_loading = nullptr;
         void *L = Lua::State();
@@ -264,33 +268,6 @@ int __fastcall Script_GetReplayInfo(void *L) {
     Lua::SetFieldNumber(L, "firstUnitTime", Seconds(r.firstUnitMs));
     Lua::SetFieldNumber(L, "numUnits", static_cast<double>(r.units.size()));
     return 1;
-}
-
-// The unit's name: the log's, else the client's for its GUID (a player's from
-// the name caches, a creature's from the creature cache). A unit only the
-// movement file shows has none in the log. A lookup only: the viewer asks
-// for an uncached creature (C_CreatureInfo.RequestLoadCreatureByID).
-std::string UnitName(const Unit &unit) {
-    if (!unit.name.empty())
-        return unit.name;
-    if (!unit.cachedName.empty())
-        return unit.cachedName;
-    if (unit.player) {
-        constexpr std::string_view kPrefix = "Player-0-";
-        if (unit.guid.rfind(kPrefix, 0) != 0)
-            return {};
-        const uint64_t guid = std::strtoull(unit.guid.c_str() + kPrefix.size(), nullptr, 16);
-        char name[64];
-        if (guid != 0 && Player::Info::NameFromGuid(guid, name, sizeof name))
-            return name;
-    } else if (unit.creatureID != 0) {
-        const uint8_t *record = Creature::Info::CacheRecord(unit.creatureID);
-        const char *name =
-            record != nullptr ? Game::Read<const char *>(record, Offsets::OFF_CREATURE_NAME) : nullptr;
-        if (name != nullptr)
-            return name;
-    }
-    return {};
 }
 
 // A unit's pet owner: the player that owned it when the movement file first
@@ -693,6 +670,31 @@ int __fastcall Script_GetTimeOfDay(void *L) {
         Lua::PushNil(L);
     else
         Lua::PushNumber(L, timeOfDay);
+    return 1;
+}
+
+// The damage meter of the loaded stretch up to a time (Meter.cpp), in
+// C_DamageMeter's tables: one session, from the first hit between the group
+// and an enemy. Empty with no replay loaded or before the first hit.
+DamageMeter::View MeterView(void *L) {
+    if (g_recording == nullptr)
+        return {};
+    const int32_t t = TimeArg(L);
+    return Meter::At(*g_recording, t).ViewOfType(DamageMeter::SESSION_CURRENT, t);
+}
+
+int __fastcall Script_GetDamageMeterSession(void *L) {
+    const int type = static_cast<int>(Lua::CheckNumber(L, 1));
+    DamageMeter::Tables::PushCombatSession(L, MeterView(L), type);
+    return 1;
+}
+
+int __fastcall Script_GetDamageMeterSessionSource(void *L) {
+    const int type = static_cast<int>(Lua::CheckNumber(L, 1));
+    const char *guid = Lua::Type(L, 3) == Lua::TYPE_STRING ? Lua::ToString(L, 3) : nullptr;
+    const uint32_t creatureID =
+        Lua::IsNumber(L, 4) ? static_cast<uint32_t>(Lua::ToNumber(L, 4)) : 0;
+    DamageMeter::Tables::PushCombatSessionSource(L, MeterView(L), type, guid, creatureID);
     return 1;
 }
 
@@ -1164,6 +1166,32 @@ const Game::Doc::Function kGetTimeOfDay{
     "ModelScene:SetWorldTimeOfDay lights a scene at it.",
     kGetTimeOfDayArgs, kGetTimeOfDayRets, nullptr, true};
 
+const Game::Doc::Field kMeterSessionArgs[] = {
+    Req("type", "DamageMeterType"),
+    Req("time", "number", "Seconds from the replay's start."),
+};
+const Game::Doc::Field kMeterSessionRets[] = {
+    Req("session", "DamageMeterCombatSession"),
+};
+const Game::Doc::Function kGetDamageMeterSession{
+    "Returns the loaded replay's damage meter up to a time, as C_DamageMeter.GetCombatSessionFromType "
+    "returns a session. The replay is one session, from the first hit between the recorder's group and an "
+    "enemy (a hostile or neutral unit).",
+    kMeterSessionArgs, kMeterSessionRets, nullptr, true};
+const Game::Doc::Field kMeterSourceArgs[] = {
+    Req("type", "DamageMeterType"),
+    Req("time", "number", "Seconds from the replay's start."),
+    Opt("sourceGUID", "WOWGUID", nullptr, "A player's or a pet's GUID, as the session's source gives it."),
+    Opt("sourceCreatureID", "number", nullptr, "A creature's ID, as the session's source gives it."),
+};
+const Game::Doc::Field kMeterSourceRets[] = {
+    Req("sessionSource", "DamageMeterCombatSessionSource"),
+};
+const Game::Doc::Function kGetDamageMeterSessionSource{
+    "Returns one source of the loaded replay's damage meter up to a time, as "
+    "C_DamageMeter.GetCombatSessionSourceFromType returns it.",
+    kMeterSourceArgs, kMeterSourceRets, nullptr, true};
+
 const Game::Doc::Field kGetUnitPowerRets[] = {
     Opt("powerType", "number", nullptr, "Nil when the movement file has no power for the unit at the time."),
     Opt("power", "number", nullptr, "In stored units: rage is in tenths."),
@@ -1295,6 +1323,10 @@ void RegisterLuaFunctions() {
     Lua::RegisterTableFunction(kTable, "GetGameObjectInfo", &Script_GetGameObjectInfo,
                                &kGetGameObjectInfo);
     Lua::RegisterTableFunction(kTable, "GetGroundAreas", &Script_GetGroundAreas, &kGetGroundAreas);
+    Lua::RegisterTableFunction(kTable, "GetDamageMeterSession", &Script_GetDamageMeterSession,
+                               &kGetDamageMeterSession);
+    Lua::RegisterTableFunction(kTable, "GetDamageMeterSessionSource",
+                               &Script_GetDamageMeterSessionSource, &kGetDamageMeterSessionSource);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

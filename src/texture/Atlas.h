@@ -47,6 +47,15 @@ struct Info {
     bool tilesVertically = false;
     // A built-in sprite drawn transposed from its rect (AtlasData::Entry).
     bool transposed = false;
+    // Nine-slice data (AtlasData::Entry::slice): margins in the sprite's
+    // pixels and Enum.UITextureSliceMode. `sliced` is false for an atlas
+    // retail has no slice row for.
+    bool sliced = false;
+    float sliceLeft = 0.0f;
+    float sliceTop = 0.0f;
+    float sliceRight = 0.0f;
+    float sliceBottom = 0.0f;
+    int sliceMode = 0;
 };
 
 // Resolves an atlas by name, case-insensitively. Null when the name is unbound.
@@ -56,6 +65,21 @@ const Info *Find(const char *name);
 // True while `region` shows the atlas SetAtlas last gave it: its image has not
 // been replaced since.
 bool Shows(void *region);
+
+// Maps texture coordinates given in the sprite's own space (UL, LL, UR, LR
+// corners, each an (x, y) pair) onto the file, in place, while `region` shows
+// an atlas; false, and the corners untouched, when it shows none. For engine
+// code that writes a region's coordinates past the script SetTexCoord, which
+// does this itself: a StatusBar's fill (StatusBar::Fill), whose retail
+// counterpart crops within an atlas bar texture's sprite.
+bool ToFile(void *region, float corners[8]);
+
+// The inverse of ToFile: maps file coordinates back into the sprite's own
+// space, in place, while `region` shows an atlas; false otherwise.
+bool ToSprite(void *region, float corners[8]);
+
+// The atlas `region` shows, or null (the same test as Shows).
+const Info *Current(void *region);
 
 // Records an unresolved atlas name for `_classicapi_DumpAtlasMisses()`. This is
 // how the built-in table grows: load a real addon, read what it actually asked

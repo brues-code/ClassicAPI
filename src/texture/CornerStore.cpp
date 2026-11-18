@@ -41,4 +41,13 @@ void CropInput(void *region, float (&rect)[4]) {
         reinterpret_cast<Crop_t>(Offsets::FUN_REGION_TEXCOORD_CROP)(region, rect);
 }
 
+// The engine's own store, so the listeners above run as they do on a layout.
+void StoreFromRect(void *texture) {
+    float rect[4];
+    for (int i = 0; i < 4; ++i)
+        rect[i] = Game::Ptr<float>(texture, Offsets::OFF_REGION_RECT)[i];
+    CropInput(texture, rect);
+    reinterpret_cast<StoreCorners_t>(Offsets::FUN_REGION_STORE_CORNERS)(texture, nullptr, rect);
+}
+
 } // namespace Texture::CornerStore

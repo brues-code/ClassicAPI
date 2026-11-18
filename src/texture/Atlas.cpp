@@ -30,6 +30,7 @@
 #include "Offsets.h"
 #include "debug/Log.h"
 #include "frame/RegionDestruction.h"
+#include "texture/Slice.h"
 #include "texture/Wrap.h"
 #include "xml/FrameLoad.h"
 #include "xml/TypeLoad.h"
@@ -82,6 +83,13 @@ std::map<std::string, Info> &Registry() {
             info.tilesHorizontally = e.tilesHorizontally;
             info.tilesVertically = e.tilesVertically;
             info.transposed = e.transposed;
+            info.sliced = e.slice.left != 0 || e.slice.top != 0 || e.slice.right != 0 ||
+                          e.slice.bottom != 0;
+            info.sliceLeft = e.slice.left;
+            info.sliceTop = e.slice.top;
+            info.sliceRight = e.slice.right;
+            info.sliceBottom = e.slice.bottom;
+            info.sliceMode = e.slice.mode;
             registry[Lower(e.name)] = info;
         }
     }
@@ -105,6 +113,9 @@ constexpr float kIdentityCoords[8] = {0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f, 
 
 struct Applied {
     std::string name;
+    // The registry entry, which stays valid for the life of the process
+    // (Find); a re-registration rewrites it in place.
+    const Info *info = nullptr;
     void *hTexture = nullptr;
     // What the addon last asked SetTexCoord for, in SPRITE space. A region has
     // exactly one set of coordinates in the engine and the atlas rect occupies
@@ -194,6 +205,16 @@ int __fastcall Script_GetAtlasInfo(void *L) {
     Game::Lua::SetFieldNumber(L, "bottomTexCoord", info->bottom);
     Game::Lua::SetFieldBool(L, "tilesHorizontally", info->tilesHorizontally);
     Game::Lua::SetFieldBool(L, "tilesVertically", info->tilesVertically);
+    if (info->sliced) {
+        Game::Lua::PushString(L, "sliceData");
+        Game::Lua::NewTable(L);
+        Game::Lua::SetFieldNumber(L, "marginLeft", info->sliceLeft);
+        Game::Lua::SetFieldNumber(L, "marginTop", info->sliceTop);
+        Game::Lua::SetFieldNumber(L, "marginRight", info->sliceRight);
+        Game::Lua::SetFieldNumber(L, "marginBottom", info->sliceBottom);
+        Game::Lua::SetFieldNumber(L, "sliceMode", info->sliceMode);
+        Game::Lua::SetTable(L, -3);
+    }
     // `filename` carries the texture. `file` is a fileDataID, and 1.12 has no
     // such id space at all, so it is left absent rather than filled with a value
     // that would not resolve — both fields are optional in the contract.
@@ -348,8 +369,12 @@ int __fastcall Script_SetAtlas(void *L) {
 
     Applied applied;
     applied.name = info->name;
+    applied.info = info;
     applied.hTexture = RegionTexture(region);
     g_applied[region] = applied;
+
+    // Retail's SetAtlas loads the atlas's slice data along with its rect.
+    Texture::Slice::ApplyAtlas(region, *info);
 
     Game::Lua::SetTop(L, 0);
     return 0;
@@ -562,10 +587,21 @@ const Game::Doc::Field kAtlasInfoFields[] = {
     Game::Doc::Req("bottomTexCoord", "number"),
     Game::Doc::Req("tilesHorizontally", "bool"),
     Game::Doc::Req("tilesVertically", "bool"),
+    Game::Doc::Opt("sliceData", "UITextureSliceData", nullptr,
+                   "Set only for an atlas that draws as a nine-slice."),
     Game::Doc::Opt("file", "fileID", nullptr, "Never set; the texture is named by filename."),
     Game::Doc::Opt("filename", "string", nullptr, "Path of the texture that holds the art."),
 };
 const Game::Doc::Structure kAtlasInfo{"AtlasInfo", "Texture", kAtlasInfoFields};
+
+const Game::Doc::Field kSliceDataFields[] = {
+    Game::Doc::Req("marginLeft", "number", "In the art's pixels."),
+    Game::Doc::Req("marginTop", "number"),
+    Game::Doc::Req("marginRight", "number"),
+    Game::Doc::Req("marginBottom", "number"),
+    Game::Doc::Req("sliceMode", "UITextureSliceMode"),
+};
+const Game::Doc::Structure kSliceData{"UITextureSliceData", "UITextureConstants", kSliceDataFields};
 
 const Game::Doc::Field kAtlasArgs[] = {
     Game::Doc::Req("atlas", "textureAtlas"),
@@ -691,6 +727,40 @@ const Xml::TypeLoad::AutoSubscribe _xmlSub{Xml::TypeLoad::TEXTURE, &OnTextureNod
 } // namespace
 
 bool Shows(void *region) { return LiveEntry(region) != nullptr; }
+
+bool ToFile(void *region, float corners[8]) {
+    const Applied *entry = LiveEntry(region);
+    const Info *info = entry != nullptr ? Find(entry->name.c_str()) : nullptr;
+    if (info == nullptr)
+        return false;
+    float out[8];
+    Compose(*info, corners, out);
+    for (int i = 0; i < 8; ++i)
+        corners[i] = out[i];
+    return true;
+}
+
+bool ToSprite(void *region, float corners[8]) {
+    const Info *info = Current(region);
+    if (info == nullptr)
+        return false;
+    const float width = info->right - info->left;
+    const float height = info->bottom - info->top;
+    if (width == 0.0f || height == 0.0f)
+        return false;
+    for (int i = 0; i < 4; ++i) {
+        const float x = (corners[i * 2] - info->left) / width;
+        const float y = (corners[i * 2 + 1] - info->top) / height;
+        corners[i * 2] = info->transposed ? y : x;
+        corners[i * 2 + 1] = info->transposed ? x : y;
+    }
+    return true;
+}
+
+const Info *Current(void *region) {
+    const Applied *entry = LiveEntry(region);
+    return entry != nullptr ? entry->info : nullptr;
+}
 
 const Info *Find(const char *name) {
     if (name == nullptr || *name == '\0')

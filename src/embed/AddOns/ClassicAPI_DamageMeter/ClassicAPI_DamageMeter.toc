@@ -1,0 +1,21 @@
+## Interface: 11200
+## Title: ClassicAPI Damage Meter
+## Notes: Damage meter (backport of retail's Blizzard_DamageMeter to 1.12.1)
+## Author: Blizzard Entertainment, backported
+## Version: DEV
+## LoadOnDemand: 1
+## LoadSavedVariablesFirst: 1
+## SavedVariablesPerCharacter: DamageMeterPerCharacterSettings
+DamageMeterConstants.lua
+DamageMeterSystem.lua
+DamageMeterSystem.xml
+DamageMeterEntry.lua
+DamageMeterEntry.xml
+DamageMeterSettingsDropdownButton.lua
+DamageMeterSettingsDropdownButton.xml
+DamageMeterSourceWindow.lua
+DamageMeterSourceWindow.xml
+DamageMeterSessionWindow.lua
+DamageMeterSessionWindow.xml
+DamageMeter.lua
+DamageMeter.xml
