@@ -590,6 +590,8 @@ void Loader::Movement(std::string_view body, int32_t t) {
         ObjectGone(f[1], t);
     else if (f[0] == "MOVEMENT_LOG_VERSION")
         Header(f, t);
+    else if (f[0] == "GAME_TIME")
+        r_.clock.push_back({t, f.Float(1), f.Float(2)});
 }
 
 // A combat line names its source and its dest (fields 1-2 and 5-6), and a

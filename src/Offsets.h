@@ -11611,6 +11611,15 @@ enum Offsets {
     OFF_GAMETIME_DAY = 0x0C,
     OFF_GAMETIME_MONTH = 0x10,
     OFF_GAMETIME_YEAR = 0x14,
+    // The clock's scale in game minutes per real second (benilla-re
+    // gametime/overview: 1/60 at construction, SetTimeScale 0x00643820
+    // clamps it to [1/60, 60]), and its day phase `float __thiscall(clock)`
+    // (0x00643A70, disassembled): x = (tick - [+0x38]) x 0.001 x scale +
+    // [+0x3C], less 1440 while above 1440, over 1440: the time of day
+    // StampLightState
+    // (0x00482AD0) gives the light state each world frame.
+    OFF_GAMETIME_SCALE = 0x2C,
+    FUN_GAME_CLOCK_DAY_PHASE = 0x00643A70,
 
     // Server-clock skew, the engine's own `CMSG_QUERY_TIME` sync — and a
     // strictly better server clock than `VAR_GAMETIME_STRUCT` above, which
@@ -14719,6 +14728,36 @@ enum Offsets {
     OFF_LIGHT_RECORD_FOG_START_SCALE = 0x48,
     OFF_LIGHT_RECORD_FOG_COLOR = 0x1C,
     OFF_LIGHT_RECORD_SKYBOXES = 0x78, // {LightSkybox id, float weight} x 2
+    // The world's sun light (CWorld::UpdateSkyAndFog 0x0066FF60, Ghidra;
+    // benilla-re lighting/fog "World light commit"): s_globalMapLight
+    // (0x00C89EF0) + 0x7C, an M2Light, takes the direction from the light
+    // state's +0x168 and, each byte / 255 with byte 2 as red, its ambient
+    // (+0x30) from colour band 1 (record +0x04), its diffuse (+0x3C) from
+    // band 0 (+0x00) and its specular (+0x48) from band 9 (+0x20, the sun
+    // colour), through the light state's +0x178 / +0x174 / +0xCC. Both
+    // colours are first dimmed by 0.35 x the sun glare's look factor, 0 on
+    // the full recompute path.
+    OFF_LIGHT_RECORD_DIFFUSE = 0x00,
+    OFF_LIGHT_RECORD_AMBIENT = 0x04,
+    // UpdateSunDirection `__cdecl()` (0x006D3A10, Ghidra): the light state's
+    // +0x168..+0x170 = (cos a sin p, sin a sin p, cos p) from the sun's
+    // azimuth and polar tracks at the state's time of day (+0x04); it writes
+    // nothing else (its tracks are built once behind guard bits).
+    FUN_UPDATE_SUN_DIRECTION = 0x006D3A10,
+    OFF_LIGHT_STATE_SUN_DIRECTION = 0x168,
+    // UpdateCelestialBodies `__cdecl()` (0x006D3B80, Ghidra): from the
+    // state's time of day, day count (+0x08) and eye (+0x18), the three
+    // discs' positions and sizes (VAR_SKY_DISCS), the sun and moon glares'
+    // positions and the moon glare's scale ends, and the unread day ramp
+    // (0x00CE9D08). UpdateStars `__fastcall(stars)` (0x006D1B50) puts the
+    // star object (0x00CE96D8) at the eye with the star track's alpha byte.
+    // The sky's bodies lie together: the stars (0x20 bytes), the moon glare
+    // (0x00CE96F8, 0xB0), the sun glare (0x00CE97A8, 0xB0), then the discs
+    // (3 x SKY_DISC_SIZE).
+    FUN_UPDATE_CELESTIAL_BODIES = 0x006D3B80,
+    FUN_UPDATE_STARS = 0x006D1B50,
+    VAR_SKY_STARS = 0x00CE96D8,
+    VAR_SKY_DAY_RAMP = 0x00CE9D08,
     // The portal walk (benilla terrain/portals.md) decides the sky from
     // inside. WalkPortals `__thiscall(obj, group, from, const float
     // rect[4], depth, interiorGroup)` ret 0x14 (0x006B41C0): skips a group

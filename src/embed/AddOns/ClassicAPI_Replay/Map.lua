@@ -88,3 +88,16 @@ local function ShowMap(mapID)
 	end
 end
 ns.ShowMap = ShowMap;
+
+-- The world lit as the recorder's was at `time`: the map's light at the
+-- game's time of day then. A log without the game clock keeps the scene's
+-- light, under the world's sky.
+local function ApplyTimeOfDay(time)
+	local timeOfDay = C_CombatLogReplay.GetTimeOfDay(time);
+	if timeOfDay then
+		ns.scene:SetWorldTimeOfDay(timeOfDay);
+	else
+		ns.scene:ClearWorldTimeOfDay();
+	end
+end
+ns.ApplyTimeOfDay = ApplyTimeOfDay;

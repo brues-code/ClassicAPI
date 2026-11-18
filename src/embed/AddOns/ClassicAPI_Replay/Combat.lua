@@ -300,6 +300,7 @@ local function Apply(time)
 	end
 	ns.ApplyObjects(time);
 	ns.ApplyAreas(time);
+	ns.ApplyTimeOfDay(time);
 	Combat(time);
 end
 ns.Apply = Apply;

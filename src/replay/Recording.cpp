@@ -219,4 +219,16 @@ const ObjectLook *ObjectLookAt(const GameObject &object, int32_t t) {
     return inView ? At(object.looks, t) : nullptr;
 }
 
+bool TimeOfDayAt(const Recording &recording, int32_t t, float &timeOfDay) {
+    const auto &clock = recording.clock;
+    if (clock.empty())
+        return false;
+    const auto after = std::upper_bound(clock.begin(), clock.end(), t,
+                                        [](int32_t time, const GameClock &c) { return time < c.t; });
+    const GameClock &c = after == clock.begin() ? *after : *(after - 1);
+    const double day = c.timeOfDay + (t - c.t) * 0.001 * c.scale / 1440.0;
+    timeOfDay = static_cast<float>(day - std::floor(day));
+    return true;
+}
+
 } // namespace Replay

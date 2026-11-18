@@ -2466,7 +2466,8 @@ void Gather(int h, Record &out, const uint8_t *params) {
 
 // BuildLightTable (0x006D2260) and BlendAreaLights (0x006D2D00) for the
 // backdrop's map at the scene's camera, as the world builds its table at its
-// camera: the time of day is the world's; the storm blend, which follows the
+// camera: the time of day is the light state's (the world's, or the scene's
+// own while a Daylight lives); the storm blend, which follows the
 // weather where the player is, is left out. False when the map has no light.
 bool BuildMapLight(uint32_t mapID, uint32_t cameraLiquid, const float (&eye)[3], Record &table) {
     const float day = EngineFloat(Offsets::VAR_LIGHT_TIME_OF_DAY) * EngineFloat(Offsets::VAR_HALF_MINUTES_PER_DAY);
@@ -2592,6 +2593,83 @@ LiquidFog::~LiquidFog() {
         std::memcpy(Game::Ptr<uint8_t>(frame_, Offsets::OFF_SIMPLEMODEL_FOG_FLAGS), saved_, sizeof saved_);
 }
 
+namespace {
+
+uint8_t *LightState() { return reinterpret_cast<uint8_t *>(static_cast<uintptr_t>(Offsets::VAR_LIGHT_STATE)); }
+
+// A light record's colour as an M2Light's: each byte / 255, byte 2 red.
+void LightColour(uint32_t colour, float *out) {
+    const float k = EngineFloat(Offsets::VAR_ONE_OVER_255);
+    out[0] = static_cast<float>((colour >> 16) & 0xFF) * k;
+    out[1] = static_cast<float>((colour >> 8) & 0xFF) * k;
+    out[2] = static_cast<float>(colour & 0xFF) * k;
+}
+
+// UpdateSunDirection at the light state's time of day, the state's own sun
+// direction kept.
+void SunDirection(float (&out)[3]) {
+    float *sun = Game::Ptr<float>(LightState(), Offsets::OFF_LIGHT_STATE_SUN_DIRECTION);
+    float kept[3];
+    std::memcpy(kept, sun, sizeof kept);
+    reinterpret_cast<Fn_t>(Offsets::FUN_UPDATE_SUN_DIRECTION)();
+    std::memcpy(out, sun, sizeof out);
+    std::memcpy(sun, kept, sizeof kept);
+}
+
+} // namespace
+
+Daylight::Daylight(void *frame, uint32_t mapID, uint32_t cameraLiquid, const float (&eye)[3], float farClip,
+                   float timeOfDay) {
+    if (timeOfDay < 0.0f || mapID == kNoMap)
+        return;
+    float &time = Game::Ref<float>(Offsets::VAR_LIGHT_TIME_OF_DAY);
+    worldTime_ = time;
+    time = timeOfDay;
+    timed_ = true;
+    Record table;
+    if (!BuildMapLight(mapID, cameraLiquid, eye, table))
+        return;
+    frame_ = frame;
+    void *light = Game::Ptr<uint8_t>(frame, Offsets::OFF_SIMPLEMODEL_LIGHT);
+    std::memcpy(light_, light, sizeof light_);
+    float sun[3];
+    SunDirection(sun);
+    M2::SetLightType(light, 0);
+    M2::SetLightDirection(light, sun);
+    M2::SetLightEnabled(light, true);
+    LightColour(Game::Read<uint32_t>(table, Offsets::OFF_LIGHT_RECORD_AMBIENT),
+                Game::Ptr<float>(light, Offsets::OFF_M2LIGHT_AMBIENT));
+    LightColour(Game::Read<uint32_t>(table, Offsets::OFF_LIGHT_RECORD_DIFFUSE),
+                Game::Ptr<float>(light, Offsets::OFF_M2LIGHT_DIFFUSE));
+    LightColour(Game::Read<uint32_t>(table, Offsets::OFF_LIGHT_RECORD_SUN),
+                Game::Ptr<float>(light, Offsets::OFF_M2LIGHT_SPECULAR));
+    if (cameraLiquid != Offsets::LIQUID_DRY)
+        return;
+    // BuildSceneFog: the end capped at the far clip (a NaN takes it), the
+    // start its scale of the end, colour band 7.
+    std::memcpy(fog_, Game::Ptr<uint8_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_FLAGS), sizeof fog_);
+    fogged_ = true;
+    float end = Game::Read<float>(table, Offsets::OFF_LIGHT_RECORD_FOG_END);
+    if (!(end < farClip))
+        end = farClip;
+    Game::Ref<uint32_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_FLAGS) |= Offsets::SIMPLEMODEL_FOG_ARMED;
+    Game::Ref<uint32_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_COLOR) =
+        Game::Read<uint32_t>(table, Offsets::OFF_LIGHT_RECORD_FOG_COLOR);
+    Game::Ref<float>(frame, Offsets::OFF_SIMPLEMODEL_FOG_NEAR) =
+        Game::Read<float>(table, Offsets::OFF_LIGHT_RECORD_FOG_START_SCALE) * end;
+    Game::Ref<float>(frame, Offsets::OFF_SIMPLEMODEL_FOG_FAR) = end;
+}
+
+Daylight::~Daylight() {
+    if (frame_ != nullptr) {
+        std::memcpy(Game::Ptr<uint8_t>(frame_, Offsets::OFF_SIMPLEMODEL_LIGHT), light_, sizeof light_);
+        if (fogged_)
+            std::memcpy(Game::Ptr<uint8_t>(frame_, Offsets::OFF_SIMPLEMODEL_FOG_FLAGS), fog_, sizeof fog_);
+    }
+    if (timed_)
+        Game::Ref<float>(Offsets::VAR_LIGHT_TIME_OF_DAY) = worldTime_;
+}
+
 // DrawGroupLiquidPass (0x00684CD0) over each WMO's parsed liquid groups.
 // The world commits a record per group at the group def's sphere; here each
 // WMO's one record (its fog, the lights near it) serves its groups. Magma
@@ -2654,8 +2732,11 @@ void DrawLiquids(Backdrop &b, void *frame, const float (&eye)[3]) {
 // backdrop in a map, from that map's light at the scene's camera, with the
 // sun disc and white moon colour and the skybox slots of that light. The
 // world's are put back after the pass. The cloud texture stays the world's
-// (the world builds it a band at a time from its own light); the stars and
-// the bodies' places follow only the time of day.
+// (the world builds it a band at a time from its own light). The sun disc,
+// the moons, their glares and the stars are placed again as the build
+// places them (UpdateCelestialBodies, UpdateStars), from the light state's
+// time of day, which is the scene's while it has one (Daylight). All of the
+// map's light is evaluated at that time too.
 //
 // From inside, the world draws the sky only when its portal walk from the
 // camera's groups reaches an exterior group (WalkPortals 0x006B41C0); a walk
@@ -2665,8 +2746,6 @@ void DrawLiquids(Backdrop &b, void *frame, const float (&eye)[3]) {
 // show. The sun and moon glares (0x006D48C0) are not drawn.
 
 namespace {
-
-uint8_t *LightState() { return reinterpret_cast<uint8_t *>(static_cast<uintptr_t>(Offsets::VAR_LIGHT_STATE)); }
 
 // The light state's heading (0x006D4530): atan2(y, x) of the camera's
 // forward, or atan2(z, x) when its x-y length is short, in [0, 2pi).
@@ -2710,8 +2789,9 @@ class SkyObjects {
         std::memcpy(slots_, state + Offsets::OFF_LIGHT_STATE_OVERRIDE_SKYBOX, sizeof slots_);
         heading_ = Game::Read<float>(state, Offsets::OFF_LIGHT_STATE_HEADING);
         tint_ = Game::Read<uint8_t>(state, Offsets::OFF_LIGHT_STATE_TINT_LEVEL);
-        for (uint32_t i = 0; i < Offsets::SKY_DISCS_LIT; ++i)
-            discs_[i] = Game::Read<uint32_t>(Disc(i));
+        std::memcpy(bodies_, reinterpret_cast<const void *>(static_cast<uintptr_t>(Offsets::VAR_SKY_STARS)),
+                    sizeof bodies_);
+        dayRamp_ = Game::Read<float>(Offsets::VAR_SKY_DAY_RAMP);
         const uint32_t *colours = DomeColours();
         domeColours_.assign(colours, colours + DomeColourCount());
     }
@@ -2721,8 +2801,9 @@ class SkyObjects {
         std::memcpy(state + Offsets::OFF_LIGHT_STATE_OVERRIDE_SKYBOX, slots_, sizeof slots_);
         Game::Ref<float>(state, Offsets::OFF_LIGHT_STATE_HEADING) = heading_;
         Game::Ref<uint8_t>(state, Offsets::OFF_LIGHT_STATE_TINT_LEVEL) = tint_;
-        for (uint32_t i = 0; i < Offsets::SKY_DISCS_LIT; ++i)
-            Game::Ref<uint32_t>(Disc(i)) = discs_[i];
+        std::memcpy(reinterpret_cast<void *>(static_cast<uintptr_t>(Offsets::VAR_SKY_STARS)), bodies_,
+                    sizeof bodies_);
+        Game::Ref<float>(Offsets::VAR_SKY_DAY_RAMP) = dayRamp_;
         std::memcpy(DomeColours(), domeColours_.data(), domeColours_.size() * sizeof(uint32_t));
     }
     SkyObjects(const SkyObjects &) = delete;
@@ -2746,7 +2827,9 @@ class SkyObjects {
                    Offsets::OFF_LIGHT_STATE_OVERRIDE_SKYBOX] = {};
     float heading_ = 0.0f;
     uint8_t tint_ = 0;
-    uint32_t discs_[Offsets::SKY_DISCS_LIT] = {};
+    // The stars, the glares and the discs, which lie together.
+    uint8_t bodies_[Offsets::VAR_SKY_DISCS + 3 * Offsets::SKY_DISC_SIZE - Offsets::VAR_SKY_STARS] = {};
+    float dayRamp_ = 0.0f;
     std::vector<uint32_t> domeColours_;
 };
 
@@ -2932,6 +3015,11 @@ void DrawSkyPass(uint32_t mapID, uint32_t cameraLiquid, const float (&eye)[3], c
     }
     Game::Ref<float>(state, Offsets::OFF_LIGHT_STATE_HEADING) = Heading(forward);
     reinterpret_cast<void(__fastcall *)(void *)>(Offsets::FUN_COLOUR_SKY_DOME)(SkyObjects::Dome());
+    // The bodies and the stars at the light state's time of day, the
+    // scene's own while it has one (Daylight).
+    reinterpret_cast<Fn_t>(Offsets::FUN_UPDATE_CELESTIAL_BODIES)();
+    reinterpret_cast<void(__fastcall *)(void *)>(Offsets::FUN_UPDATE_STARS)(
+        reinterpret_cast<void *>(static_cast<uintptr_t>(Offsets::VAR_SKY_STARS)));
     const Gx::SavedStates states;
     Matrix identity;
     Identity(identity);

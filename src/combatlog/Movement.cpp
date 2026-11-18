@@ -29,6 +29,12 @@
 // Lines (positions with two decimals, angles and speeds with four):
 //   MOVEMENT_LOG_VERSION,1,BUILD_VERSION,<version>,MAP_ID,<map>
 //     on open and after each loading screen;
+//   GAME_TIME,timeOfDay,scale
+//     the game clock the world is lit by, after each header and each time it
+//     leaves the pace the last line set (the server sets it): its time of
+//     day, the day phase the world lights by (0x00643A70: 0 midnight, 0.5
+//     noon), and its scale in game minutes per real second (1/60 is real
+//     time). Between two lines the time of day moves on at the scale;
 //   UNIT_MOVE,unitGUID,event,flags,time,x,y,z,facing,pitch,fallTime,
 //     jumpVelocity,jumpCos,jumpSin,jumpSpeed
 //     a player's move: the 30 relayed MSG_MOVE_* the server forwards (event
@@ -162,7 +168,9 @@
 #include "net/PacketDispatch.h"
 #include "net/SendObserver.h"
 #include "tick/FrameTick.h"
+#include "time/Clock.h"
 
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <string>
@@ -273,6 +281,39 @@ void Header() {
     ++g_generation;
 }
 
+// The game clock as the last GAME_TIME line gave it, and when.
+struct GameClock {
+    bool written = false;
+    float timeOfDay = 0.0f;
+    float scale = 0.0f;
+    uint32_t tick = 0;
+};
+GameClock g_clock;
+
+// A clock more than a game minute off the last line's pace was set.
+constexpr double kClockSlack = 1.0 / 1440.0;
+
+// GAME_TIME after a header (`force`), else when the clock left the last
+// line's pace or changed its scale.
+void GameTime(bool force) {
+    using DayPhase_t = float(__thiscall *)(void *clock);
+    void *clock = reinterpret_cast<void *>(static_cast<uintptr_t>(Offsets::VAR_GAMETIME_STRUCT));
+    const float timeOfDay = reinterpret_cast<DayPhase_t>(Offsets::FUN_GAME_CLOCK_DAY_PHASE)(clock);
+    const float scale = Game::Read<float>(clock, Offsets::OFF_GAMETIME_SCALE);
+    const uint32_t now = Time::Clock::NowMs();
+    if (!force && g_clock.written && scale == g_clock.scale) {
+        const double paced = g_clock.timeOfDay + Time::Clock::Elapsed(g_clock.tick, now) * 0.001 * scale / 1440.0;
+        double off = timeOfDay - paced;
+        off -= std::floor(off + 0.5); // the shorter way round the day
+        if (std::fabs(off) < kClockSlack)
+            return;
+    }
+    char text[64];
+    std::snprintf(text, sizeof text, "GAME_TIME,%.7f,%.7f", timeOfDay, scale);
+    g_log.Emit(text);
+    g_clock = {true, timeOfDay, scale, now};
+}
+
 // The combat log session to write for, 0 when the file should be closed.
 uint32_t WantedSession() {
     const uint32_t session = File::Session();
@@ -289,16 +330,21 @@ void OnFrame() {
         if (session != 0 && g_log.Open("WoWMovementLog", File::FileTime())) {
             g_session = session;
             Header();
+            GameTime(true);
         }
     }
+    if (g_log.IsOpen())
+        GameTime(false);
     g_log.Tick();
 }
 
 const Tick::FrameTick::AutoSubscribe _frame{&OnFrame};
 
 void OnEnterWorld() {
-    if (g_log.IsOpen())
+    if (g_log.IsOpen()) {
         Header();
+        GameTime(true);
+    }
 }
 
 const Event::EnteringWorld::AutoObserve _enterWorld{&OnEnterWorld};

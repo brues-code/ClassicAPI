@@ -640,6 +640,18 @@ int __fastcall Script_GetUnitRaidTargetIndex(void *L) {
     return 1;
 }
 
+// The time of day the recorder's world was lit by at a time (the movement
+// file's GAME_TIME lines), nil without them.
+int __fastcall Script_GetTimeOfDay(void *L) {
+    float timeOfDay;
+    if (g_recording == nullptr ||
+        !TimeOfDayAt(*g_recording, static_cast<int32_t>(Milliseconds(Lua::ToNumber(L, 1))), timeOfDay))
+        Lua::PushNil(L);
+    else
+        Lua::PushNumber(L, timeOfDay);
+    return 1;
+}
+
 // The times the unit died in the stretch (its UNIT_DIED lines), for a viewer
 // that marks them once rather than reading every event.
 int __fastcall Script_GetUnitDeaths(void *L) {
@@ -1072,6 +1084,19 @@ const Game::Doc::Function kGetUnitRaidTargetIndex{
     "has marks only while its recorder was in a group, and a change shows from the unit's next line.",
     kUnitTimeArgs, kGetUnitRaidTargetIndexRets, nullptr, true};
 
+const Game::Doc::Field kGetTimeOfDayArgs[] = {
+    Req("time", "number", "Seconds from the replay's start."),
+};
+const Game::Doc::Field kGetTimeOfDayRets[] = {
+    Opt("timeOfDay", "number", nullptr,
+        "A share of the day: 0 midnight, 0.25 six in the morning, 0.5 noon. Nil when the movement file does not "
+        "have the game clock."),
+};
+const Game::Doc::Function kGetTimeOfDay{
+    "Returns the game's time of day at a time of the loaded replay, which the world was lit by. "
+    "ModelScene:SetWorldTimeOfDay lights a scene at it.",
+    kGetTimeOfDayArgs, kGetTimeOfDayRets, nullptr, true};
+
 const Game::Doc::Field kGetUnitPowerRets[] = {
     Opt("powerType", "number", nullptr, "Nil when the movement file has no power for the unit at the time."),
     Opt("power", "number", nullptr, "In stored units: rage is in tenths."),
@@ -1187,6 +1212,7 @@ void RegisterLuaFunctions() {
     Lua::RegisterTableFunction(kTable, "GetUnitCast", &Script_GetUnitCast, &kGetUnitCast);
     Lua::RegisterTableFunction(kTable, "GetUnitRaidTargetIndex", &Script_GetUnitRaidTargetIndex,
                                &kGetUnitRaidTargetIndex);
+    Lua::RegisterTableFunction(kTable, "GetTimeOfDay", &Script_GetTimeOfDay, &kGetTimeOfDay);
     Lua::RegisterTableFunction(kTable, "GetUnitHealth", &Script_GetUnitHealth, &kGetUnitHealth);
     Lua::RegisterTableFunction(kTable, "GetUnitPower", &Script_GetUnitPower, &kGetUnitPower);
     Lua::RegisterTableFunction(kTable, "GetUnitState", &Script_GetUnitState, &kGetUnitState);

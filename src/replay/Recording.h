@@ -224,6 +224,14 @@ struct GameObject {
     std::vector<std::pair<int32_t, ObjectLook>> looks; // each from the time it changed
 };
 
+// The game clock from a GAME_TIME line: at `t`, the time of day (0 midnight,
+// 0.5 noon), moving on at `scale` game minutes a real second.
+struct GameClock {
+    int32_t t;
+    float timeOfDay;
+    float scale;
+};
+
 // A spell's ground area (DYNAMICOBJECT_INFO), for one time in view.
 struct GroundArea {
     std::string guid;
@@ -282,6 +290,7 @@ struct Recording {
     std::vector<CombatEvent> events; // in time order
     std::vector<GameObject> objects;
     std::vector<GroundArea> areas; // in the order they came into view
+    std::vector<GameClock> clock;  // in time order
 };
 
 // Where a unit is, which way it faces, and how fast it moves, in yards a
@@ -324,6 +333,10 @@ const uint32_t *StacksAt(const AuraSpan &aura, int32_t t);
 
 // The game object's fields at `t`; null while it is not in view.
 const ObjectLook *ObjectLookAt(const GameObject &object, int32_t t);
+
+// The time of day at `t` (0 midnight, 0.5 noon), from the clock line before
+// it (else the first) moved on at its scale. False with no clock lines.
+bool TimeOfDayAt(const Recording &recording, int32_t t, float &timeOfDay);
 
 // Loads the stretch [startMs, endMs] (stamps) of a log (a Catalog name). Null
 // when the combat log cannot be read. Worker thread safe.

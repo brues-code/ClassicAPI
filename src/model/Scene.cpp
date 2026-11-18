@@ -179,6 +179,7 @@ struct Fields {
     float probeDrop;
     Water::Effects *water; // the drift cloud, made when the camera first enters a liquid
     bool playWorldModelSounds; // SetPlayWorldModelSounds
+    float timeOfDay; // SetWorldTimeOfDay, in [0, 1), or -1 for the world's
     Actor *listener; // SetSoundListenerActor, or null; the frame owns its actors
     // GetSceneTime: the seconds the M2 scene's clock has advanced since the
     // frame was made, summed from each update's change so it never wraps.
@@ -781,6 +782,9 @@ void __fastcall Paint(void *frame) {
         const uint32_t map = terrain != nullptr ? Terrain::MapOf(*terrain)
                              : world != nullptr ? World::MapOf(*world)
                                                 : World::kNoMap;
+        // A scene with its own time of day is lit at it, before the liquid's
+        // fog takes the map's light.
+        const World::Daylight daylight(frame, map, liquid, eye, F(frame).farClip, F(frame).timeOfDay);
         const World::LiquidFog liquidFog(frame, map, liquid, eye, F(frame).farClip);
         const bool wet = liquid != Offsets::LIQUID_DRY;
         if (world != nullptr)
@@ -1249,6 +1253,7 @@ void *__fastcall CreateModelScene(void *parent) {
     f.probeDrop = 0.0f;
     f.water = nullptr;
     f.playWorldModelSounds = false;
+    f.timeOfDay = -1.0f;
     f.listener = nullptr;
     f.clock = 0.0;
     f.moveMarkerShown = false;
@@ -1861,6 +1866,33 @@ int __fastcall Script_GetPlayWorldModelSounds(void *L) {
     return 1;
 }
 
+// The time of day the scene's world is lit at (a ClassicAPI extension), as a
+// share of the day; any number wraps into [0, 1).
+int __fastcall Script_SetWorldTimeOfDay(void *L) {
+    void *frame = Self(L);
+    if (frame == nullptr ||
+        !NumberArgs(L, 2, 1, Game::Lua::ObjectDisplayName(frame), "SetWorldTimeOfDay(timeOfDay)"))
+        return 0;
+    const double t = Game::Lua::ToNumber(L, 2);
+    const float day = static_cast<float>(t - std::floor(t));
+    F(frame).timeOfDay = day < 1.0f ? day : 0.0f;
+    return 0;
+}
+
+int __fastcall Script_ClearWorldTimeOfDay(void *L) {
+    if (void *frame = Self(L))
+        F(frame).timeOfDay = -1.0f;
+    return 0;
+}
+
+int __fastcall Script_GetWorldTimeOfDay(void *L) {
+    void *frame = Self(L);
+    if (frame == nullptr || F(frame).timeOfDay < 0.0f)
+        return 0;
+    Game::Lua::PushNumber(L, F(frame).timeOfDay);
+    return 1;
+}
+
 int __fastcall Script_SetAllowOverlappedModels(void *L) {
     if (void *frame = Self(L))
         F(frame).allowOverlappedModels = Game::Lua::ToBoolean(L, 2) != 0 ? 1 : 0;
@@ -2041,6 +2073,9 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"GetSoundListenerActor", &Script_GetSoundListenerActor},
     {"SetPlayWorldModelSounds", &Script_SetPlayWorldModelSounds},
     {"GetPlayWorldModelSounds", &Script_GetPlayWorldModelSounds},
+    {"SetWorldTimeOfDay", &Script_SetWorldTimeOfDay},
+    {"ClearWorldTimeOfDay", &Script_ClearWorldTimeOfDay},
+    {"GetWorldTimeOfDay", &Script_GetWorldTimeOfDay},
     {"SetAllowOverlappedModels", &Script_SetAllowOverlappedModels},
     {"GetAllowOverlappedModels", &Script_GetAllowOverlappedModels},
     {"Project3DPointTo2D", &Script_Project3DPointTo2D},
@@ -2223,7 +2258,7 @@ const Game::Doc::Field kWorldModelMapArg[] = {
 const Game::Doc::Field kWorldModelRet[] = {Req("success", "bool")};
 const Game::Doc::Function kSetWorldModel{
     "Shows a WMO around the actors, lit and fogged by its own data the way the world shows it. The "
-    "scene's light stands in for the sun. A WMO with fewer than two fogs takes the scene's fog. Returns "
+    "scene's light stands in for the sun, unless SetWorldTimeOfDay lights a map's WMO as the world is lit. A WMO with fewer than two fogs takes the scene's fog. Returns "
     "false, and shows no WMO, when the file is missing or is not a WMO.",
     kWorldModelArgs, kWorldModelRet, nullptr, true};
 const Game::Doc::Function kSetWorldModelByMapID{
@@ -2238,8 +2273,8 @@ const Game::Doc::Function kSetWorldTerrain{
     "Shows the map's ground the way the world draws it, with its textures, shadows and level of detail, in "
     "map coordinates. The ground follows the scene's camera as the world's follows its own: what lies within "
     "the camera's far clip loads at once, a ring past it loads a little each frame, and ground farther away "
-    "is let go. The scene's light stands in for the sun, and its fog for the zone's. The map's sky shows "
-    "behind it. Actors walk on it, and TraceSegment and SweepCollider find it where it has loaded. The WMOs "
+    "is let go. The scene's light stands in for the sun, and its fog for the zone's, unless SetWorldTimeOfDay "
+    "lights it as the world is lit. The map's sky shows behind it. Actors walk on it, and TraceSegment and SweepCollider find it where it has loaded. The WMOs "
     "the map places on it (buildings, cities) show too, each as SetWorldModel shows one. The map's props on "
     "it (trees, plants, rocks) show too, and actors collide with them; its grass shows near the camera, and "
     "its water and lava show; actors swim in the water, and under it the camera takes the map's underwater "
@@ -2325,6 +2360,23 @@ const Game::Doc::Function kSetPlayWorldModelSounds{
     kWorldModelSoundsArg, {}, nullptr, true};
 const Game::Doc::Function kGetPlayWorldModelSounds{
     "Returns whether the WMO's props play their sounds.", {}, kWorldModelSoundsArg, nullptr, true};
+const Game::Doc::Field kTimeOfDayArg[] = {
+    Req("timeOfDay", "number", "A share of the day: 0 midnight, 0.25 six in the morning, 0.5 noon."),
+};
+const Game::Doc::Field kTimeOfDayRet[] = {
+    Opt("timeOfDay", "number", nullptr, "Nil while the scene shows the world's time."),
+};
+const Game::Doc::Function kSetWorldTimeOfDay{
+    "Lights the scene's terrain or map WMO as the world is lit at a time of day, by the map's light where the "
+    "camera is: the sun lights the actors and the ground from where it is at that time, with that time's "
+    "colours, the fog is the map's, and the sky, the sun, the moons and the stars show that time. This light "
+    "takes the place of the scene's light and fog while the scene draws. Without it the sky shows the world's "
+    "time and the scene's light and fog light everything.",
+    kTimeOfDayArg, {}, nullptr, true};
+const Game::Doc::Function kClearWorldTimeOfDay{
+    "Gives the scene back its own light and fog, and the world's time for its sky.", {}, {}, nullptr, true};
+const Game::Doc::Function kGetWorldTimeOfDay{"Returns the time of day SetWorldTimeOfDay gave.", {}, kTimeOfDayRet,
+                                             nullptr, true};
 const Game::Doc::Field kOverlappedArg[] = {Req("allowOverlappedModels", "bool")};
 const Game::Doc::Field kOverlappedRet[] = {Req("allowOverlappedModels", "bool")};
 const Game::Doc::Function kSetAllowOverlappedModels{
@@ -2444,6 +2496,9 @@ const Game::Doc::Method g_methodDocs[] = {
     {"GetSoundListenerActor", &kGetSoundListenerActor},
     {"SetPlayWorldModelSounds", &kSetPlayWorldModelSounds},
     {"GetPlayWorldModelSounds", &kGetPlayWorldModelSounds},
+    {"SetWorldTimeOfDay", &kSetWorldTimeOfDay},
+    {"ClearWorldTimeOfDay", &kClearWorldTimeOfDay},
+    {"GetWorldTimeOfDay", &kGetWorldTimeOfDay},
     {"Project3DPointTo2D", &kProject3DPointTo2D},
     {"GetActorAtCursor", &kGetActorAtCursor},
     {"GetCursorRay", &kGetCursorRay},

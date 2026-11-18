@@ -869,6 +869,7 @@ build instructions.
   - [`scene:ClearWorldModel()`](#sceneclearworldmodel)
   - [`scene:SetWorldTerrain(mapID)`](#scenesetworldterrainmapid)
   - [`scene:ClearWorldTerrain()`](#sceneclearworldterrain)
+  - [`scene:SetWorldTimeOfDay(timeOfDay)` / `scene:GetWorldTimeOfDay()` / `scene:ClearWorldTimeOfDay()`](#scenesetworldtimeofdaytimeofday--scenegetworldtimeofday--sceneclearworldtimeofday)
   - [`scene:SetPlayWorldModelSounds(enabled)` / `scene:GetPlayWorldModelSounds()`](#scenesetplayworldmodelsoundsenabled--scenegetplayworldmodelsounds)
   - [`scene:TraceSegment(startX, startY, startZ, endX, endY, endZ [, camera])`](#scenetracesegmentstartx-starty-startz-endx-endy-endz--camera)
   - [`scene:GetLiquidAtPoint(x, y, z)`](#scenegetliquidatpointx-y-z)
@@ -3572,6 +3573,7 @@ movement of your character:
 
 | Line | Data |
 |---|---|
+| `GAME_TIME` | The time of day of the game, which lights the world, and how fast it goes. A line comes after each loading screen, and when the server changes the time. |
 | `UNIT_MOVE` | A move of a player: start, stop, turn, jump, heartbeat and more, with the position and the movement flags. |
 | `UNIT_SPEED` | A new speed of a unit. |
 | `MONSTER_MOVE`, `MONSTER_STOP` | A path that the server moves a creature on, with its points and its time. |
@@ -3626,6 +3628,7 @@ the replay. A unit is a number, `unitIndex`, its index in the list of
 | `LoadReplay(logName, startTime, endTime)` | `true` when the load started. `false` when `GetEncounters` did not read the log yet, or when `endTime` is before `startTime`. |
 | `GetReplayInfo()` | A table with `logName`, `startTime`, `duration`, `mapID` (`-1` when the log does not give it), `hasMovement`, `firstUnitTime` and `numUnits`. `firstUnitTime` is when the first unit is in view: `0`, or a moment later for a replay that starts at the beginning of the log, because the movement file starts one frame after the log. Nil when no replay is loaded. |
 | `GetUnits()` | An array of units. Each has `guid`, `name`, `isPlayer` and `creatureID`. |
+| `GetTimeOfDay(time)` | The time of day of the game at `time`, which lit the world: `0` is midnight and `0.5` is noon. [`scene:SetWorldTimeOfDay`](#scenesetworldtimeofdaytimeofday--scenegetworldtimeofday--sceneclearworldtimeofday) takes it. Nil when the movement file does not have the time. |
 
 A `name` comes from the log. If the log does not name the unit, the name
 comes from the `UNIT_NAME` lines of the movement file, then from the name
@@ -19606,7 +19609,9 @@ the sun, and the fog of the scene stands in for the fog of the zone. When
 the camera is not inside a WMO, the sky of the map shows behind the ground:
 its colors, the sun and the moons, the stars, the clouds and the skybox, in
 the light of the map at the camera and at the time of day of the world. The
-sky hides the background of the scene.
+sky hides the background of the scene. To light the ground as the world
+lights it at a time of day, use
+[`scene:SetWorldTimeOfDay`](#scenesetworldtimeofdaytimeofday--scenegetworldtimeofday--sceneclearworldtimeofday).
 
 The WMOs that the map puts on that ground also show, for example the
 buildings of a town or a whole city. Each one shows as
@@ -19652,6 +19657,39 @@ scene:SetWorldTerrain(0)
 ### `scene:ClearWorldTerrain()`
 
 Removes the ground of the scene. This is a ClassicAPI extension.
+
+### `scene:SetWorldTimeOfDay(timeOfDay)` / `scene:GetWorldTimeOfDay()` / `scene:ClearWorldTimeOfDay()`
+
+Lights the ground or the map WMO of the scene as the world lights it at a
+time of day. `timeOfDay` is a part of the day: `0` is midnight, `0.25` is
+six in the morning and `0.5` is noon. A number out of this range wraps
+around, so `1.25` is also six in the morning.
+
+The scene takes the light of the map at its camera, at that time:
+
+- The sun lights the actors, the ground and the outside of the WMOs from
+  its place at that time, with the colors of that time.
+- The fog is the fog of the map at that time. Under water or lava, the fog
+  is the fog of the map for that liquid, as before.
+- The sky, the sun, the moons and the stars show that time.
+
+While the scene draws, this light and fog take the place of the light and
+the fog of the scene (`scene:SetLightAmbientColor`, `scene:SetFogColor` and
+the other light and fog functions). Those functions keep their values, and
+the scene uses them again after `scene:ClearWorldTimeOfDay()`. Then the sky
+shows the time of day of the world again.
+
+`scene:GetWorldTimeOfDay()` returns the time of day that you set, or nil
+when there is none. The time has an effect only on a scene with
+[`scene:SetWorldTerrain`](#scenesetworldterrainmapid) or
+[`scene:SetWorldModelByMapID`](#scenesetworldmodelbymapidmapid). This is a
+ClassicAPI extension.
+
+```lua
+-- Dusk in Stranglethorn.
+scene:SetWorldTerrain(0)
+scene:SetWorldTimeOfDay(20.5 / 24)
+```
 
 ### `scene:SetPlayWorldModelSounds(enabled)` / `scene:GetPlayWorldModelSounds()`
 

@@ -962,6 +962,31 @@ class LiquidFog {
     void *frame_ = nullptr;
     uint32_t saved_[4] = {}; // the fog's flags, colour, near and far
 };
+// While it lives, a scene with its own time of day (SetWorldTimeOfDay,
+// `timeOfDay` not negative) is lit as the world is lit at that time: the
+// light state's time of day is the scene's, so the map's light, the sky, the
+// sun, the moons and the stars take it; the frame's light is the world's sun
+// (CWorld::UpdateSkyAndFog 0x0066FF60) from map `mapID`'s light at `eye`;
+// and, dry, the frame's fog is that light's (BuildSceneFog 0x006CEE30;
+// LiquidFog's under a liquid). The world's time and the scene's own light
+// and fog again after. Nothing changes for a negative time, for kNoMap or
+// for a map without a light.
+class Daylight {
+  public:
+    Daylight(void *frame, uint32_t mapID, uint32_t cameraLiquid, const float (&eye)[3], float farClip,
+             float timeOfDay);
+    ~Daylight();
+    Daylight(const Daylight &) = delete;
+    Daylight &operator=(const Daylight &) = delete;
+
+  private:
+    bool timed_ = false;
+    float worldTime_ = 0.0f;
+    void *frame_ = nullptr; // whose light (and fog, `fogged_`) it swapped
+    bool fogged_ = false;
+    uint8_t light_[Offsets::M2LIGHT_SIZE] = {};
+    uint32_t fog_[4] = {}; // the fog's flags, colour, near and far
+};
 } // namespace World
 
 // The scene's terrain (SetWorldTerrain; model/SceneTerrain.cpp).
