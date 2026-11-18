@@ -23,6 +23,7 @@
 //     #operand      ->  __len(operand)
 //     a % b         ->  __mod(a, b)
 //     ...           ->  unpack(arg)      (the `...` EXPRESSION, not the decl)
+//     function(a, ...)  ->  function(a)  (a declared `...` nothing reads)
 //     0xHH...       ->  <decimal>        (5.0's lexer rejects hex literals)
 //     [=[ … ]=]     ->  [[ … ]] or "…"   (5.0 has no leveled long brackets)
 // `__len` / `__mod` are C globals we register (see below); `unpack` and the
@@ -77,13 +78,18 @@
 //     no regression). The value is unsigned (`0xFFFFFFFF` -> 4294967295).
 //   * Diagnostic `_classicapi_Transpile(src)` returns the full rewrite;
 //     `_classicapi_TranspileStats()` returns the load hook's cumulative chunk
-//     count, bytes, tokenized chunks, tokenized bytes and milliseconds.
+//     count, bytes, tokenized chunks, tokenized bytes, milliseconds, wrapped
+//     XML handlers and dropped `...` declarations.
 //   * Toggles via `_classicapi_SetTranspileOption(name, bool)` /
 //     `_classicapi_GetTranspileOption(name)` (name = "Length" / "Modulo" /
 //     "VarargExpansion" / "HexLiterals" / "LongBrackets").
 //   * `...` expands to `unpack(arg)`, which is faithful in every position and
 //     preserves embedded nils via `arg.n` (this build's `unpack` honors it).
-//     Only the `...` in a function's parameter list is left intact.
+//     Only the `...` in a function's parameter list is left intact — and
+//     only while something reads it: 5.0 builds the `arg` table on every
+//     vararg call, so an unread declaration is dropped (5.1 never builds it
+//     for one), and the chunk / XML-handler wraps below declare `...` only
+//     when the body reads it.
 //   * Addon-args: vanilla never passed `(addonName, addonTable)` to addon
 //     chunks (1.12's main chunk has no `arg`), so the modern file-scope
 //     `local name, ns = ...` idiom would resolve to `unpack(nil)`. 4.3.4 passes
@@ -145,6 +151,7 @@ struct Stats {
     unsigned long long tokenizedBytes = 0;
     long long ticks = 0;                // QueryPerformanceCounter ticks inside RunPasses
     unsigned xmlHandlersWrapped = 0;    // XML handler bodies given modern parameters
+    unsigned varargsDropped = 0;        // declared `...` no body reads (see RewriteVararg)
 };
 Stats g_stats;
 
@@ -776,6 +783,20 @@ bool RewriteAll(const char *src, size_t len, const std::vector<Token> &toks,
 // needs no precedence — it's a token substitution once the param-list `...` is
 // excluded. Order vs RewriteAll is irrelevant (neither produces the other's
 // trigger); RunPasses runs this first.
+//
+// The same pass drops every declared `...` whose function never reads it. A
+// 5.0 vararg CALL always builds the `arg` table: luaD_precall (0x006F6050)
+// sees the Proto's is_vararg byte (+0x46) and runs adjust_varargs
+// (0x006F6200) -> luaH_new, read or not, extra arguments or none (measured:
+// 10000 calls of `function(a, ...) return a end` with one argument = 1094 KB;
+// without the `, ...` = 0). 5.1 skips the table when the body never names
+// `arg` (VARARG_NEEDSARG, set by the parser), and its `...` expression reads
+// the stack, not a table. Here every `...` expression is `unpack(arg)`, so the
+// 5.1 rule becomes: a function needs its `...` only if a `...` expression or
+// an `arg` name binds to it. Dropping an unread one is invisible — the extra
+// arguments were discarded unread either way — and it ends the allocation, so
+// a retail handler `function(self, event, ...)` that ignores its varargs
+// stays verbatim in the source and costs nothing per call.
 // ============================================================================
 
 // From a '(' token at `k`, return the index just past the matching ')', or the
@@ -797,55 +818,141 @@ size_t MatchParenTok(const std::vector<Token> &t, const char *src, size_t k) {
     return t.size();
 }
 
-bool RewriteVararg(const char *src, size_t len, const std::vector<Token> &toks,
-                   std::string &out) {
+// A `...` is a single 3-char punct token — Tokenize emits '.', '..', '...'
+// greedily like Lua's lexer, so the vararg is trivially distinct from `.`
+// field access and `..` concat, even written adjacent as `x .. ...` (which is
+// `..` then `...`, not a five-dot run).
+inline bool IsVarargTok(const std::vector<Token> &t, size_t i) {
+    return i < t.size() && t[i].kind == TK_PUNCT && (t[i].end - t[i].start) == 3;
+}
+inline bool IsPunctTok(const std::vector<Token> &t, const char *src, size_t i, char ch) {
+    return i < t.size() && t[i].kind == TK_PUNCT && (t[i].end - t[i].start) == 1 &&
+           src[t[i].start] == ch;
+}
+
+// Which function each `...` expression and `arg` name binds to. In 5.0 `arg`
+// is an ordinary local that every vararg function declares, and the pass
+// lowers each `...` expression to `unpack(arg)`, so both bind to the NEAREST
+// enclosing function that declares `...` (a non-vararg function in between
+// reaches out to it as an upvalue), or to the chunk when none encloses them.
+// A user's own `local arg` in between only makes this over-count, never
+// under-count. `obj.arg` / `obj:arg` are fields; a parameter list's names are
+// skipped with the list. Function bodies are delimited by Lua's block
+// keywords: `function` / `do` / `if` / `repeat` open (a `while` / `for` body
+// opens at its `do`), `end` / `until` close.
+struct VarargUse {
+    std::vector<char> param;  // per token: the `...` of a parameter list
+    std::vector<char> unread; // per token: a parameter-list `...` nothing binds to
+    bool chunk = false;       // a `...` expression or `arg` name binds to the chunk
+};
+void ScanVarargUse(const char *src, const std::vector<Token> &toks, VarargUse &u) {
     const size_t n = toks.size();
+    u.param.assign(n, 0);
+    u.unread.assign(n, 0);
+    u.chunk = false;
 
-    // A `...` is a single 3-char punct token — Tokenize now emits '.', '..',
-    // '...' greedily like Lua's lexer, so the vararg is trivially distinct from
-    // `.` field access and `..` concat, even written adjacent as `x .. ...`
-    // (which is `..` then `...`, not a five-dot run the old scan couldn't split).
-    auto isVararg = [&](size_t i) {
-        return i < n && toks[i].kind == TK_PUNCT && (toks[i].end - toks[i].start) == 3;
+    struct Block {
+        bool function;
+        size_t dots; // its parameter-list `...` token, or NPOS
+        bool read;
     };
-    auto isPunct = [&](size_t i, char ch) {
-        return i < n && toks[i].kind == TK_PUNCT &&
-               (toks[i].end - toks[i].start) == 1 && src[toks[i].start] == ch;
+    std::vector<Block> open;
+    auto bind = [&] {
+        for (size_t k = open.size(); k-- > 0;)
+            if (open[k].function && open[k].dots != NPOS) {
+                open[k].read = true;
+                return;
+            }
+        u.chunk = true;
     };
 
-    // Mark the `...` inside each function's parameter list — the vararg
-    // declaration, which must be left intact.
-    std::vector<char> skip(n, 0);
-    for (size_t i = 0; i < n; i++) {
-        if (toks[i].kind != TK_NAME || !SpanEq(src, toks[i], "function"))
+    bool balanced = true;
+    for (size_t i = 0; i < n && balanced; i++) {
+        if (IsVarargTok(toks, i)) { // a parameter-list `...` was skipped with its list
+            bind();
             continue;
-        // Skip the name path (`foo`, `a.b`, `a.b:c`, or nothing) to the '('.
-        size_t j = i + 1;
-        while (j < n && !isPunct(j, '(') &&
-               (toks[j].kind == TK_NAME || isPunct(j, '.') || isPunct(j, ':')))
-            j++;
-        if (!isPunct(j, '('))
+        }
+        if (toks[i].kind != TK_NAME)
             continue;
-        size_t e = MatchParenTok(toks, src, j);
-        for (size_t p = j; p < e; p++) {
-            if (isVararg(p)) {
-                skip[p] = 1; // a param list has at most one `...` (last param)
+        if (i > 0 && (IsPunctTok(toks, src, i - 1, '.') || IsPunctTok(toks, src, i - 1, ':')))
+            continue;
+        const Token &t = toks[i];
+        if (SpanEq(src, t, "function")) {
+            // Skip the name path (`foo`, `a.b`, `a.b:c`, or nothing) to the '('.
+            size_t j = i + 1;
+            while (j < n && !IsPunctTok(toks, src, j, '(') &&
+                   (toks[j].kind == TK_NAME || IsPunctTok(toks, src, j, '.') ||
+                    IsPunctTok(toks, src, j, ':')))
+                j++;
+            if (!IsPunctTok(toks, src, j, '(')) {
+                balanced = false;
                 break;
             }
+            const size_t e = MatchParenTok(toks, src, j);
+            size_t dots = NPOS;
+            for (size_t p = j; p < e; p++)
+                if (IsVarargTok(toks, p)) {
+                    dots = p; // a param list has at most one `...` (last param)
+                    u.param[p] = 1;
+                    break;
+                }
+            open.push_back({true, dots, false});
+            i = e - 1; // resume at the function body
+        } else if (SpanEq(src, t, "do") || SpanEq(src, t, "if") || SpanEq(src, t, "repeat")) {
+            open.push_back({false, NPOS, false});
+        } else if (SpanEq(src, t, "end") || SpanEq(src, t, "until")) {
+            if (open.empty()) {
+                balanced = false;
+                break;
+            }
+            const Block b = open.back();
+            open.pop_back();
+            if (b.function && b.dots != NPOS && !b.read)
+                u.unread[b.dots] = 1;
+        } else if (SpanEq(src, t, "arg")) {
+            bind();
         }
-        i = e - 1; // resume at the function body
     }
+    // A chunk whose blocks do not pair up will not compile anyway; leave every
+    // declaration in place and let the engine report the error as it would.
+    if (!balanced || !open.empty()) {
+        u.unread.assign(n, 0);
+        u.chunk = true;
+    }
+}
 
-    // Replace each remaining `...` with `unpack(arg)`.
+// Rewrite each `...` expression to `unpack(arg)` (`*expr` = any was) and drop
+// each declared `...` nothing reads, with the comma before it. Only the two
+// tokens go: the bytes between them stay, so a declaration split across lines
+// keeps every line number. `*chunk` = a `...` or `arg` binds to the chunk.
+bool RewriteVararg(const char *src, size_t len, const std::vector<Token> &toks,
+                   std::string &out, bool *expr, bool *chunk) {
+    VarargUse u;
+    ScanVarargUse(src, toks, u);
+    *expr = false;
+    *chunk = u.chunk;
+
     std::string result;
     result.reserve(len + 8);
     size_t prev = 0;
     bool any = false;
-    for (size_t i = 0; i < n; ++i) {
-        if (isVararg(i) && !skip[i]) {
+    for (size_t i = 0; i < toks.size(); ++i) {
+        if (!IsVarargTok(toks, i))
+            continue;
+        if (!u.param[i]) {
             result.append(src + prev, toks[i].start - prev);
             result.append("unpack(arg)");
             prev = toks[i].end;
+            *expr = true;
+            any = true;
+        } else if (u.unread[i]) {
+            if (i > 0 && IsPunctTok(toks, src, i - 1, ',')) {
+                result.append(src + prev, toks[i - 1].start - prev);
+                prev = toks[i - 1].end;
+            }
+            result.append(src + prev, toks[i].start - prev);
+            prev = toks[i].end;
+            g_stats.varargsDropped++;
             any = true;
         }
     }
@@ -1081,12 +1188,14 @@ bool RewriteLongBrackets(const char *src, size_t len, std::string &out) {
 // that single pass. Otherwise: leveled brackets first (they move string
 // boundaries), then tokenize ONCE and run hex, vararg, # / % over the shared
 // stream, re-lexing only after a pass actually rewrites the buffer (rare).
-// Returns true and fills `out` if anything changed; `*outVararg` / `*outOps`
-// (optional) report whether the vararg / operator pass fired, for the load-time
-// preamble in LoadBuffer_h.
+// Returns true and fills `out` if anything changed. For the load-time preamble
+// in LoadBuffer_h (each optional): `*outVararg` = a `...` expression was
+// rewritten to `unpack(arg)`, `*outChunkVararg` = one of those (or an `arg`
+// name) binds to the chunk itself, `*outOps` = the operator pass fired.
 bool RunPasses(const char *src, size_t len, std::string &out, bool *outVararg,
-               bool *outOps) {
+               bool *outChunkVararg, bool *outOps) {
     if (outVararg) *outVararg = false;
+    if (outChunkVararg) *outChunkVararg = false;
     if (outOps) *outOps = false;
     if (src == nullptr || len == 0)
         return false;
@@ -1128,9 +1237,11 @@ bool RunPasses(const char *src, size_t len, std::string &out, bool *outVararg,
         cur = hx.data(); curLen = hx.size(); last = 2;
         Tokenize(cur, curLen, toks); // buffer changed — re-lex for the next pass
     }
-    if (wantVararg && RewriteVararg(cur, curLen, toks, va)) {
+    bool expr = false, chunk = false;
+    if (wantVararg && RewriteVararg(cur, curLen, toks, va, &expr, &chunk)) {
         cur = va.data(); curLen = va.size(); last = 3;
-        if (outVararg) *outVararg = true;
+        if (outVararg) *outVararg = expr;
+        if (outChunkVararg) *outChunkVararg = expr && chunk;
         Tokenize(cur, curLen, toks);
     }
     if ((wantLen || wantMod) && RewriteAll(cur, curLen, toks, ops, wantLen, wantMod)) {
@@ -1173,7 +1284,7 @@ size_t SkippedHead(const char *src, size_t len) {
 bool RewriteChunk(const char *src, size_t len, std::string &out) {
     const size_t head = SkippedHead(src, len);
     std::string rest;
-    if (!RunPasses(src + head, len - head, rest, nullptr, nullptr))
+    if (!RunPasses(src + head, len - head, rest, nullptr, nullptr, nullptr))
         return false;
     out.assign(src, head);
     out += rest;
@@ -1369,15 +1480,22 @@ bool NameInList(const char *w, size_t n, const char *list) {
 // `:` is a field or method (`obj.self`, `f:this`), not a variable. `event` is
 // never a signal: vanilla publishes it as a global too, so FrameXML's own
 // `<OnEvent>Foo_OnEvent(event)</OnEvent>` bodies stay unwrapped.
+// `vararg`: a `...` expression or `arg` name binds to the body itself (see
+// ScanVarargUse), so the wrap must declare `...`; the body is already
+// transpiled, so its `...` expressions read as `unpack(arg)` here.
 struct HandlerNames {
     bool self = false;
     bool param = false;
     bool vanilla = false;
+    bool vararg = false;
 };
 HandlerNames ScanHandlerNames(const char *src, size_t len, const char *params) {
     HandlerNames r;
     std::vector<Token> toks;
     Tokenize(src, len, toks);
+    VarargUse use;
+    ScanVarargUse(src, toks, use);
+    r.vararg = use.chunk;
     for (size_t i = 0; i < toks.size(); ++i) {
         const Token &t = toks[i];
         if (t.kind != TK_NAME)
@@ -1439,12 +1557,12 @@ int __fastcall LoadBuffer_h(void *L, const char *buff, unsigned size, const char
     // chunk falls through to the ORIGINAL buffer untouched: worst case it
     // fails to compile exactly as stock 1.12 would — never a crash.
     std::string transpiled;
-    bool didVararg = false, didOps = false;
+    bool didVararg = false, chunkVararg = false, didOps = false;
     bool changed = false;
     LARGE_INTEGER t0, t1;
     QueryPerformanceCounter(&t0);
     try {
-        changed = RunPasses(src, srcLen, transpiled, &didVararg, &didOps);
+        changed = RunPasses(src, srcLen, transpiled, &didVararg, &chunkVararg, &didOps);
     } catch (...) {
         return g_origLoadBuffer(L, buff, size, name);
     }
@@ -1457,12 +1575,13 @@ int __fastcall LoadBuffer_h(void *L, const char *buff, unsigned size, const char
 
     // XML handler body written for later clients (see ScanHandlerNames)?
     const char *handlerParams = nullptr;
+    HandlerNames hn;
     if (g_xmlHandlerArgsEnabled &&
         reinterpret_cast<uintptr_t>(_ReturnAddress()) == Offsets::RET_LUA_SCRIPT_COMPILE) {
         const char *params = HandlerParamsFor(name);
         if (params != nullptr) {
             try {
-                const HandlerNames hn = ScanHandlerNames(body, bodyLen, params);
+                hn = ScanHandlerNames(body, bodyLen, params);
                 // `...` counts: left to the plain vararg wrap below, an
                 // OnEvent body's `...` would hold (self, event, args) rather
                 // than the arguments after `event`.
@@ -1484,10 +1603,12 @@ int __fastcall LoadBuffer_h(void *L, const char *buff, unsigned size, const char
     //  * The vararg wrap. For an addon FILE chunk it is what lets the loader
     //    pass the modern (addonName, addonTable) as real arguments, so
     //    file-scope `local name, ns = ...` (now `unpack(arg)` of the wrap's own
-    //    `arg`) resolves. Only when a real `...` is present (didVararg), the
-    //    compile is the file funnel's own (fromFileFunnel — NOT loadstring,
-    //    whose chunkname is caller-forgeable), and the chunkname is an addon
-    //    path.
+    //    `arg`) resolves. Only when a real `...` binds to the chunk itself
+    //    (chunkVararg — one inside a function that declares `...` reads that
+    //    function's `arg`, and a wrap nothing reads would only cost a table
+    //    per call), the compile is the file funnel's own (fromFileFunnel —
+    //    NOT loadstring, whose chunkname is caller-forgeable), and the
+    //    chunkname is an addon path.
     std::string pre;
     if (didOps)
         pre += "local __len,__mod=__len,__mod;";
@@ -1497,7 +1618,7 @@ int __fastcall LoadBuffer_h(void *L, const char *buff, unsigned size, const char
     bool addonFile = false;
     bool wrapped = false;
     char addon[128];
-    if (didVararg) {
+    if (chunkVararg) {
         if (fromFileFunnel && AddonNameFromChunk(name, addon, sizeof addon)) {
             // An addon file: compile the body as a vararg function, and below
             // hand the loader a closure that calls it with (name, table).
@@ -1532,14 +1653,16 @@ int __fastcall LoadBuffer_h(void *L, const char *buff, unsigned size, const char
     }
     // Modern XML handler: bind the script's named parameters. Takes over from
     // the plain vararg wrap above; the trailing `...` keeps any `...` in the
-    // body meaning the remaining arguments, as it does on later clients.
+    // body meaning the remaining arguments, as it does on later clients. It is
+    // declared only when the body reads it: an OnUpdate body that never does
+    // would otherwise build an `arg` table every frame (see RewriteVararg).
     if (handlerParams != nullptr) {
         pre += "return function(self";
         if (*handlerParams != '\0') {
             pre += ",";
             pre += handlerParams;
         }
-        pre += ",...) ";
+        pre += hn.vararg ? ",...) " : ") ";
         wrapped = true;
         g_stats.xmlHandlersWrapped++;
     }
@@ -1603,7 +1726,8 @@ int __fastcall Script_Transpile(void *L) {
 }
 
 // _classicapi_TranspileStats() -> chunks, bytes, tokenizedChunks,
-// tokenizedBytes, milliseconds — cumulative since DLL load, over every chunk
+// tokenizedBytes, milliseconds, xmlHandlersWrapped, varargsDropped —
+// cumulative since DLL load, over every chunk
 // the load hook saw (addon files, SavedVariables, RunScript, XML handlers,
 // loadstring). `milliseconds` is time inside RunPasses only.
 int __fastcall Script_TranspileStats(void *L) {
@@ -1618,7 +1742,8 @@ int __fastcall Script_TranspileStats(void *L) {
     Game::Lua::PushNumber(L, static_cast<double>(g_stats.tokenizedBytes));
     Game::Lua::PushNumber(L, ms);
     Game::Lua::PushNumber(L, static_cast<double>(g_stats.xmlHandlersWrapped));
-    return 6;
+    Game::Lua::PushNumber(L, static_cast<double>(g_stats.varargsDropped));
+    return 7;
 }
 
 // The transpiler's runtime switches, table-driven. These are diagnostics /

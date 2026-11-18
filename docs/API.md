@@ -16538,6 +16538,10 @@ What each form does:
   `-1 % 3` is `2`, while `math.mod(-1, 3)` is `-1`.
 - `...` as an expression yields all the varargs. The `...` in a function
   parameter list stays as the vararg declaration.
+- A call to a function that reads its `...` (or `arg`) makes a new table
+  for the varargs. Lua 5.1 does not make this table. Do not put such a
+  function on a path that runs each frame. A function that declares `...`
+  and does not read it makes no table.
 - `0xFF00` becomes its decimal value (`65280`) — the same number Lua 5.1
   produces. The 5.0 lexer rejects `0x` literals, so without this an addon
   needs `tonumber("0xFF00", 16)`.
@@ -16583,11 +16587,12 @@ needs that addon's opt-in.
   `"LongBrackets"`. This
   reverts affected chunks to the state that fails to compile, so use it
   only to answer "is the rewrite breaking this addon?".
-- `_classicapi_TranspileStats()` returns six numbers: the chunks loaded,
+- `_classicapi_TranspileStats()` returns seven numbers: the chunks loaded,
   their bytes, the chunks that needed a full token pass, those bytes,
-  the milliseconds the rewrite has used since the client started, and the
+  the milliseconds the rewrite has used since the client started, the
   number of [XML script bodies](#xml-script-bodies-see-self-and-their-arguments)
-  compiled with their parameters.
+  compiled with their parameters, and the number of unread `...`
+  declarations the rewrite removed.
 
 ### Upvalue limit
 
