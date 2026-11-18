@@ -116,8 +116,11 @@ constexpr const char *kMissNames[MISS_COUNT] = {
     "EVADE", "IMMUNE", "IMMUNE", "DEFLECT", "ABSORB", "REFLECT",
 };
 
-constexpr const char *kEnvironmentalNames[] = {"FATIGUE", "DROWNING", "FALLING",
-                                               "LAVA",    "SLIME",    "FIRE"};
+// Retail's spelling, in the server's type order. Retail's combat log and
+// death recap string.upper() it before building ACTION_ENVIRONMENTAL_DAMAGE_*;
+// Era's log file writes the same names.
+constexpr const char *kEnvironmentalNames[] = {"Fatigue", "Drowning", "Falling",
+                                               "Lava",    "Slime",    "Fire"};
 
 // The 1.12 combat log's own formatters drop these spells too (benilla-re
 // objectlayer/combatlogmessages).

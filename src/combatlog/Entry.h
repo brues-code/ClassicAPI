@@ -75,7 +75,7 @@ const char *Name(int event);
 // The INFO_MISS value as 4.3.4's g_spellMissStrings names it.
 const char *MissName(int missType);
 
-// The INFO_ENVIRONMENTAL value as 4.3.4's s_environmentalDamageTypes names it.
+// The INFO_ENVIRONMENTAL value as retail's CLEU and log file name it.
 const char *EnvironmentalName(int type);
 
 // 4.3.4's m_infoFlags: which suffix blocks the event carries, pushed in

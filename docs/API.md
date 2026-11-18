@@ -6412,7 +6412,7 @@ The values after these depend on the subevent. First comes the prefix:
 | Subevent starts with | Prefix values |
 |----------------------|---------------|
 | `SWING_`, `UNIT_`, `PARTY_KILL` | *(none)* |
-| `ENVIRONMENTAL_` | `environmentalType`: `"FATIGUE"`, `"DROWNING"`, `"FALLING"`, `"LAVA"`, `"SLIME"` or `"FIRE"` |
+| `ENVIRONMENTAL_` | `environmentalType`: `"Fatigue"`, `"Drowning"`, `"Falling"`, `"Lava"`, `"Slime"` or `"Fire"` |
 | `SPELL_`, `SPELL_PERIODIC_`, `RANGE_`, `DAMAGE_SHIELD`, `DAMAGE_SPLIT` | `spellId`, `spellName`, `spellSchool` |
 
 Then comes the suffix:

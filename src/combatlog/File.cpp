@@ -137,11 +137,6 @@ constexpr int kSingleUnitTargets[] = {
     57, // TARGET_UNIT_RAID
 };
 
-// Era's environmental type names (its ENVIRONMENTAL_DAMAGE lines: Falling,
-// Lava, Fire), in the server's type order.
-constexpr const char *kEnvironmentalNames[] = {"Fatigue", "Drowning", "Falling",
-                                               "Lava",    "Slime",    "Fire"};
-
 LogFile g_log;
 uint32_t g_session = 0; // files opened this session
 std::string g_fileTime; // the open file's MMDDYY_HHMMSS
@@ -427,10 +422,6 @@ int MaxPower(uint64_t guid, int type) {
     return fields != nullptr ? static_cast<int>(Unit::Power::StoredMax(fields, type)) : 0;
 }
 
-const char *EnvironmentalTitle(int type) {
-    return (type >= 0 && type < 6) ? kEnvironmentalNames[type] : kEnvironmentalNames[0];
-}
-
 // amount, baseAmount, overkill, school, resisted, blocked, absorbed,
 // critical, glancing, crushing. Era writes overkill -1 when the hit does not
 // kill (no 0 in 108,000 damage lines) and 0 on every environmental line.
@@ -594,7 +585,7 @@ std::string Pack(const Entry &e, bool advanced, bool landed) {
     if (e.info & INFO_MISS)
         Miss(line, e);
     if (e.info & INFO_ENVIRONMENTAL)
-        Plain(line, EnvironmentalTitle(e.v[0]));
+        Plain(line, EnvironmentalName(e.v[0]));
     if (e.info & INFO_DAMAGE)
         Damage(line, e);
     if (e.info & INFO_HEAL) {
