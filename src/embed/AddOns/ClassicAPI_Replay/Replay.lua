@@ -32,6 +32,10 @@ local _, ns = ...;
 -- The UiModelScene the window's scene starts from (its camera's settings).
 local MODEL_SCENE_ID = 4;
 local CAMERA_MIN_ZOOM, CAMERA_MAX_ZOOM = 2, 250;
+-- A wheel notch (or a zoom button) scales the camera's distance by this, so
+-- it zooms at one pace near a unit and high over the map; the camera eases
+-- to the new distance.
+local ZOOM_STEP = 0.8;
 -- A press and release closer than this many pixels is a click, not a drag.
 local CLICK_DISTANCE = 4;
 local UNIT_ROW_HEIGHT = 16;
@@ -200,6 +204,12 @@ function ClassicAPIReplay_OnLoad(self)
 	ns.camera:SetLeftMouseButtonYMode(ORBIT_CAMERA_MOUSE_MODE_PITCH_ROTATION, true);
 	ns.camera:SetRightMouseButtonXMode(ORBIT_CAMERA_MOUSE_MODE_TARGET_HORIZONTAL, true);
 	ns.camera:SetRightMouseButtonYMode(ORBIT_CAMERA_MOUSE_MODE_TARGET_VERTICAL, true);
+	-- The orbit camera's wheel steps a tenth of the zoom range, 25 yards here:
+	-- from 2 yards, one notch out lands at 27.
+	ns.camera.OnMouseWheel = function(camera, delta)
+		local distance = camera:GetZoomDistance();
+		camera:SetZoomDistance(delta > 0 and distance * ZOOM_STEP or distance / ZOOM_STEP);
+	end;
 	ns.scene:HookScript("OnMouseDown", OnSceneMouseDown);
 	ns.scene:HookScript("OnMouseUp", OnSceneMouseUp);
 	ns.feed = CreateFrame("ScrollingMessageFrame", nil, ns.scene);
