@@ -4625,8 +4625,9 @@ Open:
   T14 + B22 on 28 px, the bar shadow's T10 + B10 on 14 px) keep each side's
   full margin in the image and shrink only the drawn sizes, as a retail
   screenshot of the header bar shows (not seen in game here yet).
-- Events the UI registers that nothing fires: GROUP_JOINED, GROUP_LEFT,
-  PLAYER_LEVEL_CHANGED ("In Group" visibility does not update on join/leave).
+- GROUP_JOINED / GROUP_LEFT (group/Membership.cpp, on the roster signals)
+  and PLAYER_LEVEL_CHANGED (unit/LevelChanged.cpp, on the player's
+  UNIT_LEVEL broadcast) added 2026-11-18; not yet seen in game.
 - Not applied: text scale (1.12 FontStrings have no SetTextScale); the
   Edit Mode sliders (size, bar height, padding, opacity, background, text
   size, spec icon, class colour) keep the preset values.

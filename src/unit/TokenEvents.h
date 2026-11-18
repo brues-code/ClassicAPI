@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include "AutoList.h"
+
 #include <cstdint>
 
 namespace Unit::TokenEvents {
@@ -34,5 +36,15 @@ int TokensOf(uint64_t guid, char (*out)[32], int maxTokens);
 // ClassicAPI token `*guid` has. ClassicAPI code that re-fires a unit event
 // calls this instead of FUN_UNIT_EVENT_BROADCAST.
 void __fastcall Broadcast(const uint64_t *guid, uint32_t eventId);
+
+// Runs after each per-unit event the engine broadcasts (every call of
+// FUN_UNIT_EVENT_BROADCAST goes through Broadcast), with the unit's GUID and
+// the event id (the unit field index: UNIT_EVENT_UNIT_LEVEL, ...), for a
+// module that reacts to one unit field the way the engine's own events do.
+// Place a static instance at file scope:
+//
+//   static const Unit::TokenEvents::AutoObserve _sub{&OnUnitEvent};
+using Observer = void (*)(uint64_t guid, uint32_t eventId);
+using AutoObserve = AutoList<struct AutoObserveTag, Observer>;
 
 } // namespace Unit::TokenEvents

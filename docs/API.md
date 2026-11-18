@@ -282,6 +282,7 @@ build instructions.
   - [`EQUIPMENT_SWAP_FINISHED` event](#equipment_swap_finished-event)
   - [`WEAR_EQUIPMENT_SET` event](#wear_equipment_set-event)
   - [`FACTION_STANDING_CHANGED` event](#faction_standing_changed-event)
+  - [`GROUP_JOINED` / `GROUP_LEFT` events](#group_joined--group_left-events)
   - [`INCOMING_RESURRECT_CHANGED` event](#incoming_resurrect_changed-event)
   - [`INVENTORY_SEARCH_UPDATE` event](#inventory_search_update-event)
   - [`LOOT_HISTORY_ROLL_CHANGED` / `LOOT_HISTORY_ROLL_COMPLETE` / `LOOT_HISTORY_FULL_UPDATE` events](#loot_history_roll_changed--loot_history_roll_complete--loot_history_full_update-events)
@@ -293,6 +294,7 @@ build instructions.
   - [`NAME_PLATE_CREATED` / `NAME_PLATE_UNIT_ADDED` / `NAME_PLATE_UNIT_REMOVED` events](#name_plate_created--name_plate_unit_added--name_plate_unit_removed-events)
   - [`PLAYER_FOCUS_CHANGED` event](#player_focus_changed-event)
   - [`PLAYER_IN_COMBAT_CHANGED` event](#player_in_combat_changed-event)
+  - [`PLAYER_LEVEL_CHANGED` event](#player_level_changed-event)
   - [`PLAYER_MOUNT_DISPLAY_CHANGED` event](#player_mount_display_changed-event)
   - [`PLAYER_SOFT_ENEMY_CHANGED` / `PLAYER_SOFT_FRIEND_CHANGED` events](#player_soft_enemy_changed--player_soft_friend_changed-events)
   - [`PLAYER_SOFT_INTERACT_CHANGED` event](#player_soft_interact_changed-event)
@@ -5610,10 +5612,11 @@ There are three session types:
 For `Overall` and `Expired`, the duration is the sum of the durations of
 their sessions. The time between fights is not part of it.
 
-Only `C_DamageMeter.ResetAllCombatSessions()` clears the sessions. The other
-reset is the cvar `damageMeterResetOnNewInstance`: when it is on, entering
+`C_DamageMeter.ResetAllCombatSessions()` clears the sessions. The cvar
+`damageMeterResetOnNewInstance` also clears them: when it is on, entering
 an instance clears the sessions. Entering the same instance again does not
-clear them.
+clear them. A logout clears them too, with no `DAMAGE_METER_RESET`, so each
+login starts with no sessions. The sessions are not saved.
 
 ### Damage meter functions
 
@@ -6876,6 +6879,23 @@ event, [`C_Reputation.GetLastStandingChange`](#c_reputationgetlaststandingchange
 gives `(factionID, newStanding, repGained)`, so addons do not have to
 parse the localized string.
 
+### `GROUP_JOINED` / `GROUP_LEFT` events
+
+```
+GROUP_JOINED: category, partyGUID
+GROUP_LEFT: category, partyGUID
+```
+
+`GROUP_JOINED` fires when you join a party or a raid. `GROUP_LEFT` fires
+when you leave it, or when the group is disbanded. They fire immediately before
+the `PARTY_MEMBERS_CHANGED` or `RAID_ROSTER_UPDATE` that shows the change.
+
+- `category` is always `1`, `LE_PARTY_CATEGORY_HOME`. A battleground group
+  is an ordinary raid on this client.
+- `partyGUID` is always `nil`. This client does not get an ID for the group.
+- When you log in or reload the UI inside a group, `GROUP_JOINED` does not
+  fire. Use `IsInGroup()` to read the group state at that time.
+
 ### `INCOMING_RESURRECT_CHANGED` event
 
 Fires when a resurrection cast at a unit starts or stops. `arg1` is the unit
@@ -7137,6 +7157,16 @@ f:SetScript("OnEvent", function(self, event, inCombat)
     print(inCombat and "In combat" or "Out of combat")
 end)
 ```
+
+### `PLAYER_LEVEL_CHANGED` event
+
+```
+PLAYER_LEVEL_CHANGED: oldLevel, newLevel, real
+```
+
+Fires when your level changes, after `UnitLevel("player")` has the new
+level. `PLAYER_LEVEL_UP` fires before it. `real` is always `true`: this
+client has no level scaling.
 
 ### `PLAYER_MOUNT_DISPLAY_CHANGED` event
 

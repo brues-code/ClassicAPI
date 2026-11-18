@@ -246,6 +246,8 @@ void __fastcall Broadcast(const uint64_t *guid, uint32_t eventId) {
     const int n = TokensOf(g, tokens, kMaxTokens);
     for (int i = 0; i < n; ++i)
         Event::Custom::Fire(static_cast<int>(eventId), "%s", tokens[i]);
+    for (const AutoObserve *o = AutoObserve::head; o != nullptr; o = o->next)
+        o->fn(g, eventId);
 }
 
 void Refresh(uint64_t guid) {

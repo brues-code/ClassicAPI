@@ -3180,6 +3180,9 @@ enum Offsets {
     // events use field-index == event-id; the aura field is index 0x29
     // (OFF_UNIT_FIELD_AURA 0xA4 >> 2), per Unit::TokenObserver's watched set.
     UNIT_EVENT_UNIT_AURA = 0x29,
+    // UNIT_LEVEL: OFF_UNIT_FIELD_LEVEL 0x70 >> 2, and slot 0x1C of the boot
+    // event-name array (the store at 0x0051AC7B).
+    UNIT_EVENT_UNIT_LEVEL = 0x1C,
     OFF_UNIT_FIELD_AURAFLAGS = 0x164,          // 4 bits per aura, 2 per byte, covers all 48
     OFF_UNIT_FIELD_AURALEVELS = 0x17C,         // u8 caster level per aura, 48 bytes
     OFF_UNIT_FIELD_AURAAPPLICATIONS = 0x1AC,   // u8 (stacks-1) per aura, display value = byte+1

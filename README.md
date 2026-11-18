@@ -315,6 +315,8 @@ when launching with `-console`), not as Lua functions. See the
 | `EQUIPMENT_SWAP_PENDING` | `setID` |
 | `EQUIPMENT_SWAP_FINISHED` | `success, setID` |
 | `FACTION_STANDING_CHANGED` | `factionID, newStanding, repGained` |
+| `GROUP_JOINED` | `category, partyGUID` |
+| `GROUP_LEFT` | `category, partyGUID` |
 | `GLOBAL_MOUSE_DOWN` | `button` |
 | `GLOBAL_MOUSE_UP` | `button` |
 | `HEARTHSTONE_BOUND` | *(none)* |
@@ -336,6 +338,7 @@ when launching with `-console`), not as Lua functions. See the
 | `PLAYER_EQUIPMENT_CHANGED` | `equipmentSlot, hasCurrent` |
 | `PLAYER_FOCUS_CHANGED` | *(none)* |
 | `PLAYER_IN_COMBAT_CHANGED` | `inCombat` |
+| `PLAYER_LEVEL_CHANGED` | `oldLevel, newLevel, real` |
 | `PLAYER_MOUNT_DISPLAY_CHANGED` | *(none)* |
 | `PLAYER_SOFT_ENEMY_CHANGED` | *(none)* |
 | `PLAYER_SOFT_FRIEND_CHANGED` | *(none)* |

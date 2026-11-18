@@ -246,6 +246,24 @@ void OnEnterWorld() {
 
 const Event::EnteringWorld::AutoObserve _enterWorld{&OnEnterWorld};
 
+// A logout (the return to the glue screens, once per glue boot) ends the
+// character's meter: the sessions live in this process, which outlives the
+// login, so the next character, or account, would see them. Nothing is sent:
+// the glue Lua has no DAMAGE_METER_* events, and the next world's meter
+// starts empty, as a fresh login does.
+void ClearOnLogout() {
+    g_meter.Reset();
+    g_sessionEncounter = 0;
+    g_sawFighting = false;
+    g_waitCombatDrop = false;
+    g_lastInstanceMap = -1;
+    g_pendingReset = false;
+    g_pendingCurrent = false;
+    g_dirty.clear();
+}
+
+const Game::GlueModuleAutoRegister _clearOnLogout{&ClearOnLogout};
+
 // --- Cvars ------------------------------------------------------------------
 
 // Turning the meter off drops everything. The engine also runs this at
