@@ -17,8 +17,8 @@
 --   - Every window, the primary one too, moves and resizes while it is
 --     unlocked (DamageMeterMixin:CanMoveOrResizeSessionWindow), and saves its
 --     place and size (DamageMeterMixin:SaveSessionWindowPosition).
---   - The visibility setting has no Hidden choice: without Edit Mode nothing
---     could show the meter again. Turning damageMeterEnabled off hides it.
+--   - The windows' visibility menu has no Hidden choice, since a hidden
+--     window cannot show its menu. The Advanced settings page offers it.
 
 DamageMeterSystemSetting = {
 	Style = "Style",
@@ -78,7 +78,8 @@ DAMAGE_METER_SYSTEM_MENU_SETTINGS =
 		},
 	},
 
-	-- Visibility (no Hidden, see the top of this file)
+	-- Visibility (no Hidden, see the top of this file; the Advanced settings
+	-- page offers it)
 	{
 		setting = DamageMeterSystemSetting.Visibility,
 		name = HUD_EDIT_MODE_SETTING_DAMAGE_METER_VISIBILITY,

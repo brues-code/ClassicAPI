@@ -323,8 +323,11 @@ local function RegisterAdvanced()
 
 	-- ClassicAPI: the meter's Visibility setting, which retail changes in Edit
 	-- Mode. The meter windows' settings dropdowns change it too, but a window
-	-- hidden by In Group or In Combat cannot show its dropdown, so this page
-	-- keeps a way back. The value lives in ClassicAPI_DamageMeter (load on
+	-- hidden by In Group, In Combat or Hidden cannot show its dropdown, so this
+	-- page keeps a way back, and so it alone offers retail's Hidden (the
+	-- choice for a replacement meter that reads C_DamageMeter). The options
+	-- are retail's, in its order (EditModeSettingDisplayInfo.lua). The value
+	-- lives in ClassicAPI_DamageMeter (load on
 	-- demand, DamageMeterSystem.lua); until that addon loads it reads as the
 	-- preset's Always, and writing it loads the addon.
 	local DAMAGE_METER_ADDON = "ClassicAPI_DamageMeter";
@@ -344,6 +347,7 @@ local function RegisterAdvanced()
 		local container = Settings.CreateControlTextContainer();
 		container:Add(Enum.DamageMeterVisibility.Always, HUD_EDIT_MODE_SETTING_DAMAGE_METER_VISIBILITY_ALWAYS);
 		container:Add(Enum.DamageMeterVisibility.InCombat, HUD_EDIT_MODE_SETTING_DAMAGE_METER_VISIBILITY_IN_COMBAT);
+		container:Add(Enum.DamageMeterVisibility.Hidden, HUD_EDIT_MODE_SETTING_DAMAGE_METER_VISIBILITY_HIDDEN);
 		container:Add(Enum.DamageMeterVisibility.InGroup, HUD_EDIT_MODE_SETTING_DAMAGE_METER_VISIBILITY_IN_GROUP);
 		return container:GetData();
 	end
