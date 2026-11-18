@@ -320,6 +320,36 @@ local function RegisterAdvanced()
 
 	local autoReset = AddCVarCheckbox(category, "damageMeterResetOnNewInstance", AUTO_RESET_DAMAGE_METER, AutoResetTooltipFn);
 	autoReset:SetParentInitializer(damageMeterInitializer, function() return damageMeter:GetValue(); end);
+
+	-- ClassicAPI: the meter's Visibility setting, which retail changes in Edit
+	-- Mode. The meter windows' settings dropdowns change it too, but a window
+	-- hidden by In Group or In Combat cannot show its dropdown, so this page
+	-- keeps a way back. The value lives in ClassicAPI_DamageMeter (load on
+	-- demand, DamageMeterSystem.lua); until that addon loads it reads as the
+	-- preset's Always, and writing it loads the addon.
+	local DAMAGE_METER_ADDON = "ClassicAPI_DamageMeter";
+	local function GetVisibility()
+		if not IsAddOnLoaded(DAMAGE_METER_ADDON) then
+			return Enum.DamageMeterVisibility.Always;
+		end
+		return DamageMeter:GetSettingValue(DamageMeterSystemSetting.Visibility);
+	end
+	local function SetVisibility(value)
+		if not IsAddOnLoaded(DAMAGE_METER_ADDON) then
+			UIParentLoadAddOn(DAMAGE_METER_ADDON);
+		end
+		DamageMeter:OnSystemSettingChange(DamageMeterSystemSetting.Visibility, value);
+	end
+	local function GetVisibilityOptions()
+		local container = Settings.CreateControlTextContainer();
+		container:Add(Enum.DamageMeterVisibility.Always, HUD_EDIT_MODE_SETTING_DAMAGE_METER_VISIBILITY_ALWAYS);
+		container:Add(Enum.DamageMeterVisibility.InCombat, HUD_EDIT_MODE_SETTING_DAMAGE_METER_VISIBILITY_IN_COMBAT);
+		container:Add(Enum.DamageMeterVisibility.InGroup, HUD_EDIT_MODE_SETTING_DAMAGE_METER_VISIBILITY_IN_GROUP);
+		return container:GetData();
+	end
+	local visibility = Settings.RegisterProxySetting(category, "PROXY_CLASSICAPI_DAMAGE_METER_VISIBILITY", Settings.VarType.Number, HUD_EDIT_MODE_SETTING_DAMAGE_METER_VISIBILITY, Enum.DamageMeterVisibility.Always, GetVisibility, SetVisibility);
+	local visibilityInitializer = Settings.CreateDropdown(category, visibility, GetVisibilityOptions, CLASSICAPI_DAMAGE_METER_VISIBILITY_TOOLTIP);
+	visibilityInitializer:SetParentInitializer(damageMeterInitializer, function() return damageMeter:GetValue(); end);
 end
 
 SettingsRegistrar:AddRegistrant(function()

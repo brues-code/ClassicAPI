@@ -9,7 +9,9 @@
 --   - Style, Numbers and Visibility can be changed from each window's
 --     settings dropdown (DamageMeterSessionWindowMixin:
 --     InitializeSettingsDropdown) and are saved per character in
---     DamageMeterPerCharacterSettings.systemSettings. The other settings
+--     DamageMeterPerCharacterSettings.systemSettings. Visibility is also on
+--     the Advanced settings page (!!!ClassicAPI Options\Panel.lua), because a
+--     hidden window cannot show its dropdown. The other settings
 --     (frame size, bar height, padding, opacity, background, text size, spec
 --     icon, class color) keep the preset's values.
 --   - Every window, the primary one too, moves and resizes while it is

@@ -26,6 +26,7 @@ CLASSICAPI_CASTING_AND_ATTACKING = "Заклинания и атаки";
 CLASSICAPI_COMBAT_LOG_RETENTION = "Хранение журнала боя";
 CLASSICAPI_COMBAT_LOG_RETENTION_TOOLTIP = "Сколько секунд журнал боя хранит записи для модификаций.";
 CLASSICAPI_CURSOR = "Курсор";
+CLASSICAPI_DAMAGE_METER_VISIBILITY_TOOLTIP = "Когда отображается измеритель урона. Это также меняется в меню настроек каждого окна измерителя, но скрытое окно не может показать своё меню.";
 CLASSICAPI_DIRECTION_ANY = "Любое направление";
 CLASSICAPI_DIRECTION_CONE = "В пределах 30 градусов";
 CLASSICAPI_DIRECTION_FRONT = "Прямо перед собой";

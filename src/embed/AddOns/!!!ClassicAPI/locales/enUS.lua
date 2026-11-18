@@ -24,6 +24,7 @@ CLASSICAPI_CASTING_AND_ATTACKING = "Casting and Attacking";
 CLASSICAPI_COMBAT_LOG_RETENTION = "Combat Log Retention";
 CLASSICAPI_COMBAT_LOG_RETENTION_TOOLTIP = "How many seconds the combat log keeps entries for addons.";
 CLASSICAPI_CURSOR = "Cursor";
+CLASSICAPI_DAMAGE_METER_VISIBILITY_TOOLTIP = "When the damage meter shows. Each meter window's settings menu changes this too, but a hidden window cannot show its menu.";
 CLASSICAPI_DIRECTION_ANY = "Any direction";
 CLASSICAPI_DIRECTION_CONE = "Within 30 degrees";
 CLASSICAPI_DIRECTION_FRONT = "Directly in front";
