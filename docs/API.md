@@ -886,6 +886,7 @@ build instructions.
   - [`actor:SetModelBySpellArea(spellID, radius)`](#actorsetmodelbyspellareaspellid-radius)
   - [`actor:SetModelByGameObjectDisplayID(gameObjectDisplayID)`](#actorsetmodelbygameobjectdisplayidgameobjectdisplayid)
   - [`actor:PlaySwing(victim, result [, critical [, offHand]])`](#actorplayswingvictim-result--critical--offhand)
+  - [`actor:SetPortraitTexture(texture)`](#actorsetportraittexturetexture)
   - [`actor:PlayWoundAnimation([critical])`](#actorplaywoundanimationcritical)
   - [`actor:PlayParryAnimation()`](#actorplayparryanimation)
   - [`actor:SetCreatureID(creatureID)` / `actor:SetAttacking(attacking)` / `actor:SetMoving(moving)`](#actorsetcreatureidcreatureid--actorsetattackingattacking--actorsetmovingmoving)
@@ -3577,7 +3578,7 @@ movement of your character:
 | `UNIT_INFO` | What a unit looks like when it comes into view, and each time that this changes: its display, mount, scale, stand state, sheath state and held items. |
 | `PLAYER_INFO` | The body of a player and what it wears: race, sex, appearance, the 19 visible items with their enchants, and the tabard emblem of its guild. |
 | `UNIT_CAST` | Each time that a unit starts or stops a cast or a channel: the spell that it casts and its cast time, and the spell that it channels. |
-| `UNIT_STATE` | Each time that the target, the owner, the unit flags, the level, the faction or the melee victim of a unit changes. The owner is the master of a pet, a guardian or a totem, or the controller of a charmed unit. |
+| `UNIT_STATE` | Each time that the target, the owner, the unit flags, the level, the faction, the melee victim, the dynamic flags or the reaction of a unit changes. The owner is the master of a pet, a guardian or a totem, or the controller of a charmed unit. The reaction and the selection color are as you saw them when you recorded the log. |
 | `UNIT_POWER` | Each time that the health or the power of a unit changes. |
 | `UNIT_AURAS` | The auras of a unit when it comes into view: the spell, harmful or helpful, and the stacks of each aura. After that, a new line comes only for a change that the combat log does not show, for example a mount aura or the auras that a unit loses when it dies. |
 | `UNIT_NAME` | The name that your client has for a player, a pet, or a creature. With it, a log that is read on a different computer still has the names. |
@@ -3623,7 +3624,7 @@ the replay. A unit is a number, `unitIndex`, its index in the list of
 | `GetLogs()` | An array of logs in the `Logs` folder, newest first. Each has `name` (the file name without `.txt`), `size` in bytes, `modified`, and `hasMovement`, which is `true` when the log has a movement file. |
 | `GetEncounters(logName)` | `encounters, duration`. Each encounter has `encounterID`, `encounterName`, `difficultyID`, `groupSize`, `mapID`, `success` (nil when the log has no end for it), `startTime` and `endTime`. Nil while the log is read. |
 | `LoadReplay(logName, startTime, endTime)` | `true` when the load started. `false` when `GetEncounters` did not read the log yet, or when `endTime` is before `startTime`. |
-| `GetReplayInfo()` | A table with `logName`, `startTime`, `duration`, `mapID` (`-1` when the log does not give it), `hasMovement` and `numUnits`. Nil when no replay is loaded. |
+| `GetReplayInfo()` | A table with `logName`, `startTime`, `duration`, `mapID` (`-1` when the log does not give it), `hasMovement`, `firstUnitTime` and `numUnits`. `firstUnitTime` is when the first unit is in view: `0`, or a moment later for a replay that starts at the beginning of the log, because the movement file starts one frame after the log. Nil when no replay is loaded. |
 | `GetUnits()` | An array of units. Each has `guid`, `name`, `isPlayer` and `creatureID`. |
 
 A `name` comes from the log. If the log does not name the unit, the name
@@ -3641,8 +3642,9 @@ name of a creature from the server.
 | `GetUnitAppearances(unitIndex)` | An array of the bodies of a player, in time order. Each has `time`, `raceID`, `classID`, `sex`, `skin`, `face`, `hairStyle`, `hairColor`, `facialHair`, the five tabard emblem values when the log has them, and `items`, a list of `ItemTransmogInfo` for slots 1 to 19. The table fits [`actor:SetModelByCharacterAppearance`](#actorsetmodelbycharacterappearanceappearance). |
 | `GetUnitHealth(unitIndex, time)` | `health, maxHealth`. They come from the `UNIT_POWER` lines of the movement file, or else from the data of `advancedCombatLogging`. Nil before the log gives them. `0` after the unit dies. |
 | `GetUnitPower(unitIndex, time)` | `powerType, power, maxPower` from the movement file. Rage is in tenths. Nil when the file has no power for the unit. |
-| `GetUnitState(unitIndex, time)` | `targetIndex, ownerIndex, flags, level, factionTemplate, attackTargetIndex` from the movement file. `attackTargetIndex` is the unit that it attacks with melee swings. `flags` is `UNIT_FIELD_FLAGS`: `0x40000` stunned, `0x80000` in combat, `0x400000` confused, `0x800000` fleeing. Nil when the file has no state for the unit. |
-| `GetUnitAuras(unitIndex, time)` | An array of auras. Each has `spellID`, `auraType` (`BUFF` or `DEBUFF`), `sourceIndex`, `applied` and `applications`. With the `UNIT_AURAS` lines of the movement file, all the auras of the unit are known. Without them, only the auras that the log saw applied are known. `sourceIndex` is known only for an aura that the log saw applied. `applications` comes from the movement file or from the dose events of the log. |
+| `GetUnitState(unitIndex, time)` | `targetIndex, ownerIndex, flags, level, factionTemplate, attackTargetIndex, reaction, isTapDenied` from the movement file. `attackTargetIndex` is the unit that it attacks with melee swings. `flags` is `UNIT_FIELD_FLAGS`: `0x40000` stunned, `0x80000` in combat, `0x400000` confused, `0x800000` fleeing. `reaction` is the reaction of the unit to the player who recorded the log, as `UnitReaction` gives it: 1 hated to 8 exalted. `isTapDenied` is true when another player tapped the unit, as `UnitIsTapDenied`. Nil when the file has no state for the unit. |
+| `GetUnitSelectionColor(unitIndex, time)` | `red, green, blue, alpha`: the color that `UnitSelectionColor(unit)` gave the unit for the player who recorded the log. Nil when the movement file has no state for the unit. |
+| `GetUnitAuras(unitIndex, time)` | An array of auras. Each has `spellID`, `auraType` (`BUFF` or `DEBUFF`), `sourceIndex`, `applied` and `applications`. With the `UNIT_AURAS` lines of the movement file, all the auras of the unit are known. Without them, only the auras that the log saw applied are known. `sourceIndex` is known only for an aura that the log saw applied. `applications` comes from the movement file or from the dose events of the log. `expirationTime` is when the aura ended in the log, because it expired or because something removed it. It is nil when the aura did not end in the loaded part of the log while the unit was in view. `duration` is the time in seconds from the last application, refresh or added stack of the aura to `expirationTime`. It is nil when one of the two is not known, for example for an aura that the unit had when it came into view. `isHidden` is true for an aura that `UnitBuff` and `UnitDebuff` do not list. |
 | `GetUnitWeapons(unitIndex, time)` | The item class and subclass of the main hand and the off hand. |
 | `GetUnitDeaths(unitIndex)` | An array of the times when the unit died. |
 | `GetUnitCast(unitIndex, time)` | `spellID, startTime, endTime, stopTime, isChannel, interrupted, interrupterIndex` of the last cast or channel that the unit started by `time`. Nil when it started none. `endTime` is when the cast was due to end. `stopTime` is when it stopped, and is nil when the log does not say. `interrupted` is `true` for a cast that stopped before its end. `interrupterIndex` is the unit whose interrupt stopped it. |
@@ -3683,11 +3685,11 @@ including, `endTime`, in time order. Each event has:
 | `time` | The time of the event. |
 | `event` | The subevent, as the log names it, for example `SPELL_CAST_START` or `SWING_DAMAGE`. |
 | `sourceIndex`, `destIndex` | The units. Nil when the source or the target is not a unit. |
-| `spellID` | For spell events. |
+| `spellID`, `spellName` | For spell events. `spellName` is the name in the log, also for a spell that your client does not have. |
 | `auraType` | `BUFF` or `DEBUFF`, for aura events. |
 | `castTime` | For a `SPELL_CAST_START`: the seconds until the cast succeeded, failed, was interrupted or stopped, or the caster died. |
 | `castFailed` | For a `SPELL_CAST_START` with a `castTime`: `true` when the cast failed or was interrupted. |
-| `extraSpellID` | For a `SPELL_INTERRUPT`: the spell that it interrupted. |
+| `extraSpellID`, `extraSpellName` | For a `SPELL_INTERRUPT`: the spell that it interrupted, and its name in the log. |
 | `castTargetIndex` | For a `SPELL_CAST_START`: the target of the `SPELL_CAST_SUCCESS` that ended the cast. Nil when the cast did not go off or had no unit as its target. |
 | `text` | For an `EMOTE`: the text of the raid boss emote. |
 | `endsCast` | `true` for a `SPELL_CAST_SUCCESS` or `SPELL_CAST_FAILED` that ends a `SPELL_CAST_START`. |
@@ -19978,6 +19980,29 @@ has no model. A display whose model is a world model (a WMO), for example a
 ship or an elevator, also returns `false`.
 
 This is a ClassicAPI extension.
+
+### `actor:SetPortraitTexture(texture)`
+
+Shows the round portrait of the actor on a texture, as
+`SetPortraitTexture(texture, unit)` shows the portrait of a unit. The
+portrait shows the model of the actor as it looks, for example the body and
+the armor of a player. It does not show helm, shoulder and weapon models.
+
+- The portrait draws after the model loads and the scene draws the actor.
+  Until then the texture is transparent. An actor that the scene does not
+  draw, for example a hidden actor, keeps its last portrait.
+- When the model of the actor changes, the portrait draws again. The texture
+  keeps the actor's portrait, so you call this function one time.
+- A model without a portrait camera gives no portrait.
+
+This is a ClassicAPI extension.
+
+```lua
+local portrait = frame:CreateTexture(nil, "ARTWORK")
+portrait:SetWidth(64)
+portrait:SetHeight(64)
+actor:SetPortraitTexture(portrait)
+```
 
 ### `actor:PlaySwing(victim, result [, critical [, offHand]])`
 

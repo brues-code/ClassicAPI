@@ -4407,8 +4407,37 @@ embedded load-on-demand addon. Layers:
   276 of 748 lines dropped, merged auras equal at all 748. The reader prefers them: GetUnitHealth exact,
   GetUnitAuras complete (source from the combat log when it saw the apply),
   names for units the combat log never names; new GetUnitPower and
-  GetUnitState. Viewer use of target, owner, flags (crowd control
-  animations) and power is still to come.
+  GetUnitState. Unit frame + reactions (2026-11-17, seen in game):
+  crowd control needs no flag pose, since no base-pick resolver
+  (0x005FD8B0's ten) reads UNIT_FIELD_FLAGS; a stun's pose is its aura's
+  state kit, which the viewer already pins. The followed unit shows in a
+  1.12 TargetFrame copy (Replay.xml UnitFrame: portrait by display, name,
+  level, health and power in ManaBarColor, 5 buffs / 16 debuffs in
+  TargetDebuffButton_Update's rows, target of target, click follows it).
+  MOVEMENT_LOG_VERSION 6: UNIT_STATE adds UNIT_DYNAMIC_FLAGS, the reaction
+  toward the recording player (0x006061E0) and the basic selection type
+  (unit/SelectionColor.cpp); GetUnitState returns reaction and
+  isTapDenied, new GetUnitSelectionColor. Overhead health bars take the
+  nameplate color (0x007CBAA0), the frame's name background
+  TargetFrame_CheckFaction's. Left out: the level's difficulty color and
+  skull (recorder-relative, 0x007CBB40 / 0x007CBD50), elite art, owner use
+  (pets in the unit list). Portraits come from the unit's actor
+  (actor:SetPortraitTexture: Model::Portrait::Live, BakePortrait's copy
+  of the live model behind its compositor + IsReady(0,1) gate, re-baked in
+  place when the actor's model changes); before a unit has an actor, a
+  player shows the client's stand-in for a player it does not hold
+  (0x00525BA0: TemporaryPortrait-<sex>-<race>);
+  SetPortraitTextureFromCreatureDisplayID of a race display with no Extra
+  row draws an undressed (black-skinned) model, checked with a bake readout.
+  Aura timers: GetUnitAuras gives expirationTime once a span's end is a
+  removal (not the unit leaving view) and duration from its last renewal
+  (applied, refresh, a dose that adds stacks), drawn as a cooldown sweep;
+  isHidden for a spell that fails 0x00519860, a spell this client lacks
+  shows the question mark. Feed: class-coloured unit links that follow,
+  spell links into the window's own ItemRefTooltip copy (rank text, spell
+  ID line), no fading. A replay opens at its first frame with units
+  (GetReplayInfo firstUnitTime). Playback bar: hover time + line, mouse
+  wheel / arrow keys step 1 s (10 with Shift), back / forward 10 s.
 - Cast bars (2026-11-16, not yet seen in game): the movement file's
   UNIT_CAST (UnitInfo.cpp) writes each unit's cast spell (CGUnit +0xC8C,
   cleared by ClearCastingSpell 0x0060D040) with SMSG_SPELL_START's cast

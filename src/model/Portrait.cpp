@@ -49,6 +49,8 @@
 // A model with no portrait camera stays transparent; the engine binds an empty
 // texture for one.
 
+#include "model/Portrait.h"
+
 #include "Game.h"
 #include "Offsets.h"
 #include "frame/Layout.h"
@@ -116,10 +118,10 @@ void ReleaseModel(Portrait &p) {
     p.dressRecord = nullptr;
 }
 
-// BakePortrait from the copy on, against `p.model`. False when it could not
-// run this frame (no scene / copy), so the next frame tries again.
-bool Bake(Portrait &p) {
-    void *source = p.model;
+// BakePortrait from the copy on, against `source`, into `texels` and
+// `texture`. False when it could not run this frame (no scene / copy), so
+// the next frame tries again.
+bool Bake(void *source, std::array<uint32_t, kTexels> &texels, void *texture) {
     if (Model::Camera::CameraById(source, 0) == nullptr)
         return true;
 
@@ -182,16 +184,16 @@ bool Bake(Portrait &p) {
         M2::DrawScene(scene, 1);
 
         const int32_t box[4] = {0, 0, static_cast<int32_t>(kSize), static_cast<int32_t>(kSize)};
-        TexelArray out{kTexels, kTexels, p.texels.data(), kTexels};
+        TexelArray out{kTexels, kTexels, texels.data(), kTexels};
         reinterpret_cast<void(__fastcall *)(const int32_t *, TexelArray *)>(
             Offsets::FUN_GX_READ_PIXELS)(box, &out);
         Gx::Clear(3);
         const auto *mask = reinterpret_cast<const AlphaMask *>(
             reinterpret_cast<AlphaMask_t>(Offsets::FUN_PORTRAIT_ALPHA_MASK)(kSize));
-        if (out.data == p.texels.data()) {
+        if (out.data == texels.data()) {
             for (uint32_t i = 0; i < kTexels; ++i)
-                p.texels[i] = (p.texels[i] & 0x00FFFFFFu) | static_cast<uint32_t>(mask->alpha[i]) << 24;
-            void *gxTex = Texture::DeviceTexture(p.texture);
+                texels[i] = (texels[i] & 0x00FFFFFFu) | static_cast<uint32_t>(mask->alpha[i]) << 24;
+            void *gxTex = Texture::DeviceTexture(texture);
             reinterpret_cast<MarkDirty_t>(Offsets::FUN_GX_TEX_MARK_RECT_DIRTY)(gxTex, box, 1);
         }
     }
@@ -199,6 +201,12 @@ bool Bake(Portrait &p) {
     M2::Release(copy);
     reinterpret_cast<ReleaseScene_t>(Offsets::FUN_M2SCENE_RELEASE)(scene);
     return true;
+}
+
+// BakePortrait's device gate: the window is active and the device alive.
+bool DeviceUp() {
+    return reinterpret_cast<DeviceGate_t>(Offsets::FUN_GX_WINDOW_ACTIVE)() != 0 &&
+           reinterpret_cast<DeviceGate_t>(Offsets::FUN_GX_DEVICE_ALIVE)() != 0;
 }
 
 // One frame for one pending display; true once it is baked (or cannot be).
@@ -215,10 +223,9 @@ bool Step(Portrait &p) {
         else if (!Model::DisplayInfo::PumpDresser(p.dresser))
             return false;
     }
-    if (!reinterpret_cast<DeviceGate_t>(Offsets::FUN_GX_WINDOW_ACTIVE)() ||
-        !reinterpret_cast<DeviceGate_t>(Offsets::FUN_GX_DEVICE_ALIVE)())
+    if (!DeviceUp())
         return false;
-    return Bake(p);
+    return Bake(p.model, p.texels, p.texture);
 }
 
 void Pump() {
@@ -236,6 +243,12 @@ void Pump() {
 
 const Tick::FrameTick::AutoSubscribeBefore _tick{&Pump};
 
+// The bake's own texture over `texels`: 64x64, one mip, ARGB8888, flags (1,
+// 0, 0, 0, 0, 0, 1, 0), "Portrait1" (0x005257D3).
+void *NewTexture(std::array<uint32_t, kTexels> &texels) {
+    return Texture::CreateFromPixels("Portrait1", kSize, kSize, texels.data(), Texture::Flags(1, false, false));
+}
+
 // The display's portrait, started on first use. Null for a display ID with no
 // CreatureDisplayInfo / CreatureModelData row (AttachDisplayModel's gate).
 Portrait *Acquire(uint32_t displayID) {
@@ -251,14 +264,11 @@ Portrait *Acquire(uint32_t displayID) {
         return nullptr;
     }
 
-    // The bake's own texture: 64x64, one mip, ARGB8888, flags (1, 0, 0, 0, 0,
-    // 0, 1, 0), "Portrait1" (0x005257D3).
     auto p = std::make_unique<Portrait>();
     p->scene = scene;
     p->model = model;
     p->dressRecord = Model::DisplayInfo::DressRecord(displayID);
-    p->texture = Texture::CreateFromPixels("Portrait1", kSize, kSize, p->texels.data(),
-                                           Texture::Flags(1, false, false));
+    p->texture = NewTexture(p->texels);
     if (p->texture == nullptr) {
         ReleaseModel(*p);
         return nullptr;
@@ -294,6 +304,54 @@ void RegisterLuaFunctions() {
 
 const Game::ModuleAutoRegister _register{&RegisterLuaFunctions};
 
+} // namespace
+
+// ---- live portraits -----------------------------------------------------------
+
+struct Live {
+    std::array<uint32_t, kTexels> texels{};
+    void *texture = nullptr; // HTEXTURE, one reference
+};
+
+namespace {
+
+// Every live portrait made, and those no owner holds. A region may still
+// show a released one's texture, so the textures stay until logout, as the
+// display portraits do.
+std::vector<std::unique_ptr<Live>> g_live;
+std::vector<Live *> g_freeLive;
+
+} // namespace
+
+Live *AcquireLive() {
+    if (!g_freeLive.empty()) {
+        Live *live = g_freeLive.back();
+        g_freeLive.pop_back();
+        return live;
+    }
+    auto live = std::make_unique<Live>();
+    live->texture = NewTexture(live->texels);
+    if (live->texture == nullptr)
+        return nullptr;
+    g_live.push_back(std::move(live));
+    return g_live.back().get();
+}
+
+void ReleaseLive(Live *live) {
+    if (live != nullptr)
+        g_freeLive.push_back(live);
+}
+
+void BindLive(Live *live, void *region) {
+    reinterpret_cast<SetImage_t>(Offsets::FUN_SIMPLETEXTURE_SET_IMAGE)(region, live->texture);
+}
+
+bool BakeLive(Live *live, void *model) {
+    return DeviceUp() && Bake(model, live->texels, live->texture);
+}
+
+namespace {
+
 // Leaving the world: drop every portrait, as ShutdownGame drops the engine's.
 // The world UI and every region holding one of these textures are gone by
 // the time the glue state boots.
@@ -304,6 +362,10 @@ void ClearOnLogout() {
     for (auto &entry : g_portraits)
         Game::ReleaseHandle(entry.second->texture);
     g_portraits.clear();
+    for (auto &live : g_live)
+        Game::ReleaseHandle(live->texture);
+    g_live.clear();
+    g_freeLive.clear();
 }
 
 const Game::GlueModuleAutoRegister _clearOnLogout{&ClearOnLogout};

@@ -117,6 +117,13 @@ struct AuraSpan {
     int32_t caster = -1; // the applier's unit index, -1 for none
     int32_t from = 0;
     int32_t to = INT32_MAX;
+    // Whether `to` is the aura's own end (its SPELL_AURA_REMOVED, or a
+    // UNIT_AURAS line without it), not the unit leaving view.
+    bool ended = false;
+    // When its duration last began, as the logs saw it: its application,
+    // a refresh, or a stack added. INT32_MIN when they did not (it was on
+    // the unit when the unit came into view).
+    int32_t renewed = INT32_MIN;
     // Its stacks, each from the time it changed: from UNIT_AURAS lines and
     // SPELL_AURA_APPLIED_DOSE / _REMOVED_DOSE. Empty when neither gives them.
     std::vector<std::pair<int32_t, uint32_t>> stacks;
@@ -146,7 +153,9 @@ struct Cast {
 };
 
 // UNIT_STATE: whom the unit targets and who owns it (unit indexes, -1 for
-// none), UNIT_FIELD_FLAGS, its level and its FactionTemplate id.
+// none), UNIT_FIELD_FLAGS, its level, its FactionTemplate id, its dynamic
+// flags, and from the recording player's view its reaction toward that
+// player (0 .. 7) and its selection type.
 struct UnitState {
     int32_t target = -1;
     int32_t owner = -1;
@@ -154,6 +163,9 @@ struct UnitState {
     uint32_t flags = 0;
     uint32_t level = 0;
     uint32_t faction = 0;
+    uint32_t dynamicFlags = 0;
+    uint32_t reaction = 3;
+    uint32_t selection = 2;
 };
 
 // UNIT_POWER: health, and the power of the unit's own type in stored units.
@@ -230,6 +242,7 @@ struct CombatEvent {
     int32_t source = -1; // unit indexes, -1 for none or not a unit
     int32_t dest = -1;
     uint32_t spellID = 0; // a SPELL_, RANGE_ or DAMAGE_ event's, else 0
+    std::string spellName; // its name as the log writes it
     bool debuff = false; // an aura event's type
     // A SPELL_CAST_START: when the caster's SPELL_CAST_SUCCESS or
     // SPELL_CAST_FAILED of that spell came, or -1; and whether it failed.
@@ -243,6 +256,7 @@ struct CombatEvent {
     int32_t castTarget = -1;
     bool endsCast = false; // a SPELL_CAST_SUCCESS or FAILED that ends a SPELL_CAST_START
     uint32_t extraSpellID = 0; // a SPELL_INTERRUPT's interrupted spell
+    std::string extraSpellName;
     // A damage or heal event's amount (`hasAmount`) and whether it was
     // critical; a _MISSED event's miss type (MISS, DODGE, PARRY, ...) and
     // whether the off hand made it (the line's isOffHand).
@@ -261,6 +275,9 @@ struct Recording {
     int64_t endMs = 0;
     int map = -1;
     bool movement = false; // a movement file was read
+    // When the first unit is in view: 0, or for a stretch that begins with the
+    // log, the movement file's first frame (it opens a frame after the log).
+    int32_t firstUnitMs = 0;
     std::vector<Unit> units;
     std::vector<CombatEvent> events; // in time order
     std::vector<GameObject> objects;

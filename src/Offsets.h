@@ -12516,6 +12516,9 @@ enum Offsets {
     OFF_UNIT_FIELD_DYNAMIC_FLAGS = 0x224,
     UNIT_DYNFLAG_LOOTABLE = 0x01,
     UNIT_DYNFLAG_DEAD = 0x20,
+    // Script_UnitIsTapped / Script_UnitIsTappedByPlayer's bits (above).
+    UNIT_DYNFLAG_TAPPED = 0x04,
+    UNIT_DYNFLAG_TAPPED_BY_PLAYER = 0x08,
 
     // UNIT_FIELD_BOUNDINGRADIUS within m_objectFields — single
     // float, the unit's interact-radius in world yards. Both

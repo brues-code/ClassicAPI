@@ -356,6 +356,9 @@ void Loader::UnitState(const Line::Fields &f, int32_t t) {
     state.level = static_cast<uint32_t>(f.Int(5));
     state.faction = static_cast<uint32_t>(f.Int(6));
     state.attackTarget = IsUnitGuid(f[7]) ? IndexOf(f[7]) : -1;
+    state.dynamicFlags = f.Hex(8);
+    state.reaction = static_cast<uint32_t>(f.Int(9));
+    state.selection = static_cast<uint32_t>(f.Int(10));
     AddAt(Get(f[1]).states, t, state);
 }
 
@@ -637,7 +640,8 @@ void Loader::Aura(const Line::Fields &f, int32_t t, int32_t dest) {
 // SPELL_AURA_APPLIED opens a span (or names the caster of the one a
 // UNIT_AURAS line just opened), SPELL_AURA_REMOVED ends the last open one of
 // that spell (its source is often nil), SPELL_AURA_REFRESH opens one only
-// when none is open, and a dose sets the open one's stacks. A UNIT_AURAS
+// when none is open, and a dose sets the open one's stacks. An application,
+// a refresh and an added stack start the span's duration again. A UNIT_AURAS
 // line ends the open spans it does not have and opens one for each aura it
 // has with no open span, and the unit leaving view ends all of them. At one
 // time the log's lines go first: the walk that writes UNIT_AURAS comes after
@@ -663,8 +667,9 @@ void Loader::BuildAuras() {
                     return it;
             return open.end();
         };
-        const auto close = [&](std::vector<std::size_t>::iterator it, int32_t t) {
+        const auto close = [&](std::vector<std::size_t>::iterator it, int32_t t, bool ended) {
             unit.auras[*it].to = t;
+            unit.auras[*it].ended = ended;
             return open.erase(it);
         };
         const auto setStacks = [](AuraSpan &aura, int32_t t, uint32_t stacks) {
@@ -693,19 +698,25 @@ void Loader::BuildAuras() {
                 AuraSpan *aura = it != open.end() ? &unit.auras[*it] : nullptr;
                 if (c.kind == AuraChange::Removed) {
                     if (aura != nullptr)
-                        close(it, c.t);
+                        close(it, c.t, true);
                 } else if (c.kind == AuraChange::Dose) {
-                    if (aura != nullptr)
+                    if (aura != nullptr) {
+                        // A stack added starts the duration again.
+                        if (!aura->stacks.empty() && c.stacks > aura->stacks.back().second)
+                            aura->renewed = c.t;
                         setStacks(*aura, c.t, c.stacks);
-                } else if (aura != nullptr && aura->caster < 0 &&
-                           (c.kind == AuraChange::Refreshed || c.t - aura->from <= kAuraMatchMs)) {
-                    aura->caster = c.caster;
+                    }
+                } else if (aura != nullptr && (c.kind == AuraChange::Refreshed ||
+                                               (aura->caster < 0 && c.t - aura->from <= kAuraMatchMs))) {
+                    if (aura->caster < 0)
+                        aura->caster = c.caster;
+                    aura->renewed = c.t;
                 } else if (c.kind == AuraChange::Applied || aura == nullptr) {
-                    openSpan(c.spellID, c.debuff, c.caster, c.t);
+                    openSpan(c.spellID, c.debuff, c.caster, c.t).renewed = c.t;
                 }
             } else if (tGone <= tLine) {
                 for (auto it = open.begin(); it != open.end();)
-                    it = close(it, tGone);
+                    it = close(it, tGone, false);
                 ++gone;
             } else {
                 const int32_t t = line->first;
@@ -719,7 +730,7 @@ void Loader::BuildAuras() {
                     while (s < slots.size() && (taken[s] || slots[s].spellID != aura.spellID))
                         ++s;
                     if (s == slots.size()) {
-                        it = close(it, t);
+                        it = close(it, t, true);
                         continue;
                     }
                     taken[s] = true;
@@ -874,8 +885,10 @@ void Loader::Combat(std::string_view body, int32_t t) {
     e.type = std::string(type);
     e.source = source;
     e.dest = dest;
-    if (type.rfind("SPELL_", 0) == 0 || type.rfind("RANGE_", 0) == 0 || type.rfind("DAMAGE_", 0) == 0)
+    if (type.rfind("SPELL_", 0) == 0 || type.rfind("RANGE_", 0) == 0 || type.rfind("DAMAGE_", 0) == 0) {
         e.spellID = static_cast<uint32_t>(f.Int(9));
+        e.spellName = f.Text(10);
+    }
     e.debuff = type.rfind("SPELL_AURA_", 0) == 0 && f[12] == "DEBUFF";
     if (emote)
         e.text = std::string(f.Rest(5));
@@ -919,6 +932,7 @@ void Loader::Combat(std::string_view body, int32_t t) {
         }
     } else if (type == "SPELL_INTERRUPT" && dest >= 0) {
         e.extraSpellID = static_cast<uint32_t>(f.Int(suffix));
+        e.extraSpellName = f.Text(suffix + 1);
         const auto open = openCasts_.find(castKey(dest, e.extraSpellID));
         if (open != openCasts_.end()) {
             CombatEvent &start = r_.events[open->second];
@@ -1274,8 +1288,13 @@ std::unique_ptr<Recording> Load(const std::string &log, int64_t startMs, int64_t
         return true;
     });
 
-    for (Unit &unit : recording->units)
+    int32_t first = INT32_MAX;
+    for (Unit &unit : recording->units) {
         Retime(unit);
+        if (!unit.spans.empty())
+            first = std::min(first, std::max<int32_t>(unit.spans.front().from, 0));
+    }
+    recording->firstUnitMs = first == INT32_MAX ? 0 : first;
     // Objects that left view before the stretch.
     auto &objects = recording->objects;
     objects.erase(std::remove_if(objects.begin(), objects.end(),

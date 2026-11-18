@@ -45,6 +45,7 @@
 #include "object/Resolve.h"
 #include "unit/Identity.h"
 #include "unit/Relation.h"
+#include "unit/SelectionColor.h"
 
 #include <cstdint>
 
@@ -279,5 +280,11 @@ void Register() {
 const Game::ModuleAutoRegister _autoreg{&Register};
 
 } // namespace
+
+int TypeOf(uint64_t guid, bool extended) { return ForGuid(guid, extended); }
+
+uint32_t Color(int type) {
+    return type >= 0 && type < static_cast<int>(sizeof kColors / sizeof kColors[0]) ? kColors[type] : kColors[Neutral];
+}
 
 } // namespace Unit::SelectionColor

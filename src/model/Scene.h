@@ -17,6 +17,7 @@
 #include "animation/Object.h"
 #include "model/DisplayInfo.h"
 #include "model/Outfit.h"
+#include "model/Portrait.h"
 #include "model/SceneContact.h"
 #include "model/TryOn.h"
 
@@ -312,6 +313,14 @@ class Actor : public Animation::Object {
     // The character component dressing the model: a display's dress, or the
     // clone of a unit's.
     void *dresser = nullptr;
+    // SetPortraitTexture: the actor's portrait, and whether it waits for a
+    // bake. A new model marks it, as a unit's new model marks its portrait
+    // dirty (0x00607E0F).
+    Model::Portrait::Live *portrait = nullptr;
+    bool portraitDirty = false;
+    // Bakes the portrait once the model is ready, as BakePortrait waits for
+    // a unit (0x00524F60): dressed, and ready to draw.
+    void BakePortrait();
     // A unit's model (SetModelByUnit): the unit and what the copy holds.
     uint64_t unitGuid = 0;
     // The unit's race splash (ChrRaces +0x34, the unit's +0xB18), played as

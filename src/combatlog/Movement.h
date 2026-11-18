@@ -23,7 +23,7 @@
 namespace CombatLog::Movement {
 
 // MOVEMENT_LOG_VERSION: the lines' format, which readers check.
-constexpr int kVersion = 5;
+constexpr int kVersion = 6;
 
 // Whether the movement file is open.
 bool IsOpen();

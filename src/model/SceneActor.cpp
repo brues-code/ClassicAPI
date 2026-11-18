@@ -539,6 +539,7 @@ void InstallName(Actor &actor) {
 Actor::Actor(void *scene, const char *name) : Object(s_class, scene, name), ambience(World::NewAmbience()) {}
 
 Actor::~Actor() {
+    Model::Portrait::ReleaseLive(portrait);
     ReleaseModel(*this);
     Areas::Drop(*this);
     Chains::Forget(*this);
@@ -566,6 +567,7 @@ void Actor::SetModel(void *newModel, const char *path, const uint8_t *newDressRe
     M2::SetEventCallback(model, reinterpret_cast<const void *>(&Events::OnModelEvent), user, 0);
     M2::SetRenderCallback(model, reinterpret_cast<const void *>(&OnModelLighting), this);
     Model::DisplayInfo::LightChildren(SceneFrame(), model);
+    portraitDirty = portrait != nullptr;
     ApplyAlpha();
     ApplyHighlight();
     // The new model sizes the name again.
@@ -1450,6 +1452,20 @@ void SizeSpellArea(Actor &actor) {
     }
 }
 
+// BakePortrait's gate on a unit (0x00524F60): its compositor, when it has
+// one, has its textures (UpdateCharacterComponent with no force), and its
+// model is ready, which only a drawn model is. An actor out of view waits.
+void Actor::BakePortrait() {
+    if (!portraitDirty || model == nullptr || !loaded)
+        return;
+    if (dresser != nullptr && !Model::DisplayInfo::PumpDresser(dresser))
+        return;
+    if (!M2::IsReady(model, 0, 1))
+        return;
+    if (Model::Portrait::BakeLive(portrait, model))
+        portraitDirty = false;
+}
+
 void Actor::Update(float elapsedSec, float sceneSec) {
     if (mover != nullptr) {
         Advance(*this);
@@ -1508,6 +1524,7 @@ void Actor::Update(float elapsedSec, float sceneSec) {
         if (dresser != nullptr)
             Model::DisplayInfo::PumpDresser(dresser);
     }
+    BakePortrait();
     if (model != nullptr && loaded && (paused || globalPaused)) {
         if (heldPositionMs < 0)
             heldPositionMs = M2::GetAnimPosition(model, -1);
@@ -1871,6 +1888,24 @@ int __fastcall Script_PlayParryAnimation(void *L) {
 // A melee swing (a ClassicAPI extension, for replays): Actor::PlaySwing. The
 // result is the combat log's word, HIT or a missType, each the victim state
 // the swing's events read; a word not listed reads as none of them.
+int __fastcall Script_SetPortraitTexture(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr)
+        return 0;
+    void *region = Game::Lua::ResolveTexture(L, 2, false);
+    if (region == nullptr) {
+        Game::Lua::Error(L, "Usage: %s:SetPortraitTexture(texture)", actor->DisplayName());
+        return 0;
+    }
+    if (actor->portrait == nullptr)
+        actor->portrait = Model::Portrait::AcquireLive();
+    if (actor->portrait == nullptr)
+        return 0;
+    Model::Portrait::BindLive(actor->portrait, region);
+    actor->portraitDirty = true;
+    return 0;
+}
+
 int __fastcall Script_PlaySwing(void *L) {
     constexpr char kUsage[] = "PlaySwing(victim, result [, critical, offHand])";
     Actor *attacker = Self(L);
@@ -3407,6 +3442,7 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
     {"SetModelByGameObjectDisplayID", &Script_SetModelByGameObjectDisplayID},
     {"SetGameObjectState", &Script_SetGameObjectState},
     {"PlaySwing", &Script_PlaySwing},
+    {"SetPortraitTexture", &Script_SetPortraitTexture},
     {"SetCreatureID", &Script_SetCreatureID},
     {"SetAttacking", &Script_SetAttacking},
     {"SetMoving", &Script_SetMoving},
@@ -4133,6 +4169,15 @@ const Game::Doc::Field kGameObjectStateArgs[] = {
     Opt("previousState", "number", nullptr,
         "The state it was in: the open, close, destroy or rebuild animation plays first."),
 };
+const Game::Doc::Field kSetPortraitTextureArgs[] = {
+    Req("texture", "SimpleTexture"),
+};
+const Game::Doc::Function kSetPortraitTexture{
+    "Shows the actor's round portrait on a texture, as SetPortraitTexture shows a unit's: its model as it "
+    "looks, without helm, shoulder and weapon models, from the model's portrait camera. The portrait draws "
+    "once the model has loaded and the actor has been drawn, and again after the model changes. Until the "
+    "first draw the texture is transparent.",
+    kSetPortraitTextureArgs, {}, nullptr, true};
 const Game::Doc::Field kPlaySwingArgs[] = {
     Opt("victim", "ModelSceneFrameActor", nullptr,
         "The actor that the swing strikes. Nil when the victim is not in the scene."),
@@ -4302,6 +4347,7 @@ const Game::Doc::Method kMethodDocs[] = {
     {"SetModelByGameObjectDisplayID", &kSetModelByGameObjectDisplayID},
     {"SetGameObjectState", &kSetGameObjectState},
     {"PlaySwing", &kPlaySwing},
+    {"SetPortraitTexture", &kSetPortraitTexture},
     {"SetCreatureID", &kSetCreatureID},
     {"SetAttacking", &kSetAttacking},
     {"SetMoving", &kSetMoving},

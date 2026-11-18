@@ -53,6 +53,8 @@
 #include "tick/FrameTick.h"
 #include "unit/Identity.h"
 #include "unit/Position.h"
+#include "unit/Relation.h"
+#include "unit/SelectionColor.h"
 
 #include <cstdint>
 #include <cstring>
@@ -117,7 +119,12 @@ struct State {
     uint32_t flags;
     uint32_t level;
     uint32_t faction;
-    uint32_t pad; // keeps the struct free of padding bytes for memcmp
+    uint32_t dynamicFlags;
+    // From the active player's view: the unit's reaction toward it (0 hated
+    // .. 7 exalted) and its UnitSelectionType without the extended rungs.
+    // 32 bits each keep the struct free of padding bytes for memcmp.
+    uint32_t reaction;
+    uint32_t selection;
 };
 
 // A unit's UNIT_POWER fields.
@@ -243,6 +250,10 @@ State ReadState(void *unit, const uint8_t *fields) {
     state.level = Game::Read<uint32_t>(fields, Offsets::OFF_UNIT_FIELD_LEVEL);
     state.faction = Game::Read<uint32_t>(fields, Offsets::OFF_UNIT_FIELD_FACTIONTEMPLATE);
     state.attackTarget = Game::Read<uint64_t>(unit, Offsets::OFF_UNIT_ATTACK_TARGET);
+    state.dynamicFlags = Game::Read<uint32_t>(fields, Offsets::OFF_UNIT_FIELD_DYNAMIC_FLAGS);
+    if (const uint8_t *player = ::Unit::Identity::PlayerObject())
+        state.reaction = static_cast<uint32_t>(::Unit::Relation::Reaction(unit, player)) & 7;
+    state.selection = static_cast<uint32_t>(::Unit::SelectionColor::TypeOf(::Object::Guid(unit), false));
     return state;
 }
 
@@ -255,6 +266,9 @@ void WriteState(uint64_t guid, const State &state) {
     AppendUnsigned(line, state.level);
     AppendUnsigned(line, state.faction);
     File::AppendGuid(line, state.attackTarget);
+    AppendHex(line, state.dynamicFlags);
+    AppendUnsigned(line, state.reaction);
+    AppendUnsigned(line, state.selection);
     Movement::Emit(line);
 }
 

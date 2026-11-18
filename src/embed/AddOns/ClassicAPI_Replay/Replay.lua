@@ -9,12 +9,14 @@
 -- state's animation (sitting, sleeping, dead, kneeling). While it plays, the
 -- log's casts, auras, swings and deaths play on the actors; a jump in time
 -- sets each unit's auras and death as they were then. A hurt unit shows its
--- health over its head, from the log's advanced data, a casting unit its
--- cast bar, a marked unit its raid target icon, and the log's lines
--- scroll by in the corner in the client's own combat log words. Scene
--- positions are map positions. Click a unit, or its name in the unit list,
--- to follow it with the camera, which then stops in front of walls as the
--- world's camera does; click the ground to stop. Drag to turn and tilt the camera, right drag to move it across
+-- health over its head in its nameplate's color, from the log's advanced
+-- data, a casting unit its cast bar, a marked unit its raid target icon, and
+-- the log's lines scroll by in the corner in the client's own combat log
+-- words: each starts with its time, a link that goes there, players show in
+-- class colors, a name links to its unit and a spell is a spell link. Scene positions are map positions. Click a unit, or its name in the
+-- unit list, to follow it with the camera, which then stops in front of walls
+-- as the world's camera does; click the ground to stop. The followed unit
+-- shows in a target frame, with its target of target. Drag to turn and tilt the camera, right drag to move it across
 -- the view. With the cursor over the scene, W, A, S and D fly the camera
 -- along its view, Space and X up and down, Shift faster. /replay toggles the
 -- window.
@@ -71,10 +73,20 @@ local DEAD_NAME_COLOR = { 0.5, 0.5, 0.5 };
 local OUT_OF_VIEW_ALPHA = 0.4;
 local UNIT_ROW_HEIGHT = 16;
 -- The health bar over a hurt unit: its size, how far above the name point
--- it sits (pixels), and its colors.
+-- it sits (pixels), and its colors, the nameplate's four (0x007CB120 to
+-- 0x007CB1E0).
 local HEALTH_BAR_WIDTH, HEALTH_BAR_HEIGHT, HEALTH_BAR_RISE = 50, 5, 14;
-local PLAYER_HEALTH_COLOR = { 0, 0.8, 0 };
-local CREATURE_HEALTH_COLOR = { 0.85, 0.1, 0.1 };
+-- The icon of a spell this client does not have (a log recorded on another),
+-- as retail shows one.
+local UNKNOWN_SPELL_ICON = "Interface\\Icons\\INV_Misc_QuestionMark";
+-- The spell ID line at the bottom of a spell link's tooltip, in retail's
+-- GRAY_FONT_COLOR.
+local SPELL_ID_COLOR = { 0.5, 0.5, 0.5 };
+-- The stand-in portrait of a player the client does not hold (0x00854044).
+local STAND_IN_PORTRAIT = "Interface\\CharacterFrame\\TemporaryPortrait-%s-%s";
+local PLATE_COLORS = {
+	hostile = { 1, 0, 0 }, player = { 0, 0, 1 }, friendly = { 0, 1, 0 }, neutral = { 1, 1, 0 },
+};
 -- The cast bar over a casting unit, above its health bar, as retail's Classic
 -- cast bar shows a cast (CastingBarFrame.lua's CastingBarTypeInfo): yellow
 -- filling while it casts, green emptying while it channels, full green once
@@ -89,7 +101,29 @@ local CAST_INTERRUPTED_COLOR = { 1, 0, 0 };
 local CAST_DONE_HOLD, CAST_INTERRUPTED_HOLD, CAST_FADE = 0.2, 1, 0.3;
 -- A marked unit's raid target icon, above its bars.
 local RAID_ICON_SIZE, RAID_ICON_GAP = 20, 2;
--- The feed of the log's lines: how many show, how long each stays, and the
+-- The followed unit's frame, as 1.12's TargetFrame:
+-- - at most 5 buffs and 16 debuffs (MAX_TARGET_BUFFS, MAX_TARGET_DEBUFFS),
+--   in rows that wrap after 6 debuffs, or 5 while the target of target
+--   shows; 21-pixel icons, 17 once they would overlap it. The target of
+--   target shows 4 debuffs of 12 pixels;
+-- - the level in gold (TargetFrame_CheckLevel's color for a unit the player
+--   cannot attack);
+-- - the name's background grey for a unit another player tapped, and blue
+--   for one with no selection color (TargetFrame_CheckFaction). A unit a
+--   player controls (UNIT_FIELD_FLAGS 0x8) is never grey.
+-- dispelNames are C_Spell.GetSpellDispelType's numbers as DebuffTypeColor
+-- names them; the movement file keeps the power of type powerRage in tenths.
+local UNIT_FRAME = {
+	buffs = 5, debuffs = 16, auraSize = 21, auraSmallSize = 17, auraGap = 3,
+	totDebuffs = 4, totDebuffSize = 12,
+	levelColor = { 1, 0.82, 0 },
+	tappedColor = { 0.5, 0.5, 0.5 }, noSelectionColor = { 0, 0, 1 },
+	playerControlledFlag = 0x8,
+	dispelNames = { "Magic", "Curse", "Disease", "Poison" },
+	powerRage = 1,
+};
+-- The feed of the log's lines: how many show (they stay until newer ones push
+-- them out), how many seconds of lines a jump in time fills it with, and the
 -- colors of its lines, heals and deaths.
 local FEED_LINES, FEED_WIDTH, FEED_SECONDS = 8, 440, 12;
 local FEED_TEXT_COLOR = { 1, 1, 1 };
@@ -103,6 +137,10 @@ local FEED_EMOTE_COLOR = { 1, 0.87, 0 };
 local DEATH_MARK_WIDTH, DEATH_MARK_HEIGHT = 3, 14;
 local DEATH_MARK_COLOR = { 1, 0.15, 0.15, 0.9 };
 local DEATH_MARK_LEAD = 5;
+-- The playback bar's steps, in seconds: the mouse wheel over the timeline and
+-- the Left and Right arrow keys over the window step `small`, `big` with
+-- Shift; the back and forward buttons step `big`.
+local STEP = { small = 1, big = 10 };
 -- The client's combat log words for a missed swing and a missed spell, by
 -- miss type (GlobalStrings).
 local SWING_MISS_TEXT = {
@@ -123,6 +161,7 @@ local selectedSegment;
 local units = {};     -- the replay's units, by unitIndex: { name, isPlayer, actor, mount, ... }
 local unitOfActor = {};
 local duration = 0;
+local openTime = 0;   -- where the replay opens and restarts: its first frame with units
 local now = 0;
 local playing = false;
 local playSpeed = DEFAULT_PLAY_SPEED;
@@ -142,6 +181,8 @@ local feed;            -- the ScrollingMessageFrame of the log's lines
 local deathMarks = {}; -- the timeline's death marks in use
 local freeMarks = {};  -- death marks not in use
 local unitListChanged; -- a unit was named since the list was filled
+local unitFrame;       -- the followed unit's frame (Replay.xml)
+local auraButtons = {}; -- its aura buttons, by kind ("buff", "debuff", "tot") and index
 
 ------------------------------------------------------------------------------
 -- Text
@@ -216,14 +257,30 @@ local function ScenePoint(actor)
 	return px, py;
 end
 
-local function ShowHealthBar(u, px, py, health, maxHealth)
+-- A nameplate's bar color (0x007CBAA0) from the unit's reaction toward the
+-- recording player (UnitReaction's 1 to 8): hostile red, else a player blue,
+-- friendly green, the rest yellow. With no reaction the unit counts as
+-- neutral.
+local function PlateColor(u, reaction)
+	reaction = reaction or 4;
+	if reaction <= 2 then
+		return PLATE_COLORS.hostile;
+	elseif u.isPlayer then
+		return PLATE_COLORS.player;
+	elseif reaction >= 5 then
+		return PLATE_COLORS.friendly;
+	end
+	return PLATE_COLORS.neutral;
+end
+
+local function ShowHealthBar(u, px, py, health, maxHealth, reaction)
 	local bar = u.bar;
 	if not bar then
 		bar = tremove(freeBars) or NewBar();
 		u.bar = bar;
-		local color = u.isPlayer and PLAYER_HEALTH_COLOR or CREATURE_HEALTH_COLOR;
-		bar:SetStatusBarColor(color[1], color[2], color[3]);
 	end
+	local color = PlateColor(u, reaction);
+	bar:SetStatusBarColor(color[1], color[2], color[3]);
 	bar:SetValue(health / maxHealth);
 	bar:ClearAllPoints();
 	bar:SetPoint("BOTTOM", scene, "BOTTOMLEFT", px, py + HEALTH_BAR_RISE);
@@ -366,7 +423,8 @@ local function ShowBars(u, time, isDead)
 		return;
 	end
 	if hurt then
-		ShowHealthBar(u, px, py, health, maxHealth);
+		local _, _, _, _, _, _, reaction = C_CombatLogReplay.GetUnitState(u.index, time);
+		ShowHealthBar(u, px, py, health, maxHealth, reaction);
 	else
 		HideBar(u);
 	end
@@ -399,6 +457,7 @@ local function ReleaseUnits()
 	units = {};
 	unitOfActor = {};
 	focus = nil;
+	unitFrame:Hide();
 end
 
 -- A pooled actor keeps what ApplyFromModelSceneActorInfo set at its last
@@ -678,52 +737,70 @@ local function ShownActor(index)
 	return actor and actor:IsShown() and actor or nil, u;
 end
 
-local function UnitName(index)
+-- A unit in a feed line: a link that follows it, a player's in its class
+-- color.
+local function UnitLink(index)
 	local u = index and units[index];
-	return u and u.name ~= "" and u.name or UNKNOWN;
+	if not u then
+		return UNKNOWN;
+	end
+	local link = "|Hreplayunit:" .. index .. "|h" .. (u.name ~= "" and u.name or UNKNOWN) .. "|h";
+	if not u.isPlayer then
+		return link;
+	end
+	local color = u.nameColor;
+	return string.format("|cff%02x%02x%02x%s|r", math.floor(color[1] * 255), math.floor(color[2] * 255),
+		math.floor(color[3] * 255), link);
 end
 
-local function SpellName(spellID)
-	return spellID and GetSpellInfo(spellID) or UNKNOWN;
+-- A spell in a feed line: its spell link, or for a spell this client does
+-- not have, its name in the log.
+local function SpellLink(spellID, logName)
+	local link = spellID and GetSpellLink(spellID);
+	if link then
+		return link;
+	end
+	return logName and logName ~= "" and logName or UNKNOWN;
 end
 
 -- The event in the client's combat log words, and its color; nil for one
 -- the feed leaves out.
 local function FeedText(e)
 	local kind = e.event;
-	local source, dest = UnitName(e.sourceIndex), UnitName(e.destIndex);
+	local source, dest = UnitLink(e.sourceIndex), UnitLink(e.destIndex);
+	local spell = SpellLink(e.spellID, e.spellName);
 	if kind == "SWING_DAMAGE" then
 		return string.format(e.critical and COMBATHITCRITOTHEROTHER or COMBATHITOTHEROTHER, source, dest, e.amount);
 	elseif kind == "SPELL_DAMAGE" or kind == "SPELL_PERIODIC_DAMAGE" or kind == "RANGE_DAMAGE"
 			or kind == "DAMAGE_SHIELD" then
 		return string.format(e.critical and SPELLLOGCRITOTHEROTHER or SPELLLOGOTHEROTHER, source,
-			SpellName(e.spellID), dest, e.amount);
+			spell, dest, e.amount);
 	elseif kind == "SPELL_HEAL" or kind == "SPELL_PERIODIC_HEAL" then
 		return string.format(e.critical and HEALEDCRITOTHEROTHER or HEALEDOTHEROTHER, source,
-			SpellName(e.spellID), dest, e.amount), FEED_HEAL_COLOR;
+			spell, dest, e.amount), FEED_HEAL_COLOR;
 	elseif kind == "SWING_MISSED" then
 		local text = SWING_MISS_TEXT[e.missType];
 		return text and string.format(text, source, dest);
 	elseif kind == "SPELL_MISSED" or kind == "SPELL_PERIODIC_MISSED" or kind == "RANGE_MISSED" then
 		if e.missType == "IMMUNE" then
-			return string.format(SPELLIMMUNEOTHEROTHER, source, SpellName(e.spellID), dest);
+			return string.format(SPELLIMMUNEOTHEROTHER, source, spell, dest);
 		end
 		local text = SPELL_MISS_TEXT[e.missType];
-		return text and string.format(text, source, SpellName(e.spellID), dest);
+		return text and string.format(text, source, spell, dest);
 	elseif kind == "SPELL_CAST_START" then
-		return string.format(SPELLCASTOTHERSTART, source, SpellName(e.spellID));
+		return string.format(SPELLCASTOTHERSTART, source, spell);
 	elseif kind == "SPELL_CAST_SUCCESS" then
 		if e.destIndex and e.destIndex ~= e.sourceIndex then
-			return string.format(SPELLCASTGOOTHERTARGETTED, source, SpellName(e.spellID), dest);
+			return string.format(SPELLCASTGOOTHERTARGETTED, source, spell, dest);
 		end
-		return string.format(SPELLCASTGOOTHER, source, SpellName(e.spellID));
+		return string.format(SPELLCASTGOOTHER, source, spell);
 	elseif kind == "SPELL_AURA_APPLIED" then
 		return string.format(e.auraType == "DEBUFF" and AURAADDEDOTHERHARMFUL or AURAADDEDOTHERHELPFUL, dest,
-			SpellName(e.spellID));
+			spell);
 	elseif kind == "SPELL_AURA_REMOVED" then
-		return string.format(AURAREMOVEDOTHER, SpellName(e.spellID), dest);
+		return string.format(AURAREMOVEDOTHER, spell, dest);
 	elseif kind == "SPELL_INTERRUPT" then
-		return string.format(SPELLINTERRUPTOTHEROTHER, source, dest, SpellName(e.extraSpellID));
+		return string.format(SPELLINTERRUPTOTHEROTHER, source, dest, SpellLink(e.extraSpellID, e.extraSpellName));
 	elseif kind == "UNIT_DIED" then
 		return string.format(UNITDIESOTHER, dest), FEED_DEATH_COLOR;
 	elseif kind == "EMOTE" then
@@ -732,12 +809,13 @@ local function FeedText(e)
 	end
 end
 
--- A feed line links to its event's time: a click goes there.
+-- A feed line starts with its event's time, a link that goes there.
 local function AddFeedLine(e)
 	local text, color = FeedText(e);
 	if text then
 		color = color or FEED_TEXT_COLOR;
-		feed:AddMessage("|Hreplay:" .. e.time .. "|h" .. text .. "|h", color[1], color[2], color[3]);
+		feed:AddMessage("|Hreplay:" .. e.time .. "|h[" .. FormatTime(e.time) .. "]|h " .. text, color[1], color[2],
+			color[3]);
 	end
 end
 
@@ -823,7 +901,7 @@ end
 -- Each unit's combat state as it was at `time`: no cast or swing under way,
 -- its auras then; a dead unit lies still.
 local function SetCombatState(time)
-	-- The feed holds the lines that would still show.
+	-- The feed holds the lines just before then.
 	feed:Clear();
 	for _, e in ipairs(C_CombatLogReplay.GetEvents(math.max(0, time - FEED_SECONDS), time)) do
 		AddFeedLine(e);
@@ -910,7 +988,7 @@ local function Apply(time)
 			display, nativeDisplay, mountDisplay, scale, standState, _, _, sheathState, isDead, held1, held2,
 				held3 = GetUnitLook(i, time);
 		end
-		u.inView, u.dead = display and display > 0, isDead;
+		u.inView, u.dead, u.display, u.nativeDisplay = display and display > 0, isDead, display, nativeDisplay;
 		u.mark = C_CombatLogReplay.GetUnitRaidTargetIndex(i, time);
 		if u.inView then
 			ShowUnit(u, time, x, y, z, facing, speed, falling, jumping, display, nativeDisplay,
@@ -943,6 +1021,324 @@ local function FollowFocus()
 	local body = u and u.actor and u.actor:IsShown() and (u.seated and u.mount or u.actor) or nil;
 	if camera:GetFollowActor() ~= body then
 		camera:SetFollowActor(body);
+	end
+end
+
+------------------------------------------------------------------------------
+-- The unit frame
+
+-- A unit's portrait: its actor's, drawn from the actor's model as the client
+-- draws a unit's, and drawn again by the actor when its model changes.
+-- Before the unit has an actor, a player in its own body shows the stand-in
+-- the client shows for a player it does not hold (0x00525BA0):
+-- TemporaryPortrait-<Male|Female>-<race file>; a creature, or a player in a
+-- form, its display's portrait.
+local function SetPortrait(texture, u)
+	if u.actor then
+		if texture.key ~= u.actor then
+			texture.key = u.actor;
+			texture:SetTexture(nil);
+			u.actor:SetPortraitTexture(texture);
+		end
+		return;
+	end
+	local appearance = u.isPlayer and u.display == u.nativeDisplay and AppearanceAt(u, now);
+	local race = appearance and C_CreatureInfo.GetRaceInfo(appearance.raceID);
+	local key = race and (race.clientFileString .. appearance.sex) or u.display;
+	if texture.key == key then
+		return;
+	end
+	texture.key = key;
+	texture:SetTexture(nil);
+	if race then
+		texture:SetTexture(string.format(STAND_IN_PORTRAIT, appearance.sex == 1 and "Female" or "Male",
+			race.clientFileString));
+	elseif u.display and u.display > 0 then
+		SetPortraitTextureFromCreatureDisplayID(texture, u.display);
+	end
+end
+
+-- The unit's health and power at `time` on two bars; false when the log has
+-- no health for it. Rage is kept in tenths, and shows as the client shows it.
+local function SetBars(health, mana, u, time)
+	local current, maximum = C_CombatLogReplay.GetUnitHealth(u.index, time);
+	if u.dead then
+		current = 0;
+	end
+	if not maximum or maximum <= 0 then
+		health:Hide();
+		mana:Hide();
+		return false;
+	end
+	health:SetMinMaxValues(0, maximum);
+	health:SetValue(current);
+	health.value, health.maximum = current, maximum;
+	health:Show();
+	local powerType, power, maxPower = C_CombatLogReplay.GetUnitPower(u.index, time);
+	if not powerType or not maxPower or maxPower <= 0 then
+		mana:Hide();
+		return true;
+	end
+	if powerType == UNIT_FRAME.powerRage then
+		power, maxPower = math.floor(power / 10), math.floor(maxPower / 10);
+	end
+	local color = ManaBarColor[powerType] or ManaBarColor[0];
+	mana:SetStatusBarColor(color.r, color.g, color.b);
+	mana:SetMinMaxValues(0, maxPower);
+	mana:SetValue(power);
+	mana.value, mana.maximum = power, maxPower;
+	mana:Show();
+	return true;
+end
+
+-- A bar's "value / maximum", always shown: a replay is for reading numbers.
+local function UpdateBarText(bar)
+	if bar.value then
+		bar.Text:SetText(bar.value .. " / " .. bar.maximum);
+	end
+end
+
+local function OnAuraEnter(button)
+	GameTooltip:SetOwner(button, "ANCHOR_BOTTOMRIGHT", 15, -25);
+	GameTooltip:SetSpellByID(button.spellID);
+end
+
+local function OnAuraLeave()
+	GameTooltip:Hide();
+end
+
+local function AuraButton(kind, i, parent)
+	local buttons = auraButtons[kind];
+	if not buttons then
+		buttons = {};
+		auraButtons[kind] = buttons;
+	end
+	local button = buttons[i];
+	if not button then
+		button = CreateFrame("Button", nil, parent, "ClassicAPIReplayAuraTemplate");
+		button:SetScript("OnEnter", OnAuraEnter);
+		button:SetScript("OnLeave", OnAuraLeave);
+		buttons[i] = button;
+	end
+	return button;
+end
+
+-- The time an aura has left as a cooldown's countdown shows it: whole
+-- seconds below a minute, then minutes, then hours, each rounded up.
+local function AuraTimeText(left)
+	if left < 60 then
+		return tostring(math.ceil(left));
+	elseif left < 3600 then
+		return math.ceil(left / 60) .. "m";
+	end
+	return math.ceil(left / 3600) .. "h";
+end
+
+-- The aura's timer at `time`, from when it ended in the log: the sweep of
+-- its duration, paused where the replay is (CooldownFrame_SetDisplayAsPercentage),
+-- so it follows the replay's speed and pauses; with `showTime`, the time
+-- left. None for an aura whose end the replay does not know.
+local function SetAuraTimer(button, aura, time, showTime)
+	local left = aura.expirationTime and aura.expirationTime - time;
+	if not left or left <= 0 then
+		button.Cooldown:Clear();
+		button.TextFrame.Time:SetText("");
+		return;
+	end
+	if aura.duration and aura.duration > 0 then
+		CooldownFrame_SetDisplayAsPercentage(button.Cooldown, 1 - left / aura.duration);
+	else
+		button.Cooldown:Clear();
+	end
+	button.TextFrame.Time:SetText(showTime and AuraTimeText(left) or "");
+end
+
+-- Shows an aura on a button, as TargetDebuffButton_Update does: a debuff
+-- with its border in its dispel type's color and its stacks above 1; then
+-- its timer, the time left only on a full-size button.
+local function SetAura(button, aura, size, time)
+	button.spellID = aura.spellID;
+	local _, _, icon = GetSpellInfo(aura.spellID);
+	button.Icon:SetTexture(icon or UNKNOWN_SPELL_ICON);
+	button:SetWidth(size);
+	button:SetHeight(size);
+	if aura.auraType == "DEBUFF" then
+		local color = DebuffTypeColor[UNIT_FRAME.dispelNames[C_Spell.GetSpellDispelType(aura.spellID)] or "none"];
+		button.Border:SetVertexColor(color.r, color.g, color.b);
+		button.Border:SetWidth(size + 2);
+		button.Border:SetHeight(size + 2);
+		button.Border:Show();
+		if aura.applications and aura.applications > 1 then
+			button.TextFrame.Count:SetText(aura.applications);
+			button.TextFrame.Count:Show();
+		else
+			button.TextFrame.Count:Hide();
+		end
+	else
+		button.Border:Hide();
+		button.TextFrame.Count:Hide();
+	end
+	SetAuraTimer(button, aura, time, size >= UNIT_FRAME.auraSmallSize);
+	button:Show();
+end
+
+local function HideAuras(kind, from)
+	for i = from, #(auraButtons[kind] or {}) do
+		auraButtons[kind][i]:Hide();
+	end
+end
+
+-- The unit's buffs and debuffs under the frame, in TargetDebuffButton_Update's
+-- rows: the buffs, then the debuffs below them.
+local function SetAuras(u, time, targetShown)
+	local buffs, debuffs = {}, {};
+	for _, aura in ipairs(C_CombatLogReplay.GetUnitAuras(u.index, time)) do
+		if aura.isHidden then
+			-- Not one UnitBuff or UnitDebuff lists.
+		elseif aura.auraType == "DEBUFF" then
+			if #debuffs < UNIT_FRAME.debuffs then
+				tinsert(debuffs, aura);
+			end
+		elseif #buffs < UNIT_FRAME.buffs then
+			tinsert(buffs, aura);
+		end
+	end
+	local wrap = targetShown and 5 or 6;
+	local crowded = (targetShown and #buffs == UNIT_FRAME.buffs) or #debuffs >= wrap;
+	local size = crowded and UNIT_FRAME.auraSmallSize or UNIT_FRAME.auraSize;
+	local rowStart;
+	for i, aura in ipairs(buffs) do
+		local button = AuraButton("buff", i, unitFrame);
+		SetAura(button, aura, size, time);
+		button:ClearAllPoints();
+		if i == 1 then
+			button:SetPoint("TOPLEFT", unitFrame, "BOTTOMLEFT", 5, 32);
+			rowStart = button;
+		else
+			button:SetPoint("LEFT", auraButtons.buff[i - 1], "RIGHT", UNIT_FRAME.auraGap, 0);
+		end
+	end
+	HideAuras("buff", #buffs + 1);
+	for i, aura in ipairs(debuffs) do
+		local button = AuraButton("debuff", i, unitFrame);
+		SetAura(button, aura, size, time);
+		button:ClearAllPoints();
+		if i == 1 then
+			if rowStart then
+				button:SetPoint("TOPLEFT", rowStart, "BOTTOMLEFT", 0, -2);
+			else
+				button:SetPoint("TOPLEFT", unitFrame, "BOTTOMLEFT", 5, 32);
+			end
+			rowStart = button;
+		elseif (i - 1) % wrap == 0 then
+			button:SetPoint("TOPLEFT", rowStart, "BOTTOMLEFT", 0, -2);
+			rowStart = button;
+		else
+			button:SetPoint("LEFT", auraButtons.debuff[i - 1], "RIGHT", UNIT_FRAME.auraGap, 0);
+		end
+	end
+	HideAuras("debuff", #debuffs + 1);
+end
+
+-- The target of target: its portrait, name, bars and first debuffs, as
+-- TargetofTargetFrame shows them.
+local function SetTargetOfTarget(target, time)
+	local tot = unitFrame.TargetOfTarget;
+	tot.unit = target;
+	SetPortrait(tot.Portrait, target);
+	tot.TextureFrame.Name:SetText(target.name ~= "" and target.name or UNKNOWN);
+	if target.dead then
+		tot.TextureFrame.Dead:Show();
+	else
+		tot.TextureFrame.Dead:Hide();
+	end
+	SetBars(tot.HealthBar, tot.ManaBar, target, time);
+	local shown = 0;
+	for _, aura in ipairs(C_CombatLogReplay.GetUnitAuras(target.index, time)) do
+		if aura.auraType == "DEBUFF" and not aura.isHidden and shown < UNIT_FRAME.totDebuffs then
+			shown = shown + 1;
+			local button = AuraButton("tot", shown, tot);
+			SetAura(button, aura, UNIT_FRAME.totDebuffSize, time);
+			button:ClearAllPoints();
+			if shown == 1 then
+				button:SetPoint("TOPLEFT", tot, "TOPRIGHT", 4, -10);
+			elseif shown == 3 then
+				button:SetPoint("TOPLEFT", auraButtons.tot[1], "BOTTOMLEFT", 0, -1);
+			else
+				button:SetPoint("LEFT", auraButtons.tot[shown - 1], "RIGHT", 1, 0);
+			end
+		end
+	end
+	HideAuras("tot", shown + 1);
+	tot:Show();
+end
+
+-- The followed unit at `time`, or no frame while none is followed.
+local function UpdateUnitFrame(time)
+	local u = focus;
+	if not u then
+		unitFrame:Hide();
+		return;
+	end
+	local f = unitFrame.TextureFrame;
+	SetPortrait(unitFrame.Portrait, u);
+	f.Name:SetText(u.name ~= "" and u.name or UNKNOWN);
+	local target, _, flags, level, _, _, _, isTapDenied = C_CombatLogReplay.GetUnitState(u.index, time);
+	-- The name's background as TargetFrame_CheckFaction sets it: grey with a
+	-- grey portrait for a creature another player tapped, else the selection
+	-- color.
+	local tapped = isTapDenied and bit.band(flags, UNIT_FRAME.playerControlledFlag) == 0;
+	local r, g, b;
+	if tapped then
+		r, g, b = UNIT_FRAME.tappedColor[1], UNIT_FRAME.tappedColor[2], UNIT_FRAME.tappedColor[3];
+	else
+		r, g, b = C_CombatLogReplay.GetUnitSelectionColor(u.index, time);
+		if not r then
+			r, g, b = UNIT_FRAME.noSelectionColor[1], UNIT_FRAME.noSelectionColor[2], UNIT_FRAME.noSelectionColor[3];
+		end
+	end
+	unitFrame.NameBackground:SetVertexColor(r, g, b);
+	local shade = tapped and UNIT_FRAME.tappedColor[1] or 1;
+	unitFrame.Portrait:SetVertexColor(shade, shade, shade);
+	if level and level > 0 then
+		f.Level:SetText(level);
+		f.Level:SetVertexColor(UNIT_FRAME.levelColor[1], UNIT_FRAME.levelColor[2], UNIT_FRAME.levelColor[3]);
+		f.Level:Show();
+	else
+		f.Level:Hide();
+	end
+	if u.dead then
+		f.Dead:Show();
+	else
+		f.Dead:Hide();
+	end
+	if u.mark then
+		SetRaidTargetIconTexture(f.RaidTargetIcon, u.mark);
+		f.RaidTargetIcon:Show();
+	else
+		f.RaidTargetIcon:Hide();
+	end
+	SetBars(unitFrame.HealthBar, unitFrame.ManaBar, u, time);
+	UpdateBarText(unitFrame.HealthBar);
+	UpdateBarText(unitFrame.ManaBar);
+	target = target and units[target];
+	if target then
+		SetTargetOfTarget(target, time);
+	else
+		unitFrame.TargetOfTarget:Hide();
+		HideAuras("tot", 1);
+	end
+	SetAuras(u, time, target ~= nil);
+	unitFrame:Show();
+end
+
+-- Raises a frame and everything in it, each child one level above its
+-- parent as at load: a child keeps its level when its parent's changes.
+local function SetFrameLevels(f, level)
+	f:SetFrameLevel(level);
+	local children = { f:GetChildren() };
+	for _, child in ipairs(children) do
+		SetFrameLevels(child, level + 1);
 	end
 end
 
@@ -983,6 +1379,7 @@ local function SetFocus(u)
 	end
 	FollowFocus();
 	UpdateUnitList();
+	UpdateUnitFrame(now);
 	if focus then
 		frame.UnitList.ScrollBox:ScrollToElementData(focus, ScrollBoxConstants.AlignNearest);
 	end
@@ -1189,20 +1586,6 @@ local function Fly(elapsed)
 	camera:SnapAllInterpolatedValues();
 end
 
--- A fly key pressed over the scene is the scene's; every other key goes on
--- to the game.
-local function OnSceneKeyDown(self, key)
-	local fly = FLY_KEYS[key] and MouseIsOver(scene);
-	self:SetPropagateKeyboardInput(not fly);
-	if fly then
-		flying[key] = true;
-	end
-end
-
-local function OnSceneKeyUp(self, key)
-	flying[key] = nil;
-end
-
 local function OnUpdate(self, elapsed)
 	local pitch = camera:GetPitch();
 	if math.abs(pitch) > MAX_PITCH then
@@ -1226,6 +1609,7 @@ local function OnUpdate(self, elapsed)
 	Apply(now);
 	FollowFocus();
 	UpdateUnitList();
+	UpdateUnitFrame(now);
 	UpdateTimeline(now >= duration);
 end
 
@@ -1234,7 +1618,36 @@ local function Seek(time)
 	Apply(now);
 	FollowFocus();
 	UpdateUnitList();
+	UpdateUnitFrame(now);
 	UpdateTimeline(true);
+end
+
+-- Moves the replay by `seconds`, once one is loaded.
+local function Step(seconds)
+	if #units > 0 then
+		Seek(now + seconds);
+	end
+end
+
+local function StepSize()
+	return IsShiftKeyDown() and STEP.big or STEP.small;
+end
+
+-- A fly key pressed over the scene is the scene's, and Left or Right over
+-- the window steps the replay; every other key goes on to the game.
+local function OnSceneKeyDown(self, key)
+	local fly = FLY_KEYS[key] and MouseIsOver(scene);
+	local step = (key == "LEFT" or key == "RIGHT") and MouseIsOver(frame);
+	self:SetPropagateKeyboardInput(not fly and not step);
+	if fly then
+		flying[key] = true;
+	elseif step then
+		Step(key == "LEFT" and -StepSize() or StepSize());
+	end
+end
+
+local function OnSceneKeyUp(self, key)
+	flying[key] = nil;
 end
 
 ------------------------------------------------------------------------------
@@ -1296,6 +1709,78 @@ local function ShowDeathMarks()
 	end
 end
 
+------------------------------------------------------------------------------
+-- The playback bar
+
+-- A hover over the timeline shows the time under the cursor, with a line
+-- there, and the mouse wheel steps. A click or a drag goes there
+-- (OnValueChanged).
+local function SetupTimeline()
+	local timeline = frame.Timeline;
+	local ghost = timeline.Ghost;
+	local shownSecond;
+	-- The inverse of TimelinePlace.
+	local function TimeAtCursor()
+		local x = GetCursorPosition() / timeline:GetEffectiveScale() - timeline:GetLeft();
+		local start, travel = TimelinePlace(0);
+		return math.max(0, math.min(duration, (x - start) / travel * duration));
+	end
+	local function OnHoverUpdate()
+		local time = TimeAtCursor();
+		local x = TimelinePlace(time);
+		ghost:ClearAllPoints();
+		ghost:SetPoint("CENTER", timeline, "LEFT", x, 0);
+		GameTooltip:ClearAllPoints();
+		GameTooltip:SetPoint("BOTTOM", timeline, "LEFT", x, 14);
+		local second = math.floor(time);
+		if second ~= shownSecond then
+			GameTooltip:SetText(FormatTime(time), 1, 1, 1);
+			shownSecond = second;
+		end
+	end
+	timeline:SetScript("OnEnter", function()
+		if #units == 0 or duration <= 0 then
+			return;
+		end
+		GameTooltip:SetOwner(timeline, "ANCHOR_NONE");
+		shownSecond = nil;
+		OnHoverUpdate();
+		GameTooltip:Show();
+		ghost:Show();
+		timeline:SetScript("OnUpdate", OnHoverUpdate);
+	end);
+	-- A death mark's own tooltip can take the GameTooltip first.
+	timeline:SetScript("OnLeave", function()
+		timeline:SetScript("OnUpdate", nil);
+		ghost:Hide();
+		if GameTooltip:IsOwned(timeline) then
+			GameTooltip:Hide();
+		end
+	end);
+	timeline:EnableMouseWheel(true);
+	timeline:SetScript("OnMouseWheel", function(_, delta)
+		Step(delta * StepSize());
+	end);
+
+	local function SetupStepButton(button, seconds, text)
+		button:SetScript("OnClick", function()
+			Step(seconds);
+		end);
+		button:SetScript("OnEnter", function()
+			GameTooltip:SetOwner(button, "ANCHOR_TOP");
+			GameTooltip:SetText(string.format(text, STEP.big), 1, 1, 1);
+			GameTooltip:AddLine(string.format(REPLAY_STEP_HINT, STEP.small, STEP.big),
+				NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b, 1);
+			GameTooltip:Show();
+		end);
+		button:SetScript("OnLeave", function()
+			GameTooltip:Hide();
+		end);
+	end
+	SetupStepButton(frame.BackButton, -STEP.big, REPLAY_STEP_BACK);
+	SetupStepButton(frame.ForwardButton, STEP.big, REPLAY_STEP_FORWARD);
+end
+
 -- The loaded replay, from the start.
 local function Build()
 	ReleaseUnits();
@@ -1329,7 +1814,10 @@ local function Build()
 	SetStatus(info.hasMovement and string.format(REPLAY_UNITS, #units) or REPLAY_NO_POSITIONS);
 	ShowMap(info.mapID);
 	SetPlaying(false);
-	Seek(0);
+	-- From the first frame with units: a whole log's movement file starts a
+	-- frame after the log.
+	openTime = info.firstUnitTime;
+	Seek(openTime);
 	ShowDeathMarks();
 end
 
@@ -1496,15 +1984,47 @@ function ClassicAPIReplay_OnLoad(self)
 	feed:SetFontObject(GameFontHighlightSmall);
 	feed:SetJustifyH("LEFT");
 	feed:SetMaxLines(FEED_LINES * 4);
-	feed:SetFading(true);
-	feed:SetTimeVisible(FEED_SECONDS);
+	feed:SetFading(false);
 	feed:SetFrameLevel(scene:GetFrameLevel() + 6);
 	feed:EnableMouse(true);
+	-- A line's time goes there, a unit's name follows it, and a spell shows
+	-- its tooltip in the window's own ItemRefTooltip, which a second click
+	-- on the same spell closes.
+	local spellTooltip = self.SpellTooltip;
+	SetFrameLevels(spellTooltip, scene:GetFrameLevel() + 10);
 	feed:SetScript("OnHyperlinkClick", function(_, link)
 		local _, _, time = string.find(link, "^replay:(.+)$");
 		if time then
 			Seek(tonumber(time));
+			return;
 		end
+		local _, _, index = string.find(link, "^replayunit:(%d+)$");
+		if index then
+			SetFocus(units[tonumber(index)]);
+			return;
+		end
+		local _, _, spellID = string.find(link, "^spell:(%d+)");
+		if not spellID then
+			return;
+		end
+		spellID = tonumber(spellID);
+		if spellTooltip:IsShown() and spellTooltip.spellID == spellID then
+			spellTooltip:Hide();
+			return;
+		end
+		spellTooltip:SetOwner(self, "ANCHOR_PRESERVE");
+		spellTooltip:SetSpellByID(spellID, false, true);
+		spellTooltip:AddLine(string.format(REPLAY_SPELL_ID, spellID), SPELL_ID_COLOR[1], SPELL_ID_COLOR[2],
+			SPELL_ID_COLOR[3]);
+		spellTooltip.spellID = spellID;
+		spellTooltip:Show();
+	end);
+	unitFrame = scene.UnitFrame;
+	SetFrameLevels(unitFrame, scene:GetFrameLevel() + 7);
+	unitFrame:SetHitRectInsets(96, 6, 4, 9);
+	-- A click on the target of target follows it, as one targets it.
+	unitFrame.TargetOfTarget:SetScript("OnClick", function(tot)
+		SetFocus(tot.unit);
 	end);
 	local view = CreateScrollBoxListLinearView();
 	view:SetElementExtent(UNIT_ROW_HEIGHT);
@@ -1517,7 +2037,7 @@ function ClassicAPIReplay_OnLoad(self)
 
 	self.PlayButton:SetScript("OnClick", function()
 		if not playing and now >= duration then
-			Seek(0);
+			Seek(openTime);
 		end
 		SetPlaying(not playing and #units > 0);
 	end);
@@ -1532,6 +2052,7 @@ function ClassicAPIReplay_OnLoad(self)
 			Seek(value);
 		end
 	end);
+	SetupTimeline();
 	UpdatePlayButton();
 	SetupMenus();
 end

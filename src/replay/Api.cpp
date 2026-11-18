@@ -25,6 +25,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "aura/Data.h"
 #include "cache/Record.h"
 #include "creature/Info.h"
 #include "event/Custom.h"
@@ -37,6 +38,7 @@
 #include "replay/Recording.h"
 #include "spell/Lookup.h"
 #include "tick/WorldTick.h"
+#include "unit/SelectionColor.h"
 
 #include <algorithm>
 #include <atomic>
@@ -259,6 +261,7 @@ int __fastcall Script_GetReplayInfo(void *L) {
     Lua::SetFieldNumber(L, "duration", Seconds(r.endMs - r.startMs));
     Lua::SetFieldNumber(L, "mapID", r.map);
     Lua::SetFieldBool(L, "hasMovement", r.movement);
+    Lua::SetFieldNumber(L, "firstUnitTime", Seconds(r.firstUnitMs));
     Lua::SetFieldNumber(L, "numUnits", static_cast<double>(r.units.size()));
     return 1;
 }
@@ -393,8 +396,10 @@ int __fastcall Script_GetEvents(void *L) {
             Lua::SetFieldNumber(L, "sourceIndex", e.source + 1);
         if (e.dest >= 0)
             Lua::SetFieldNumber(L, "destIndex", e.dest + 1);
-        if (e.spellID != 0)
+        if (e.spellID != 0) {
             Lua::SetFieldNumber(L, "spellID", e.spellID);
+            Lua::SetFieldString(L, "spellName", e.spellName.c_str());
+        }
         if (e.type.rfind("SPELL_AURA_", 0) == 0)
             Lua::SetFieldString(L, "auraType", e.debuff ? "DEBUFF" : "BUFF");
         if (e.castEnd >= 0) {
@@ -403,8 +408,10 @@ int __fastcall Script_GetEvents(void *L) {
         }
         if (e.endsCast)
             Lua::SetFieldBool(L, "endsCast", true);
-        if (e.extraSpellID != 0)
+        if (e.extraSpellID != 0) {
             Lua::SetFieldNumber(L, "extraSpellID", e.extraSpellID);
+            Lua::SetFieldString(L, "extraSpellName", e.extraSpellName.c_str());
+        }
         if (e.castTarget >= 0)
             Lua::SetFieldNumber(L, "castTargetIndex", e.castTarget + 1);
         if (e.hasAmount) {
@@ -513,7 +520,9 @@ void PushUnitIndex(void *L, int32_t index) {
 }
 
 // Whom the unit targets, who owns it, its unit flags, level and faction
-// template at the time, from the movement file.
+// template at the time, from the movement file; then the unit it swings at,
+// its reaction toward the recording player as UnitReaction gives one (1 ..
+// 8), and whether another player tapped it (UnitIsTapDenied).
 int __fastcall Script_GetUnitState(void *L) {
     const Unit *unit = UnitArg(L, "Usage: C_CombatLogReplay.GetUnitState(unitIndex, time)");
     const UnitState *state = unit != nullptr ? StateAt(*unit, TimeArg(L)) : nullptr;
@@ -527,7 +536,27 @@ int __fastcall Script_GetUnitState(void *L) {
     Lua::PushNumber(L, state->level);
     Lua::PushNumber(L, state->faction);
     PushUnitIndex(L, state->attackTarget);
-    return 6;
+    Lua::PushNumber(L, state->reaction + 1);
+    Lua::PushBool(L, (state->dynamicFlags & Offsets::UNIT_DYNFLAG_TAPPED) != 0 &&
+                         (state->dynamicFlags & Offsets::UNIT_DYNFLAG_TAPPED_BY_PLAYER) == 0);
+    return 8;
+}
+
+// The unit's selection color at the time from the recording player's view,
+// as UnitSelectionColor(unit) gave it then.
+int __fastcall Script_GetUnitSelectionColor(void *L) {
+    const Unit *unit = UnitArg(L, "Usage: C_CombatLogReplay.GetUnitSelectionColor(unitIndex, time)");
+    const UnitState *state = unit != nullptr ? StateAt(*unit, TimeArg(L)) : nullptr;
+    if (state == nullptr) {
+        Lua::PushNil(L);
+        return 1;
+    }
+    const uint32_t argb = ::Unit::SelectionColor::Color(static_cast<int>(state->selection));
+    Lua::PushNumber(L, ((argb >> 16) & 0xFF) / 255.0);
+    Lua::PushNumber(L, ((argb >> 8) & 0xFF) / 255.0);
+    Lua::PushNumber(L, (argb & 0xFF) / 255.0);
+    Lua::PushNumber(L, (argb >> 24) / 255.0);
+    return 4;
 }
 
 // The auras on the unit at the time: the movement file's UNIT_AURAS lines
@@ -546,11 +575,21 @@ int __fastcall Script_GetUnitAuras(void *L) {
         Lua::NewTable(L);
         Lua::SetFieldNumber(L, "spellID", a.spellID);
         Lua::SetFieldString(L, "auraType", a.debuff ? "DEBUFF" : "BUFF");
+        // Script_UnitBuff / Script_UnitDebuff's spell gate (0x00519860). A
+        // spell this client does not have (a log from another) is not hidden.
+        const uint8_t *spell = Spell::Lookup::RecordForID(static_cast<int>(a.spellID));
+        if (spell != nullptr && !::Aura::Data::IsVisible(spell))
+            Lua::SetFieldBool(L, "isHidden", true);
         if (const uint32_t *stacks = StacksAt(a, t))
             Lua::SetFieldNumber(L, "applications", *stacks);
         if (a.caster >= 0)
             Lua::SetFieldNumber(L, "sourceIndex", a.caster + 1);
         Lua::SetFieldNumber(L, "applied", Seconds(a.from));
+        if (a.ended) {
+            Lua::SetFieldNumber(L, "expirationTime", Seconds(a.to));
+            if (a.renewed != INT32_MIN)
+                Lua::SetFieldNumber(L, "duration", (static_cast<double>(a.to) - a.renewed) / 1000.0);
+        }
         Lua::RawSetI(L, -2, ++i);
     }
     return 1;
@@ -813,6 +852,9 @@ const Game::Doc::Field kReplayInfoFields[] = {
     Req("duration", "number", "In seconds."),
     Req("mapID", "number", "-1 when the log does not say."),
     Req("hasMovement", "bool"),
+    Req("firstUnitTime", "number",
+        "When the first unit is in view, in seconds: 0, or a moment later for a replay that begins with the log, "
+        "whose movement file starts a frame after it."),
     Req("numUnits", "number"),
 };
 const Game::Doc::Structure kReplayInfo{"CombatLogReplayInfo", "CombatLogReplay",
@@ -942,7 +984,9 @@ const Game::Doc::Field kEventFields[] = {
     Opt("missType", "cstring", nullptr, "For a _MISSED event: MISS, DODGE, PARRY, BLOCK, RESIST, ABSORB, IMMUNE, ..."),
     Opt("offHand", "bool", nullptr, "True for a _MISSED event that the off hand made. The log does not say this for a hit."),
     Opt("endsCast", "bool", nullptr, "True for a SPELL_CAST_SUCCESS or SPELL_CAST_FAILED that ends a SPELL_CAST_START."),
+    Opt("spellName", "cstring", nullptr, "The spell's name as the log writes it, with spellID."),
     Opt("extraSpellID", "number", nullptr, "For a SPELL_INTERRUPT: the spell it interrupted."),
+    Opt("extraSpellName", "cstring", nullptr, "Its name as the log writes it, with extraSpellID."),
     Opt("castTargetIndex", "number", nullptr,
         "For a SPELL_CAST_START: the destination of the SPELL_CAST_SUCCESS that ended it. Nil when it did not "
         "go off or had no unit as its destination."),
@@ -985,6 +1029,14 @@ const Game::Doc::Field kAuraFields[] = {
     Opt("sourceIndex", "number", nullptr, "Nil when the log does not name a unit that applied it."),
     Req("applied", "number", "When it was applied, in seconds from the replay's start; negative before it."),
     Opt("applications", "number", nullptr, "Its stacks, from the movement file or a dose event."),
+    Opt("isHidden", "bool", nullptr,
+        "True for an aura that UnitBuff and UnitDebuff do not list, as the client hides it. Its visual still shows."),
+    Opt("expirationTime", "number", nullptr,
+        "When it ended in the log, in seconds from the replay's start: it expired, or was removed early. Nil when "
+        "it did not end in the loaded stretch while the unit was in view."),
+    Opt("duration", "number", nullptr,
+        "Seconds from its last application, refresh or added stack to expirationTime. Nil when either is not "
+        "known."),
 };
 const Game::Doc::Structure kAura{"CombatLogReplayAura", "CombatLogReplay", kAuraFields,
                                  "All of a unit's auras with the movement file, else only the ones the log saw applied."};
@@ -1034,11 +1086,24 @@ const Game::Doc::Field kGetUnitStateRets[] = {
     Opt("level", "number"),
     Opt("factionTemplate", "number", nullptr, "Its FactionTemplate.dbc id."),
     Opt("attackTargetIndex", "number", nullptr, "The unit it swings at with melee attacks; nil for none."),
+    Opt("reaction", "number", nullptr,
+        "Its reaction toward the player who recorded the log, as UnitReaction gives it: 1 hated to 8 exalted."),
+    Opt("isTapDenied", "bool", nullptr, "Another player tapped it, as UnitIsTapDenied."),
 };
 const Game::Doc::Function kGetUnitState{
-    "Returns whom a replay unit targets, who owns it, its unit flags, level and faction at a time, from the movement "
-    "file.",
+    "Returns whom a replay unit targets, who owns it, its unit flags, level, faction and reaction at a time, from the "
+    "movement file.",
     kUnitTimeArgs, kGetUnitStateRets, nullptr, true};
+const Game::Doc::Field kColorRets[] = {
+    Opt("red", "number"),
+    Opt("green", "number"),
+    Opt("blue", "number"),
+    Opt("alpha", "number"),
+};
+const Game::Doc::Function kGetUnitSelectionColor{
+    "Returns a replay unit's selection color at a time, as UnitSelectionColor gave it to the player who recorded the "
+    "log; nil when the movement file has no state for it.",
+    kUnitTimeArgs, kColorRets, nullptr, true};
 
 const Game::Doc::Function kGetUnitLook{"Returns what a replay unit looks like at a time.",
                                        kUnitTimeArgs, kGetUnitLookRets, nullptr, true};
@@ -1125,6 +1190,8 @@ void RegisterLuaFunctions() {
     Lua::RegisterTableFunction(kTable, "GetUnitHealth", &Script_GetUnitHealth, &kGetUnitHealth);
     Lua::RegisterTableFunction(kTable, "GetUnitPower", &Script_GetUnitPower, &kGetUnitPower);
     Lua::RegisterTableFunction(kTable, "GetUnitState", &Script_GetUnitState, &kGetUnitState);
+    Lua::RegisterTableFunction(kTable, "GetUnitSelectionColor", &Script_GetUnitSelectionColor,
+                               &kGetUnitSelectionColor);
     Lua::RegisterTableFunction(kTable, "GetUnitWeapons", &Script_GetUnitWeapons, &kGetUnitWeapons);
     Lua::RegisterTableFunction(kTable, "GetGameObjects", &Script_GetGameObjects, &kGetGameObjects);
     Lua::RegisterTableFunction(kTable, "GetGameObjectInfo", &Script_GetGameObjectInfo,
