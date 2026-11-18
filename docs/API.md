@@ -9713,6 +9713,9 @@ and its border at the same size when the panel changes size.
 The margins are in the pixels of the image. One pixel of a corner covers one
 unit of the width or the height of the texture. If the texture is smaller than
 the two margins of one direction, the two margins shrink by the same ratio.
+Each corner and edge still shows its full margin of the image. When the two
+margins of one direction are wider than the image, both pieces show their full
+margin, and the rows or columns where they overlap show in both pieces.
 
 `GetTextureSliceMargins()` returns the four margins. It returns nothing when no
 margins are set. Margins of `0` draw the image whole.
@@ -9743,7 +9746,13 @@ Sets whether the edges and the center of a sliced texture stretch or tile.
 `sliceMode` is a value of [`Enum.UITextureSliceMode`](#enumuitextureslicemode).
 A value that is not in this enum is an error.
 
-The `Tiled` mode draws the same as `Stretched`.
+In the `Tiled` mode, the edges and the center repeat the part of the image
+between the margins at its own size. One pixel of the image covers one unit of
+the texture, the same as in the corners. The top and bottom edges repeat
+across, the left and right edges repeat down, and the center repeats in both
+directions. The repeats start next to the top-left corner. The last repeat in
+each direction is cut off at the far margin, so no repeat is squeezed. A very
+large texture with a very small repeat draws stretched instead.
 
 `GetTextureSliceMode()` returns the mode. It returns nothing when the texture
 has no margins and no mode. The default mode is `Stretched`.

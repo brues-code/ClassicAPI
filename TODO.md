@@ -4618,9 +4618,13 @@ Open:
   (StatusBar::Fill maps atlas coordinates, rewrites the quad uncropped), and
   texture slicing (src/texture/Slice.cpp, retail's SetTextureSliceMargins
   family, atlas slice data from wago UiTextureAtlasElementSliceData) draws
-  the source window's common-dropdown-bg as a nine-slice. Open: tiled slice
-  mode draws stretched; the header bar and bar shadow slice rows exceed their
-  sprite heights (wago build vs the art's) and are scaled to fit.
+  the source window's common-dropdown-bg as a nine-slice. Tiled slice mode
+  now repeats the edges and centre at the image's pixel scale, one quad per
+  repeat, the last one cropped (built 2026-11-18, not seen in game: check
+  ui-hud-cooldownmanager-bar-bg). Margins that overlap (the header bar's
+  T14 + B22 on 28 px, the bar shadow's T10 + B10 on 14 px) keep each side's
+  full margin in the image and shrink only the drawn sizes, as a retail
+  screenshot of the header bar shows (not seen in game here yet).
 - Events the UI registers that nothing fires: GROUP_JOINED, GROUP_LEFT,
   PLAYER_LEVEL_CHANGED ("In Group" visibility does not update on join/leave).
 - Not applied: text scale (1.12 FontStrings have no SetTextScale); the

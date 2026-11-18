@@ -40,7 +40,8 @@
 // effective scale (Frame::Layout::FromLocalUnits). The size the corners are
 // measured against is the quad the engine's corner store writes: the layout
 // rect, cropped when SetTexCoordModifiesRect is on (CornerStore::CropInput).
-// When the margins of an axis do not fit it, both shrink in proportion.
+// When the margins of an axis do not fit it, both drawn sizes shrink in
+// proportion while each keeps its whole margin of the image (see Axis).
 // The pieces' texture coordinates interpolate inside the texture's current
 // ones (+0x104, for an atlas the sprite's rect in its sheet), at the margins
 // over the image's pixel size: the sprite's for an atlas (Atlas::Info width /
@@ -53,15 +54,40 @@
 // 8-argument SetTexCoord that maps x to y, SetRotatesTexture) have no width
 // along an axis, and draw unsliced.
 //
+// TILED MODE (Enum.UITextureSliceMode.Tiled). The edges and the centre repeat
+// at the image's pixel scale, the scale the corners use, along the axes they
+// would stretch: the top and bottom edges across, the left and right edges
+// down, the centre both ways. Each repeat shows the part of the image between
+// the margins (inside the coordinates' crop, as above). The repeats start at
+// the quad's first edge, after the first margin, and the last one on each axis
+// is cropped, its quad and its coordinates alike, so no repeat is squashed:
+// our choice of where the tiling starts. 1.12's device wrap repeats a whole
+// file, never a sprite inside a sheet, so each repeat is its own quad.
+//
+// So a sliced texture is a grid of (2 + n) x (2 + m) pieces, n and m the
+// repeats per axis (1 and 1, nine pieces, when stretched). The grid is laid
+// out from the layout rect, the margins, the image size, the coordinates and
+// the mode. Past kMaxQuads pieces the texture draws stretched.
+//
 // THE MECHANISM. A texture emits one quad record into its layer batch
 // (FUN_SIMPLETEXTURE_APPEND_QUAD), and the batch keeps pointers to the
 // texture's four positions (+0xD4) and eight coordinates (+0x104), read on
-// every draw. A sliced texture's emit (Texture::Emit) runs the engine's own
-// append eight more times, so every piece carries the engine's handle, blend,
-// colour, stride and shader, then points the nine records at position and
-// coordinate arrays kept here. The layer is marked changed
-// (FUN_REGION_NOTIFY_LAYER_CHANGED, what SetTexture calls) whenever a texture
-// starts or stops emitting nine records.
+// every draw. A sliced texture's emit (Texture::Emit) lays out its grid and
+// runs the engine's own append once more per extra piece, so every piece
+// carries the engine's handle, blend, colour, stride and shader, then points
+// the records at position and coordinate arrays kept here.
+//
+// The batch is rebuilt only when its layer is marked changed
+// (FUN_REGION_NOTIFY_LAYER_CHANGED, what SetTexture calls; only while the
+// texture is registered, which showing it does with a rebuild of its own).
+// It is marked here when a texture starts or stops being sliced, and when the
+// grid it would lay out now differs from the one it emitted: after every quad
+// write (Texture::CornerStore: a layout, so every resize and scale change)
+// and every change of the margins or the mode. A change the draw finds first
+// (the coordinates, written without a layout) is marked at the tail of the
+// frame (Tick::FrameTick), outside the strata walk, which may clear the
+// marks it is walking; until the rebuild that frame draws the grid that fits
+// the records, or stretched when the new one does not.
 //
 // The pieces are worked out at each draw of a batch (FUN_FRAME_LAYER_RENDER),
 // for every record that points at a texture's first piece, from what is in the
@@ -72,15 +98,11 @@
 // SetTexCoord on an uncropped texture (which writes no quad). Reading them at
 // the draw follows every one of them with no hook of its own. The positions
 // are a bilinear blend of the four drawn corners, so a rotated, warped or
-// animated quad carries its pieces along; an animated scale scales the
-// corners with it (our choice: the animation transforms what is drawn).
+// animated quad carries its pieces, repeats included, along; an animated
+// scale scales the corners with it (our choice: the animation transforms
+// what is drawn).
 //
 // Known differences:
-//   - Tiled mode (Enum.UITextureSliceMode.Tiled) draws stretched. 1.12 tiles
-//     only by the device's wrap, which repeats a whole file, never a sprite
-//     inside a sheet; the one tiled atlas here (ui-hud-cooldownmanager-bar-bg,
-//     element 30191) has a centre and edges one pixel thick, which look the
-//     same tiled or stretched.
 //   - A gradient (SetGradient: one colour per vertex, stride 4) applies to
 //     each piece rather than once across the texture.
 //   - A texture with SetHorizTile / SetVertTile on draws unsliced: tiling
@@ -88,9 +110,10 @@
 //     Tile's counts.
 //   - Texture::Mask finds the texture of a piece through Owner().
 //
-// The arrays are kept per texture for its life, and go back to a free list
-// (never freed) when it is destroyed, so a batch that still points at them
-// until its next rebuild reads valid memory.
+// The arrays are kept per texture and never reallocated. A texture whose grid
+// outgrows its arrays, and a destroyed texture, hand them to a free list
+// (never freed), so a batch that still points at them until its next rebuild
+// reads valid memory.
 
 #include "texture/Slice.h"
 
@@ -103,12 +126,14 @@
 #include "texture/CornerStore.h"
 #include "texture/Emit.h"
 #include "texture/Wrap.h"
+#include "tick/FrameTick.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <map>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace Texture::Slice {
@@ -119,7 +144,15 @@ using Frame::RenderBatch::C2Vector;
 using Frame::RenderBatch::C3Vector;
 using Frame::RenderBatch::QuadRecord;
 
-constexpr int kPieces = 9;
+// The stretched grid: three pieces per axis.
+constexpr int kStretchedAxis = 3;
+
+// The most pieces a texture lays out. 1.12's batch draw makes one draw call
+// per record (FUN_FRAME_LAYER_RENDER: a vertex build and a draw per quad), so
+// thousands of repeats cost thousands of draw calls every frame. A tiled
+// texture past this many pieces (a one-pixel centre across a whole screen,
+// say) draws stretched, which for so fine a repeat looks the same.
+constexpr int kMaxQuads = 4096;
 
 enum SliceMode : int {
     kStretched = 0,
@@ -131,12 +164,17 @@ const Game::Lua::EnumIntegerEntry kSliceModeEntries[] = {
     {"Tiled", kTiled},
 };
 
-// The nine pieces of one texture, row by row from its first corner (UL), each
-// in the engine's corner order UL, LL, UR, LR.
+// One texture's pieces: a grid of `cols` x `rows`, row by row from its first
+// corner (UL), each piece four positions and four coordinates in the engine's
+// corner order UL, LL, UR, LR. The arrays are sized once, for `capacity`
+// pieces, and never reallocated: batch records point into them.
 struct Pieces {
-    C3Vector positions[kPieces][4];
-    C2Vector coords[kPieces][4];
+    std::vector<C3Vector> positions;
+    std::vector<C2Vector> coords;
+    int capacity = 0;
     void *texture = nullptr;
+    int cols = 0;    // the grid the last emit laid out
+    int rows = 0;
     int records = 0; // the batch records the last emit pointed here
 };
 
@@ -155,6 +193,8 @@ std::unordered_map<void *, State> g_states;
 // and Owner().
 std::map<uintptr_t, Pieces *> g_blocks;
 std::vector<Pieces *> g_free;
+// Textures whose grid the draw found changed, marked at the frame's tail.
+std::unordered_set<void *> g_pending;
 
 using Append_t = void(__thiscall *)(void *batch, void *texture);
 using Notify_t = void(__thiscall *)(void *region);
@@ -170,29 +210,59 @@ void NotifyLayer(void *texture) {
     reinterpret_cast<Notify_t>(Offsets::FUN_REGION_NOTIFY_LAYER_CHANGED)(texture);
 }
 
-Pieces *Acquire(void *texture) {
+// Arrays for at least `pieces` pieces: the smallest free block that holds
+// them, else a new one.
+Pieces *Acquire(void *texture, int pieces) {
+    auto best = g_free.end();
+    for (auto it = g_free.begin(); it != g_free.end(); ++it)
+        if ((*it)->capacity >= pieces && (best == g_free.end() || (*it)->capacity < (*best)->capacity))
+            best = it;
     Pieces *p;
-    if (!g_free.empty()) {
-        p = g_free.back();
-        g_free.pop_back();
+    if (best != g_free.end()) {
+        p = *best;
+        g_free.erase(best);
     } else {
         p = new Pieces();
+        p->capacity = std::max(pieces, kStretchedAxis * kStretchedAxis);
+        p->positions.resize(static_cast<size_t>(p->capacity) * 4);
+        p->coords.resize(static_cast<size_t>(p->capacity) * 4);
     }
     p->texture = texture;
-    p->records = 0;
-    g_blocks[reinterpret_cast<uintptr_t>(&p->positions[0][0])] = p;
+    p->cols = p->rows = p->records = 0;
+    g_blocks[reinterpret_cast<uintptr_t>(p->positions.data())] = p;
     return p;
 }
 
 void Release(Pieces *p) {
     if (p == nullptr)
         return;
-    g_blocks.erase(reinterpret_cast<uintptr_t>(&p->positions[0][0]));
+    g_blocks.erase(reinterpret_cast<uintptr_t>(p->positions.data()));
     p->texture = nullptr;
     g_free.push_back(p);
 }
 
-// --- the pieces -------------------------------------------------------------
+// --- the grid ---------------------------------------------------------------
+
+// One run of pieces along an axis: from `s0` to `s1` as fractions of the
+// quad, showing `p0` to `p1` as fractions of the coordinates, both from the
+// quad's first edge.
+struct Segment {
+    float s0, s1, p0, p1;
+};
+
+// One axis's cuts: the margins end at `s1` / `p1` and start again at `s2` /
+// `p2`; `tile` is one repeat of the middle as a fraction of the quad, and
+// `repeats` how many fill the middle (not yet capped).
+struct Cuts {
+    float s1, s2, p1, p2;
+    float tile;
+    double repeats;
+};
+
+// The axis's segments laid out in. Reused, so a draw allocates nothing once
+// they have grown.
+std::vector<Segment> g_cols;
+std::vector<Segment> g_rows;
 
 // The point at (u, v) of a quad given in corner order UL, LL, UR, LR, u along
 // UL->UR and v along UL->LL.
@@ -228,25 +298,32 @@ bool ImageSize(void *texture, float &width, float &height) {
 
 // One axis. `a` and `b` are the image coordinates (0..1 across the image) at
 // the quad's first and last edge, `lowMargin` / `highMargin` the margins at
-// image coordinate 0 and 1 in pixels, `length` the quad's length. Writes the
-// two cuts as fractions of the quad (`s`) and of the coordinates (`p`), from
-// the first edge.
+// image coordinate 0 and 1 in pixels, `length` the quad's length.
 bool Axis(void *texture, float a, float b, float lowMargin, float highMargin, float imagePixels,
-          float length, float (&s)[2], float (&p)[2]) {
+          float length, Cuts &out) {
     const float lo = std::min(a, b), hi = std::max(a, b);
     if (!(hi - lo > 1e-6f) || !(imagePixels > 0.0f) || !(length > 0.0f))
         return false;
-    // The margins as image coordinates. Margins wider than the image meet at
-    // their proportional split.
-    float cutLow = lowMargin / imagePixels;
-    float cutHigh = 1.0f - highMargin / imagePixels;
-    if (cutLow > cutHigh)
-        cutLow = cutHigh = lowMargin / (lowMargin + highMargin);
-    // The part of each margin inside the coordinates; they cannot overlap.
+    // The margins as image coordinates, each its own margin over the image
+    // size, clamped to the image. Margins wider than the image overlap in it,
+    // and each side keeps its whole margin: retail's observed behaviour. Its
+    // ui-damagemeters-header-bar (margins T14 + B22 on a 28-pixel image, drawn
+    // 32 tall) shows the top piece from image rows 0..14 and the bottom from
+    // rows 6..28, so the overlapping rows draw twice: its middle column's
+    // gradient restarts mid-height (... 7 8 10 | 6 7 8 10 12 14 17 ...). A
+    // per-side render matches that screenshot with a mean absolute difference
+    // of 12.3, a split at the proportional point with 16.0.
+    const float cutLow = std::min(1.0f, lowMargin / imagePixels);
+    const float cutHigh = std::max(0.0f, 1.0f - highMargin / imagePixels);
+    // The part of each margin inside the coordinates. These overlap when the
+    // margins do; the middle then runs between their inner edges reversed,
+    // as given (retail's observed behaviour, as above).
     const float shownLow = std::max(0.0f, std::min(hi, cutLow) - lo);
     const float shownHigh = std::max(0.0f, hi - std::max(lo, cutHigh));
+    const float shownMiddle = std::fabs((hi - lo) - shownLow - shownHigh);
     // On screen one image pixel is one unit of the texture's own scale; when
-    // the two do not fit the quad, both shrink in proportion.
+    // the two do not fit the quad, both DRAWN sizes shrink in proportion,
+    // while their coordinates keep the whole margin (retail, as above).
     float screenLow = Frame::Layout::FromLocalUnits(texture, shownLow * imagePixels);
     float screenHigh = Frame::Layout::FromLocalUnits(texture, shownHigh * imagePixels);
     if (screenLow + screenHigh > length) {
@@ -260,14 +337,48 @@ bool Axis(void *texture, float a, float b, float lowMargin, float highMargin, fl
     const float shownLast = mirrored ? shownLow : shownHigh;
     const float screenFirst = mirrored ? screenHigh : screenLow;
     const float screenLast = mirrored ? screenLow : screenHigh;
-    p[0] = shownFirst / (hi - lo);
-    p[1] = 1.0f - shownLast / (hi - lo);
-    s[0] = screenFirst / length;
-    s[1] = 1.0f - screenLast / length;
+    out.p1 = shownFirst / (hi - lo);
+    out.p2 = 1.0f - shownLast / (hi - lo);
+    out.s1 = screenFirst / length;
+    out.s2 = 1.0f - screenLast / length;
+    // One repeat of the middle at the same pixel scale. The small allowance
+    // keeps a middle that is a whole number of repeats from gaining a sliver.
+    out.tile = Frame::Layout::FromLocalUnits(texture, shownMiddle * imagePixels) / length;
+    const float middle = out.s2 - out.s1;
+    // A repeat at most one image pixel long is one strip of texels: repeating
+    // it draws the same image as stretching it, so one stretched piece stands
+    // in for the repeats (ui-hud-cooldownmanager-bar-bg's centre and edges
+    // are one pixel thick, about 70 quads across a bar otherwise).
+    const bool oneTexel = shownMiddle * imagePixels <= 1.0f + 1e-4f;
+    out.repeats = !oneTexel && out.tile > 0.0f && middle > 0.0f
+                      ? std::max(1.0, std::ceil(static_cast<double>(middle) / out.tile - 1e-4))
+                      : 1.0;
     return true;
 }
 
-bool Compute(void *texture, const State &state, Pieces &out) {
+// The segments of an axis cut into `repeats` repeats of its middle. The last
+// repeat is cropped: it ends at the far margin and shows that share of a
+// repeat's coordinates.
+void Lay(const Cuts &cuts, int repeats, std::vector<Segment> &out) {
+    out.clear();
+    out.push_back({0.0f, cuts.s1, 0.0f, cuts.p1});
+    if (repeats <= 1) {
+        out.push_back({cuts.s1, cuts.s2, cuts.p1, cuts.p2});
+    } else {
+        for (int k = 0; k < repeats; ++k) {
+            const float s0 = cuts.s1 + static_cast<float>(k) * cuts.tile;
+            const float s1 = k == repeats - 1 ? cuts.s2 : s0 + cuts.tile;
+            const float share = std::min(1.0f, (s1 - s0) / cuts.tile);
+            out.push_back({s0, s1, cuts.p1, cuts.p1 + (cuts.p2 - cuts.p1) * share});
+        }
+    }
+    out.push_back({cuts.s2, 1.0f, cuts.p2, 1.0f});
+}
+
+// Lays out the texture's grid into g_cols / g_rows, stretched when `stretched`
+// or the state asks; false when it cannot be sliced (no image size, no rect,
+// coordinates with no width along an axis).
+bool Plan(void *texture, const State &state, bool stretched) {
     float imageW, imageH;
     if (!ImageSize(texture, imageW, imageH))
         return false;
@@ -280,10 +391,8 @@ bool Compute(void *texture, const State &state, Pieces &out) {
     const float width = std::fabs(rect[3] - rect[1]);
     const float height = std::fabs(rect[2] - rect[0]);
 
-    const auto *coords = Game::Ptr<C2Vector>(texture, Offsets::OFF_SIMPLETEXTURE_TEXCOORDS);
-    const auto *corners = Game::Ptr<C3Vector>(texture, Offsets::OFF_SIMPLETEXTURE_CORNERS);
-
     // The coordinates in the image's own space.
+    const auto *coords = Game::Ptr<C2Vector>(texture, Offsets::OFF_SIMPLETEXTURE_TEXCOORDS);
     float image[8];
     for (int i = 0; i < 4; ++i) {
         image[i * 2] = coords[i].x;
@@ -291,30 +400,59 @@ bool Compute(void *texture, const State &state, Pieces &out) {
     }
     Atlas::ToSprite(texture, image);
 
-    float sx[2], px[2], sy[2], py[2];
-    if (!Axis(texture, image[0], image[4], state.margins[kLeft], state.margins[kRight], imageW, width, sx,
-              px) ||
-        !Axis(texture, image[1], image[3], state.margins[kTop], state.margins[kBottom], imageH, height,
-              sy, py))
+    Cuts x, y;
+    if (!Axis(texture, image[0], image[4], state.margins[kLeft], state.margins[kRight], imageW, width, x) ||
+        !Axis(texture, image[1], image[3], state.margins[kTop], state.margins[kBottom], imageH, height, y))
         return false;
 
-    const float s[4] = {0.0f, sx[0], sx[1], 1.0f};
-    const float t[4] = {0.0f, sy[0], sy[1], 1.0f};
-    const float p[4] = {0.0f, px[0], px[1], 1.0f};
-    const float q[4] = {0.0f, py[0], py[1], 1.0f};
-    for (int row = 0; row < 3; ++row) {
-        for (int col = 0; col < 3; ++col) {
-            const int k = row * 3 + col;
+    int across = 1, down = 1;
+    if (!stretched && state.mode == kTiled && (x.repeats + 2.0) * (y.repeats + 2.0) <= kMaxQuads) {
+        across = static_cast<int>(x.repeats);
+        down = static_cast<int>(y.repeats);
+    }
+    Lay(x, across, g_cols);
+    Lay(y, down, g_rows);
+    return true;
+}
+
+// The grid the texture would emit now: its planned one, or the stretched
+// three by three when it cannot be sliced or tiles (Texture::Tile).
+void Grid(void *texture, const State &state, int &cols, int &rows) {
+    cols = rows = kStretchedAxis;
+    if (!Texture::Wrap::Tiles(texture) && Plan(texture, state, false)) {
+        cols = static_cast<int>(g_cols.size());
+        rows = static_cast<int>(g_rows.size());
+    }
+}
+
+// Writes the laid-out grid into the emitted one; pieces past it collapse to a
+// point and draw nothing.
+void Fill(void *texture, Pieces &out) {
+    const auto *coords = Game::Ptr<C2Vector>(texture, Offsets::OFF_SIMPLETEXTURE_TEXCOORDS);
+    const auto *corners = Game::Ptr<C3Vector>(texture, Offsets::OFF_SIMPLETEXTURE_CORNERS);
+    const int cols = static_cast<int>(g_cols.size());
+    const int rows = static_cast<int>(g_rows.size());
+    for (int r = 0; r < out.rows; ++r) {
+        for (int c = 0; c < out.cols; ++c) {
+            C3Vector *pos = &out.positions[static_cast<size_t>(r * out.cols + c) * 4];
+            C2Vector *tex = &out.coords[static_cast<size_t>(r * out.cols + c) * 4];
+            if (r >= rows || c >= cols) {
+                for (int v = 0; v < 4; ++v) {
+                    pos[v] = corners[0];
+                    tex[v] = coords[0];
+                }
+                continue;
+            }
+            const Segment &sx = g_cols[c], &sy = g_rows[r];
             // UL, LL, UR, LR of the piece.
-            const int cs[4] = {col, col, col + 1, col + 1};
-            const int rs[4] = {row, row + 1, row, row + 1};
+            const float xs[4] = {sx.s0, sx.s0, sx.s1, sx.s1}, ys[4] = {sy.s0, sy.s1, sy.s0, sy.s1};
+            const float xp[4] = {sx.p0, sx.p0, sx.p1, sx.p1}, yp[4] = {sy.p0, sy.p1, sy.p0, sy.p1};
             for (int v = 0; v < 4; ++v) {
-                out.positions[k][v] = Blend(corners, s[cs[v]], t[rs[v]]);
-                out.coords[k][v] = Blend(coords, p[cs[v]], q[rs[v]]);
+                pos[v] = Blend(corners, xs[v], ys[v]);
+                tex[v] = Blend(coords, xp[v], yp[v]);
             }
         }
     }
-    return true;
 }
 
 // The texture drawn whole: the first piece is its quad, the others collapse
@@ -322,10 +460,10 @@ bool Compute(void *texture, const State &state, Pieces &out) {
 void Whole(void *texture, Pieces &out) {
     const auto *coords = Game::Ptr<C2Vector>(texture, Offsets::OFF_SIMPLETEXTURE_TEXCOORDS);
     const auto *corners = Game::Ptr<C3Vector>(texture, Offsets::OFF_SIMPLETEXTURE_CORNERS);
-    for (int k = 0; k < kPieces; ++k) {
+    for (int k = 0; k < out.records; ++k) {
         for (int v = 0; v < 4; ++v) {
-            out.positions[k][v] = k == 0 ? corners[v] : corners[0];
-            out.coords[k][v] = coords[v];
+            out.positions[static_cast<size_t>(k) * 4 + v] = k == 0 ? corners[v] : corners[0];
+            out.coords[static_cast<size_t>(k) * 4 + v] = coords[v];
         }
     }
 }
@@ -333,10 +471,37 @@ void Whole(void *texture, Pieces &out) {
 void Refresh(Pieces &p) {
     void *texture = p.texture;
     const auto it = g_states.find(texture);
-    if (p.records == kPieces && it != g_states.end() && Emits(it->second) && !Texture::Wrap::Tiles(texture) &&
-        Compute(texture, it->second, p))
+    if (p.records != p.cols * p.rows || it == g_states.end() || !Emits(it->second) ||
+        Texture::Wrap::Tiles(texture) || !Plan(texture, it->second, false)) {
+        Whole(texture, p);
         return;
-    Whole(texture, p);
+    }
+    const int cols = static_cast<int>(g_cols.size());
+    const int rows = static_cast<int>(g_rows.size());
+    if (cols != p.cols || rows != p.rows) {
+        // The records hold the grid of the last emit: rebuild at the frame's
+        // tail, and draw this frame what fits them.
+        g_pending.insert(texture);
+        if ((cols > p.cols || rows > p.rows) && !Plan(texture, it->second, true)) {
+            Whole(texture, p);
+            return;
+        }
+    }
+    Fill(texture, p);
+}
+
+// Marks the layer when the grid the texture would emit now is not the one in
+// its batch.
+void Resync(void *texture) {
+    if (g_states.empty())
+        return;
+    const auto it = g_states.find(texture);
+    if (it == g_states.end() || it->second.pieces == nullptr || !Emits(it->second))
+        return;
+    int cols, rows;
+    Grid(texture, it->second, cols, rows);
+    if (cols != it->second.pieces->cols || rows != it->second.pieces->rows)
+        NotifyLayer(texture);
 }
 
 // --- the emit and the draw -------------------------------------------------
@@ -348,21 +513,31 @@ void OnEmitted(void *texture, void *batch, bool appended) {
     if (it == g_states.end() || !Emits(it->second))
         return;
     State &state = it->second;
-    if (state.pieces == nullptr)
-        state.pieces = Acquire(texture);
+    int cols, rows;
+    Grid(texture, state, cols, rows);
+    const int needed = cols * rows;
+    // This batch was emptied for the rebuild; another may still point at the
+    // old arrays until its own, so they go to the free list, not away.
+    if (state.pieces == nullptr || state.pieces->capacity < needed) {
+        Release(state.pieces);
+        state.pieces = Acquire(texture, needed);
+    }
     Pieces &pieces = *state.pieces;
 
     const uint32_t first = Game::Read<uint32_t>(batch, Offsets::OFF_RENDERBATCH_QUAD_COUNT) - 1;
-    for (int i = 1; i < kPieces; ++i)
+    for (int i = 1; i < needed; ++i)
         reinterpret_cast<Append_t>(Offsets::FUN_SIMPLETEXTURE_APPEND_QUAD)(batch, texture);
     // Read after the appends: a reserve can move the records.
     const uint32_t count = Game::Read<uint32_t>(batch, Offsets::OFF_RENDERBATCH_QUAD_COUNT);
     auto *records = Game::Read<QuadRecord *>(batch, Offsets::OFF_RENDERBATCH_QUAD_RECORDS);
-    pieces.records = static_cast<int>(std::min<uint32_t>(count - first, kPieces));
+    pieces.cols = cols;
+    pieces.rows = rows;
+    pieces.records = static_cast<int>(std::min<uint32_t>(count - first, static_cast<uint32_t>(needed)));
     for (int k = 0; k < pieces.records; ++k) {
-        records[first + k].positions = pieces.positions[k];
-        records[first + k].texCoords = pieces.coords[k];
+        records[first + k].positions = &pieces.positions[static_cast<size_t>(k) * 4];
+        records[first + k].texCoords = &pieces.coords[static_cast<size_t>(k) * 4];
     }
+    g_pending.erase(texture);
     Refresh(pieces);
 }
 
@@ -386,16 +561,35 @@ void __fastcall DrawBatch_h(void *batch) {
 const Game::HookAutoRegister _drawHook{Offsets::FUN_FRAME_LAYER_RENDER, reinterpret_cast<void *>(&DrawBatch_h),
                                        reinterpret_cast<void **>(&g_origDrawBatch)};
 
+// Every quad write: a layout (a resize, a scale change) or a cropped
+// SetTexCoord.
+void OnCornersStored(void *region) { Resync(region); }
+
+const Texture::CornerStore::AutoSubscribe _cornerSub{&OnCornersStored};
+
+// After the strata walk: the grids the draw found changed.
+void OnFrame() {
+    if (g_pending.empty())
+        return;
+    for (void *texture : g_pending)
+        NotifyLayer(texture);
+    g_pending.clear();
+}
+
+const Tick::FrameTick::AutoSubscribe _frameSub{&OnFrame};
+
 // --- state ------------------------------------------------------------------
 
 // Applies a change and marks the layer when the texture starts or stops
-// emitting its pieces.
+// being sliced, or its grid changes.
 template <class Change> void Update(void *texture, Change change) {
     State &state = g_states[texture];
     const bool before = Emits(state);
     change(state);
     if (Emits(state) != before)
         NotifyLayer(texture);
+    else
+        Resync(texture);
 }
 
 void Clear(State &state) {
@@ -501,7 +695,7 @@ const Game::Doc::Field kModeArgs[] = {
     Game::Doc::Req("sliceMode", "UITextureSliceMode"),
 };
 const Game::Doc::Function kSetTextureSliceMode{
-    "Sets whether the centre and edges of a sliced texture stretch or tile; tiled draws stretched.",
+    "Sets whether the centre and edges of a sliced texture stretch or repeat at the image's own size.",
     kModeArgs, {}};
 const Game::Doc::Function kGetTextureSliceMode{
     "Returns the texture's slice mode; nothing when no slice is set.", {}, kModeArgs};
@@ -528,6 +722,7 @@ const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 
 // The pool can hand a destroyed region's address to a new one.
 void OnRegionDestroyed(void *region) {
+    g_pending.erase(region);
     const auto it = g_states.find(region);
     if (it == g_states.end())
         return;
@@ -541,6 +736,7 @@ void PrepareForReload() {
     for (auto &entry : g_states)
         Release(entry.second.pieces);
     g_states.clear();
+    g_pending.clear();
 }
 
 const Game::ReloadAutoRegister _reloadReg{&PrepareForReload};
@@ -572,7 +768,8 @@ void *Owner(const void *positions) {
     if (it == g_blocks.begin())
         return nullptr;
     --it;
-    if (reinterpret_cast<uintptr_t>(positions) >= it->first + sizeof(Pieces::positions))
+    if (reinterpret_cast<uintptr_t>(positions) >=
+        it->first + static_cast<uintptr_t>(it->second->capacity) * 4 * sizeof(C3Vector))
         return nullptr;
     return it->second->texture;
 }
