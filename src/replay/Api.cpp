@@ -671,6 +671,19 @@ int __fastcall Script_GetUnitGuild(void *L) {
     return 3;
 }
 
+// A player's name with its PvP rank title at a time, as the recorder's
+// client worded it for its tooltip and overhead name; nil before the movement
+// file gives one.
+int __fastcall Script_GetUnitPVPName(void *L) {
+    const Unit *unit = UnitArg(L, "Usage: C_CombatLogReplay.GetUnitPVPName(unitIndex, time)");
+    const std::string *name = unit != nullptr ? PvPNameAt(*unit, TimeArg(L)) : nullptr;
+    if (name == nullptr)
+        Lua::PushNil(L);
+    else
+        Lua::PushString(L, name->c_str());
+    return 1;
+}
+
 // The time of day the recorder's world was lit by at a time (the movement
 // file's GAME_TIME lines), nil without them.
 int __fastcall Script_GetTimeOfDay(void *L) {
@@ -1128,6 +1141,16 @@ const Game::Doc::Function kGetUnitGuild{
     "Returns a replay player's guild at a time, as GetGuildInfo gave it on the recorder's client.",
     kUnitTimeArgs, kGetUnitGuildRets, nullptr, true};
 
+const Game::Doc::Field kGetUnitPVPNameRets[] = {
+    Opt("name", "cstring", nullptr,
+        "The name with its PvP rank title, and a medal on a second line, as the client words it. Nil before the "
+        "movement file gives it, and for a unit that is not a player."),
+};
+const Game::Doc::Function kGetUnitPVPName{
+    "Returns a replay player's name with its PvP rank title at a time, as the recorder's client showed it in its "
+    "unit tooltip and over its head.",
+    kUnitTimeArgs, kGetUnitPVPNameRets, nullptr, true};
+
 const Game::Doc::Field kGetTimeOfDayArgs[] = {
     Req("time", "number", "Seconds from the replay's start."),
 };
@@ -1261,6 +1284,7 @@ void RegisterLuaFunctions() {
                                &kGetUnitRaidTargetIndex);
     Lua::RegisterTableFunction(kTable, "GetTimeOfDay", &Script_GetTimeOfDay, &kGetTimeOfDay);
     Lua::RegisterTableFunction(kTable, "GetUnitGuild", &Script_GetUnitGuild, &kGetUnitGuild);
+    Lua::RegisterTableFunction(kTable, "GetUnitPVPName", &Script_GetUnitPVPName, &kGetUnitPVPName);
     Lua::RegisterTableFunction(kTable, "GetUnitHealth", &Script_GetUnitHealth, &kGetUnitHealth);
     Lua::RegisterTableFunction(kTable, "GetUnitPower", &Script_GetUnitPower, &kGetUnitPower);
     Lua::RegisterTableFunction(kTable, "GetUnitState", &Script_GetUnitState, &kGetUnitState);

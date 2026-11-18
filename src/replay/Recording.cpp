@@ -198,6 +198,7 @@ const T *At(const std::vector<std::pair<int32_t, T>> &timeline, int32_t t) {
 const UnitState *StateAt(const Unit &unit, int32_t t) { return At(unit.states, t); }
 const Vitals *VitalsAt(const Unit &unit, int32_t t) { return At(unit.vitals, t); }
 const Guild *GuildAt(const Unit &unit, int32_t t) { return At(unit.guilds, t); }
+const std::string *PvPNameAt(const Unit &unit, int32_t t) { return At(unit.pvpNames, t); }
 const uint32_t *StacksAt(const AuraSpan &aura, int32_t t) { return At(aura.stacks, t); }
 
 int MarkAt(const Unit &unit, int32_t t) {

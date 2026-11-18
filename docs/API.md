@@ -3578,7 +3578,7 @@ movement of your character:
 | `UNIT_SPEED` | A new speed of a unit. |
 | `MONSTER_MOVE`, `MONSTER_STOP` | A path that the server moves a creature on, with its points and its time. |
 | `UNIT_INFO` | What a unit looks like when it comes into view, and each time that this changes: its display, mount, scale, stand state, sheath state and held items. |
-| `PLAYER_INFO` | The body of a player and what it wears: race, sex, appearance, the 19 visible items with their enchants, and the tabard emblem of its guild. It also has the guild of the player: the guild name, the rank name and the rank number. Your client asks the server for a guild that it does not know, and the next line has the names. |
+| `PLAYER_INFO` | The body of a player and what it wears: race, sex, appearance, the 19 visible items with their enchants, and the tabard emblem of its guild. It also has the guild of the player (the guild name, the rank name and the rank number) and the name of the player with its PvP rank title. Your client asks the server for a guild that it does not know, and the next line has the names. |
 | `UNIT_CAST` | Each time that a unit starts or stops a cast or a channel: the spell that it casts and its cast time, and the spell that it channels. |
 | `UNIT_STATE` | Each time that the target, the owner, the unit flags, the level, the faction, the melee victim, the dynamic flags or the reaction of a unit changes. The owner is the master of a pet, a guardian or a totem, or the controller of a charmed unit. The reaction and the selection color are as you saw them when you recorded the log. |
 | `UNIT_POWER` | Each time that the health or the power of a unit changes. |
@@ -3652,6 +3652,7 @@ name of a creature from the server.
 | `GetUnitDeaths(unitIndex)` | An array of the times when the unit died. |
 | `GetUnitCast(unitIndex, time)` | `spellID, startTime, endTime, stopTime, isChannel, interrupted, interrupterIndex` of the last cast or channel that the unit started by `time`. Nil when it started none. `endTime` is when the cast was due to end. `stopTime` is when it stopped, and is nil when the log does not say. `interrupted` is `true` for a cast that stopped before its end. `interrupterIndex` is the unit whose interrupt stopped it. |
 | `GetUnitGuild(unitIndex, time)` | `guildName, guildRankName, guildRankIndex` of a player, as `GetGuildInfo(unit)` gave them on the client that recorded the log. `guildRankIndex` is `0` for the guild master. Nil when the player had no guild, or before that client knew the guild. |
+| `GetUnitPVPName(unitIndex, time)` | The name of a player with its PvP rank title, as the client that recorded the log showed it in its tooltip and over the head of the player. A medal is on a second line. Nil before the movement file gives it. |
 | `GetUnitRaidTargetIndex(unitIndex, time)` | The raid target mark of the unit, `1` (star) to `8` (skull), as `GetRaidTargetIndex` gives it. Nil when it has none. The log has marks only while its recorder was in a group, and a new mark shows from the next line of the unit. |
 
 A unit is dead from its death until it next casts, attacks or is

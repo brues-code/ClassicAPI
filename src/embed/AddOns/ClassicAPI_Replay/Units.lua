@@ -166,6 +166,38 @@ local function Hold(u, time, held1, held2, held3)
 	end
 end
 
+-- The name over a unit, none once dead. A player's is the world's overhead
+-- name (0x00608F50): its name with its PvP rank title while
+-- UnitNamePlayerPVPTitle is on, and under it <its guild> while
+-- UnitNamePlayerGuild is on. Made again only when a part changes; u.named
+-- nil asks for it again (a new actor, a name that arrived).
+local function ShowName(u, time, isDead)
+	local pvpName, guild;
+	if u.isPlayer and not isDead then
+		if GetCVar("UnitNamePlayerPVPTitle") ~= "0" then
+			pvpName = C_CombatLogReplay.GetUnitPVPName(u.index, time);
+		end
+		if GetCVar("UnitNamePlayerGuild") ~= "0" then
+			guild = C_CombatLogReplay.GetUnitGuild(u.index, time);
+		end
+	end
+	local named = not isDead;
+	if u.named == named and u.namedPvP == pvpName and u.namedGuild == guild then
+		return;
+	end
+	u.named, u.namedPvP, u.namedGuild = named, pvpName, guild;
+	if not named then
+		u.actor:ClearNameText();
+		return;
+	end
+	local text = pvpName or u.name;
+	if guild then
+		text = text .. "\n<" .. guild .. ">";
+	end
+	local color = u.nameColor;
+	u.actor:SetNameText(text, color[1], color[2], color[3]);
+end
+
 local function ShowUnit(u, time, x, y, z, facing, speed, falling, jumping, display, nativeDisplay,
 		mountDisplay, scale, standState, sheathState, isDead, held1, held2, held3)
 	local actor = u.actor;
@@ -182,17 +214,7 @@ local function ShowUnit(u, time, x, y, z, facing, speed, falling, jumping, displ
 	if not actor:IsShown() then
 		actor:Show();
 	end
-	-- A dead unit shows no name.
-	local named = not isDead;
-	if u.named ~= named then
-		if named then
-			local color = u.nameColor;
-			actor:SetNameText(u.name, color[1], color[2], color[3]);
-		else
-			actor:ClearNameText();
-		end
-		u.named = named;
-	end
+	ShowName(u, time, isDead);
 	-- A player shown in its own display is its own body; in any other (a
 	-- form, a polymorph) it is that creature, as the client shows it.
 	local appearance = display == nativeDisplay and AppearanceAt(u, time);

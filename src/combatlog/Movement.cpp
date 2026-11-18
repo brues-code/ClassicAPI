@@ -70,7 +70,7 @@
 //   PLAYER_INFO,unitGUID,race,class,sex,skin,face,hairStyle,hairColor,
 //     facialHair,playerFlags,item1,enchant1,...,item19,enchant19,
 //     emblemStyle,emblemColor,borderStyle,borderColor,backgroundColor,
-//     guildRank,"guildName","guildRankName"
+//     guildRank,"guildName","guildRankName","pvpName"
 //     after a player's UNIT_INFO, and each time it changes: what the client
 //     dresses a player in its own display with, and its guild. Each
 //     inventory slot gives its item and the enchant whose glow it shows, 0
@@ -80,7 +80,9 @@
 //     GetGuildInfo(unit) gives: the rank (PLAYER_GUILDRANK, -1 with no
 //     guild), and the guild's name and the rank's (masked) from the guild
 //     cache, both "" until the cache has the guild, which the recorder asks
-//     the server for;
+//     the server for. pvpName is its name with its PvP rank title, and a
+//     medal on a second line, as the client words it for the tooltip and the
+//     overhead name (CGUnit_C::GetPvPName 0x00609370);
 //   UNIT_NAME,unitGUID,"name"
 //     the name the client has for a player (name cache), a pet (pet name
 //     cache) or a creature (its creature record), when it first has one and

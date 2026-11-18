@@ -9,10 +9,10 @@
 -- guild is the line under its name, as the 3.3.5 and 4.3.4 builders add it
 -- (white, the guild's name alone); 1.12's has none.
 --
--- The owner line is the recorder's client's own (0x0052FD30, in the
--- movement file). Left out: a player's PvP rank title (not recorded), and
--- the two parts that need the recording player, which the replay does not
--- know: the level shown as ?? for a hostile unit ten or more levels
+-- The owner line and a player's name with its PvP rank title are the
+-- recorder's client's own (0x0052FD30, 0x00609370, in the movement file).
+-- Left out: the two parts that need the recording player, which the replay
+-- does not know: the level shown as ?? for a hostile unit ten or more levels
 -- above it, and the faction line.
 
 local _, ns = ...;
@@ -36,6 +36,8 @@ local REFRESH = 0.2;
 -- Its place: in from the scene's bottom right corner, leaving room for the
 -- health bar under it, or this far above an open spell link tooltip.
 local INSET_X, INSET_Y, STACK_GAP = -8, 18, 12;
+-- The name line's buffer holds 63 bytes and its end.
+local TITLE_BYTES = 63;
 
 local shown;    -- the unit the tooltip shows, nil when none
 local owner;    -- the frame it is shown for
@@ -106,7 +108,11 @@ local function Build(u, time)
 	local health, maxHealth = C_CombatLogReplay.GetUnitHealth(u.index, time);
 	local info = not u.isPlayer and u.creatureID and C_CreatureInfo.GetCreatureInfoByID(u.creatureID);
 	local dead = u.dead or (health and health <= 0);
-	tooltip:SetText(u.name ~= "" and u.name or UNKNOWN, NameColor(u, flags or 0, reaction));
+	-- A player's name line is its name with its PvP rank title, in the
+	-- builder's 0x40-byte title buffer (0x0052A1B6).
+	local name = u.isPlayer and C_CombatLogReplay.GetUnitPVPName(u.index, time);
+	name = name and string.sub(name, 1, TITLE_BYTES) or (u.name ~= "" and u.name or UNKNOWN);
+	tooltip:SetText(name, NameColor(u, flags or 0, reaction));
 	local guildName = u.isPlayer and C_CombatLogReplay.GetUnitGuild(u.index, time);
 	if guildName then
 		tooltip:AddLine(guildName, 1, 1, 1);

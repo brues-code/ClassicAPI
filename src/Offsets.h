@@ -2448,6 +2448,15 @@ enum Offsets {
     // effect (42; 50, 74, 87..90, 104..107), else the charmer's pair. It
     // writes nothing with no owner, or one not in sight.
     FUN_UNIT_OWNER_TITLE = 0x0052FD30,
+    // CGUnit_C::GetPvPName `__thiscall(unit, char *buffer, uint size, bool
+    // rank, int *lines)` ret 0x10 (0x00609370, disassembled): with `rank`, a
+    // player's name in UNIT_PVP_NAME with its rank text (0x005EFE60, rank
+    // byte player block +0x1F), then a new line and PVP_MEDAL%d for a medal
+    // byte (+0x1E, *lines = 2); without, the plain name. The unit tooltip's
+    // name line passes rank 1 (0x0052A1AB) and the overhead name passes
+    // UnitNamePlayerPVPTitle's mask (0x00608F50). In this client the jump
+    // that skips the title for rank 0 is NOPed (0x006093B0..0x006093B5).
+    FUN_UNIT_PVP_NAME = 0x00609370,
     OFF_UNIT_FIELD_CHARMEDBY = 0x10,
     OFF_UNIT_FIELD_SUMMONEDBY = 0x18,
     OFF_UNIT_FIELD_CREATEDBY = 0x20,

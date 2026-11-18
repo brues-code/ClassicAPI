@@ -325,6 +325,9 @@ void Loader::PlayerInfo(const Line::Fields &f, int32_t t) {
         guild = Guild{};
     if (unit.guilds.empty() || !(unit.guilds.back().second == guild))
         AddAt(unit.guilds, t, std::move(guild));
+    std::string pvpName = f.Text(kGuild + 3);
+    if (!pvpName.empty() && (unit.pvpNames.empty() || unit.pvpNames.back().second != pvpName))
+        AddAt(unit.pvpNames, t, std::move(pvpName));
 }
 
 void Loader::UnitSpeed(const Line::Fields &f, int32_t t) {

@@ -106,6 +106,9 @@ struct Dress {
     int32_t guildRank;
     char guildName[Offsets::GUILD_RECORD_NAME_SIZE];
     char rankName[Offsets::GUILD_RECORD_RANK_NAME_SIZE];
+    // Its name with its PvP rank title as the client words it (GetPvPName
+    // with the rank, as the tooltip's name line and the overhead name ask).
+    char pvpName[128];
 };
 
 // A unit's UNIT_CAST fields; all 0 while it neither casts nor channels.
@@ -243,6 +246,11 @@ Dress ReadDress(uint64_t guid, void *player, const uint8_t *fields) {
     const auto *info = Game::Read<const uint8_t *>(player, Offsets::OFF_CGPLAYER_INFO);
     if (info == nullptr)
         return dress;
+    // GetPvPName reads the player block for the rank and medal bytes.
+    using PvPName_t = char *(__thiscall *)(void *unit, char *buffer, uint32_t size, bool rank, int32_t *lines);
+    reinterpret_cast<PvPName_t>(Offsets::FUN_UNIT_PVP_NAME)(player, dress.pvpName, sizeof dress.pvpName, true,
+                                                             nullptr);
+    dress.pvpName[sizeof dress.pvpName - 1] = 0;
     const uint8_t *bytes = info + Offsets::OFF_PLAYER_INFO_BYTES;
     dress.skin = bytes[0];
     dress.face = bytes[1];
@@ -480,6 +488,7 @@ void WriteDress(uint64_t guid, const Dress &dress) {
     std::memcpy(rankName, dress.rankName, sizeof rankName);
     reinterpret_cast<void(__fastcall *)(char *, bool)>(Offsets::FUN_MASK_PROFANITY)(rankName, true);
     File::AppendQuoted(line, rankName);
+    File::AppendQuoted(line, dress.pvpName);
     Movement::Emit(line);
 }
 

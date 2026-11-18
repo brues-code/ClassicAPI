@@ -197,6 +197,9 @@ struct Unit {
     std::vector<std::pair<int32_t, Look>> looks;
     std::vector<std::pair<int32_t, Appearance>> appearances; // a player's
     std::vector<std::pair<int32_t, Guild>> guilds; // a player's, each from the time it changed
+    // A player's name with its PvP rank title as the recorder's client worded
+    // it (PLAYER_INFO's pvpName), each from the time it changed.
+    std::vector<std::pair<int32_t, std::string>> pvpNames;
     std::vector<AuraSpan> auras;
     // Its health at each advanced block that describes it, and 0 at its
     // UNIT_DIED.
@@ -337,6 +340,8 @@ int MarkAt(const Unit &unit, int32_t t);
 
 // The player's guild at `t`, null before its first PLAYER_INFO.
 const Guild *GuildAt(const Unit &unit, int32_t t);
+// The player's name with its PvP rank title at `t`, null before its first.
+const std::string *PvPNameAt(const Unit &unit, int32_t t);
 
 // The movement file's state, and health and power, of the unit at `t`; null
 // before the first, or with no movement file lines for it.
