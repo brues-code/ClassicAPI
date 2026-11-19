@@ -27092,13 +27092,24 @@ target does not change. When you attack a different unit, that unit
 becomes your locked target.
 
 **Spells.** When you give no unit, a harmful spell goes to `"anyenemy"`
-and a helpful spell goes to `"anyfriend"`. For example, with a friendly
-locked target, a harmful spell goes to `"softenemy"`. A spell that
-only you can receive still goes to you. If the soft unit is out of the
-spell's range, the cast fails with "Out of range". When your harmful spell
-lands on `"softenemy"` and `TargetAutoEnemy` is `1`, that unit becomes
-your loose target. `TargetAutoFriend` does the same for a helpful spell on
-`"softfriend"`.
+and a helpful spell goes to `"anyfriend"`. When that unit is empty, or when
+the spell is not harmful or helpful, the spell goes to `"anytarget"`. This
+rule applies to action buttons, `/cast`, `CastSpellByName()`, `CastSpell()`,
+`UseContainerItem()` and `UseInventoryItem()`. When you give a unit, or set
+the `onSelf` argument, the spell goes to that unit. For example, with a
+friendly locked target, a harmful spell goes to `"softenemy"`. A spell that
+only you can receive still goes to you.
+
+**Range and results.** `IsActionInRange()` tests the range to the unit
+that the spell goes to. If that unit is out of the spell's range, the cast
+fails with "Out of range". When your harmful spell lands on `"softenemy"`
+and `TargetAutoEnemy` is `1`, that unit becomes your loose target.
+`TargetAutoFriend` does the same for a helpful spell on `"softfriend"`.
+
+**Pets and emotes.** When you give no unit, `PetAttack()`, a click on the
+pet bar, `CastPetAction()` and `CastSpell()` for the pet book use
+`"anytarget"`. `DoEmote()` uses `"anytarget"` when you give no name, or a
+name that starts with `%`.
 
 **The forced target.** When `SoftTargetForce` is `1` and you have no
 locked target, your target is set to `"softenemy"`, and it changes to each
@@ -27129,6 +27140,9 @@ and `"softenemy"`.
   target is locked and qualifies as a soft enemy, or when there is no soft
   enemy.
 - `"anyfriend"` is the same, for `"softfriend"`.
+- `"anytarget"` is the first of `"softenemy"` and `"softfriend"` that
+  exists, when your target is empty or loose. If neither exists and you
+  have no target, it is `"softinteract"`. Otherwise, it is your target.
 
 A `target` suffix also works, for example `"softenemytarget"`.
 
