@@ -159,6 +159,7 @@ void OnFrameTick() {
     if (!Object::RegistryReady()) {
         g_enemy.soft = 0;
         g_friend.soft = 0;
+        SoftInteract::Clear();
         return;
     }
     const uint64_t oldEnemy = g_enemy.soft;
