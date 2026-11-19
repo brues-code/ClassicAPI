@@ -2624,6 +2624,39 @@ enum Offsets {
     // handler and its pending-emote queue; fires through FUN_CHAT_EVENT_FIRE
     // without passing the GUID on.
     FUN_CHAT_TEXT_EMOTE = 0x0049B200,
+    // Chat colour registry (benilla-re ui/chatcolors): CHAT_TYPE_COUNT entries
+    // of CHAT_COLOR_STRIDE bytes, a 64-byte name then red, green and blue bytes
+    // at +0x40..+0x42. The extra CHANNEL1..CHANNELn entries have the same
+    // layout, held by pointer with their count beside it (10 after start-up).
+    // ChangeChatColor (0x004A07F0) matches a name against both.
+    VAR_CHAT_COLORS = 0x00B4E518,
+    CHAT_COLOR_STRIDE = 0x43,
+    VAR_CHAT_CHANNEL_COLORS_COUNT = 0x00B4E500,
+    VAR_CHAT_CHANNEL_COLORS_PTR = 0x00B4E504,
+    // CGChat::InitializeGame, `void __cdecl()` (no register arguments, plain
+    // RET). Seeds the colour registry and the extra channel colours from the
+    // static defaults and registers FUN_CHAT_SETTINGS_LOAD, which can run
+    // before it returns.
+    FUN_CHAT_INITIALIZE_GAME = 0x004982C0,
+    // chat-cache.txt reader, `void __fastcall(int, HANDLE file, void *arg)`,
+    // RET 4 (registered by 0x00498A20 as the reader of cache section 7). Parses
+    // the file or applies the defaults, then fires UPDATE_CHAT_WINDOWS and one
+    // UPDATE_CHAT_COLOR per registry and extra entry (0x004996B9..0x004997A6).
+    FUN_CHAT_SETTINGS_LOAD = 0x00498A60,
+    // The COLORS arm of FUN_CHAT_SETTINGS_LOAD takes three words per line,
+    // red, green and blue, and goes to the next line (0x004990C9), so later
+    // words are ignored. This is its blue `SStrToInt(word)` (E8 →
+    // FUN_STORM_SSTR_TO_INT), with ESI = the matched entry and the line
+    // cursor (`char *`, the tokenizer's first argument) at [EBP-8].
+    CALL_CHAT_SETTINGS_READ_COLOR_BLUE = 0x004990C1,
+    OFF_CHAT_SETTINGS_LOAD_LINE_CURSOR = -0x08,
+    VAR_CHAT_SETTINGS_WORD_DELIMS = 0x00844418, // " \r\n" (bytes 20 0D 0A 00 verified)
+    // The two COLORS line writes of the chat-cache.txt writer 0x00499A80:
+    // `SStrPrintf(buf, 0x100, "%s %d %d %d\n", name, r, g, b)` (E8 →
+    // FUN_STORM_SSTR_PRINTF, caller pops 0x1C), `name` being the entry
+    // itself. The first walks the registry, the second the extra entries.
+    CALL_CHAT_SETTINGS_WRITE_COLOR = 0x00499CAE,
+    CALL_CHAT_SETTINGS_WRITE_CHANNEL_COLOR = 0x00499D21,
     // Per-player inventory manager lives at this offset on the player object.
     // +0x00 = u32 slot count (OFF_INVMGR_SLOT_COUNT), +0x04 = u64* GUID
     // array (see OFF_INVMGR_GUID_ARRAY below for the slot-range map).
@@ -8862,6 +8895,11 @@ enum Offsets {
     // update (`FUN_004BD990`).
     FUN_MACRO_REPARSE_ALL = 0x004F0CA0,
     FUN_MACRO_REPARSE_UNRESOLVED = 0x004F0CE0,
+    // Storm's SStrPrintf — `int __cdecl(char *dest, uint maxChars, const char
+    // *format, ...)`; a null dest or format returns 0 (0x0064A7F6..0x0064A80A).
+    FUN_STORM_SSTR_PRINTF = 0x0064A7F0,
+    // Storm's SStrToInt — `int __stdcall(const char *string)`, RET 4.
+    FUN_STORM_SSTR_TO_INT = 0x0064AC60,
     // Storm string tokenizer — `__stdcall(char **cursor, char *out, uint
     // outSize, const char *delims, int *outQuoted)`, RET 0x14. Skips leading
     // delimiters, copies the next token (honoring `"` quoting) NUL-terminated

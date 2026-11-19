@@ -116,3 +116,4 @@ D_MINUTES = "%d분";
 D_SECONDS = "%d초";
 LESS_THAN_OPERAND = "< %s";
 TIME_UNIT_DELIMITER = " ";
+SHOW_CLASS_COLOR = "직업 색상 표시";

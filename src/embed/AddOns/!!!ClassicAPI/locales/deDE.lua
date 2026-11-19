@@ -329,3 +329,4 @@ D_MINUTES = "%d |4Minute:Minuten;";
 D_SECONDS = "%d |4Sekunde:Sekunden;";
 LESS_THAN_OPERAND = "< %s";
 TIME_UNIT_DELIMITER = " ";
+SHOW_CLASS_COLOR = "Klassenfarben anzeigen";

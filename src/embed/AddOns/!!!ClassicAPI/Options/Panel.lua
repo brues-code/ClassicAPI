@@ -224,6 +224,42 @@ end
 -- Social
 -- ---------------------------------------------------------------------------
 
+-- 4.3.4's chat settings "Show Class Color" column, as rows of checkboxes. A
+-- row sets every chat type of its group (ToggleChatColorNamesByClassGroup)
+-- and shows checked when any of them is on (IsClassColoringMessageType).
+-- The rows are 4.3.4's, less the ones whose 1.12.1 line has no sender link
+-- to colour (emotes) and the chat types 1.12.1 does not have.
+local CLASS_COLOR_CHAT_ROWS = {
+	{ "SAY", CHAT_MSG_SAY, { "SAY" } },
+	{ "YELL", CHAT_MSG_YELL, { "YELL" } },
+	{ "GUILD", CHAT_MSG_GUILD, { "GUILD" } },
+	{ "OFFICER", CHAT_MSG_OFFICER, { "OFFICER" } },
+	{ "WHISPER", WHISPER, { "WHISPER", "WHISPER_INFORM" } },
+	{ "PARTY", CHAT_MSG_PARTY, { "PARTY" } },
+	{ "RAID", CHAT_MSG_RAID, { "RAID", "RAID_LEADER" } },
+	{ "RAID_WARNING", CHAT_MSG_RAID_WARNING, { "RAID_WARNING" } },
+	{ "BATTLEGROUND", CHAT_MSG_BATTLEGROUND, { "BATTLEGROUND", "BATTLEGROUND_LEADER" } },
+};
+
+local function RegisterClassColorSetting(category, key, name, chatTypes)
+	local function GetValue()
+		for _, chatType in ipairs(chatTypes) do
+			local info = ChatTypeInfo[chatType];
+			if ( info and info.colorNameByClass ) then
+				return true;
+			end
+		end
+		return false;
+	end
+	local function SetValue(value)
+		for _, chatType in ipairs(chatTypes) do
+			SetChatColorNameByClass(chatType, value);
+		end
+	end
+	local setting = Settings.RegisterProxySetting(category, "PROXY_CLASSICAPI_CLASS_COLOR_"..key, Settings.VarType.Boolean, name, false, GetValue, SetValue);
+	return Settings.CreateCheckbox(category, setting);
+end
+
 local function RegisterSocial()
 	local category, layout = Settings.RegisterVerticalLayoutCategory(SOCIAL_LABEL);
 	Settings.RegisterCategory(category);
@@ -233,6 +269,26 @@ local function RegisterSocial()
 	AddCVarCheckbox(category, "autoCompleteResortNamesOnRecency", CLASSICAPI_RECENT_WHISPERS_FIRST, CLASSICAPI_RECENT_WHISPERS_FIRST_TOOLTIP);
 	AddCVarCheckbox(category, "autoCompleteWhenEditingFromCenter", CLASSICAPI_MATCH_INSIDE_NAMES, CLASSICAPI_MATCH_INSIDE_NAMES_TOOLTIP);
 	AddCVarCheckbox(category, "autoCompleteUseContext", CLASSICAPI_MATCH_THE_COMMAND, CLASSICAPI_MATCH_THE_COMMAND_TOOLTIP);
+
+	AddHeader(layout, SHOW_CLASS_COLOR);
+	for _, row in ipairs(CLASS_COLOR_CHAT_ROWS) do
+		RegisterClassColorSetting(category, row[1], row[2], row[3]);
+	end
+	-- The joined channels, as 4.3.4 lists them: "number. name", one row each.
+	local index = 1;
+	while ( ChatTypeInfo["CHANNEL"..index] ) do
+		local channel = index;
+		local chatType = "CHANNEL"..channel;
+		local initializer = RegisterClassColorSetting(category, chatType, chatType, { chatType });
+		initializer.GetName = function()
+			local _, name = GetChannelName(channel);
+			return channel..". "..(name or "");
+		end
+		initializer:AddShownPredicate(function()
+			return GetChannelName(channel) > 0;
+		end);
+		index = index + 1;
+	end
 end
 
 -- ---------------------------------------------------------------------------

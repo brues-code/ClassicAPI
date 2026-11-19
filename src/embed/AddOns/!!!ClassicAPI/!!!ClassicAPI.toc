@@ -166,6 +166,7 @@ FrameXML\ModelScene\ModelSceneControlFrame.lua
 FrameXML\ModelScene\ModelSceneControlFrame.xml
 FrameXML\DressUpFrame.xml
 FrameXML\DressUpFrame.lua
+FrameXML\ChatFrame.lua
 
 Menu\MenuConstants.lua
 Menu\Classic\MenuConstants.lua

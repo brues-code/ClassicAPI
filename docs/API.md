@@ -96,6 +96,7 @@ build instructions.
   - [`SendSystemMessage(message)`](#sendsystemmessagemessage)
   - [`IsChatAFK()`](#ischatafk)
   - [`IsChatDND()`](#ischatdnd)
+  - [`SetChatColorNameByClass(chatType, colorNameByClass)`](#setchatcolornamebyclasschattype-colornamebyclass)
 
 - [ChatBubbles](#chatbubbles)
   - [`C_ChatBubbles.GetAllChatBubbles([includeForbidden])`](#c_chatbubblesgetallchatbubblesincludeforbidden)
@@ -322,6 +323,7 @@ build instructions.
   - [`UNIT_SPELL_HASTE` event](#unit_spell_haste-event)
   - [`UNIT_TARGET` event](#unit_target-event)
   - [`UNIT_TARGETABLE_CHANGED` event](#unit_targetable_changed-event)
+  - [`UPDATE_CHAT_COLOR_NAME_BY_CLASS` event](#update_chat_color_name_by_class-event)
   - [`UPDATE_MOUSEOVER_UNIT` event (loss-fire fix)](#update_mouseover_unit-event-loss-fire-fix)
   - [`UPDATE_SHAPESHIFT_FORM` event](#update_shapeshift_form-event)
   - [`UNIT_SPELLCAST_*` events](#unit_spellcast_-events)
@@ -3100,6 +3102,53 @@ end
 ```
 
 To get the DND status of another player, use `UnitIsDND(unit)`.
+
+### `SetChatColorNameByClass(chatType, colorNameByClass)`
+
+Sets the option that shows sender names in their class color for one chat
+type. When the option is on, the chat frame shows the `[Name]` link of each
+message of that type in the class color of the sender.
+
+```lua
+SetChatColorNameByClass("GUILD", true)
+SetChatColorNameByClass("CHANNEL1", true)
+```
+
+| Argument | Type | Description |
+|---|---|---|
+| `chatType` | string | A chat type, for example `"SAY"`, `"GUILD"` or `"WHISPER"`, or a channel from `"CHANNEL1"` to `"CHANNEL10"`. The case of the letters is not important. |
+| `colorNameByClass` | boolean | `true` shows the names in class color. `false` shows them in the color of the chat type. |
+
+The option is off for all chat types by default. The client saves the option
+with the chat colors of the character. `ResetChatColors()` does not change
+the option.
+
+If `chatType` is not a string, the function raises the error
+`Usage: SetChatColorNameByClass(chatType, colorNameByClass)`. An unknown
+chat type changes nothing.
+
+The chat frame keeps the option in `ChatTypeInfo[chatType].colorNameByClass`.
+A name gets a class color only when the client knows the class of the
+sender. The function returns no value.
+
+#### `UPDATE_CHAT_COLOR_NAME_BY_CLASS` event
+
+Fires when `SetChatColorNameByClass` changes the option of a chat type. It
+also fires one time for each chat type when the chat settings load after
+login.
+
+| Argument | Type | Description |
+|---|---|---|
+| `arg1` | string | The chat type. |
+| `arg2` | boolean | `true` when names of this chat type show in class color. |
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterEvent("UPDATE_CHAT_COLOR_NAME_BY_CLASS")
+f:SetScript("OnEvent", function(self, event, chatType, colorNameByClass)
+    print(chatType, colorNameByClass)
+end)
+```
 
 ## ChatBubbles
 

@@ -429,3 +429,4 @@ D_MINUTES = "%d |4минута:минуты:минут;";
 D_SECONDS = "%d c";
 LESS_THAN_OPERAND = "< %s";
 TIME_UNIT_DELIMITER = " ";
+SHOW_CLASS_COLOR = "Отображать цвета классов";

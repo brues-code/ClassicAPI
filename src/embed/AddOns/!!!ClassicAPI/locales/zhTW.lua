@@ -329,3 +329,4 @@ D_MINUTES = "%d分鐘";
 D_SECONDS = "%d秒";
 LESS_THAN_OPERAND = "< %s";
 TIME_UNIT_DELIMITER = " ";
+SHOW_CLASS_COLOR = "顯示職業顏色";
