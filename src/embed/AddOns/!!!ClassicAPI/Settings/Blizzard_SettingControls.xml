@@ -5,9 +5,8 @@
 	- No NewFeature labels, because nothing in this client is new.
 	- The checkbox is 1.12's (UI-CheckBox): the checkbox-minimal atlases are
 	  art this client does not have.
-	- The dropdown is WowStyle1DropdownTemplate, 1.12's dropdown art, where
-	  retail's is WowStyle2DropdownTemplate's atlases. Its label font is
-	  GameFontHighlightMedium: this client has no GameFontHighlightMed2.
+	- The dropdown's label font is GameFontHighlightMedium: this client has
+	  no GameFontHighlightMed2.
 	- The expandable section's bar is a dark fill with the quest log's
 	  highlight on hover: the Options_ListExpand atlases are art this
 	  client does not have.
@@ -168,7 +167,7 @@
 
 	<Frame name="Metal2DropdownWithSteppersAndLabelTemplate" inherits="DropdownWithSteppersTemplate" mixin="DropdownWithSteppersAndLabelMixin" virtual="true">
 		<Frames>
-			<DropdownButton parentKey="Dropdown" inherits="WowStyle1DropdownTemplate">
+			<DropdownButton parentKey="Dropdown" inherits="WowStyle2DropdownTemplate">
 				<Anchors>
 					<Anchor point="CENTER"/>
 				</Anchors>

@@ -9,6 +9,17 @@
 --     go through the implicit `arg` table and lengths come from table.getn.
 --   - No narration: this client has none, so the highlight buttons get no
 --     narration functions.
+--   - 1.12 has no draw sublevels, so GetDrawLayer returns only the layer.
+--     CreateSelectionTextures draws the selected texture one layer above
+--     the unselected one instead of one sublevel above.
+
+-- The draw layer above each layer, for drawing one texture over another.
+local NextDrawLayer =
+{
+	BACKGROUND = "BORDER",
+	BORDER = "ARTWORK",
+	ARTWORK = "OVERLAY",
+};
 
 local SetPropagateMouseMotion = function(frame, propagate)
 	frame:SetPropagateMouseMotion(propagate);
@@ -273,8 +284,8 @@ function MenuTemplates.CreateSelectionTextures(frame, isSelected, data, unselect
 	local leftTexture2 = nil;
 	if isSelected(data) then
 		leftTexture2 = frame:AttachTexture();
-		local layer, drawLevel = leftTexture1:GetDrawLayer();
-		leftTexture2:SetDrawLayer(layer, drawLevel + 1);
+		local layer = leftTexture1:GetDrawLayer();
+		leftTexture2:SetDrawLayer(NextDrawLayer[layer] or layer);
 		leftTexture2:SetAtlas(selectedAtlas, TextureKitConstants.UseAtlasSize);
 	end
 

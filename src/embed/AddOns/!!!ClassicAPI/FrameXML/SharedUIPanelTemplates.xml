@@ -8,13 +8,11 @@
 	  the corner.
 	- No FrameGlow, gamepad jump hints, TopTileStreaks or button bar, and
 	  no FocusFramesInterfaceMixin.
-	- DarkMenuElementTemplate's hover is 1.12's dropdown highlight
-	  (UI-QuestTitleHighlight), stretched over the row: the
-	  common-dropdown-customize-mouseover atlas is art this client does not
-	  have.
-	- The dropdown steppers are the spellbook's page arrows. Retail's
-	  SteppersIncrementButtonTemplate and SteppersDecrementButtonTemplate
-	  are atlases.
+	- DarkMenuElementTemplate's hover sets all points: retail leaves it
+	  unanchored, which fills the row there; 1.12's loader gives an
+	  unanchored region no points.
+	- DropdownWithSteppersAndLabelTemplate's label is GameFontHighlightMedium:
+	  this client has no GameFontHighlightMed2.
 	-->
 	<Script file="NineSlice.lua"/>
 	<Script file="NineSliceLayouts.lua"/>
@@ -322,27 +320,25 @@
 				</KeyValues>
 				<Layers>
 					<Layer level="BACKGROUND">
-						<Texture file="Interface\QuestFrame\UI-QuestTitleHighlight" alphaMode="ADD" setAllPoints="true"/>
+						<Texture atlas="common-dropdown-customize-mouseover" useAtlasSize="true" setAllPoints="true"/>
 					</Layer>
 				</Layers>
 			</Frame>
 		</Frames>
 	</Button>
 
-	<Button name="SteppersIncrementButtonTemplate" motionScriptsWhileDisabled="true" virtual="true">
-		<Size x="24" y="24"/>
-		<NormalTexture file="Interface\Buttons\UI-SpellbookIcon-NextPage-Up"/>
-		<PushedTexture file="Interface\Buttons\UI-SpellbookIcon-NextPage-Down"/>
-		<DisabledTexture file="Interface\Buttons\UI-SpellbookIcon-NextPage-Disabled"/>
-		<HighlightTexture file="Interface\Buttons\UI-Common-MouseHilight" alphaMode="ADD"/>
+	<Button name="SteppersIncrementButtonTemplate" inherits="WowStyle2IconButtonTemplate" virtual="true">
+		<KeyValues>
+			<KeyValue key="normalAtlas" type="string" value="common-dropdown-icon-next"/>
+			<KeyValue key="disabledAtlas" type="string" value="common-dropdown-icon-next-disabled"/>
+		</KeyValues>
 	</Button>
 
-	<Button name="SteppersDecrementButtonTemplate" motionScriptsWhileDisabled="true" virtual="true">
-		<Size x="24" y="24"/>
-		<NormalTexture file="Interface\Buttons\UI-SpellbookIcon-PrevPage-Up"/>
-		<PushedTexture file="Interface\Buttons\UI-SpellbookIcon-PrevPage-Down"/>
-		<DisabledTexture file="Interface\Buttons\UI-SpellbookIcon-PrevPage-Disabled"/>
-		<HighlightTexture file="Interface\Buttons\UI-Common-MouseHilight" alphaMode="ADD"/>
+	<Button name="SteppersDecrementButtonTemplate" inherits="WowStyle2IconButtonTemplate" virtual="true">
+		<KeyValues>
+			<KeyValue key="normalAtlas" type="string" value="common-dropdown-icon-back"/>
+			<KeyValue key="disabledAtlas" type="string" value="common-dropdown-icon-back-disabled"/>
+		</KeyValues>
 	</Button>
 
 	<Frame name="DropdownWithSteppersTemplate" mixin="DropdownWithSteppersMixin" virtual="true">

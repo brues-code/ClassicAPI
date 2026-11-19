@@ -170,9 +170,9 @@ FrameXML\DressUpFrame.lua
 FrameXML\ChatFrame.lua
 
 Menu\MenuConstants.lua
-Menu\Classic\MenuConstants.lua
+Menu\Mainline\MenuConstants.lua
 Menu\MenuVariants.lua
-Menu\Vanilla\MenuVariants.lua
+Menu\Mainline\MenuVariants.lua
 Menu\Compositor.lua
 Menu\Menu.lua
 Menu\Menu.xml
@@ -180,8 +180,8 @@ Menu\DropdownButton.lua
 Menu\DropdownButton.xml
 Menu\MenuTemplates.lua
 Menu\MenuTemplates.xml
-Menu\Classic\MenuTemplates.lua
-Menu\Classic\MenuTemplates.xml
+Menu\Mainline\MenuTemplates.lua
+Menu\Mainline\MenuTemplates.xml
 Menu\MenuUtil.lua
 
 Settings\Blizzard_SettingsRegistrar.lua

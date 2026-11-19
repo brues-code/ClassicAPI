@@ -1,10 +1,4 @@
--- Backport of retail's Blizzard_Menu/MenuVariants.lua.
---
--- Implementation differences from the retail source:
---   - 1.12 has no gear button art or tooltip divider. The gear button uses
---     the gear icon, and the divider uses the middle slice of the help frame
---     divider, which has no end caps and stretches to any width (rows 23-38
---     of its 256x64 file: the 8-pixel bar with 4 clear rows above and below).
+-- Verbatim backport of retail's Blizzard_Menu/MenuVariants.lua.
 
 --[[
 MenuVariants functions are suitable to be overwritten for game specific implementations. Some
@@ -13,7 +7,7 @@ implementations are here for reference despite being shared code.
 
 MenuVariants = {};
 
-MenuVariants.GearButtonTexture = [[Interface\Icons\INV_Misc_Gear_01]];
+MenuVariants.GearButtonTexture = [[Interface\WorldMap\GEAR_64GREY]];
 MenuVariants.GearButtonAnchor = CreateAnchor("RIGHT");
 MenuVariants.CancelButtonTexture = [[Interface\Buttons\UI-GroupLoot-Pass-Up]];
 MenuVariants.CancelButtonAnchor = CreateAnchor("RIGHT", nil, "LEFT", -3, 0);
@@ -31,9 +25,8 @@ function MenuVariants.CreateDivider(frame)
 	local divider = frame:AttachTexture();
 	divider:SetPoint("LEFT");
 	divider:SetPoint("RIGHT");
-	divider:SetTexture("Interface\\HelpFrame\\HelpFrameDivider");
-	divider:SetTexCoord(0, 1, 23/64, 39/64);
-	divider:SetHeight(16);
+	divider:SetTexture("Interface\\Common\\UI-TooltipDivider-Transparent");
+	divider:SetHeight(13);
 	return divider;
 end
 

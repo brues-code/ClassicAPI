@@ -340,6 +340,46 @@ constexpr Entry kAtlases[] = {
     {"_UI-Frame-InnerBotTile", "Interface\\FrameGeneral\\UIFrameInsetEdgeTopBottom", 256, 3, 0.0f, 1.0f, 0.375f, 0.5625f, 950, 6402, true, false}, // interface/framegeneral/uiframehorizontal
     {"!UI-Frame-InnerLeftTile", "Interface\\FrameGeneral\\UIFrameInsetEdgeSides", 3, 256, 0.0625f, 0.25f, 0.0f, 1.0f, 949, 6378, false, true}, // interface/framegeneral/uiframevertical
     {"!UI-Frame-InnerRightTile", "Interface\\FrameGeneral\\UIFrameInsetEdgeSides", 3, 256, 0.375f, 0.5625f, 0.0f, 1.0f, 949, 6396, false, true}, // interface/framegeneral/uiframevertical
+    // EMBEDDED ART. The Mainline menu and dropdown art Blizzard_Menu draws
+    // (Mainline/MenuTemplates, MenuVariants, MenuConstants), the menu row
+    // hover (DarkMenuElementTemplate) and the stepper icons, cut from the
+    // _forever_ build's sheets as the damage meter's are, into one sheet.
+    // The damage meter's sheet already holds common-dropdown-bg and the
+    // WowStyle2 button states above; these are the rest. Slice data is that
+    // build's UiTextureAtlasElementSliceData.
+    {"common-dropdown-a-button", "Interface\\Common\\CommonDropdown", 27, 27, 0.53125f, 0.583984375f, 0.00390625f, 0.109375f, 2634, 25556, false, false}, // interface/common/commondropdown
+    {"common-dropdown-a-button-disabled", "Interface\\Common\\CommonDropdown", 27, 27, 0.587890625f, 0.640625f, 0.00390625f, 0.109375f, 2634, 25588, false, false}, // interface/common/commondropdown
+    {"common-dropdown-a-button-disabled-shadowless", "Interface\\Common\\CommonDropdown", 27, 27, 0.64453125f, 0.697265625f, 0.00390625f, 0.109375f, 2634, 29007, false, false}, // interface/common/commondropdown
+    {"common-dropdown-a-button-hover", "Interface\\Common\\CommonDropdown", 27, 27, 0.701171875f, 0.75390625f, 0.00390625f, 0.109375f, 2634, 25553, false, false}, // interface/common/commondropdown
+    {"common-dropdown-a-button-hover-shadowless", "Interface\\Common\\CommonDropdown", 27, 27, 0.7578125f, 0.810546875f, 0.00390625f, 0.109375f, 2634, 29008, false, false}, // interface/common/commondropdown
+    {"common-dropdown-a-button-open", "Interface\\Common\\CommonDropdown", 27, 27, 0.814453125f, 0.8671875f, 0.00390625f, 0.109375f, 2634, 25559, false, false}, // interface/common/commondropdown
+    {"common-dropdown-a-button-open-shadowless", "Interface\\Common\\CommonDropdown", 27, 27, 0.87109375f, 0.923828125f, 0.00390625f, 0.109375f, 2634, 29009, false, false}, // interface/common/commondropdown
+    {"common-dropdown-a-button-pressed", "Interface\\Common\\CommonDropdown", 27, 27, 0.927734375f, 0.98046875f, 0.00390625f, 0.109375f, 2634, 25554, false, false}, // interface/common/commondropdown
+    {"common-dropdown-a-button-pressed-shadowless", "Interface\\Common\\CommonDropdown", 27, 27, 0.001953125f, 0.0546875f, 0.36328125f, 0.46875f, 2634, 29010, false, false}, // interface/common/commondropdown
+    {"common-dropdown-a-button-pressedhover", "Interface\\Common\\CommonDropdown", 27, 27, 0.05859375f, 0.111328125f, 0.36328125f, 0.46875f, 2634, 25555, false, false}, // interface/common/commondropdown
+    {"common-dropdown-a-button-pressedhover-shadowless", "Interface\\Common\\CommonDropdown", 27, 27, 0.115234375f, 0.16796875f, 0.36328125f, 0.46875f, 2634, 29011, false, false}, // interface/common/commondropdown
+    {"common-dropdown-a-button-shadowless", "Interface\\Common\\CommonDropdown", 27, 27, 0.171875f, 0.224609375f, 0.36328125f, 0.46875f, 2634, 29012, false, false}, // interface/common/commondropdown
+    {"common-dropdown-b-button", "Interface\\Common\\CommonDropdown", 97, 26, 0.228515625f, 0.41796875f, 0.36328125f, 0.46484375f, 2634, 25551, false, false, false, {8, 0, 18, 0, 0}}, // interface/common/commondropdown
+    {"common-dropdown-b-button-disabled", "Interface\\Common\\CommonDropdown", 97, 26, 0.421875f, 0.611328125f, 0.36328125f, 0.46484375f, 2634, 25589, false, false, false, {8, 0, 18, 0, 0}}, // interface/common/commondropdown
+    {"common-dropdown-b-button-hover", "Interface\\Common\\CommonDropdown", 97, 26, 0.615234375f, 0.8046875f, 0.36328125f, 0.46484375f, 2634, 25548, false, false, false, {8, 0, 18, 0, 0}}, // interface/common/commondropdown
+    {"common-dropdown-b-button-open", "Interface\\Common\\CommonDropdown", 97, 26, 0.80859375f, 0.998046875f, 0.36328125f, 0.46484375f, 2634, 25560, false, false, false, {8, 0, 18, 0, 0}}, // interface/common/commondropdown
+    {"common-dropdown-b-button-pressed", "Interface\\Common\\CommonDropdown", 97, 26, 0.001953125f, 0.19140625f, 0.4765625f, 0.578125f, 2634, 25549, false, false, false, {10, 1, 17, 1, 0}}, // interface/common/commondropdown
+    {"common-dropdown-b-button-pressedhover", "Interface\\Common\\CommonDropdown", 97, 26, 0.1953125f, 0.384765625f, 0.4765625f, 0.578125f, 2634, 25550, false, false, false, {10, 0, 17, 0, 0}}, // interface/common/commondropdown
+    {"common-dropdown-c-bg", "Interface\\Common\\CommonDropdown", 90, 90, 0.001953125f, 0.177734375f, 0.00390625f, 0.35546875f, 2634, 25590, false, false, false, {23, 18, 23, 28, 0}}, // interface/common/commondropdown
+    {"common-dropdown-c-button-hover-2", "Interface\\Common\\CommonDropdown", 39, 39, 0.291015625f, 0.3671875f, 0.00390625f, 0.15625f, 2634, 25729, false, false, false, {12, 0, 12, 0, 0}}, // interface/common/commondropdown
+    {"common-dropdown-c-button-pressed-2", "Interface\\Common\\CommonDropdown", 39, 39, 0.37109375f, 0.447265625f, 0.00390625f, 0.15625f, 2634, 25731, false, false, false, {14, 0, 12, 0, 0}}, // interface/common/commondropdown
+    {"common-dropdown-c-button-pressedhover-2", "Interface\\Common\\CommonDropdown", 39, 39, 0.451171875f, 0.52734375f, 0.00390625f, 0.15625f, 2634, 25733, false, false, false, {14, 0, 12, 0, 0}}, // interface/common/commondropdown
+    {"common-dropdown-icon-checkmark-yellow", "Interface\\Common\\CommonDropdown", 15, 14, 0.708984375f, 0.73828125f, 0.4765625f, 0.53125f, 2634, 25561, false, false}, // interface/common/commondropdown
+    {"common-dropdown-icon-radialtick-yellow", "Interface\\Common\\CommonDropdown", 18, 18, 0.482421875f, 0.517578125f, 0.4765625f, 0.546875f, 2634, 25562, false, false}, // interface/common/commondropdown
+    {"common-dropdown-textholder", "Interface\\Common\\CommonDropdown", 54, 41, 0.181640625f, 0.287109375f, 0.00390625f, 0.1640625f, 2634, 25558, false, false, false, {16, 0, 19, 0, 0}}, // interface/common/commondropdown
+    {"common-dropdown-tickradial", "Interface\\Common\\CommonDropdown", 18, 18, 0.521484375f, 0.556640625f, 0.4765625f, 0.546875f, 2634, 25563, false, false}, // interface/common/commondropdown
+    {"common-dropdown-ticksquare", "Interface\\Common\\CommonDropdown", 12, 12, 0.7421875f, 0.765625f, 0.4765625f, 0.5234375f, 2634, 25564, false, false}, // interface/common/commondropdown
+    {"common-search-magnifyingglass", "Interface\\Common\\CommonDropdown", 24, 24, 0.388671875f, 0.435546875f, 0.4765625f, 0.5703125f, 3172, 11711, false, false}, // interface/shop/catalogshop
+    {"common-dropdown-customize-mouseover", "Interface\\Common\\CommonDropdown", 20, 20, 0.439453125f, 0.478515625f, 0.4765625f, 0.5546875f, 2634, 25927, false, false, false, {4, 4, 4, 4, 0}}, // interface/common/commondropdown
+    {"common-dropdown-icon-next", "Interface\\Common\\CommonDropdown", 17, 17, 0.560546875f, 0.59375f, 0.4765625f, 0.54296875f, 2634, 25737, false, false}, // interface/common/commondropdown
+    {"common-dropdown-icon-next-disabled", "Interface\\Common\\CommonDropdown", 17, 17, 0.59765625f, 0.630859375f, 0.4765625f, 0.54296875f, 2634, 25736, false, false}, // interface/common/commondropdown
+    {"common-dropdown-icon-back", "Interface\\Common\\CommonDropdown", 17, 17, 0.634765625f, 0.66796875f, 0.4765625f, 0.54296875f, 2634, 25735, false, false}, // interface/common/commondropdown
+    {"common-dropdown-icon-back-disabled", "Interface\\Common\\CommonDropdown", 17, 17, 0.671875f, 0.705078125f, 0.4765625f, 0.54296875f, 2634, 25734, false, false}, // interface/common/commondropdown
 };
 
 constexpr int kAtlasCount = sizeof(kAtlases) / sizeof(kAtlases[0]);
