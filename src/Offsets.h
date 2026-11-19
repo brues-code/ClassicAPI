@@ -6167,6 +6167,19 @@ enum Offsets {
     // target is passed, so passing zero (no target) is fine for most
     // items. `flag` is 0 in every Script_UseContainerItem call site.
     FUN_ITEM_USE = 0x005D8D00,
+    // Script_UseContainerItem's plain-use call of it (E8 rel32, benilla-re
+    // tables/signatures.tsv call offset 0x350): `push 0; lea ecx,[ebp-0x20];
+    // push ecx` — the target there is the selection (0xB4E2D8), or the
+    // player for the onSelf argument (benilla-re ui/bags "Using a container
+    // item"). UseAction's item arm (0x004E607B) passes a zeroed GUID instead.
+    CALL_SCRIPT_USE_CONTAINER_ITEM_USE = 0x004FA430,
+    // UseInventorySlot — `int __fastcall(int slot, const uint64_t *target)`,
+    // plain ret (`mov ebx,edx; mov edi,ecx`; ends in FUN_ITEM_USE(target, 0)).
+    // Script_UseInventoryItem (0x004C8DE0) calls it at offset 0x70 with the
+    // selection, or the player for onSelf (benilla-re ui/inventoryverbs
+    // "Using and cursor tests").
+    FUN_USE_INVENTORY_SLOT = 0x004C7970,
+    CALL_SCRIPT_USE_INVENTORY_ITEM_SLOT = 0x004C8E50,
     // The player's self-resurrect item — `CGItem_C *__thiscall(CGPlayer_C *)`,
     // plain `ret`: the first carried item (equipment, bags, backpack,
     // keyring) with an on-use spell of effect 94 (SELF_RESURRECT), or null.

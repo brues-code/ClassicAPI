@@ -46,14 +46,17 @@
 // 1, the Arcane Blast probe (retail's default too); TargetAutoFriend to 0,
 // the Arcane Intellect probe (3.80.2's and Classic Era's default).
 //
-// `/cast` and the spellbook take the same path. 1.12's CastSpellByName and
-// CastSpell pass the selection to the cast dispatch as an explicit target,
-// where an action button passes none, so a heal macro went at a hostile Force
-// target while the same spell on a button went to the soft friend. 3.80.2's
-// CastSpellByName (FUN_141756f10) resolves a missing unit through the default
-// spell target (FUN_141b8e5b0's nil-token branch → FUN_1413d1ac0), the
-// button's rule. So at those two engine calls the selection becomes "no unit
-// given"; the player (onSelf, or the player selected) stays explicit.
+// `/cast`, the spellbook and bag / equipped item use take the same path.
+// 1.12's CastSpellByName, CastSpell, UseContainerItem and UseInventoryItem
+// pass the selection on as an explicit target, where an action button passes
+// none, so a heal macro or a bandage went at a hostile Force target while the
+// same spell or item on a button went to the soft friend. 3.80.2's
+// CastSpellByName (FUN_141756f10) and UseInventoryItem (FUN_1419be400)
+// resolve a missing unit through FUN_141b8e5b0's nil-token branch, which
+// returns the default spell target (FUN_1413d1ac0) for the spell or the
+// item's use spell: the button's rule. So at those four engine calls the
+// selection becomes "no unit given"; the player (onSelf, or the player
+// selected) stays explicit.
 //
 // Not covered: a spell that starts a melee swing (Heroic Strike) takes its
 // unit from the melee resolve the request calls directly, which 1.12 has.
@@ -82,6 +85,8 @@ using Arm_t = uint8_t(__fastcall *)(void *caster, const uint8_t *record, uint32_
 using Hostility_t = int(__fastcall *)(const uint8_t *record, void *edx);
 using Dispatch_t = void(__fastcall *)(unsigned slot, int bookType, unsigned guidLo,
                                       unsigned guidHi);
+using ItemUse_t = uint32_t(__thiscall *)(void *item, const uint64_t *target, int confirmed);
+using UseSlot_t = int(__fastcall *)(int slot, const uint64_t *target);
 
 // The soft unit the current request's range check took, for its arm.
 uint64_t g_requestSoft = 0;
@@ -130,11 +135,29 @@ uint8_t __fastcall Arm_h(void *caster, const uint8_t *record, uint32_t guidLo, u
     return arm(caster, record, guidLo, guidHi);
 }
 
+// A script's "current target" stand-in: the selection becomes no unit, so
+// the request takes the default spell target; anything else stays.
+uint64_t Implicit(uint64_t guid) {
+    return guid != 0 && guid == Reason::Selection() && guid != Unit::Identity::PlayerGuid()
+               ? 0
+               : guid;
+}
+
 void __fastcall ScriptDispatch_h(unsigned slot, int bookType, unsigned guidLo, unsigned guidHi) {
-    const uint64_t guid = (static_cast<uint64_t>(guidHi) << 32) | guidLo;
-    if (guid != 0 && guid == Reason::Selection() && guid != Unit::Identity::PlayerGuid())
-        guidLo = guidHi = 0;
-    reinterpret_cast<Dispatch_t>(Offsets::FUN_SPELL_CAST_DISPATCH)(slot, bookType, guidLo, guidHi);
+    const uint64_t guid = Implicit((static_cast<uint64_t>(guidHi) << 32) | guidLo);
+    reinterpret_cast<Dispatch_t>(Offsets::FUN_SPELL_CAST_DISPATCH)(
+        slot, bookType, static_cast<unsigned>(guid), static_cast<unsigned>(guid >> 32));
+}
+
+// Script_UseContainerItem's FUN_ITEM_USE call (__thiscall; EDX unused).
+uint32_t __fastcall ContainerItemUse_h(void *item, void *, const uint64_t *target, int confirmed) {
+    const uint64_t guid = Implicit(*target);
+    return reinterpret_cast<ItemUse_t>(Offsets::FUN_ITEM_USE)(item, &guid, confirmed);
+}
+
+int __fastcall InventorySlotUse_h(int slot, const uint64_t *target) {
+    const uint64_t guid = Implicit(*target);
+    return reinterpret_cast<UseSlot_t>(Offsets::FUN_USE_INVENTORY_SLOT)(slot, &guid);
 }
 
 void OnCastGo(const Spell::CastPacket::Go &g) {
@@ -166,6 +189,11 @@ void Register() {
                                  static_cast<uintptr_t>(Offsets::CALL_SCRIPT_CAST_SPELL_BY_NAME_DISPATCH)})
         Common::RedirectCall(site, Offsets::FUN_SPELL_CAST_DISPATCH,
                              reinterpret_cast<const void *>(&ScriptDispatch_h));
+    Common::RedirectCall(Offsets::CALL_SCRIPT_USE_CONTAINER_ITEM_USE, Offsets::FUN_ITEM_USE,
+                         reinterpret_cast<const void *>(&ContainerItemUse_h));
+    Common::RedirectCall(Offsets::CALL_SCRIPT_USE_INVENTORY_ITEM_SLOT,
+                         Offsets::FUN_USE_INVENTORY_SLOT,
+                         reinterpret_cast<const void *>(&InventorySlotUse_h));
 }
 
 const Game::ModuleAutoRegister _autoreg{&Register};
