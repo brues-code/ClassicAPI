@@ -181,7 +181,17 @@ void __stdcall Select_h(uint32_t guidLo, uint32_t guidHi) {
     const Why oldReason = g_reason;
     g_guid = guid;
     g_reason = why;
+    // 3.80.2 records the last target only when one is replaced or cleared:
+    // its ClearTarget (FUN_1405de7f0) returns before `last = TARGET` with no
+    // target. 1.12's setter saves the old selection unconditionally
+    // (0x00493622), so a select from no target wrote 0 there — and
+    // SoftTargetForce selects from no target the frame after every clear,
+    // which made TargetLastTarget clear instead of going back.
+    auto &last = Game::Ref<uint64_t>(Offsets::VAR_LAST_SELECTION_GUID_LO);
+    const uint64_t lastBefore = last;
     g_selectOriginal(guidLo, guidHi);
+    if (target == 0)
+        last = lastBefore;
     if (Selection() != guid) {
         // Refused (charmed), or bound to an awaiting spell instead.
         g_guid = oldGuid;
