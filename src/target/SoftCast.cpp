@@ -71,9 +71,6 @@ using Arm_t = uint8_t(__fastcall *)(void *caster, const uint8_t *record, uint32_
                                     uint32_t guidHi);
 using Hostility_t = int(__fastcall *)(const uint8_t *record, void *edx);
 
-constexpr int kHarmful = 2;
-constexpr int kHelpful = 1;
-
 // The soft unit the current request's range check took, for its arm.
 uint64_t g_requestSoft = 0;
 
@@ -89,9 +86,9 @@ int Hostility(const uint8_t *record) {
 uint64_t Pick(const uint8_t *record) {
     const int hostility = Hostility(record);
     uint64_t unit = 0;
-    if (hostility == kHarmful)
+    if (hostility == Offsets::SPELL_HOSTILITY_HARMFUL)
         unit = SoftUnit::GetAny(SoftUnit::Side::Enemy);
-    else if (hostility == kHelpful)
+    else if (hostility == Offsets::SPELL_HOSTILITY_HELPFUL)
         unit = SoftUnit::GetAny(SoftUnit::Side::Friend);
     return unit != Reason::Selection() ? unit : 0;
 }
@@ -129,9 +126,9 @@ void OnCastGo(const Spell::CastPacket::Go &g) {
         return;
     const uint64_t hit = g.hits[0];
     const int hostility = Hostility(record);
-    if ((hostility == kHarmful && CVar::Factory::GetInt(g_autoEnemy) != 0 &&
+    if ((hostility == Offsets::SPELL_HOSTILITY_HARMFUL && CVar::Factory::GetInt(g_autoEnemy) != 0 &&
          hit == SoftUnit::Current(SoftUnit::Side::Enemy)) ||
-        (hostility == kHelpful && CVar::Factory::GetInt(g_autoFriend) != 0 &&
+        (hostility == Offsets::SPELL_HOSTILITY_HELPFUL && CVar::Factory::GetInt(g_autoFriend) != 0 &&
          hit == SoftUnit::Current(SoftUnit::Side::Friend)))
         Reason::Set(hit, Reason::AutoSpell);
 }

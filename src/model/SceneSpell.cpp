@@ -154,7 +154,6 @@ namespace {
 constexpr uint32_t kReleaseEvents[] = {0x4C534324, 0x52534324, 0x54534324};
 constexpr int kAnimStand = 0;
 constexpr int kAnimInFlight = 144;
-constexpr int kHostilityHarmful = 2; // GetSpellHostility's harmful
 constexpr float kReleaseTimeoutSec = 2.0f; // 0x0060A814
 constexpr float kMaxSpeed = 100.0f;        // 0x0080C854
 const Game::Live<float> kAimHeight{Offsets::VAR_THREE_QUARTERS};
@@ -503,7 +502,7 @@ bool IsHarmful(uint32_t spellID) {
     using Hostility_t = int(__fastcall *)(const uint8_t *record, void *edx);
     const auto *spell = Spell::Lookup::RecordForID(static_cast<int>(spellID));
     return spell != nullptr &&
-           reinterpret_cast<Hostility_t>(Offsets::FUN_SPELL_HOSTILITY)(spell, nullptr) == kHostilityHarmful;
+           reinterpret_cast<Hostility_t>(Offsets::FUN_SPELL_HOSTILITY)(spell, nullptr) == Offsets::SPELL_HOSTILITY_HARMFUL;
 }
 
 // The spell reaches its target: the caster's OnSpellVisualImpact (queued),

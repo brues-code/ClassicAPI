@@ -40,8 +40,6 @@ namespace {
 
 using Hostility_t = int(__fastcall *)(const uint8_t *record, void *edx);
 
-constexpr int kHarmful = 2;
-
 CVar::Factory::Handle g_enemyAttacker = nullptr;
 
 bool On() { return CVar::Factory::GetInt(g_enemyAttacker) != 0; }
@@ -69,8 +67,8 @@ void OnCastGo(const Spell::CastPacket::Go &g) {
     if (!hitsPlayer)
         return;
     const uint8_t *record = Spell::Lookup::RecordForID(static_cast<int>(g.header.spellId));
-    if (record != nullptr &&
-        reinterpret_cast<Hostility_t>(Offsets::FUN_SPELL_HOSTILITY)(record, nullptr) == kHarmful)
+    if (record != nullptr && reinterpret_cast<Hostility_t>(Offsets::FUN_SPELL_HOSTILITY)(
+                                 record, nullptr) == Offsets::SPELL_HOSTILITY_HARMFUL)
         Reason::Set(g.header.caster, Reason::Auto);
 }
 

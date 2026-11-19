@@ -3626,6 +3626,8 @@ enum Offsets {
     // 1 helpful, 0 neither, from the Targets word and the implicit targets
     // (benilla-re spell/handlers#hostility-classifier).
     FUN_SPELL_HOSTILITY = 0x006EA280,
+    SPELL_HOSTILITY_HELPFUL = 1,
+    SPELL_HOSTILITY_HARMFUL = 2,
     // Inside it: the mounted rung's `mov edx,[ecx+0x1FC]` (8B 91 FC 01 00
     // 00, then `test edx,edx; jle pass`; refuses 0x39) and the stand rung's
     // `call [edx+0xA4]` (FF 92 A4 00 00 00, GetStandState, then `test
@@ -9782,6 +9784,9 @@ enum Offsets {
     VAR_MAP_RECORDS = 0x00C0DAA8,
     VAR_MAP_COUNT = 0x00C0DAAC,
     OFF_MAP_INSTANCE_TYPE = 0x08,
+    // That column's battleground value (the layout comment above; arenas
+    // carry it too, PvP::Arena).
+    MAP_INSTANCE_TYPE_BATTLEGROUND = 3,
     OFF_MAP_NAME = 0x10,
 
     // Currently-loaded map ID (the Map.dbc ID for the zone/instance the

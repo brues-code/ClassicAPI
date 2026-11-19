@@ -146,9 +146,6 @@ CVar::Factory::Handle g_combatLock = nullptr;
 CVar::Factory::Handle g_relaxation = nullptr;
 CVar::Factory::Handle g_pvp = nullptr;
 
-// Map.dbc instance type of a battleground.
-constexpr int kMapBattleground = 3;
-
 float Wrap(float a) {
     while (a > kPi)
         a -= 2 * kPi;
@@ -326,7 +323,7 @@ bool Dueling(void *a, void *b) {
 // PvP combat" flag; 1.12 has neither.)
 bool PvpContext(const void *player) {
     return DuelTeam(player) != 0 || (PlayerFlags(player) & Offsets::PLAYER_FLAG_FFA_PVP) != 0 ||
-           Map::Instance::CurrentType() == kMapBattleground;
+           Map::Instance::CurrentType() == Offsets::MAP_INSTANCE_TYPE_BATTLEGROUND;
 }
 
 // FUN_1405e3530: the unit is a PvP unit. A creature: player-controlled and
