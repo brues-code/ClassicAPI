@@ -37,4 +37,10 @@ int Arc(Side side);
 // target when it is a candidate of the side, or the soft unit.
 uint64_t GetAny(Side side);
 
+// The `anytarget` GUID (3.80.2's AnyTarget, FUN_1405dd690): while the target
+// is empty or loose, the soft enemy, else the soft friend, else — with no
+// target only — the soft interact; otherwise the target. What a pet action,
+// an emote or a spell of neither side takes when no unit is given.
+uint64_t AnyTarget();
+
 } // namespace Target::SoftUnit

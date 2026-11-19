@@ -240,4 +240,17 @@ uint64_t GetAny(Side side) {
     return Priority::Has(target, st.type) ? target : st.soft;
 }
 
+uint64_t AnyTarget() {
+    const uint64_t target = Reason::Selection();
+    if (target == 0 || Reason::IsLoose()) {
+        if (g_enemy.soft != 0)
+            return g_enemy.soft;
+        if (g_friend.soft != 0)
+            return g_friend.soft;
+        if (target == 0)
+            return SoftInteract::Get();
+    }
+    return target;
+}
+
 } // namespace Target::SoftUnit
