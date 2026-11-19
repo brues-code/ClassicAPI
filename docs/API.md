@@ -301,6 +301,7 @@ build instructions.
   - [`PLAYER_SOFT_INTERACT_CHANGED` event](#player_soft_interact_changed-event)
   - [`PLAYER_SWING` event](#player_swing-event)
   - [`PLAYER_SWING_RANGE_UPDATE` event](#player_swing_range_update-event)
+  - [`PREVIEW_TALENT_POINTS_CHANGED` event](#preview_talent_points_changed-event)
   - [`PVP_TIMER_UPDATE` event](#pvp_timer_update-event)
   - [`QUEST_ACCEPTED` event](#quest_accepted-event)
   - [`QUEST_QUERY_COMPLETE` event](#quest_query_complete-event)
@@ -1201,6 +1202,15 @@ build instructions.
 - [Talent](#talent)
   - [`GetTalentSpellID(tabIndex, talentIndex, [rank[, classID]])`](#gettalentspellidtabindex-talentindex-rank-classid)
   - [`GetTalentIDByIndex(tabIndex, talentIndex[, classID])`](#gettalentidbyindextabindex-talentindex-classid)
+  - [Talent previews](#talent-previews)
+  - [`AddPreviewTalentPoints(tabIndex, talentIndex, points[, isPet[, groupIndex]])`](#addpreviewtalentpointstabindex-talentindex-points-ispet-groupindex)
+  - [`ResetPreviewTalentPoints(tabIndex[, isPet[, groupIndex]])`](#resetpreviewtalentpointstabindex-ispet-groupindex)
+  - [`ResetGroupPreviewTalentPoints([isPet[, groupIndex]])`](#resetgrouppreviewtalentpointsispet-groupindex)
+  - [`GetPreviewTalentPointsSpent(tabIndex[, isPet[, groupIndex]])`](#getpreviewtalentpointsspenttabindex-ispet-groupindex)
+  - [`GetGroupPreviewTalentPointsSpent([isPet[, groupIndex]])`](#getgrouppreviewtalentpointsspentispet-groupindex)
+  - [`LearnPreviewTalents([isPet])`](#learnpreviewtalentsispet)
+  - [`C_SpecializationInfo.GetTalentInfo(query)`](#c_specializationinfogettalentinfoquery)
+  - [`C_SpecializationInfo.GetTalentPrereqs(tabIndex, talentIndex[, isInspect[, isPet[, groupIndex]]])`](#c_specializationinfogettalentprereqstabindex-talentindex-isinspect-ispet-groupindex)
 
 - [Targeting](#targeting)
   - [`GetPlayerFacing()`](#getplayerfacing)
@@ -26478,6 +26488,216 @@ With or without `classID`, the order is the order of the talent UI:
 the tabs of the class in DBC row order, then the talents in DBC row
 order in each tab. Thus `GetTalentIDByIndex(t, i)` and
 `GetTalentIDByIndex(t, i, <player's class>)` return identical values.
+
+### Talent previews
+
+A talent preview is a plan of talent points. You add points to the plan
+and remove them, and then you learn all of the plan with one call. The plan
+spends no points until you learn it.
+
+The plan obeys the talent rules:
+
+- You can add a point only when you have a free point that the plan does
+  not use.
+- A talent can get points only when its tab has 5 points for each tier
+  before the talent. Learned points and planned points both count.
+- A talent can get points only when each talent that it needs has the
+  necessary rank in the plan.
+- The planned rank stays between the learned rank and the maximum rank.
+- You cannot remove a point that a planned talent needs. You cannot remove
+  a point that a higher tier with points needs.
+
+The client clears the plan when your free talent points change. This occurs
+when you learn a talent, gain a level or reset your talents, and at login.
+When `CHARACTER_POINTS_CHANGED` fires, the plan is already clear.
+
+The functions accept the `isPet` and `groupIndex` arguments. Only your own
+talents in group 1 have a plan. For a pet or for another group, the
+functions change nothing and return 0.
+
+The default talent frame does not show the plan. An addon shows the plan
+with these functions.
+
+### `AddPreviewTalentPoints(tabIndex, talentIndex, points[, isPet[, groupIndex]])`
+
+Adds points to the planned rank of a talent. A negative `points` removes
+planned points.
+
+```lua
+AddPreviewTalentPoints(1, 1, 1)    -- plan one point in the first talent of tab 1
+AddPreviewTalentPoints(1, 1, -1)   -- remove the planned point
+```
+
+The planned rank stops at the maximum rank of the talent. When you remove
+points, the planned rank stops at the learned rank. If a talent rule
+refuses the change, the plan does not change.
+
+The function makes sure that one free point is available. It does not
+make sure that all of `points` are free. Add one point for each click to
+keep the plan in your free points.
+
+When the planned points change, the function fires
+[`PREVIEW_TALENT_POINTS_CHANGED`](#preview_talent_points_changed-event).
+If `tabIndex`, `talentIndex` or `points` is not a number, the function
+raises the error `Usage: AddPreviewTalentPoints(tabIndex, talentIndex,
+points[, isPet[, groupIndex]])`. The function returns no value.
+
+### `ResetPreviewTalentPoints(tabIndex[, isPet[, groupIndex]])`
+
+Removes all planned points from one talent tab.
+
+```lua
+ResetPreviewTalentPoints(2)
+```
+
+When planned points are removed, the function fires
+[`PREVIEW_TALENT_POINTS_CHANGED`](#preview_talent_points_changed-event)
+with `talentIndex` 0. If `tabIndex` is not a number, the function raises the
+error `Usage: ResetPreviewTalentPoints(tabIndex[, isPet[, groupIndex]])`.
+The function returns no value.
+
+### `ResetGroupPreviewTalentPoints([isPet[, groupIndex]])`
+
+Removes all planned points from all talent tabs.
+
+```lua
+ResetGroupPreviewTalentPoints()
+```
+
+When planned points are removed, the function fires
+[`PREVIEW_TALENT_POINTS_CHANGED`](#preview_talent_points_changed-event)
+with `talentIndex` 0 and `tabIndex` 0. The function returns no value.
+
+### `GetPreviewTalentPointsSpent(tabIndex[, isPet[, groupIndex]])`
+
+Returns the number of planned points in one talent tab. Learned points are
+not included.
+
+```lua
+local planned = GetPreviewTalentPointsSpent(1)   -- 3
+```
+
+Returns 0 for a tab that does not exist. If `tabIndex` is not a number,
+the function raises the error `Usage: GetPreviewTalentPointsSpent(tabIndex[,
+isPet[, groupIndex]])`.
+
+### `GetGroupPreviewTalentPointsSpent([isPet[, groupIndex]])`
+
+Returns the number of planned points in all talent tabs. Learned points are
+not included.
+
+```lua
+local free = UnitCharacterPoints("player") - GetGroupPreviewTalentPointsSpent()
+```
+
+### `LearnPreviewTalents([isPet])`
+
+Asks the server to learn the plan.
+
+```lua
+LearnPreviewTalents()
+```
+
+The function sends one request for each talent in the plan. The requests
+go in the order of the tabs and the tiers. A talent that another talent
+needs goes first.
+
+The server learns each request that obeys its talent rules. It does not
+report a refused request. When your free talent points change, the client
+clears the plan. Thus a refused talent is not in the plan after the learn.
+
+The function does nothing when the plan is empty or when `isPet` is true.
+The function returns no value.
+
+### `C_SpecializationInfo.GetTalentInfo(query)`
+
+Returns a table with the learned rank and the planned rank of a talent.
+
+```lua
+local info = C_SpecializationInfo.GetTalentInfo({specializationIndex = 1, talentIndex = 1})
+print(info.name, info.rank, info.previewRank, info.maxRank)   -- "Improved Wrath" 3 5 5
+```
+
+`query` is a table with these fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `specializationIndex` | number | The talent tab. |
+| `talentIndex` | number | The talent in the tab, as in `GetTalentInfo`. |
+| `tier` | number | With `column`, gives the talent when `talentIndex` is not set. |
+| `column` | number | The column of the talent. |
+| `isInspect` | boolean | `true` returns `nil`. |
+| `isPet` | boolean | `true` returns `nil`. |
+| `groupIndex` | number | A value other than 1 returns `nil`. |
+
+The result has these fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `talentID` | number | The talent ID. |
+| `name` | string | The name of the talent. |
+| `icon` | string | The texture path of the icon. Not set when the spell has no icon. |
+| `tier` | number | The tier, from 1. |
+| `column` | number | The column, from 1. |
+| `rank` | number | The learned rank. 0 when the talent has no points. |
+| `maxRank` | number | The maximum rank. |
+| `meetsPrereq` | boolean | `true` when you know the spell that the talent needs, or when it needs no spell. |
+| `previewRank` | number | The planned rank. The learned rank when the talent has no planned points. |
+| `meetsPreviewPrereq` | boolean | The same value as `meetsPrereq`. |
+| `isExceptional` | boolean | `true` when the talent teaches an ability. |
+
+Returns `nil` when no talent matches the query. If `query` is not a table,
+the function raises the error `Usage: local result =
+C_SpecializationInfo.GetTalentInfo(query)`.
+
+`meetsPrereq` does not include the talents that this talent needs. Use
+[`C_SpecializationInfo.GetTalentPrereqs`](#c_specializationinfogettalentprereqstabindex-talentindex-isinspect-ispet-groupindex)
+for those talents.
+
+### `C_SpecializationInfo.GetTalentPrereqs(tabIndex, talentIndex[, isInspect[, isPet[, groupIndex]]])`
+
+Returns four values for each talent that a talent needs:
+
+| Value | Type | Description |
+|---|---|---|
+| `tier` | number | The tier of the talent that is needed, from 1. |
+| `column` | number | The column of the talent that is needed, from 1. |
+| `isLearnable` | number | 1 when the learned rank of that talent is sufficient, else `nil`. |
+| `isPreviewLearnable` | number | 1 when the planned rank of that talent is sufficient, else `nil`. |
+
+```lua
+local tier, column, isLearnable, isPreviewLearnable =
+    C_SpecializationInfo.GetTalentPrereqs(1, 3)
+```
+
+`GetTalentPrereqs` returns the first three values of each group. A talent
+that needs no talent returns no value. For `isInspect`, `isPet` or a group
+other than 1, the third and fourth values are `nil`. If `tabIndex` or
+`talentIndex` is not a number, the function raises the error `Usage:
+C_SpecializationInfo.GetTalentPrereqs(tabIndex, talentIndex[, isInspect[,
+isPet[, groupIndex]]])`.
+
+#### `PREVIEW_TALENT_POINTS_CHANGED` event
+
+Fires when the number of planned talent points changes.
+
+| Argument | Type | Description |
+|---|---|---|
+| `arg1` | number | The talent index. 0 when a tab or all of the plan was cleared. |
+| `arg2` | number | The tab index. 0 when all of the plan was cleared. |
+| `arg3` | number | The talent group, always 1. |
+| `arg4` | number | The change in planned points. Negative for removed points. |
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterEvent("PREVIEW_TALENT_POINTS_CHANGED")
+f:SetScript("OnEvent", function()
+    print(arg1, arg2, arg3, arg4)
+end)
+```
+
+The event does not fire when the client clears the plan after your free
+talent points change. Use `CHARACTER_POINTS_CHANGED` for that change.
 
 ## Targeting
 

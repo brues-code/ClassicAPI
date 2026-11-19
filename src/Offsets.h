@@ -11665,6 +11665,46 @@ enum Offsets {
     OFF_TALENT_SPELL_RANK = 0x10,
     TALENT_ENTRY_STRIDE = 0x54,
     TALENT_MAX_RANKS = 9,
+    // The rest of the talent row (a TabInfo's talents point straight at the
+    // Talent.dbc rows, BuildTalentTabs 0x004F2C00). Tier and column are
+    // 0-based; the three prerequisite slots pair a talent ID with the 0-based
+    // rank it needs; flag bit 0 is GetTalentInfo's 7th value (the talent
+    // teaches an ability, and SetTalent builds it with the spell builder);
+    // the required spell is GetTalentInfo's 8th. Read by GetTalentInfo
+    // (0x004F3200), GetTalentPrereqs (0x004F34D0) and SetTalent (0x00535170);
+    // benilla-re ui/talents#talent-indexing. The by-ID records
+    // (VAR_TALENT_DBC_RECORDS) are the same rows.
+    OFF_TALENT_TIER = 0x08,
+    OFF_TALENT_COLUMN = 0x0C,
+    OFF_TALENT_PREREQ_TALENT = 0x34,
+    OFF_TALENT_PREREQ_RANK = 0x40,
+    TALENT_MAX_PREREQS = 3,
+    OFF_TALENT_FLAGS = 0x4C,
+    TALENT_FLAG_EXCEPTIONAL = 0x01,
+    OFF_TALENT_REQUIRED_SPELL = 0x50,
+
+    // CGUnit_C::KnowsSpell — `bool __thiscall(CGUnit_C *, uint32_t spellID)`,
+    // RET 4, the answer in AL: the known-spell bitmap for the active player,
+    // else the pet spell list (0x0060C740, disassembled). KnowsHigherRank —
+    // same shape (0x0060C8D0, RET 4): walks the spell's SkillLineAbility
+    // supersede chain (OFF_SLA_SUPERCEDED_BY_SPELL) and asks KnowsSpell of
+    // each later rank. GetTalentInfo counts a talent rank as learned when
+    // either is true of its spell, scanning the rank slots from the last.
+    FUN_UNIT_KNOWS_SPELL = 0x0060C740,
+    FUN_UNIT_KNOWS_HIGHER_RANK = 0x0060C8D0,
+
+    // The player's free talent points (PLAYER_CHARACTER_POINTS1) and
+    // profession points (POINTS2), in `[player + OFF_CGPLAYER_INFO]`: the
+    // words UnitCharacterPoints (0x00519420) returns for the active player.
+    OFF_PLAYER_FIELD_CHARACTER_POINTS1 = 0xE48,
+    // The engine's descriptor watcher for those two words, registered for
+    // the player block at login (0x004C6FB0): `uint32_t __stdcall(a1, a2,
+    // const int32_t *oldPoints, a4)`, RET 0x10, returns 1. It signals
+    // CHARACTER_POINTS_CHANGED (event 0x108) with the change of each word,
+    // the new values read from the player and the old ones from
+    // `oldPoints[0]` / `[1]` (disassembled; benilla-re
+    // ui/talents#character-points).
+    FUN_ON_CHARACTER_POINTS_CHANGED = 0x004C7000,
 
     // Talent.dbc — standard 5-DWORD class shape, records pointer at
     // `+0x08` and count at `+0x0C` of the class instance at
