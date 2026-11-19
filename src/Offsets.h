@@ -4161,6 +4161,9 @@ enum Offsets {
     // reports a non-zero count).
     OFF_CGPLAYER_COMBO_POINTS = 0x1029,
     OFF_CGPLAYER_COMBO_TARGET = 0x838,
+    // Script_GetComboPoints: `int __fastcall(lua_State *)`, pushes one number,
+    // never nil (benilla-re ui/actionuse "GetComboPoints").
+    FUN_SCRIPT_GET_COMBO_POINTS = 0x0051A190,
 
     // ---- Frame-method registries beyond GameTooltip's ------------------
     // Same per-type registry mechanism as VAR_GAMETOOLTIP_METHOD_REGISTRY
