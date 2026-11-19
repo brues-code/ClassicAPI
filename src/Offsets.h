@@ -9607,6 +9607,24 @@ enum Offsets {
     // stand-in for a cast with no unit given.
     CALL_SCRIPT_CAST_SPELL_DISPATCH = 0x004B4356,
     CALL_SCRIPT_CAST_SPELL_BY_NAME_DISPATCH = 0x004B4B24,
+    // The engine's "current target" fallbacks that 3.80.2 resolves through
+    // AnyTarget (FUN_1405dd690) — benilla-re tables/signatures.tsv bytes:
+    //   - PressPetAction (0x004BD1D0, `__fastcall(const uint32_t *word,
+    //     const uint64_t *target)`) takes the selection for a zero target:
+    //     `mov edx,[0xB4E2D8]; mov eax,[0xB4E2DC]` (8B 15 … A1 …, 11 bytes)
+    //     at +0x42, then stores edx/eax as lo/hi (ui/petbar "Pressing a pet
+    //     action"). Pet bar clicks, CastPetAction and the pet book pass zero.
+    //   - Script_PetAttack (0x004BE4A0, 13 bytes: `mov ecx,0xB4E2D8; call;
+    //     xor eax,eax; ret`) hands the selection itself to PressPetAttack
+    //     (0x004BD630, `__fastcall(const uint64_t *target)`) at +0x05.
+    //   - Script_DoEmote (0x0049FD30) loads the selection into esi/edi
+    //     (`mov esi,[0xB4E2D8]; mov edi,[0xB4E2DC]`, 8B 35 … 8B 3D …, 12
+    //     bytes) at +0x84, ecx holding the Lua state across it; a name
+    //     argument replaces it after (ui/chatemote "DoEmote").
+    SITE_PRESS_PET_ACTION_TARGET_LOAD = 0x004BD212,
+    FUN_PRESS_PET_ATTACK = 0x004BD630,
+    CALL_SCRIPT_PET_ATTACK_PRESS = 0x004BE4A5,
+    SITE_DO_EMOTE_TARGET_LOAD = 0x0049FDB4,
 
     // Macro "primary spell" parser — `__fastcall(MacroEntry *entry)`.
     // Walks the macro body (stored at `entry + OFF_MACRO_BODY`) line
