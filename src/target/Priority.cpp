@@ -30,8 +30,9 @@
 //      member), and in a PvP context (a duel, free-for-all PvP, a
 //      battleground) PvpPriority / CombatLock by TargetPriorityPvp.
 //   2. Geometry: InFrustum (the model's box against the view frustum pulled
-//      in by 0.2 on every side), Visible (and in line of sight, for an enemy
-//      that is not a player), PointBlank, InMelee, the angles to the
+//      in by 0.2 on every side), Visible (and, for an enemy that is not a
+//      player, in line of sight of the player or the camera; seen by the
+//      camera alone costs the NoLOS term), PointBlank, InMelee, the angles to the
 //      character's facing and to the camera's yaw, InRange (the bank's range
 //      shrinking from 51 yd within 20° to 3 yd past 90°), Excluded (more than
 //      90° behind both, not hitting the player in melee), InCone (the
@@ -132,6 +133,7 @@ struct Entry {
     float cone;
     float score;
     float tabScore;
+    bool playerLos; // Visible came from the player's ray, not only the camera's
 };
 
 std::vector<Entry> g_entries;
@@ -233,15 +235,24 @@ bool BoxInFrustum(const Camera &c, const Entry &e) {
 // Line of sight is needed for an enemy that is not a player (FUN_1405e7030).
 bool NeedsLos(uint32_t flags) { return (flags & (Enemy | Player)) == Enemy; }
 
-bool InLineOfSight(const Entry &player, const Entry &e) {
-    const float start[3] = {player.pos[0], player.pos[1],
-                            player.pos[2] + player.base + 0.5f * player.height};
+// A clear ray from a point to the entry's mid-height. 3.80.2's LOS test
+// (FUN_1405f48b0 -> FUN_1405f4fe0) keeps two results per GUID, from the player
+// and from the camera (camera +0x10), and its last argument's bit 0 adds the
+// camera's: the Visible bit asks for either (arg 1), the NoLOS score term asks
+// for the player's alone (arg 0).
+bool ClearRay(const float *start, const Entry &e) {
     const float end[3] = {e.pos[0], e.pos[1], e.pos[2] + e.base + 0.5f * e.height};
     float hit[3];
     float t = 1.0f;
     const char blocked = reinterpret_cast<Intersect_t>(Offsets::FUN_CWORLD_INTERSECT)(
         start, end, 0, hit, &t, Offsets::WORLD_TRACE_CLASS_LOS);
     return blocked == 0 || t < 0.0f || t > 1.0f;
+}
+
+bool PlayerLos(const Entry &player, const Entry &e) {
+    const float start[3] = {player.pos[0], player.pos[1],
+                            player.pos[2] + player.base + 0.5f * player.height};
+    return ClearRay(start, e);
 }
 
 // 3.80.2's melee range (FUN_1414c71e0): both reaches plus 4/3, at least 5.
@@ -489,8 +500,13 @@ bool Admit(void *player, const float *playerPos, uint64_t playerGuid, const Bank
 bool Geometry(const Camera &c, const Entry &player, float facing, const Bank &bank, Entry &e) {
     if (BoxInFrustum(c, e)) {
         e.flags |= InFrustum;
-        if (!NeedsLos(e.flags) || InLineOfSight(player, e))
+        if (!NeedsLos(e.flags)) {
             e.flags |= Visible;
+        } else {
+            e.playerLos = PlayerLos(player, e);
+            if (e.playerLos || ClearRay(c.pos, e))
+                e.flags |= Visible;
+        }
     }
     const float dx = e.pos[0] - player.pos[0], dy = e.pos[1] - player.pos[1],
                 dz = e.pos[2] - player.pos[2];
@@ -582,7 +598,7 @@ void Score(const Camera &c, const Entry &player, const float *targetPos, float c
     }
     if ((e.flags & Critter) != 0)
         s += bank.critter;
-    if ((e.flags & Visible) != 0 && NeedsLos(e.flags) && !InLineOfSight(player, e))
+    if ((e.flags & Visible) != 0 && NeedsLos(e.flags) && !e.playerLos)
         s += bank.noLos;
 
     const float rel[3] = {e.pos[0] - player.pos[0], e.pos[1] - player.pos[1],
