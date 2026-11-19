@@ -10164,7 +10164,8 @@ end)
 Sets and returns whether the slider rounds a dragged value to the value
 step. The value is `true` when the slider is created. Set it to `false` to
 let the thumb move freely between steps. In XML, use the `obeyStepOnDrag`
-attribute of `<Slider>`.
+attribute of `<Slider>`. If `obeyStepOnDrag` is `nil` or missing, the method
+gives a usage error.
 
 ### `slider:SetStepsPerPage(stepsPerPage)` / `slider:GetStepsPerPage()`
 
@@ -10173,6 +10174,10 @@ value. The value moves toward the click, and no drag starts. A click on the
 thumb starts a drag. The value is `0` when the slider is created: then a
 click anywhere moves the thumb to the cursor and starts a drag. In XML, use
 the `stepsPerPage` attribute of `<Slider>`.
+
+- The slider keeps the value as a whole number from `-128` to `127`. A
+  larger value wraps around: for example, `200` becomes `-56`. A value less
+  than `1` does not move the value.
 
 ### `slider:IsDraggingThumb()`
 

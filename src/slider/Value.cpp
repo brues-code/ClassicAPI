@@ -64,8 +64,14 @@ namespace {
 
 struct State {
     bool obeyStepOnDrag = true;
-    int stepsPerPage = 0;
+    int8_t stepsPerPage = 0;
 };
+
+// 3.80.2's Script SetStepsPerPage (0x140AA2C20) reads an int32, truncated,
+// and stores only its low byte (+0x280); GetStepsPerPage (0x140AA1DD0) and
+// the press (a signed `>= 1` test) read it sign-extended, so 200 reads back
+// as -56 and pages nothing. `n` must be in the int32 range.
+int8_t StepsPerPageByte(double n) { return static_cast<int8_t>(static_cast<int32_t>(n)); }
 
 std::unordered_map<const void *, State> g_states;
 
@@ -174,8 +180,10 @@ void OnSliderNode(void *slider, const void *node, void *) {
     State s = StateOf(slider);
     if (const char *obey = Xml::Attr(node, "obeyStepOnDrag"))
         s.obeyStepOnDrag = Game::StringToFlag(obey);
-    if (const char *pages = Xml::Attr(node, "stepsPerPage"))
-        s.stepsPerPage = static_cast<int>(std::strtod(pages, nullptr));
+    if (const char *pages = Xml::Attr(node, "stepsPerPage")) {
+        const double n = std::strtod(pages, nullptr);
+        s.stepsPerPage = n > -2147483649.0 && n < 2147483648.0 ? StepsPerPageByte(n) : 0;
+    }
     Store(slider, s);
 }
 
@@ -183,10 +191,16 @@ const Xml::TypeLoad::AutoSubscribe _xmlSub{Xml::TypeLoad::SLIDER, &OnSliderNode}
 
 void *ResolveSlider(void *L) { return Game::Lua::ResolveTypedObject(L, 1, Offsets::VAR_SLIDER_LUA_TYPE_ID); }
 
+// 3.80.2's Script SetObeyStepOnDrag (0x140AA2840): a nil or missing argument
+// is a usage error; any other value is read as Lua truth.
 int __fastcall Script_SetObeyStepOnDrag(void *L) {
     void *slider = ResolveSlider(L);
     if (slider == nullptr)
         return 0;
+    if (Game::Lua::Type(L, 2) <= Game::Lua::TYPE_NIL) {
+        Game::Lua::Error(L, "Usage: %s:SetObeyStepOnDrag(obeyStepOnDrag)", Game::Lua::ObjectDisplayName(slider));
+        return 0;
+    }
     State s = StateOf(slider);
     s.obeyStepOnDrag = Game::Lua::ToBoolean(L, 2) != 0;
     Store(slider, s);
@@ -205,12 +219,13 @@ int __fastcall Script_SetStepsPerPage(void *L) {
     void *slider = ResolveSlider(L);
     if (slider == nullptr)
         return 0;
-    if (!Game::Lua::IsNumber(L, 2)) {
+    const double n = Game::Lua::IsNumber(L, 2) ? Game::Lua::ToNumber(L, 2) : 0.0;
+    if (!Game::Lua::IsNumber(L, 2) || !(n > -2147483649.0 && n < 2147483648.0)) {
         Game::Lua::Error(L, "Usage: %s:SetStepsPerPage(stepsPerPage)", Game::Lua::ObjectDisplayName(slider));
         return 0;
     }
     State s = StateOf(slider);
-    s.stepsPerPage = static_cast<int>(Game::Lua::ToNumber(L, 2));
+    s.stepsPerPage = StepsPerPageByte(n);
     Store(slider, s);
     return 0;
 }
@@ -251,7 +266,8 @@ const Game::Doc::Function kGetObeyStepOnDrag{"Returns whether a dragged value is
                                              kObeyRet};
 const Game::Doc::Function kSetStepsPerPage{
     "Sets how many value steps a click outside the thumb moves the value. 0, the default, makes the value jump "
-    "to the cursor and starts a drag.",
+    "to the cursor and starts a drag. The value is kept as a whole number from -128 to 127; a larger one wraps "
+    "around (200 becomes -56).",
     kPagesArg, {}};
 const Game::Doc::Function kGetStepsPerPage{"Returns how many value steps a click outside the thumb moves the value.",
                                            {}, kPagesRet};
