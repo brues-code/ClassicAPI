@@ -256,6 +256,11 @@ const uint8_t *ResolveItemArgOrLocation(void *L, int idx);
 // name either.
 bool FindItemArgOrLocation(void *L, int idx, ByGUIDResult *out);
 
+// The string half of `FindItemArgOrLocation`, for callers holding the
+// argument as a C string (a frame attribute): an item GUID string is a
+// location, anything else a reference searched for in the bags. No Lua stack.
+bool FindItemStringArg(const char *s, ByGUIDResult *out);
+
 // Parses the `"0xHHHHHHHHLLLLLLLL"` GUID string format
 // `C_Item.GetItemGUID` returns. Strict: requires exactly `0x` prefix
 // + 16 case-insensitive hex digits. Returns false (and leaves `*out`

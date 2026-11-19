@@ -437,20 +437,30 @@ const uint8_t *Resolve(void *L, int locIdx) {
     return ResolveLocationDetail(L, locIdx, &found) ? found.item : nullptr;
 }
 
+bool FindItemStringArg(const char *s, ByGUIDResult *out) {
+    *out = ByGUIDResult{};
+    // A string that parses as an item GUID — a strict `0x` + 16 hex digits,
+    // which no item link or item name can look like — is a location. Decide
+    // from the string alone, and commit.
+    uint64_t guid = 0;
+    if (ParseGUIDString(s, &guid))
+        return FindLocationByGUID(guid, out);
+
+    const Item::Arg::Resolved arg = Item::Arg::ResolveString(s);
+    if (arg.itemID <= 0 && arg.name == nullptr)
+        return false;
+    return FindByArgInBags(arg, out);
+}
+
 bool FindItemArgOrLocation(void *L, int idx, ByGUIDResult *out) {
     *out = ByGUIDResult{};
     const int t = Game::Lua::Type(L, idx);
 
-    // A table is only ever a location, and so is a string that parses as an
-    // item GUID — a strict `0x` + 16 hex digits, which no item link or item
-    // name can look like. Decide from the argument alone, and commit.
+    // A table is only ever a location.
     if (t == Game::Lua::TYPE_TABLE)
         return ResolveLocationDetail(L, idx, out);
-    if (t == Game::Lua::TYPE_STRING) {
-        uint64_t guid = 0;
-        if (ParseGUIDString(Game::Lua::ToString(L, idx), &guid))
-            return FindLocationByGUID(guid, out);
-    }
+    if (t == Game::Lua::TYPE_STRING)
+        return FindItemStringArg(Game::Lua::ToString(L, idx), out);
 
     const Item::Arg::Resolved arg = Item::Arg::Resolve(L, idx);
     if (arg.itemID <= 0 && arg.name == nullptr)

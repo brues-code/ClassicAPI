@@ -114,6 +114,8 @@
 #include "Offsets.h"
 #include "baselib/Ascii.h"
 #include "cursor/Info.h"
+#include "item/Location.h"
+#include "item/Use.h"
 #include "macro/Execute.h"
 #include "object/Resolve.h"
 #include "spell/AtUnit.h"
@@ -285,33 +287,14 @@ bool CallBoolGlobal(void *L, const char *name) {
     return r;
 }
 
-// _G[table][method](a, b) — two string args (null → nil, since PushString maps
-// NULL to nil), no results. Returns true iff the method resolved to a function
-// and got called. Used when the target is our own C_* function but the call must
-// cross the Lua boundary — e.g. C_Item.UseItemByName, whose bag walk does
-// SetTop(L, 0); going through lua_call gives it its own stack frame so that reset
-// clears only its frame, not the dispatcher's (a direct C++ call would wipe our
-// stack — the reason `spell`, which is stack-free, calls Spell::AtUnit directly
-// while `item` routes through here).
-bool CallTableFunc2Str(void *L, const char *table, const char *method,
-                       const char *a, const char *b) {
-    const int top = Game::Lua::GetTop(L);
-    bool called = false;
-    Game::Lua::PushString(L, table);
-    Game::Lua::GetTable(L, Game::Lua::GLOBALS_INDEX);   // _G[table]
-    if (Game::Lua::Type(L, -1) == Game::Lua::TYPE_TABLE) {
-        const int t = Game::Lua::GetTop(L);
-        Game::Lua::PushString(L, method);
-        Game::Lua::GetTable(L, t);                       // _G[table][method]
-        if (Game::Lua::Type(L, -1) == Game::Lua::TYPE_FUNCTION) {
-            Game::Lua::PushString(L, a);
-            Game::Lua::PushString(L, b);
-            Game::Lua::Call(L, 2, 0);
-            called = true;
-        }
-    }
-    Game::Lua::SetTop(L, top);
-    return called;
+// C_Item.UseItemByName(item, unit) for an attribute string: the same item
+// resolution (item GUID string, itemID, `item:N`, link or carried name) and the
+// same target (an unknown or absent unit is no target), called directly.
+void UseItemString(const char *item, const char *unit) {
+    Item::Location::ByGUIDResult found;
+    if (!Item::Location::FindItemStringArg(item, &found) || found.item == nullptr)
+        return;
+    Item::Use::UseItem(found.item, unit ? Unit::Identity::GuidForToken(unit) : 0);
 }
 
 // ---- mouse-focus poll (drives the native mouseover slot) -------------------
@@ -704,7 +687,7 @@ bool DispatchVerb(void *L, int fi, const char *prefix, const char *suffix,
             if (ParseBagSlot(item, &bag, &slot))
                 CallGlobalNum2(L, "UseContainerItem", bag, slot);
             else
-                CallTableFunc2Str(L, "C_Item", "UseItemByName", item, unit);
+                UseItemString(item, unit);
             return true;
         }
         // Deprecated form: no `item`, take the `bag` + `slot` attributes.
