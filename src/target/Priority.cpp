@@ -54,8 +54,9 @@
 // the LoS geometry, between the two units at half their model height.
 //
 // Not in 1.12, so not here: the "trivial" and the 0x1000 template bits, the
-// spec's melee weight (MeleeA is used), unit flags3, the transport test of
-// the exclusion, arenas and the "in PvP combat" flag of the PvP context, the
+// spec's melee weight (MeleeA is used), unit flags3, the exclusion's
+// shared-vehicle test (FUN_1415c1820 walks unit-to-unit vehicle seats; 1.12
+// has no vehicles, so it is always false), arenas and the "in PvP combat" flag of the PvP context, the
 // tab-only group term (it needs a specialization flag), and the casting
 // term's uninterruptible test.
 
