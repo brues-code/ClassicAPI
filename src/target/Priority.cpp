@@ -351,6 +351,18 @@ struct Pvp {
     int mode;
 };
 
+// FUN_1405e6de0's enemy test: not dead or feigning (vfunc 0x230), not shown
+// as dead (UNIT_FLAG3_FAKE_DEAD), stand state not 7, attackable. 1.12's tab
+// predicate in its enemy mode is the same test on 1.12's data — a dead check
+// (0x00605F30), health > 0, CanAttack, not UNIT_DYNFLAG_DEAD (how a vanilla
+// server shows a unit as dead), stand state not 7 — so a unit that lies dead
+// is never an enemy here, as 1.12's own Tab never picks it.
+bool EnemyOf(void *player, void *unit) {
+    using Valid_t = int(__fastcall *)(void *player, void *candidate, int mode);
+    return reinterpret_cast<Valid_t>(Offsets::FUN_TARGET_CANDIDATE_VALID)(
+               player, unit, Offsets::TARGET_MODE_ENEMY) != 0;
+}
+
 // FUN_1405e87c0's friendly test: either side's reaction is friendly (4+).
 bool Friendly(const void *player, const void *unit) {
     return Unit::Relation::Reaction(player, unit) >= 4 ||
@@ -457,7 +469,7 @@ bool Admit(void *player, const float *playerPos, uint64_t playerGuid, const Bank
             e.flags |= PvpPriority | CombatLock;
     }
     if (!dead) {
-        if ((pvp.self || !pvpUnit) && Unit::Relation::CanAttack(player, unit)) {
+        if ((pvp.self || !pvpUnit) && EnemyOf(player, unit)) {
             e.flags |= Enemy;
             if ((e.flags & CombatLock) == 0 && CombatLocked(player, unit))
                 e.flags |= CombatLock;

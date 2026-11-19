@@ -27046,7 +27046,8 @@ Both are off by default. To turn them on:
 /console SoftTargetFriend 3
 ```
 
-**What they pick.** Soft enemy picks a living unit that you can attack.
+**What they pick.** Soft enemy picks a living unit that you can attack and
+that does not show as dead.
 When you are not flagged for PvP, it does not pick a unit that is flagged
 for PvP, except in a duel, in free-for-all PvP, or on a battleground. Soft friend picks a living, friendly unit that you can assist, for
 example a party member. Neither picks you or a unit that you control. The
