@@ -43,8 +43,11 @@
 //   - a target the game set itself (Auto, Locked) inside
 //     TargetPriorityAutoTargetIgnoreWindow does not count as the place.
 //
-// 3.80.2 runs a bank of values (bank 1 here); hold-to-target (its bank 2),
-// the PvP locks and the vehicle are not in 1.12.
+//   - with TargetPriorityPvpLock and TargetPriorityPvp 2, a PvP target in a
+//     PvP context locks the same way to PvP units.
+//
+// 3.80.2 runs a bank of values (bank 1 here); hold-to-target (its bank 2)
+// and the vehicle are not in 1.12.
 
 #include "target/Tab.h"
 
@@ -92,6 +95,7 @@ CVar::Factory::Handle g_useNew = nullptr;
 CVar::Factory::Handle g_allowAny = nullptr;
 CVar::Factory::Handle g_continueManual = nullptr;
 CVar::Factory::Handle g_ignoreWindow = nullptr;
+CVar::Factory::Handle g_pvpLock = nullptr;
 
 std::vector<uint64_t> g_history; // the targets this cycle has visited
 uint32_t g_setAt = 0;            // when the target was set
@@ -101,6 +105,7 @@ float g_setPos[3] = {};          // the player's position then
 bool g_continue = false;         // go on from a clicked target
 uint32_t g_locks = 0;            // the lock bits taken from the target
 int g_lastLockMode = 0;          // TargetPriorityCombatLock at the last check
+bool g_lastPvpLock = false;      // TargetPriorityPvpLock at the last check
 
 struct Filter {
     uint32_t need;
@@ -109,11 +114,17 @@ struct Filter {
 
 int AllowAny() { return CVar::Factory::GetInt(g_allowAny); }
 
-// FUN_1405e36a0's lock bits for a unit: CombatLock while it is combat-locked.
+bool PvpLock() { return CVar::Factory::GetInt(g_pvpLock) != 0; }
+
+// FUN_1405e36a0's lock bits for a unit: CombatLock while it is
+// combat-locked; with TargetPriorityPvpLock, PvpPriority for a PvP unit.
 uint32_t Locks(uint64_t guid) {
-    return Priority::CombatLockMode() != 0 && Priority::CombatLockedWith(guid)
-               ? Priority::CombatLock
-               : 0;
+    uint32_t locks = 0;
+    if (Priority::CombatLockMode() != 0 && Priority::CombatLockedWith(guid))
+        locks |= Priority::CombatLock;
+    if (PvpLock() && Priority::PvpLockedWith(guid))
+        locks |= Priority::PvpPriority;
+    return locks;
 }
 
 // One relax step: drop the locks; without any, with AllowAnyOnScreen 2 drop
@@ -321,7 +332,10 @@ void Choose(uint64_t target, bool reverse, uint32_t mask) {
                 g_lastLockMode = lockMode;
                 timedOut = true;
             }
-            if (timedOut || forget)
+            const bool pvpLock = PvpLock();
+            const bool pvpLockChanged = pvpLock != g_lastPvpLock;
+            g_lastPvpLock = pvpLock;
+            if (timedOut || forget || pvpLockChanged)
                 Relock(f, target, relaxed);
             if (fresh)
                 g_continue = false;
@@ -455,6 +469,8 @@ void Register() {
         "If a target is manually selected (eg. clicked), continue priority targeting from that target.", "1");
     g_ignoreWindow = reg("TargetPriorityAutoTargetIgnoreWindow",
         "Number of MS a non-user selected target should be ignored For priority order purposes", "500");
+    g_pvpLock = reg("TargetPriorityPvpLock",
+        "Lock to important pvp targets when starting from a pvp target.", "0");
 }
 
 const Game::ModuleAutoRegister _autoreg{&Register};

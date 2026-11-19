@@ -22,12 +22,13 @@
 //      model. Interact: the cursor over it would show an interact mode
 //      (1.12's own verdict, Cursor::Hover); OwnObject: the player's channel
 //      object (the fishing bobber). A unit is also classified: Enemy
-//      (alive and attackable; a PvP-flagged unit never, while the player is
-//      not flagged), Friend (alive, friendly either way, selectable,
+//      (alive and attackable; outside a PvP context a PvP unit never, while
+//      the player is not one), Friend (alive, friendly either way, selectable,
 //      assistable), Critter (the creature type's never-tab-target flag),
 //      Boss, CombatLock (an enemy in combat while the player is engaged),
-//      and for a living player Party (and Raid: a party member) or Raid (a
-//      raid member).
+//      for a living player Party (and Raid: a party member) or Raid (a raid
+//      member), and in a PvP context (a duel, free-for-all PvP, a
+//      battleground) PvpPriority / CombatLock by TargetPriorityPvp.
 //   2. Geometry: InFrustum (the model's box against the view frustum pulled
 //      in by 0.2 on every side), Visible (and in line of sight, for an enemy
 //      that is not a player), PointBlank, InMelee, the angles to the
@@ -54,10 +55,9 @@
 //
 // Not in 1.12, so not here: the "trivial" and the 0x1000 template bits, the
 // spec's melee weight (MeleeA is used), unit flags3, the transport test of
-// the exclusion, and the PvP-zone rules (TargetPriorityPvp; outside a PvP
-// zone 3.80.2 only applies the not-flagged rule above), the tab-only group
-// term (it needs a specialization flag), and the casting term's
-// uninterruptible test.
+// the exclusion, arenas and the "in PvP combat" flag of the PvP context, the
+// tab-only group term (it needs a specialization flag), and the casting
+// term's uninterruptible test.
 
 #include "target/Priority.h"
 
@@ -67,6 +67,7 @@
 #include "cursor/Hover.h"
 #include "cvar/Factory.h"
 #include "group/Roster.h"
+#include "map/Instance.h"
 #include "object/Resolve.h"
 #include "target/Nearest.h"
 #include "target/Reason.h"
@@ -142,6 +143,10 @@ bool g_lockedInCone = false;
 
 CVar::Factory::Handle g_combatLock = nullptr;
 CVar::Factory::Handle g_relaxation = nullptr;
+CVar::Factory::Handle g_pvp = nullptr;
+
+// Map.dbc instance type of a battleground.
+constexpr int kMapBattleground = 3;
 
 float Wrap(float a) {
     while (a > kPi)
@@ -271,6 +276,80 @@ bool IsBoss(uint64_t guid) {
                               Offsets::CREATURE_TYPE_FLAG_BOSS) != 0;
 }
 
+// --- PvP (FUN_1405e35d0 / 3530 / 6cf0 / 14ab560) on 1.12's fields --------
+
+using ControllingPlayer_t = void *(__fastcall *)(void *unit);
+
+bool IsPlayerObject(const void *unit) {
+    return Game::Read<int>(unit, Offsets::OFF_CGOBJECT_TYPE_ID) == Offsets::OBJECT_TYPE_PLAYER;
+}
+
+// A player's block (PLAYER_FLAGS, the duel fields); only a player has one.
+const uint8_t *PlayerInfo(const void *player) {
+    return IsPlayerObject(player) ? Game::Read<const uint8_t *>(player, Offsets::OFF_CGPLAYER_INFO)
+                                  : nullptr;
+}
+
+uint32_t PlayerFlags(const void *player) {
+    const uint8_t *info = PlayerInfo(player);
+    return info ? Game::Read<uint32_t>(info, Offsets::OFF_PLAYER_INFO_FLAGS) : 0;
+}
+
+int DuelTeam(const void *player) {
+    const uint8_t *info = PlayerInfo(player);
+    return info ? Game::Read<int>(info, Offsets::OFF_PLAYER_INFO_DUEL_TEAM) : 0;
+}
+
+uint64_t DuelArbiter(const void *player) {
+    const uint8_t *info = PlayerInfo(player);
+    return info ? Game::Read<uint64_t>(info, Offsets::OFF_PLAYER_INFO_DUEL_ARBITER) : 0;
+}
+
+// FUN_1414ab560: the two player-controlled units' players duel each other
+// (one arbiter, two teams).
+bool Dueling(void *a, void *b) {
+    if ((UnitFlags(a) & Offsets::UNIT_FLAG_PLAYER_CONTROLLED) == 0 ||
+        (UnitFlags(b) & Offsets::UNIT_FLAG_PLAYER_CONTROLLED) == 0)
+        return false;
+    const auto controller = reinterpret_cast<ControllingPlayer_t>(Offsets::FUN_UNIT_CONTROLLING_PLAYER);
+    void *pa = controller(a);
+    void *pb = controller(b);
+    if (pa == nullptr || pb == nullptr)
+        return false;
+    const int ta = DuelTeam(pa), tb = DuelTeam(pb);
+    return ta != 0 && tb != 0 && ta != tb && DuelArbiter(pa) == DuelArbiter(pb);
+}
+
+// FUN_1405e35d0: the player is in a PvP context — dueling, free-for-all
+// PvP, or on a battleground map. (3.80.2 also counts an arena and its "in
+// PvP combat" flag; 1.12 has neither.)
+bool PvpContext(const void *player) {
+    return DuelTeam(player) != 0 || (PlayerFlags(player) & Offsets::PLAYER_FLAG_FFA_PVP) != 0 ||
+           Map::Instance::CurrentType() == kMapBattleground;
+}
+
+// FUN_1405e3530: the unit is a PvP unit. A creature: player-controlled and
+// PvP flagged. A player: PvP flagged, free-for-all, wanting PvP
+// (PLAYER_FLAGS_PVP_DESIRED), or in a duel with the player.
+bool PvpUnit(void *player, void *unit) {
+    const uint32_t flags = UnitFlags(unit);
+    if (!IsPlayerObject(unit))
+        return (flags & Offsets::UNIT_FLAG_PLAYER_CONTROLLED) != 0 &&
+               (flags & Offsets::UNIT_FLAG_PVP) != 0;
+    if ((flags & Offsets::UNIT_FLAG_PVP) != 0 ||
+        (PlayerFlags(unit) & (Offsets::PLAYER_FLAG_FFA_PVP | Offsets::PLAYER_FLAG_PVP_DESIRED)) != 0)
+        return true;
+    return unit != player && DuelTeam(unit) != 0 && Dueling(player, unit);
+}
+
+// The rebuild's PvP inputs: the context, the player as a PvP unit (or in
+// the context), and TargetPriorityPvp.
+struct Pvp {
+    bool context;
+    bool self;
+    int mode;
+};
+
 // FUN_1405e87c0's friendly test: either side's reaction is friendly (4+).
 bool Friendly(const void *player, const void *unit) {
     return Unit::Relation::Reaction(player, unit) >= 4 ||
@@ -308,7 +387,7 @@ bool WithinRange(const float *a, const float *b, float range) {
 // Step 1 for one object (the gather callback 0x1405e66d0 and the
 // classifiers): the entry, or false to leave it out.
 bool Admit(void *player, const float *playerPos, uint64_t playerGuid, const Bank &bank,
-           uint64_t guid, Entry &e) {
+           const Pvp &pvp, uint64_t guid, Entry &e) {
     if (guid == playerGuid)
         return false;
     void *object = Object::ByGuid(Offsets::TYPEMASK_UNIT | Offsets::TYPEMASK_GAMEOBJECT, guid);
@@ -363,12 +442,23 @@ bool Admit(void *player, const float *playerPos, uint64_t playerGuid, const Bank
     }
     if (!dead && !isPlayer && IsBoss(guid))
         e.flags |= Boss;
+
+    // FUN_1405e6cf0. Outside a PvP context, a PvP unit is never an enemy
+    // while the player is not one. Inside one, by TargetPriorityPvp: 2 marks
+    // every PvP unit; 1 and 2 lock bosses; 1 to 3 lock PvP players.
+    const bool pvpUnit = PvpUnit(player, unit);
+    if (pvp.context) {
+        if (pvp.mode == 2 && (pvpUnit || (unitFlags & Offsets::UNIT_FLAG_PVP) != 0))
+            e.flags |= PvpPriority;
+        if ((pvp.mode == 1 || pvp.mode == 2) && (e.flags & Boss) != 0)
+            e.flags |= PvpPriority | CombatLock;
+        if (pvp.mode >= 1 && pvp.mode <= 3 && isPlayer && pvpUnit)
+            e.flags |= PvpPriority | CombatLock;
+    }
     if (!dead) {
-        const bool pvpSelf = (UnitFlags(player) & Offsets::UNIT_FLAG_PVP) != 0;
-        const bool pvpUnit = (unitFlags & Offsets::UNIT_FLAG_PVP) != 0;
-        if ((pvpSelf || !pvpUnit) && Unit::Relation::CanAttack(player, unit)) {
+        if ((pvp.self || !pvpUnit) && Unit::Relation::CanAttack(player, unit)) {
             e.flags |= Enemy;
-            if (CombatLocked(player, unit))
+            if ((e.flags & CombatLock) == 0 && CombatLocked(player, unit))
                 e.flags |= CombatLock;
         }
         if (Friendly(player, unit) && (unitFlags & Offsets::UNIT_FLAG_NOT_SELECTABLE) == 0 &&
@@ -544,10 +634,14 @@ void Build() {
     ReadBox(playerObj, player);
     const float facing = Unit::Position::Facing(playerObj);
     const Bank &bank = kBanks[kBank];
+    Pvp pvp;
+    pvp.context = PvpContext(playerObj);
+    pvp.self = pvp.context || PvpUnit(playerObj, playerObj);
+    pvp.mode = CVar::Factory::GetInt(g_pvp, 1);
 
     Object::ForEachVisible([&](uint64_t guid) {
         Entry e{};
-        if (Admit(playerObj, player.pos, player.guid, bank, guid, e))
+        if (Admit(playerObj, player.pos, player.guid, bank, pvp, guid, e))
             g_entries.push_back(e);
         return true;
     });
@@ -589,6 +683,8 @@ void Register() {
         "1=Lock to in-combat targets when starting from an in-combat target. 2=Further restrict to in-combat with player.", "1");
     g_relaxation = reg("TargetPriorityCombatLockContextualRelaxation",
         "1=Enables relaxation of combat lock based on context (eg. no in-combat target infront)", "1");
+    g_pvp = reg("TargetPriorityPvp",
+        "When in pvp, give higher priority to players and important pvp targets (1 = players & npc bosses, 2 = all pvp targets, 3 = players only)", "1");
 }
 
 const Game::ModuleAutoRegister _autoreg{&Register};
@@ -657,6 +753,14 @@ bool CombatLockedWith(uint64_t guid) {
 }
 
 bool CombatLockRelaxation() { return CVar::Factory::GetInt(g_relaxation, 1) != 0; }
+
+bool PvpLockedWith(uint64_t guid) {
+    void *player = const_cast<uint8_t *>(Unit::Identity::PlayerObject());
+    void *unit = Object::ByGuid(Offsets::TYPEMASK_UNIT, guid);
+    return player != nullptr && unit != nullptr && PvpContext(player) &&
+           CVar::Factory::GetInt(g_pvp, 1) == 2 &&
+           (PvpUnit(player, unit) || (UnitFlags(unit) & Offsets::UNIT_FLAG_PVP) != 0);
+}
 
 bool CameraYaw(float &yaw) {
     Camera camera;

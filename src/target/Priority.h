@@ -79,6 +79,10 @@ bool CombatLockedWith(uint64_t guid);
 // TargetPriorityCombatLockContextualRelaxation.
 bool CombatLockRelaxation();
 
+// FUN_1405e36a0's PvP lock test for the unit `guid`: the player is in a PvP
+// context, TargetPriorityPvp is 2, and the unit is a PvP unit or flagged.
+bool PvpLockedWith(uint64_t guid);
+
 // The camera's yaw, the angle the candidate geometry measures from; false
 // without a camera.
 bool CameraYaw(float &yaw);

@@ -26876,6 +26876,7 @@ raid, that is your group.
 | `TargetPriorityAllowAnyOnScreen` | `0` | `1`: when your target does not qualify, enemies that are not in combat also count at once. `2`: the same, and when no unit qualifies, units out of range or behind you also count. |
 | `TargetPriorityContinueFromManualTarget` | `1` | `1`: after you click a unit, the next call continues from it. `0`: the next call starts from the best unit. |
 | `TargetPriorityAutoTargetIgnoreWindow` | `500` | Milliseconds. For this time after the game set your target (for example `TargetEnemyAttacker`), that target does not set the place in the cycle. |
+| `TargetPriorityPvpLock` | `0` | `1`: when `TargetPriorityPvp` is `2` and your target is a PvP unit in a duel, in free-for-all PvP or on a battleground, only PvP units count. `0`: no such rule. |
 
 ```
 /dump SetCVar("TargetNearestUseNew", "1"), GetCVar("TargetNearestUseNew")
@@ -27047,7 +27048,7 @@ Both are off by default. To turn them on:
 
 **What they pick.** Soft enemy picks a living unit that you can attack.
 When you are not flagged for PvP, it does not pick a unit that is flagged
-for PvP. Soft friend picks a living, friendly unit that you can assist, for
+for PvP, except in a duel, in free-for-all PvP, or on a battleground. Soft friend picks a living, friendly unit that you can assist, for
 example a party member. Neither picks you or a unit that you control. The
 unit must be on the screen, in line of sight (for an enemy that is not a
 player), not far behind you, and inside the arc. Units farther from where
@@ -27058,6 +27059,17 @@ in melee range, a unit in the center of the camera, and an enemy that is in
 combat with you while you attack count for more. Critters count for much
 less. The pick is made again 10 times each second. Between two picks, a soft
 unit can only be removed, for example when it goes out of the range below.
+
+**PvP.** In a duel, in free-for-all PvP, or on a battleground, PvP units
+count for much more. A PvP player is a player that is flagged for PvP, in
+free-for-all PvP, or in a duel with you. `TargetPriorityPvp` sets which
+units count for more:
+
+- `1`: PvP players and bosses. They also count as enemies in combat with
+  you.
+- `2`: the same, and every other unit that is flagged for PvP.
+- `3`: PvP players only.
+- `0`: no unit.
 
 **Locked and loose targets.** A target that you choose (with a click,
 Tab, `/target` or `TargetUnit`) is a locked target. A target that soft
@@ -27135,6 +27147,7 @@ with `"target"` and one time with `"softenemy"`. `"anyenemy"` and
 | `SoftTargetWithLocked` | `1` | `0`: no soft enemy and no soft friend while you have a target. `1`: they are picked also while you have a target. `2`: the same, and your attacked target can also be the soft enemy. |
 | `TargetPriorityCombatLock` | `1` | `1`: while you attack, an enemy that is in combat counts for more. `2`: only an enemy in combat that attacks. |
 | `TargetPriorityCombatLockContextualRelaxation` | `1` | `1`: enemies in combat count for more only when one of them is in front of the camera. `0`: always. |
+| `TargetPriorityPvp` | `1` | In a duel, in free-for-all PvP, or on a battleground: `1` PvP players and bosses count for more, `2` also every unit that is flagged for PvP, `3` PvP players only, `0` no unit. |
 | `SoftTargetForce` | `1` | `1`: with no locked target, your target is set to `"softenemy"`. `2`: the same with `"softfriend"`. `0`: soft targeting sets no target. |
 | `TargetAutoEnemy` | `1` | `1`: your harmful spell that lands on `"softenemy"` makes it your loose target. `0`: it does not. This setting is saved for each character. |
 | `TargetAutoFriend` | `0` | The same, for your helpful spell on `"softfriend"`. This setting is saved for each character. |

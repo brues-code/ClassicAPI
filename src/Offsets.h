@@ -5798,6 +5798,11 @@ enum Offsets {
     OFF_QUEST_SLOT_STATE = 0x07,
     QUEST_SLOT_STATE_COMPLETE = 0x02,
     OFF_PLAYER_INFO_FLAGS = 0x08,
+    // PLAYER_DUEL_ARBITER (player index 0, a GUID) and PLAYER_DUEL_TEAM
+    // (index 8, 0 outside a duel, else 1 or 2): the binary's UpdateField table
+    // (0x0083D26C / 0x0083D1F4 entries), public fields of this block.
+    OFF_PLAYER_INFO_DUEL_ARBITER = 0x00,
+    OFF_PLAYER_INFO_DUEL_TEAM = 0x20,
     // PLAYER_GUILDID (player index 3): CGPlayer_C::ApplyTabard (0x005E0762)
     // and the dressing room's tabard arm (0x00504894) read it here.
     OFF_PLAYER_INFO_GUILD_ID = 0x0C,
@@ -5856,6 +5861,16 @@ enum Offsets {
     // SetPVP). CGPlayer_C::OnPlayerFlagsChanged (0x005EE990) tests it at
     // 0x005EEB0D; tortoise-wow and vmangos PLAYER_FLAGS_PVP_DESIRED = 0x200.
     PLAYER_FLAG_PVP_DESIRED = 0x200,
+    // The player that controls a unit: `CGPlayer_C *__fastcall(CGUnit_C *)`,
+    // plain `ret` — the unit's charmer (UNIT_FIELD_CHARMEDBY), else its
+    // creator (UNIT_FIELD_CREATEDBY), else the unit itself; returned only
+    // when that object is a player, else 0 (disassembled 0x00606170..D6;
+    // benilla-re objectlayer/reaction). UnitIsPVPFreeForAll (0x00516540)
+    // reads PLAYER_FLAGS through it for a UNIT_FLAG_PLAYER_CONTROLLED unit.
+    FUN_UNIT_CONTROLLING_PLAYER = 0x00606170,
+    // PLAYER_FLAGS bit 7 — free-for-all PvP (tortoise-wow / vmangos
+    // PLAYER_FLAGS_FFA_PVP = 0x80).
+    PLAYER_FLAG_FFA_PVP = 0x80,
     // OnPlayerFlagsChanged, active player only, when PLAYER_FLAGS_PVP_DESIRED
     // changed: `push 0x1B5; call FUN_GAMEUI_DISPLAY_ERROR` (ERR_PVP_TOGGLE_ON)
     // when it is now set, `push 0x1B6; call` (ERR_PVP_TOGGLE_OFF) when clear.
