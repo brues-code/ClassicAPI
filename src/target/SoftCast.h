@@ -15,23 +15,11 @@
 
 #include <cstdint>
 
-namespace Target::Loose {
+namespace Target::SoftCast {
 
-// The current target, or 0.
-uint64_t Selection();
+// The unit a cast of `record` with no unit given goes to in place of the
+// selection — the side's any-unit (3.80.2's default spell target,
+// FUN_1413d1ac0) — or 0 when it goes to the selection as 1.12 has it.
+uint64_t DefaultTarget(const uint8_t *record);
 
-// True while the target is loose: set by the soft targets, not chosen.
-bool IsLoose();
-
-// The target when it is locked (chosen), else 0 — what the soft-target
-// rules (SoftTargetWithLocked, SoftTargetMatchLocked) call the locked target.
-uint64_t Locked();
-
-// FUN_SET_SELECTION_BY_GUID for a select that is not a choice: re-selecting
-// the loose target leaves it loose. The attack's own selects use it.
-void SelectKeepingLoose(uint64_t guid);
-
-// Makes `guid` the loose target, or with 0 clears a loose target.
-void SetLoose(uint64_t guid);
-
-} // namespace Target::Loose
+} // namespace Target::SoftCast

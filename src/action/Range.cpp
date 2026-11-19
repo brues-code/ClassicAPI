@@ -12,7 +12,8 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// The range answer of an action button whose macro is aimed at a unit.
+// The range answer of an action button whose macro is aimed at a unit, or
+// whose spell goes to a soft target.
 //
 // 4.3.4 keeps that unit on the macro (MACRONODE::m_target: the `[@unit]` of
 // the clause its display resolved from, or the target SetMacroSpell /
@@ -22,8 +23,16 @@
 // and always passes 0, the selection. `Macro::ShowTooltip` keeps the unit (its
 // `Info::unit`), and this answers for those slots with that GUID, in the
 // engine's order: the range check, then the implicit-target test, where the
-// unit standing in for the selection must exist. Every other slot goes to the
-// engine function unchanged.
+// unit standing in for the selection must exist.
+//
+// With action targeting, a slot with no macro unit is range-checked the same
+// way against the unit its cast would go to (Target::SoftCast::DefaultTarget),
+// as 3.80.2's IsActionInRange core FUN_14175d860 does: the given unit, else
+// the macro's (+0x5A8), else none, which its range check FUN_1413d1da0
+// replaces with the default spell target FUN_1413d1ac0. So a heal
+// button turns red for an out-of-range soft friend while a hostile Force
+// target is selected, and shows a range with no target at all. Every other
+// slot goes to the engine function unchanged.
 //
 // The function's one caller, Script_IsActionInRange, is redirected rather than
 // the function hooked.
@@ -37,6 +46,7 @@
 #include "macro/ShowTooltip.h"
 #include "object/Resolve.h"
 #include "spell/Lookup.h"
+#include "target/SoftCast.h"
 #include "unit/Identity.h"
 
 #include <cstdint>
@@ -73,18 +83,18 @@ int __fastcall SlotRange_h(int slot0, int *inRange) {
     const auto original = reinterpret_cast<SlotRange_t>(Offsets::FUN_ACTION_SLOT_RANGE);
     if (slot0 < 0 || slot0 >= Offsets::ACTION_TABLE_MAX_SLOTS)
         return original(slot0, inRange);
-    const uint64_t unit = MacroUnit(slot0);
-    if (unit == 0)
-        return original(slot0, inRange);
-
-    const uint8_t *player = Unit::Identity::PlayerObject();
-    if (player == nullptr)
-        return 0;
     uint32_t pet = 0;
     const int spellID =
         reinterpret_cast<SlotToSpell_t>(Offsets::FUN_ACTION_SLOT_TO_SPELL)(slot0, &pet);
     const uint8_t *record = ::Spell::Lookup::RecordForID(spellID);
-    if (record == nullptr || pet != 0)
+    uint64_t unit = MacroUnit(slot0);
+    if (unit == 0 && pet == 0)
+        unit = Target::SoftCast::DefaultTarget(record);
+    if (unit == 0)
+        return original(slot0, inRange);
+
+    const uint8_t *player = Unit::Identity::PlayerObject();
+    if (player == nullptr || record == nullptr || pet != 0)
         return 0;
     if (!reinterpret_cast<CheckRange_t>(Offsets::FUN_CHECK_SPELL_TARGET_RANGE)(
             player, record, static_cast<uint32_t>(unit), static_cast<uint32_t>(unit >> 32), 0)) {

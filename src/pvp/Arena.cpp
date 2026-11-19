@@ -46,8 +46,6 @@ namespace PvP::Arena {
 
 namespace {
 
-constexpr int MAP_INSTANCE_TYPE_PVP = 3;
-
 bool IsArenaArea(uint32_t areaID) {
     const uint8_t *rec = DBC::Record(Offsets::VAR_AREATABLE_RECORDS,
                                    Offsets::VAR_AREATABLE_COUNT, areaID);
@@ -59,7 +57,7 @@ bool IsArenaArea(uint32_t areaID) {
 }
 
 bool InArena() {
-    if (Map::Instance::CurrentType() != MAP_INSTANCE_TYPE_PVP)
+    if (Map::Instance::CurrentType() != Offsets::MAP_INSTANCE_TYPE_BATTLEGROUND)
         return false;
 
     const uint32_t zone = *reinterpret_cast<const uint32_t *>(

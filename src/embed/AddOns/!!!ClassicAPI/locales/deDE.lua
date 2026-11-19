@@ -331,3 +331,5 @@ LESS_THAN_OPERAND = "< %s";
 TIME_UNIT_DELIMITER = " ";
 SHOW_CLASS_COLOR = "Klassenfarben anzeigen";
 TALENT_TOOLTIP_ADDPREVIEWPOINT = "Linksklick, um dieses Talent zu wählen.";
+TARGET_TOOLTIP_OPTION = "Zieltooltip anzeigen";
+OPTION_TOOLTIP_TARGET_TOOLTIP = "Zeigt den Tooltip des Ziels an, ohne dass das Ziel mit dem Mauszeiger berührt werden muss.";

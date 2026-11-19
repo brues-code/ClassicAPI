@@ -19,20 +19,28 @@ namespace Target::SoftUnit {
 
 enum class Side { Enemy, Friend };
 
-// The `softenemy` / `softfriend` GUID, or 0. Read by the token resolver in
-// `unit/TokenExtensions.cpp`.
+// The `softenemy` / `softfriend` GUID, or 0: the frame tick's last result.
+// Read by the token resolver in `unit/TokenExtensions.cpp`.
 uint64_t Get(Side side);
 
-// The last pick, with no scan. For the unit-event hot path
-// (`unit/TokenEvents.cpp`); the frame tick keeps it current.
+// The same, for the unit-event hot path (`unit/TokenEvents.cpp`).
 uint64_t Current(Side side);
 
 // SoftTargetEnemy / SoftTargetFriend turns the side on.
 bool Enabled(Side side);
 
-// The `anyenemy` / `anyfriend` GUID: the current target when it qualifies as
-// that side's soft target, else Get(side), else the current target, else the
-// other side's soft unit.
+// SoftTargetEnemyArc / SoftTargetFriendArc.
+int Arc(Side side);
+
+// The `anyenemy` / `anyfriend` GUID: with no soft unit, the target; the soft
+// unit while the target is empty, loose or the soft unit itself; else the
+// target when it is a candidate of the side, or the soft unit.
 uint64_t GetAny(Side side);
+
+// The `anytarget` GUID (3.80.2's AnyTarget, FUN_1405dd690): while the target
+// is empty or loose, the soft enemy, else the soft friend, else — with no
+// target only — the soft interact; otherwise the target. What a pet action,
+// an emote or a spell of neither side takes when no unit is given.
+uint64_t AnyTarget();
 
 } // namespace Target::SoftUnit

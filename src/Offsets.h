@@ -553,6 +553,22 @@ enum Offsets {
     //     GO field at +0x370.
     FUN_GAMETOOLTIP_BUILD_UNIT = 0x00529FE0,
     FUN_GAMETOOLTIP_BUILD_GAMEOBJECT = 0x0052AA20,
+    // The tooltip's fade — `void __thiscall(tooltip)`: hides at once when the
+    // anchor is the cursor (6), else arms a 2-second fade. The mouseover
+    // publisher (0x00492890) calls it on GameTooltip when the hovered object
+    // changes (benilla-re ui/mouseover.md "The tooltip stays put").
+    FUN_GAMETOOLTIP_FADE_OUT = 0x00530AE0,
+    // SetOwner's core — `void __thiscall(tooltip, void *ownerLayout, int
+    // anchor, float x, float y)`, `ret 0x10`: clears the tooltip, then stores
+    // the owner (a frame + OFF_FRAME_LAYOUT_SUBOBJECT, or 0) and the anchor.
+    // The mouseover publisher calls it as (UIParent + 0x24, 6, 0, 0) at
+    // 0x00492A1E (disassembled; benilla-re ui/mouseover.md).
+    FUN_GAMETOOLTIP_SET_OWNER = 0x0052FFE0,
+    // A game object's floating-tooltip test — vtable slot, `int
+    // __thiscall(object)`: nonzero for the generic type with its first data
+    // word set. The publisher (0x004929FA) gives such an object's tooltip to
+    // UIParent at the cursor instead of firing OnTooltipSetDefaultAnchor.
+    OFF_CGOBJECT_VTBL_FLOATING_TOOLTIP = 0x5C,
     // Pointer to the GameTooltip CFrameScriptObject the engine's mouseover
     // setter builds into (`DAT_00b4b3c4`; the value at this address is the
     // tooltip object). `Frame::Attributes` reads it to build the unit tooltip
@@ -1910,6 +1926,8 @@ enum Offsets {
     FUN_TARGET_CANDIDATE_VALID = 0x00493E40,
     TARGET_MODE_ENEMY = 1,
     TARGET_MODE_FRIEND = 2,
+    TARGET_MODE_PARTY = 3,
+    TARGET_MODE_RAID = 4,
     // ClassicAPI modes (4.3.4's types 0 / 2 / 4); values past the engine's.
     TARGET_MODE_ANY = 5,
     TARGET_MODE_ENEMY_PLAYER = 6,
@@ -1965,6 +1983,15 @@ enum Offsets {
     // world frame's camera update adds it to the position for the look-at
     // point (0x004830CA). Camera vtable 0x00808A9C, slot 0x00511F40.
     VTBL_CAMERA_FORWARD = 0x04,
+    // The camera basis's second row, the same way: slot 0x00511FE0 (vtable
+    // 0x00808A9C read from the exe: 0x50D6D0, 0x511F40, 0x511FE0, 0x512080;
+    // benilla-re uicamera/driver.md "Riding a transport": the slots return the
+    // rows forward, left, up). 4.3.4 names it CGCamera::Right (row b of the
+    // facing matrix); in WoW's axes the row points left.
+    VTBL_CAMERA_LEFT = 0x08,
+    // The camera's near clip, the value CGWorldFrame::GetScreenCoordinates
+    // culls against (`znear > clip.z`, benilla-re ui screen_projection.rs).
+    OFF_CAMERA_NEAR_CLIP = 0x38,
     OFF_CAMERA_POSITION = 0x08,
     // `FUN_SET_SELECTION_BY_GUID` (0x00493540) — canonical target setter the
     // native tab-cycle commits through. `__stdcall(uint32_t guidLo, uint32_t
@@ -1981,6 +2008,9 @@ enum Offsets {
     // stopAutoAttackOnTargetChange test at the same point. Both E8 calls,
     // targets checked against the exe.
     CALL_SET_SELECTION_FIRE_TARGET_CHANGED = 0x0049389C,
+    // The event both of those fire: PLAYER_TARGET_CHANGED (`mov ecx,0xC3`
+    // at 0x00493897 before the FUN_FIRE_EVENT_NO_ARGS call above).
+    EVENT_PLAYER_TARGET_CHANGED = 0xC3,
     CALL_SET_SELECTION_ATTACK_START = 0x004938C8,
     // CGGameUI::OnSpriteRightClick — the world right-click on an object:
     // `int __stdcall(uint32_t guidLo, uint32_t guidHi)`, `ret 8`. No active
@@ -1992,15 +2022,36 @@ enum Offsets {
     // an aura-334 gate and skips the target for creatures with type flag
     // 0x20000000; 1.12 has neither. nampower detours it (its offsets.hpp).
     FUN_ON_SPRITE_RIGHT_CLICK = 0x00492820,
-    // The object right-click virtual FUN_ON_SPRITE_RIGHT_CLICK calls after the
-    // select: `void __thiscall(CGObject_C *, int modifier)`, the modifier
-    // being FUN_GAMEUI_IS_KEY_DOWN(0) (`call [edi+0x60]` at 0x00492881).
-    OFF_OBJECT_VTABLE_ON_RIGHT_CLICK = 0x60,
     // Current target-selection GUID (lo/hi), written by
     // `FUN_SET_SELECTION_BY_GUID` — 4.3.4's CGGameUI::m_lockedTarget. The tab
     // cycle compares it with its cursor entry; TargetDirection starts from it.
     VAR_CURRENT_SELECTION_GUID_LO = 0x00B4E2D8,
     VAR_CURRENT_SELECTION_GUID_HI = 0x00B4E2DC,
+    // Script_ClearTarget: `int __fastcall(lua_State *)`. Clears the target
+    // (FUN_SET_SELECTION_BY_GUID(0, 0)) and returns 1 when there was one,
+    // else nil (disassembled 0x00489FF0..; raw_globals batch entry 69).
+    // ToggleGameMenu reads the result: true ends the Escape press.
+    FUN_SCRIPT_CLEAR_TARGET = 0x00489FF0,
+    // The previous target (lo/hi), TargetLastTarget's: the setter stores the
+    // old selection here (`mov [0xB4E2E0], ecx` at 0x00493622) before taking
+    // the new one.
+    VAR_LAST_SELECTION_GUID_LO = 0x00B4E2E0,
+    // Return addresses of the setter's two world-click calls (both E8,
+    // checked against the exe): the left-click select 0x004925D0 calls it at
+    // 0x0049280C, FUN_ON_SPRITE_RIGHT_CLICK at 0x00492870. A select that
+    // returns to one of them is a click on the object.
+    RET_CLICK_SELECT = 0x00492811,
+    RET_SPRITE_RIGHT_CLICK_SELECT = 0x00492875,
+    // Return addresses of 1.12's own attacker auto-targets (E8 calls of the
+    // setter; benilla-re tables/signatures.tsv call offsets): the attacker
+    // state handler 0x006255B0 selects the attacker of the active player
+    // with no selection (0x006259FE, objectlayer/unitcombat), and the spell
+    // start handler 0x006E7700 a caster that cannot assist the player and
+    // targets it, with no selection (0x006E799C, spell/handlers "Spell
+    // start"). 3.80.2 makes both behind TargetEnemyAttacker with reason 1
+    // (FUN_1415a04d0, FUN_1413d66b0); Target::AutoTarget does that.
+    RET_ATTACKER_STATE_SELECT = 0x00625A03,
+    RET_SPELL_START_SELECT = 0x006E79A1,
 
     // ── Hover cursor (the engine's "can I interact with this" verdict) ───
     // SetCursorMode: `void __fastcall(uint32_t mode)` — `cmp [0xBE2C2C],ecx;
@@ -2157,6 +2208,10 @@ enum Offsets {
     // no-attachment inputs (benilla-re objectbase / unitnames).
     OFF_CGOBJECT_SCALE = 0x90,
     OFF_CGOBJECT_BOX_HEIGHT = 0xBC,
+    // The model's bounding box beside it, six floats {min xyz, max xyz} in
+    // model space: 0x615150 copies it there when the model loads (benilla-re
+    // objectlayer/objectbase.md).
+    OFF_CGOBJECT_BOUNDS = 0xC0,
     // CLayoutFrame::SetWidth / SetHeight — `void __thiscall(region +
     // OFF_REGION_ANCHOR, float internal)`, ret 4: store +0x50 / +0x54 and
     // lay the frame out.
@@ -2980,6 +3035,14 @@ enum Offsets {
     // this image: slot 10 reads 0x0076A690. A frame whose vfptr is this
     // address is a live default plate (addon-built plates are normal frames).
     VAR_NAMEPLATE_VTABLE = 0x0081DE50,
+    // CGNamePlateFrame::OnUpdate (0x007CB950) dims the plate: with its unit
+    // looked up (EAX), `mov ecx,[0xB4E2D8]; mov edx,[0xB4E2DC]` (8B 0D …
+    // 8B 15 …, 12 bytes) loads the selection, then no selection or the
+    // unit's GUID == it → alpha 0xFF, else 0x7F, written through vtable
+    // +0x28 when it changed; the button's OnUpdate (Lua scripts) runs after.
+    // benilla-re ui/nameplates "Name, flash and dim"; bytes from its
+    // tables/signatures.tsv row for 0x7cb950 (offset 0x87).
+    SITE_NAMEPLATE_DIM_SELECTION = 0x007CB9D7,
 
     // CGCreature client-side creature-data cache row. Populated by the
     // engine when an NPC GUID becomes visible (the same row the
@@ -3145,6 +3208,9 @@ enum Offsets {
     // secure-frame system here, so the modern lockdown semantics
     // reduce to a plain combat flag check.
     UNIT_FLAG_IN_COMBAT = 0x00080000,
+    // vmangos UNIT_FLAG_PET_IN_COMBAT; the 3.80.2 client's priority targeting
+    // tests the same bit of the same field for "the player is engaged".
+    UNIT_FLAG_PET_IN_COMBAT = 0x00000800,
     // Bit 24 of UNIT_FIELD_FLAGS — set by the engine when a player is
     // possessed (priest's `Mind Control`, warlock's `Subjugate Demon`).
     // Standard vanilla `UNIT_FLAG_POSSESSED = 0x01000000` per emulator
@@ -3574,6 +3640,8 @@ enum Offsets {
     // 1 helpful, 0 neither, from the Targets word and the implicit targets
     // (benilla-re spell/handlers#hostility-classifier).
     FUN_SPELL_HOSTILITY = 0x006EA280,
+    SPELL_HOSTILITY_HELPFUL = 1,
+    SPELL_HOSTILITY_HARMFUL = 2,
     // Inside it: the mounted rung's `mov edx,[ecx+0x1FC]` (8B 91 FC 01 00
     // 00, then `test edx,edx; jle pass`; refuses 0x39) and the stand rung's
     // `call [edx+0xA4]` (FF 92 A4 00 00 00, GetStandState, then `test
@@ -4111,6 +4179,9 @@ enum Offsets {
     // reports a non-zero count).
     OFF_CGPLAYER_COMBO_POINTS = 0x1029,
     OFF_CGPLAYER_COMBO_TARGET = 0x838,
+    // Script_GetComboPoints: `int __fastcall(lua_State *)`, pushes one number,
+    // never nil (benilla-re ui/actionuse "GetComboPoints").
+    FUN_SCRIPT_GET_COMBO_POINTS = 0x0051A190,
 
     // ---- Frame-method registries beyond GameTooltip's ------------------
     // Same per-type registry mechanism as VAR_GAMETOOLTIP_METHOD_REGISTRY
@@ -5594,6 +5665,10 @@ enum Offsets {
     // (0.5, 0x200122). The decal's vertices carry the full ARGB, and the
     // circle blends (source alpha, one), so the alpha byte is its brightness.
     FUN_CGOBJECT_FRAME_UPDATE = 0x00614A90,
+    // A unit's slot 12 itself, CGUnit_C::DrawSelectionCircle: `void
+    // __thiscall(unit)`, plain `ret` (benilla-re crates/objectlayer
+    // unitm1_fp.rs). Slot 12 is called only for the target (0x00614ADA).
+    FUN_UNIT_DRAW_SELECTION_CIRCLE = 0x00608E00,
     // CGObject_C::SetLight / ClearLight — `void __thiscall(obj, int bit)`.
     // SetLight ORs the bit into the object's light bits (+0xB8) and gives the
     // model the light state's emissive colour (+0x178..+0x17A / 255); ClearLight
@@ -5747,6 +5822,11 @@ enum Offsets {
     OFF_QUEST_SLOT_STATE = 0x07,
     QUEST_SLOT_STATE_COMPLETE = 0x02,
     OFF_PLAYER_INFO_FLAGS = 0x08,
+    // PLAYER_DUEL_ARBITER (player index 0, a GUID) and PLAYER_DUEL_TEAM
+    // (index 8, 0 outside a duel, else 1 or 2): the binary's UpdateField table
+    // (0x0083D26C / 0x0083D1F4 entries), public fields of this block.
+    OFF_PLAYER_INFO_DUEL_ARBITER = 0x00,
+    OFF_PLAYER_INFO_DUEL_TEAM = 0x20,
     // PLAYER_GUILDID (player index 3): CGPlayer_C::ApplyTabard (0x005E0762)
     // and the dressing room's tabard arm (0x00504894) read it here.
     OFF_PLAYER_INFO_GUILD_ID = 0x0C,
@@ -5805,6 +5885,16 @@ enum Offsets {
     // SetPVP). CGPlayer_C::OnPlayerFlagsChanged (0x005EE990) tests it at
     // 0x005EEB0D; tortoise-wow and vmangos PLAYER_FLAGS_PVP_DESIRED = 0x200.
     PLAYER_FLAG_PVP_DESIRED = 0x200,
+    // The player that controls a unit: `CGPlayer_C *__fastcall(CGUnit_C *)`,
+    // plain `ret` — the unit's charmer (UNIT_FIELD_CHARMEDBY), else its
+    // creator (UNIT_FIELD_CREATEDBY), else the unit itself; returned only
+    // when that object is a player, else 0 (disassembled 0x00606170..D6;
+    // benilla-re objectlayer/reaction). UnitIsPVPFreeForAll (0x00516540)
+    // reads PLAYER_FLAGS through it for a UNIT_FLAG_PLAYER_CONTROLLED unit.
+    FUN_UNIT_CONTROLLING_PLAYER = 0x00606170,
+    // PLAYER_FLAGS bit 7 — free-for-all PvP (tortoise-wow / vmangos
+    // PLAYER_FLAGS_FFA_PVP = 0x80).
+    PLAYER_FLAG_FFA_PVP = 0x80,
     // OnPlayerFlagsChanged, active player only, when PLAYER_FLAGS_PVP_DESIRED
     // changed: `push 0x1B5; call FUN_GAMEUI_DISPLAY_ERROR` (ERR_PVP_TOGGLE_ON)
     // when it is now set, `push 0x1B6; call` (ERR_PVP_TOGGLE_OFF) when clear.
@@ -6087,6 +6177,19 @@ enum Offsets {
     // target is passed, so passing zero (no target) is fine for most
     // items. `flag` is 0 in every Script_UseContainerItem call site.
     FUN_ITEM_USE = 0x005D8D00,
+    // Script_UseContainerItem's plain-use call of it (E8 rel32, benilla-re
+    // tables/signatures.tsv call offset 0x350): `push 0; lea ecx,[ebp-0x20];
+    // push ecx` — the target there is the selection (0xB4E2D8), or the
+    // player for the onSelf argument (benilla-re ui/bags "Using a container
+    // item"). UseAction's item arm (0x004E607B) passes a zeroed GUID instead.
+    CALL_SCRIPT_USE_CONTAINER_ITEM_USE = 0x004FA430,
+    // UseInventorySlot — `int __fastcall(int slot, const uint64_t *target)`,
+    // plain ret (`mov ebx,edx; mov edi,ecx`; ends in FUN_ITEM_USE(target, 0)).
+    // Script_UseInventoryItem (0x004C8DE0) calls it at offset 0x70 with the
+    // selection, or the player for onSelf (benilla-re ui/inventoryverbs
+    // "Using and cursor tests").
+    FUN_USE_INVENTORY_SLOT = 0x004C7970,
+    CALL_SCRIPT_USE_INVENTORY_ITEM_SLOT = 0x004C8E50,
     // The player's self-resurrect item — `CGItem_C *__thiscall(CGPlayer_C *)`,
     // plain `ret`: the first carried item (equipment, bags, backpack,
     // keyring) with an on-use spell of effect 94 (SELF_RESURRECT), or null.
@@ -8493,6 +8596,9 @@ enum Offsets {
     OFF_CREATURE_NAME = 0x00,      // char *Name[4]; [0] is the primary name
     OFF_CREATURE_SUBNAME = 0x10,   // char *SubName (title); "" if none
     OFF_CREATURE_TYPE_FLAGS = 0x14, // CreatureTypeFlags (SuppressesWoundAnim 0x006125F0 reads it)
+    // Its boss bit: vmangos CREATURE_TYPEFLAGS_BOSS; the 3.80.2 client's
+    // priority targeting reads bit 2 of the same template field as "boss".
+    CREATURE_TYPE_FLAG_BOSS = 0x4,
     OFF_CREATURE_TYPE = 0x18,      // CreatureType (1=Beast, 7=Humanoid, ...)
     OFF_CREATURE_FAMILY = 0x1C,    // CreatureFamily
     OFF_CREATURE_RANK = 0x20,      // 0=normal,1=elite,2=rareelite,3=worldboss,4=rare
@@ -9493,6 +9599,32 @@ enum Offsets {
     // for the GUID is the "no implicit target" form — engine falls back
     // to the player's current selected target.
     FUN_SPELL_CAST_DISPATCH = 0x004B3300,
+    // The two engine calls of it (E8 rel32; benilla-re tables/signatures.tsv
+    // call offsets 0x66 / 0x74, its only callers per tables/calls.tsv).
+    // Script_CastSpell and Script_CastSpellByName load the selection
+    // (`mov ebx,[0xB4E2DC]; mov edi,[0xB4E2D8]`), or the player for the
+    // onSelf argument, and push it as the target — the "current target"
+    // stand-in for a cast with no unit given.
+    CALL_SCRIPT_CAST_SPELL_DISPATCH = 0x004B4356,
+    CALL_SCRIPT_CAST_SPELL_BY_NAME_DISPATCH = 0x004B4B24,
+    // The engine's "current target" fallbacks that 3.80.2 resolves through
+    // AnyTarget (FUN_1405dd690) — benilla-re tables/signatures.tsv bytes:
+    //   - PressPetAction (0x004BD1D0, `__fastcall(const uint32_t *word,
+    //     const uint64_t *target)`) takes the selection for a zero target:
+    //     `mov edx,[0xB4E2D8]; mov eax,[0xB4E2DC]` (8B 15 … A1 …, 11 bytes)
+    //     at +0x42, then stores edx/eax as lo/hi (ui/petbar "Pressing a pet
+    //     action"). Pet bar clicks, CastPetAction and the pet book pass zero.
+    //   - Script_PetAttack (0x004BE4A0, 13 bytes: `mov ecx,0xB4E2D8; call;
+    //     xor eax,eax; ret`) hands the selection itself to PressPetAttack
+    //     (0x004BD630, `__fastcall(const uint64_t *target)`) at +0x05.
+    //   - Script_DoEmote (0x0049FD30) loads the selection into esi/edi
+    //     (`mov esi,[0xB4E2D8]; mov edi,[0xB4E2DC]`, 8B 35 … 8B 3D …, 12
+    //     bytes) at +0x84, ecx holding the Lua state across it; a name
+    //     argument replaces it after (ui/chatemote "DoEmote").
+    SITE_PRESS_PET_ACTION_TARGET_LOAD = 0x004BD212,
+    FUN_PRESS_PET_ATTACK = 0x004BD630,
+    CALL_SCRIPT_PET_ATTACK_PRESS = 0x004BE4A5,
+    SITE_DO_EMOTE_TARGET_LOAD = 0x0049FDB4,
 
     // Macro "primary spell" parser — `__fastcall(MacroEntry *entry)`.
     // Walks the macro body (stored at `entry + OFF_MACRO_BODY`) line
@@ -9708,6 +9840,9 @@ enum Offsets {
     VAR_MAP_RECORDS = 0x00C0DAA8,
     VAR_MAP_COUNT = 0x00C0DAAC,
     OFF_MAP_INSTANCE_TYPE = 0x08,
+    // That column's battleground value (the layout comment above; arenas
+    // carry it too, PvP::Arena).
+    MAP_INSTANCE_TYPE_BATTLEGROUND = 3,
     OFF_MAP_NAME = 0x10,
 
     // Currently-loaded map ID (the Map.dbc ID for the zone/instance the
@@ -13021,9 +13156,13 @@ enum Offsets {
     // these are the non-toggling start/stop it calls internally.
     //   START: __thiscall(player, const uint64_t *targetGuid). Validates
     //     CanAttack on the target, sends CMSG_ATTACKSWING (opcode 0x141), and
-    //     stamps the victim GUID at [player+0xC48]. Idempotent / switch-aware
-    //     on a valid target (never stops an in-progress attack); an
-    //     unattackable target while attacking routes to STOP.
+    //     stamps the victim GUID at [player+0xC48]. Idempotent on a valid
+    //     target (never stops an in-progress attack), but it does NOT switch
+    //     one: the swing is sent only while no victim is stamped (or the word at
+    //     [player+0xC54] is set), so moving a
+    //     running attack takes STOP first (the target setter's ReleaseTarget
+    //     does exactly that). An unattackable target while attacking routes
+    //     to STOP.
     //   STOP: __fastcall(player). Clears the attack state; self-guards on the
     //     attack flag, so it is a no-op (safe) when not attacking.
     //   RESOLVE_TARGET: __thiscall(player, uint64_t *outGuid) -> int. Validates

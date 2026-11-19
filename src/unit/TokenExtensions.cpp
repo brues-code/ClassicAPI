@@ -39,7 +39,9 @@
 //   resolve nil. `anyleftinteract` is retail's alias of `anyinteract`.
 //
 // - `softenemy` / `softfriend` / `anyenemy` / `anyfriend` — the soft
-//   enemy and soft friend, backed by `Target::SoftUnit`.
+//   enemy and soft friend, backed by `Target::SoftUnit`; `anytarget` —
+//   the soft enemy, else friend, else interact while the target is empty or
+//   loose, else the target (`Target::SoftUnit::AnyTarget`).
 //
 // - `0x<hex>` — a raw 64-bit GUID literal (SuperWoW's format:
 //   `"0x"` + up to 16 hex digits). Lets every `Unit*` accept a GUID
@@ -58,7 +60,11 @@
 // `LAB_005159d3..0x00515A2C` walker instruction-for-instruction
 // (SStrCmpI "target" + ObjectByGUID + read UNIT_FIELD_TARGET).
 //
-// Resolution order in the hook: raw GUID, focus, the soft targets,
+// - `target*` while the target is a SoftTargetForce one
+//   (`Target::Reason::Hidden`): nil, as 3.80.2's resolver answers
+//   `reason == 4 ? 0 : target`, so `targettarget` is nil too.
+//
+// Resolution order in the hook: raw GUID, a hidden target, focus, the soft targets,
 // nameplateN (requires a digit), markN (one digit 1..8), totemN (one
 // digit 1..4), then a name. Each branch short-circuits; on no match
 // the original engine resolver runs unchanged.
@@ -67,6 +73,7 @@
 #include "Offsets.h"
 #include "nameplate/Walk.h"
 #include "object/Resolve.h"
+#include "target/Reason.h"
 #include "target/SoftInteract.h"
 #include "target/SoftUnit.h"
 #include "totem/Tracker.h"
@@ -128,6 +135,8 @@ constexpr const char kAnyEnemyPrefix[] = "anyenemy";
 constexpr int kAnyEnemyPrefixLen = static_cast<int>(sizeof(kAnyEnemyPrefix) - 1);
 constexpr const char kAnyFriendPrefix[] = "anyfriend";
 constexpr int kAnyFriendPrefixLen = static_cast<int>(sizeof(kAnyFriendPrefix) - 1);
+constexpr const char kAnyTargetPrefix[] = "anytarget";
+constexpr int kAnyTargetPrefixLen = static_cast<int>(sizeof(kAnyTargetPrefix) - 1);
 constexpr const char kMarkPrefix[] = "mark";
 constexpr int kMarkPrefixLen = static_cast<int>(sizeof(kMarkPrefix) - 1);
 constexpr const char kTotemPrefix[] = "totem";
@@ -361,6 +370,10 @@ uint64_t __fastcall Hook_h(const char *token) {
             return WalkSuffix(guid, p);
     }
 
+    // A Force target is hidden from `target` and every chain built on it.
+    if (Target::Reason::Hidden() && IsTargetChain(token))
+        return 0;
+
     // A letter-only prefix of ours whose rest is no `target` chain: a name
     // gets the first look, else it stays the quiet nil it always was.
     bool prefixOnly = false;
@@ -380,7 +393,7 @@ uint64_t __fastcall Hook_h(const char *token) {
 
     // The soft targets: `softinteract*` / `anyinteract*` /
     // `anyleftinteract*`, `softenemy*` / `anyenemy*`, `softfriend*` /
-    // `anyfriend*`. None of these prefixes starts any engine token, so a
+    // `anyfriend*`, `anytarget*`. None of these prefixes starts any engine token, so a
     // match is ours.
     using Target::SoftUnit::Side;
     struct Soft {
@@ -398,6 +411,7 @@ uint64_t __fastcall Hook_h(const char *token) {
          [] { return Target::SoftUnit::Get(Side::Friend); }},
         {kAnyFriendPrefix, kAnyFriendPrefixLen,
          [] { return Target::SoftUnit::GetAny(Side::Friend); }},
+        {kAnyTargetPrefix, kAnyTargetPrefixLen, &Target::SoftUnit::AnyTarget},
     };
     for (const Soft &soft : kSoft) {
         if (Game::StrCmpI(token, soft.prefix, soft.len) == 0) {

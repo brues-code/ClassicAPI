@@ -298,6 +298,7 @@ build instructions.
   - [`PLAYER_LEVEL_CHANGED` event](#player_level_changed-event)
   - [`PLAYER_MOUNT_DISPLAY_CHANGED` event](#player_mount_display_changed-event)
   - [`PLAYER_SOFT_ENEMY_CHANGED` / `PLAYER_SOFT_FRIEND_CHANGED` events](#player_soft_enemy_changed--player_soft_friend_changed-events)
+  - [`PLAYER_SOFT_TARGET_INTERACTION` event](#player_soft_target_interaction-event)
   - [`PLAYER_SOFT_INTERACT_CHANGED` event](#player_soft_interact_changed-event)
   - [`PLAYER_SWING` event](#player_swing-event)
   - [`PLAYER_SWING_RANGE_UPDATE` event](#player_swing_range_update-event)
@@ -1221,6 +1222,7 @@ build instructions.
   - [`TargetNearest([reverse])`](#targetnearestreverse)
   - [`TargetNearestEnemyPlayer([reverse])`](#targetnearestenemyplayerreverse)
   - [`TargetNearestFriendPlayer([reverse])`](#targetnearestfriendplayerreverse)
+  - [Scored Tab targeting (`TargetNearestUseNew`)](#scored-tab-targeting-targetnearestusenew)
   - [`InteractUnit(unit [, exactMatch])`](#interactunitunit--exactmatch)
   - [`C_PlayerInteractionManager.InteractUnit(unit [, exactMatch [, looseTargeting]])`](#c_playerinteractionmanagerinteractunitunit--exactmatch--loosetargeting)
   - [Soft interact (`softinteract` / `anyinteract`)](#soft-interact-softinteract--anyinteract)
@@ -7263,10 +7265,20 @@ f:SetScript("OnEvent", function()
 end)
 ```
 
+### `PLAYER_SOFT_TARGET_INTERACTION` event
+
+Fires when
+[`C_PlayerInteractionManager.InteractUnit`](#c_playerinteractionmanagerinteractunitunit--exactmatch--loosetargeting)
+uses a `"soft…"` or `"any…"` token, for example when you press the
+Interact Key. It has no arguments.
+
 ### `PLAYER_SOFT_INTERACT_CHANGED` event
 
 Fires when the `"softinteract"` object changes to a different object, or
-to nothing. See [Soft interact](#soft-interact-softinteract--anyinteract).
+to nothing, and when you become able or unable to interact with it from
+where you stand. It fires before `PLAYER_SOFT_ENEMY_CHANGED` and
+`PLAYER_SOFT_FRIEND_CHANGED`. See
+[Soft interact](#soft-interact-softinteract--anyinteract).
 
 - `arg1` is the GUID of the previous object, or `nil`.
 - `arg2` is the GUID of the new object, or `nil`.
@@ -26733,7 +26745,7 @@ More target-selection functions, next to `TargetNearestEnemy`,
 `ClearTarget`.
 
 Not backported (no equivalent here — soft-target / action-camera features):
-`TargetPriorityHighlightStart/End`, `IsTargetLoose`, `TargetToggle`.
+`TargetPriorityHighlightStart/End`, `TargetToggle`.
 
 ### `GetPlayerFacing()`
 
@@ -26812,6 +26824,64 @@ Like `TargetNearest`, but only enemy **players**.
 
 Like `TargetNearest`, but only friendly **players** that you can assist.
 
+### Scored Tab targeting (`TargetNearestUseNew`)
+
+When `TargetNearestUseNew` is `1`, the Tab functions pick from the scored
+list that [soft targeting](#soft-enemy-and-soft-friend-softenemy--softfriend--anyenemy--anyfriend)
+uses. These functions are `TargetNearestEnemy`, `TargetNearestFriend`,
+`TargetNearestPartyMember`, `TargetNearestRaidMember`, `TargetNearest`,
+`TargetNearestEnemyPlayer` and `TargetNearestFriendPlayer`. The Tab key and
+an attack with no target also use the scored list. When the cvar is `0`
+(the default), the functions work as described above.
+
+**The order.** Units near the center of the camera and near you come
+first. An enemy that casts or channels a spell counts for more. A unit must
+be on the screen, in line of sight and in range. Critters are skipped.
+
+**Soft units first.** When there is a `"softenemy"`, `TargetNearestEnemy`
+targets it, unless it is already your locked target. `TargetNearestFriend`
+does the same with `"softfriend"`. When your target is loose and the
+function accepts it, the call only locks the target.
+`PLAYER_TARGET_CHANGED` does not fire for this change.
+
+**The cycle.** Each call selects the best unit that the cycle has not
+selected yet. A call with `reverse` goes back through the units that the
+cycle selected, in the reverse order. After you go back, a call without
+`reverse` replaces the units that came after the target.
+
+**Restarts.** The cycle starts again from the best unit in these cases:
+
+- 3 seconds after the target changed.
+- The camera turned more than 20° since the target changed.
+- You moved more than 15 yards since the target changed.
+
+The cycle forgets the units that it selected after 6 seconds, a turn of
+more than 80°, or a move of more than 100 yards. It also forgets them when
+your target is cleared. When you click a unit, the next call continues from
+that unit.
+
+**Combat.** When your target is an enemy in combat with you, only enemies
+in combat count (`TargetPriorityCombatLock`). When no enemy in combat is in
+front of the camera, all enemies count
+(`TargetPriorityCombatLockContextualRelaxation`). When no enemy in combat
+qualifies, all enemies count. When no unit qualifies, the target does not
+change.
+
+`TargetNearestRaidMember` selects only the members of your own party. In a
+raid, that is your group.
+
+| cvar | default | values |
+|---|---|---|
+| `TargetNearestUseNew` | `0` | `1`: the Tab functions use the scored list. `0`: they use the list of nearest units. |
+| `TargetPriorityAllowAnyOnScreen` | `0` | `1`: when your target does not qualify, enemies that are not in combat also count at once. `2`: the same, and when no unit qualifies, units out of range or behind you also count. |
+| `TargetPriorityContinueFromManualTarget` | `1` | `1`: after you click a unit, the next call continues from it. `0`: the next call starts from the best unit. |
+| `TargetPriorityAutoTargetIgnoreWindow` | `500` | Milliseconds. For this time after the game set your target (for example `TargetEnemyAttacker`), that target does not set the place in the cycle. |
+| `TargetPriorityPvpLock` | `0` | `1`: when `TargetPriorityPvp` is `2` and your target is a PvP unit in a duel, in free-for-all PvP or on a battleground, only PvP units count. `0`: no such rule. |
+
+```
+/dump SetCVar("TargetNearestUseNew", "1"), GetCVar("TargetNearestUseNew")
+```
+
 ### `InteractUnit(unit [, exactMatch])`
 
 Targets a unit or object and interacts with it. The result is the same
@@ -26856,10 +26926,12 @@ returns a boolean.
 
 - `unit` and `exactMatch` are the same as for `InteractUnit`. Use
   `"anyinteract"` for the object that the Interact Key uses.
-- `looseTargeting` is `true` if you do not give it. When it is `true` and
-  you have a target, the interaction does not change your target. When it
-  is `false`, or when you have no target, a unit that you interact with
-  becomes your target.
+- `looseTargeting` is `true` if you do not give it. When it is `true`, a
+  unit that you interact with becomes your loose target, but a target that
+  you chose does not change. A `"soft…"` or `"any…"` token also fires
+  [`PLAYER_SOFT_TARGET_INTERACTION`](#player_soft_target_interaction-event).
+  When it is `false`, a unit that you interact with becomes your target.
+- `"anyleftinteract"` does nothing and returns `false`.
 
 Returns `true` if the interaction ran, or `false` if nothing matched.
 
@@ -26871,7 +26943,7 @@ end
 
 ### Soft interact (`softinteract` / `anyinteract`)
 
-Soft interact picks the nearest object in front of you that you can
+Soft interact picks the best object in front of you that you can
 interact with. Bind **Interact With Target** to a key, then press it to
 interact with that object. This is the Interact Key.
 
@@ -26885,33 +26957,40 @@ To turn it off:
 **What it picks.** It picks only an object that shows an interact cursor
 when you put the mouse over it. For example: an NPC with a service, a
 corpse that you can loot or skin, a mailbox, a chest, or an herb or mining
-node. It does not pick an enemy that you can only attack. The object must
-be on the screen, and inside the arc and the range of the settings below.
-If more than one object qualifies, it picks the nearest one.
+node. It does not pick an enemy that you can only attack, or a player's
+corpse. A game object or a dead unit must be within 16 yards. The object
+must be on the screen and inside the arc. If more than one object
+qualifies, the best one wins, the same as for the
+[soft enemy](#soft-enemy-and-soft-friend-softenemy--softfriend--anyenemy--anyfriend):
+near the center of the view and near to you. While you fish, your bobber
+is picked first, wherever it is on the screen. When `SoftTargetMatchLocked`
+is `1`, your locked target is picked when you can interact with it now.
+The pick is made again 10 times each second. Between two picks, the object
+can only be removed, for example when it goes out of the range below.
 
 **Unit tokens.**
 
 - `"softinteract"` is the object that soft interact picked. It is empty
   when nothing qualifies or when soft interact is off.
-- `"anyinteract"` is your target when you can interact with it now. This
-  is true also when the target is behind you. When your target is too far
-  away, `"anyinteract"` is the same as `"softinteract"`. If
-  `"softinteract"` is empty, `"anyinteract"` is your target. When you
+- `"anyinteract"` is your locked target when you can interact with it now.
+  This is true also when the target is behind you. When your target is
+  too far away or loose, `"anyinteract"` is the same as `"softinteract"`.
+  If `"softinteract"` is empty, `"anyinteract"` is your target. When you
   cannot interact with your target, `"anyinteract"` is the same as
   `"softinteract"`.
 - `"anyleftinteract"` is the same as `"anyinteract"`.
 
-Both tokens can point at a game object or a corpse. `UnitGUID` returns
+Both tokens can point at a game object. `UnitGUID` returns
 the GUID of that object. Functions that read unit data, such as
-`UnitName`, return nothing for a game object or a corpse.
+`UnitName`, return nothing for a game object.
 
 **Settings.**
 
 | cvar | default | values |
 |---|---|---|
 | `SoftTargetInteract` | `3` | `0` off, `1` gamepad, `2` keyboard and mouse, `3` always. Only `2` and `3` turn soft interact on. |
-| `SoftTargetInteractArc` | `0` | `0`: the object must be directly in front of the camera, within about 1.2 yards of a line from you in the direction of the camera. `1`: the object must be within 30 degrees of the direction of the camera, on each side. `2`: the object can be in any direction. The arc follows the camera, not the direction that your character faces. |
-| `SoftTargetInteractRange` | `10` | The maximum distance in yards. The range cannot be more than the `targetNearestDistance` cvar. |
+| `SoftTargetInteractArc` | `0` | `0`: directly in front. The object is very near, or the center line of the camera or of your character goes through it. `1`: also inside a small cone in front of the camera. `2`: anywhere on the screen. |
+| `SoftTargetInteractRange` | `10` | The maximum distance in yards. A soft object farther away is removed. |
 | `SoftTargetInteractRangeIsHard` | `0` | `0`: an object that you can interact with now is picked also when it is past the range. `1`: the range always applies. |
 
 **The icon.** When `SoftTargetIconInteract` is `1`, an icon shows over the
@@ -26919,8 +26998,8 @@ picked object. For a game object, such as a mailbox, a chest or a node,
 `SoftTargetIconGameObject` must also be `1`. The icon is the cursor
 image that the mouse shows over the object (see
 [`SetUnitCursorTexture`](#setunitcursortexturetexture-unit--style--includelowpriority)).
-For a unit, the icon is above its name. For a game object or a corpse, the
-icon is above the top of the object. When you are too far away, the icon is
+For a unit, the icon is above its name. For a game object, the icon is
+above the top of the object. When you are too far away, the icon is
 the grey "Unable" form. The icon is hidden when the object is off the screen.
 
 | cvar | default | values |
@@ -26928,6 +27007,23 @@ the grey "Unable" form. The icon is hidden when the object is off the screen.
 | `SoftTargetIconInteract` | `0` | `1` shows the icon, `0` hides it. |
 | `SoftTargetIconGameObject` | `0` | `1` shows the icon over a game object, `0` hides it. The icon also needs `SoftTargetIconInteract`. |
 | `SoftTargetNameplateSize` | `19` | The size of the icon, and of the soft enemy and soft friend icons. |
+
+**The tooltip.** The game tooltip can show a soft target without the
+mouse over it. It shows the first of these whose setting is on: the soft
+interact object, your target, the soft enemy, the soft friend. It shows
+when that object changes. After `SoftTargetTooltipDurationMs`, it fades
+out. When none of them is set, the tooltip hides. While the mouse is over
+an object in the world, that object has the tooltip. **Show Target
+Tooltip** in the Interact Key options turns on the soft interact and the
+soft enemy tooltips together.
+
+| cvar | default | values |
+|---|---|---|
+| `SoftTargetTooltipInteract` | `0` | `1` shows the tooltip of `"softinteract"`. |
+| `SoftTargetTooltipLocked` | `0` | `1` shows the tooltip of your target. |
+| `SoftTargetTooltipEnemy` | `0` | `1` shows the tooltip of `"softenemy"`. |
+| `SoftTargetTooltipFriend` | `0` | `1` shows the tooltip of `"softfriend"`. |
+| `SoftTargetTooltipDurationMs` | `2000` | The time in milliseconds before the tooltip fades out. `0` keeps it. |
 
 When the picked object changes,
 [`PLAYER_SOFT_INTERACT_CHANGED`](#player_soft_interact_changed-event)
@@ -26939,8 +27035,8 @@ fires.
 
 ### Soft enemy and soft friend (`softenemy` / `softfriend` / `anyenemy` / `anyfriend`)
 
-Soft enemy picks the nearest enemy near you, and soft friend picks the
-nearest friendly unit. They do not change your target. An addon or a
+Soft enemy picks the best enemy near you, and soft friend picks the
+best friendly unit. They never change a target that you chose. An addon or a
 macro uses the picked unit through its token.
 
 Both are off by default. To turn them on:
@@ -26950,52 +27046,103 @@ Both are off by default. To turn them on:
 /console SoftTargetFriend 3
 ```
 
-**What they pick.** Soft enemy picks a unit that Tab targeting can select
-as an enemy: a living unit that you can attack. Soft friend picks a living
-unit that you can assist, for example a party member. Neither picks you.
-The unit must be on the screen, and inside the arc and the range of the
-settings below. If more than one unit qualifies, it picks the nearest one.
+**What they pick.** Soft enemy picks a living unit that you can attack and
+that does not show as dead.
+When you are not flagged for PvP, it does not pick a unit that is flagged
+for PvP, except in a duel, in free-for-all PvP, or on a battleground. Soft friend picks a living, friendly unit that you can assist, for
+example a party member. Neither picks you or a unit that you control. The
+unit must be on the screen, in line of sight (for an enemy that is not a
+player), not far behind you, and inside the arc. Units farther from where
+you and the camera face must be nearer: the full distance (51 yards) is
+allowed only near the front. If more than one unit qualifies, the best one
+wins. The best unit is near the center of the view and near to you. A unit
+in melee range, a unit in the center of the camera, and an enemy that is in
+combat with you while you attack count for more. Critters count for much
+less. The pick is made again 10 times each second. Between two picks, a soft
+unit can only be removed, for example when it goes out of the range below.
+
+**PvP.** In a duel, in free-for-all PvP, or on a battleground, PvP units
+count for much more. A PvP player is a player that is flagged for PvP, in
+free-for-all PvP, or in a duel with you. `TargetPriorityPvp` sets which
+units count for more:
+
+- `1`: PvP players and bosses. They also count as enemies in combat with
+  you.
+- `2`: the same, and every other unit that is flagged for PvP.
+- `3`: PvP players only.
+- `0`: no unit.
 
 **Locked and loose targets.** A target that you choose (with a click,
 Tab, `/target` or `TargetUnit`) is a locked target. A target that soft
-targeting sets is a loose target. A click on a loose target makes it
-locked. [`IsTargetLoose()`](#istargetloose) tells the two apart.
+targeting sets is a loose target. Soft targeting never replaces a locked
+target. A click on a loose target makes it locked.
+[`IsTargetLoose()`](#istargetloose) tells the two apart.
 
 **Your target.** When `SoftTargetMatchLocked` is `1`, a locked target is
-the soft unit when it qualifies. For example, when you target an enemy
-inside the range, `"softenemy"` is that enemy, also when another enemy is
-nearer. When `SoftTargetWithLocked` is `0`, there is no soft enemy and no
-soft friend while you have a locked target. A loose target counts for
-neither setting.
+the soft unit when it qualifies, also when another unit is better. When it
+is `2`, a loose target that your spell set also counts. When
+`SoftTargetWithLocked` is `0`, there is no soft enemy and no soft friend
+while you have a target. When you attack your locked target, it is not the
+soft enemy, unless `SoftTargetWithLocked` is `2`.
 
-**Attacks.** When you have no target, **Attack Target**, `/startattack`,
-`AttackTarget()` and `StartAttack()` attack `"softenemy"`. Your target
-stays empty.
+**Attacks.** **Attack Target**, `/startattack`, `AttackTarget()` and
+`StartAttack()` attack `"anyenemy"` when you give no unit. That is
+`"softenemy"`, unless your locked target is an enemy that qualifies. Your
+target does not change. When you attack a different unit, that unit
+becomes your locked target.
 
-**Spells.** When you have no target, a harmful spell goes to
-`"softenemy"` and a helpful spell goes to `"softfriend"`. A spell that
-only you can receive still goes to you. If the soft unit is out of the
-spell's range, the cast fails with "Out of range". When a harmful spell
-goes off, its unit becomes your loose target.
+**Spells.** When you give no unit, a harmful spell goes to `"anyenemy"`
+and a helpful spell goes to `"anyfriend"`. When that unit is empty, or when
+the spell is not harmful or helpful, the spell goes to `"anytarget"`. This
+rule applies to action buttons, `/cast`, `CastSpellByName()`, `CastSpell()`,
+`UseContainerItem()` and `UseInventoryItem()`. When you give a unit, or set
+the `onSelf` argument, the spell goes to that unit. For example, with a
+friendly locked target, a harmful spell goes to `"softenemy"`. A spell that
+only you can receive still goes to you.
 
-**Loose targets follow.** When `SoftTargetForce` is `1` and your target
-is loose, your target changes to each new `"softenemy"`. When there is no
-soft enemy, the loose target is cleared. When `SoftTargetForce` is `2`,
-the same happens with `"softfriend"`. Soft targeting never changes a
-locked target, and it never selects a target when you have none.
+**Range and results.** `IsActionInRange()` tests the range to the unit
+that the spell goes to. If that unit is out of the spell's range, the cast
+fails with "Out of range". When your harmful spell lands on `"softenemy"`
+and `TargetAutoEnemy` is `1`, that unit becomes your loose target.
+`TargetAutoFriend` does the same for a helpful spell on `"softfriend"`.
+
+**Pets and emotes.** When you give no unit, `PetAttack()`, a click on the
+pet bar, `CastPetAction()` and `CastSpell()` for the pet book use
+`"anytarget"`. `DoEmote()` uses `"anytarget"` when you give no name, or a
+name that starts with `%`.
+
+**The forced target.** When `SoftTargetForce` is `1` and you have no
+locked target, your target is set to `"softenemy"`, and it changes to each
+new `"softenemy"`. This target is hidden: `UnitExists("target")` is
+`false` for it, and `PLAYER_TARGET_CHANGED` does not fire. A running
+attack moves to each new soft enemy. When `stopAutoAttackOnTargetChange`
+is `1`, the attack stops instead. When there is no soft enemy and
+`SoftTargetEnemyArc` is `0`, the forced target is cleared at once. With
+another arc, it is cleared when it is no longer a soft unit. When
+`SoftTargetForce` is `2`, the same happens with `"softfriend"`.
+
+`ClearTarget()` clears a loose target that is a soft unit, but returns
+false for it, unless you attack. So Escape opens the game menu, and soft
+targeting sets the forced target again.
+
+A click on the forced target, or a spell that makes it your loose target,
+shows it: `UnitExists("target")` becomes `true` and `PLAYER_TARGET_CHANGED`
+fires. To show the soft unit in a frame, use
+[`PLAYER_SOFT_ENEMY_CHANGED`](#player_soft_enemy_changed--player_soft_friend_changed-events)
+and `"softenemy"`.
 
 **Unit tokens.**
 
 - `"softenemy"` is the unit that soft enemy picked. It is empty when
   nothing qualifies or when soft enemy is off.
 - `"softfriend"` is the unit that soft friend picked, in the same way.
-- `"anyenemy"` is the first of these that exists:
-  1. your target, when it qualifies as a soft enemy
-  2. `"softenemy"`
-  3. your target
-  4. `"softfriend"`
-- `"anyfriend"` is the same as `"anyenemy"`, with enemy and friend
-  changed around.
+- `"anyenemy"` is `"softenemy"`. It is your target instead when your
+  target is locked and qualifies as a soft enemy, or when there is no soft
+  enemy.
+- `"anyfriend"` is the same, for `"softfriend"`.
+- `"anytarget"` is the first of `"softenemy"` and `"softfriend"` that
+  exists, when your target is empty or loose. If neither exists and you
+  have no target, it is `"softinteract"`. Otherwise, it is your target.
 
 A `target` suffix also works, for example `"softenemytarget"`.
 
@@ -27013,16 +27160,24 @@ with `"target"` and one time with `"softenemy"`. `"anyenemy"` and
 |---|---|---|
 | `SoftTargetEnemy` | `1` | `0` off, `1` gamepad, `2` keyboard and mouse, `3` always. Only `2` and `3` turn soft enemy on. |
 | `SoftTargetFriend` | `0` | The same values, for soft friend. |
-| `SoftTargetEnemyArc` / `SoftTargetFriendArc` | `0` | The same values as `SoftTargetInteractArc`. |
-| `SoftTargetEnemyRange` / `SoftTargetFriendRange` | `45` | The maximum distance in yards. The range cannot be more than the `targetNearestDistance` cvar. |
-| `SoftTargetMatchLocked` | `1` | `1`: your target is the soft unit when it qualifies. `0`: the soft unit is always the nearest unit that qualifies. |
-| `SoftTargetWithLocked` | `1` | `0`: no soft enemy and no soft friend while you have a locked target. `1` and `2`: they are picked also while you have a locked target. |
-| `SoftTargetForce` | `1` | `1`: a loose target follows `"softenemy"`. `2`: a loose target follows `"softfriend"`. `0`: a loose target stays. |
+| `SoftTargetEnemyArc` / `SoftTargetFriendArc` | `0` | `0`: directly in front. The unit is very near, or the center line of the camera or of your character goes through it. `1`: also inside a small cone in front of the camera. `2`: anywhere on the screen. |
+| `SoftTargetEnemyRange` / `SoftTargetFriendRange` | `45` | The maximum distance in yards. A soft unit farther away is removed. `0` turns the side off. |
+| `SoftTargetMatchLocked` | `1` | `1`: a locked target is the soft unit when it qualifies. `2`: a loose target that your spell set also counts. `0`: the soft unit is always the best unit. |
+| `SoftTargetWithLocked` | `1` | `0`: no soft enemy and no soft friend while you have a target. `1`: they are picked also while you have a target. `2`: the same, and your attacked target can also be the soft enemy. |
+| `TargetPriorityCombatLock` | `1` | `1`: while you attack, an enemy that is in combat counts for more. `2`: only an enemy in combat that attacks. |
+| `TargetPriorityCombatLockContextualRelaxation` | `1` | `1`: enemies in combat count for more only when one of them is in front of the camera. `0`: always. |
+| `TargetPriorityPvp` | `1` | In a duel, in free-for-all PvP, or on a battleground: `1` PvP players and bosses count for more, `2` also every unit that is flagged for PvP, `3` PvP players only, `0` no unit. |
+| `SoftTargetForce` | `1` | `1`: with no locked target, your target is set to `"softenemy"`. `2`: the same with `"softfriend"`. `0`: soft targeting sets no target. |
+| `TargetAutoEnemy` | `1` | `1`: your harmful spell that lands on `"softenemy"` makes it your loose target. `0`: it does not. This setting is saved for each character. |
+| `TargetAutoFriend` | `0` | The same, for your helpful spell on `"softfriend"`. This setting is saved for each character. |
+| `TargetEnemyAttacker` | `1` | `1`: a unit becomes your target when its melee attack hits you, or when it starts to cast a spell at you and cannot help you. This occurs when you have no target or one that the game set. `0`: being attacked never sets your target. While you attack, a running attack does not move to it. This setting is saved for each character. |
+| `TargetAutoLock` | `1` | `1`: a target that the game sets (`TargetEnemyAttacker`, `C_PlayerInteractionManager.InteractUnit` on a unit token) is locked. `0`: it is loose. This setting is saved for each character. |
 
 **The circles.** A selection circle shows under `"softenemy"` and under
 `"softfriend"`. It has the same color as the circle under your target, but
 it is smaller and dimmer. When the soft unit is also your target, the unit shows only
-the target circle. `ObjectSelectionCircle` `0` hides the soft circles with
+one circle. A loose target, for example the forced target, shows the soft
+circle. A locked target shows the target circle. `ObjectSelectionCircle` `0` hides the soft circles with
 the target circle.
 
 **The names.** The name of `"softenemy"` and of `"softfriend"` shows above
@@ -27061,11 +27216,14 @@ fires.
 Returns `true` when your target is loose, and `false` when it is locked.
 See [Soft enemy and soft friend](#soft-enemy-and-soft-friend-softenemy--softfriend--anyenemy--anyfriend).
 
-- A spell that goes off on `"softenemy"` makes a loose target.
+- The forced target of `SoftTargetForce` is loose. It is hidden from
+  `"target"`, so `UnitExists("target")` is `false` for it.
+- A spell that makes its unit your target (`TargetAutoEnemy`,
+  `TargetAutoFriend`) makes a loose target.
+- The Interact Key (`C_PlayerInteractionManager.InteractUnit` with
+  `"anyinteract"`) makes a loose target.
 - A target that you choose is locked.
-- After `/cleartarget`, the result is `true` while `SoftTargetForce` is
-  `1` and soft enemy is on, or `2` and soft friend is on. Otherwise it is
-  `false`.
+- With no target, the result is `false`.
 
 ```lua
 if UnitExists("target") and IsTargetLoose() then

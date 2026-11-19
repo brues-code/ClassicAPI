@@ -38,20 +38,25 @@
 // looseTargeting]])` is the modern name the INTERACTTARGET /
 // INTERACTMOUSEOVER bindings call (with "anyinteract", see
 // target/SoftInteract.cpp): the same resolve and right-click, returning a
-// boolean. looseTargeting (default true) keeps the current target: on
-// retail 12.1.5 the Interact Key on a nearer NPC opens its dialog while a
-// farther unit stays targeted, and with no target it targets the NPC. Only
-// a unit other than the target would be selected, so only then does the
-// right-click run without its select (InteractKeepingTarget); everything
-// else is the engine's own right-click, which nampower also detours.
+// boolean. looseTargeting (default true) sets the target as the 3.80.2
+// client's InteractUnit does (FUN_1417409e0): for a `soft` / `any` token
+// with InteractKey (and PLAYER_SOFT_TARGET_INTERACTION), for any other token
+// with Auto — both loose reasons, so a chosen target stays (retail 12.1.5:
+// the Interact Key on a nearer NPC opens its dialog while a farther unit
+// stays targeted, and with no target it targets the NPC). Either way it is
+// the engine's own right-click, which nampower also detours; with
+// looseTargeting its select runs for the loose reason
+// (Target::Reason::SelectFor) instead of as a click. Both refuse
+// `anyleftinteract`, as 3.80.2's does.
 //
 // 4.3.4's taint gate is dropped: 1.12 has no secure environment, and every
 // vanilla action function (TargetUnit, CastSpellByName, …) is callable.
 
 #include "Game.h"
 #include "Offsets.h"
-#include "input/Modifier.h"
+#include "event/Custom.h"
 #include "object/Resolve.h"
+#include "target/Reason.h"
 #include "unit/Identity.h"
 #include "unit/TokenResolve.h"
 
@@ -63,7 +68,11 @@ namespace Unit::Interact {
 namespace {
 
 using OnSpriteRightClick_t = int(__stdcall *)(uint32_t guidLo, uint32_t guidHi);
-using OnRightClick_t = void(__thiscall *)(void *object, int modifier);
+
+const Game::Doc::Event kInteractionDoc{
+    "Unit", "Fires when the interact key uses a soft target.", {}};
+const Event::Custom::AutoReserve _interaction{"PLAYER_SOFT_TARGET_INTERACTION",
+                                              &kInteractionDoc};
 
 uint64_t ResolveGuid(void *L, const char *token) {
     if (_stricmp(token, "mouseover") == 0)
@@ -74,29 +83,28 @@ uint64_t ResolveGuid(void *L, const char *token) {
                                           Game::Lua::ToFlag(L, 2));
 }
 
-// FUN_ON_SPRITE_RIGHT_CLICK without its select (FUN_SET_SELECTION_BY_GUID):
-// the active-player gate, then the object's right-click virtual.
-bool InteractKeepingTarget(void *object) {
-    if (Object::ByGuid(Offsets::TYPEMASK_PLAYER, Unit::Identity::PlayerGuid()) == nullptr)
-        return true;
-    const int modifier = Input::Modifier::IsKeyDown(0) ? 1 : 0;
-    const auto vtable = *static_cast<uintptr_t *const *>(object);
-    reinterpret_cast<OnRightClick_t>(
-        vtable[Offsets::OFF_OBJECT_VTABLE_ON_RIGHT_CLICK / sizeof(uintptr_t)])(object, modifier);
-    return true;
+bool RightClick(uint64_t guid) {
+    return reinterpret_cast<OnSpriteRightClick_t>(Offsets::FUN_ON_SPRITE_RIGHT_CLICK)(
+               static_cast<uint32_t>(guid), static_cast<uint32_t>(guid >> 32)) != 0;
 }
 
 bool Interact(void *L, bool loose) {
-    const uint64_t guid = ResolveGuid(L, Game::Lua::ToString(L, 1));
-    const uint64_t target = Game::Read<uint64_t>(Offsets::VAR_CURRENT_SELECTION_GUID_LO);
-    if (loose && target != 0 && guid != target) {
-        // The select stores only units (slot 0x58), so only a unit would move
-        // the target.
-        if (void *unit = Object::ByGuid(Offsets::TYPEMASK_UNIT, guid))
-            return InteractKeepingTarget(unit);
-    }
-    return reinterpret_cast<OnSpriteRightClick_t>(Offsets::FUN_ON_SPRITE_RIGHT_CLICK)(
-               static_cast<uint32_t>(guid), static_cast<uint32_t>(guid >> 32)) != 0;
+    const char *token = Game::Lua::ToString(L, 1);
+    if (_stricmp(token, "anyleftinteract") == 0)
+        return false;
+    const uint64_t guid = ResolveGuid(L, token);
+    if (!loose)
+        return RightClick(guid);
+    if (guid == 0 || Object::ByGuid(Offsets::TYPEMASK_OBJECT, guid) == nullptr)
+        return false;
+    const bool soft = _strnicmp(token, "soft", 4) == 0 || _strnicmp(token, "any", 3) == 0;
+    if (soft)
+        Event::Custom::Fire(_interaction.Slot(), "");
+    // The select stores only units (slot 0x58); for anything else it is a
+    // no-op, as it is for a chosen target the loose reason may not replace.
+    const Target::Reason::SelectFor why{soft ? Target::Reason::InteractKey
+                                             : Target::Reason::Auto};
+    return RightClick(guid);
 }
 
 int __fastcall Script_InteractUnit(void *L) {

@@ -23,11 +23,18 @@
 // at the same step, by a mirror of the unit's slot 12 (0x608E00) that differs
 // only in the radius and the colour's alpha byte. A soft unit that is also the target keeps
 // the engine's own circle.
+//
+// A loose target (Target::Reason) gets the soft circle in place of the
+// target's: retail with SoftTargetForce 1 draws the forced target's circle
+// thin and dim, and a click on it (locking it) gives the full target circle.
+// The engine draws the target's circle only through the unit's slot 12
+// (FUN_UNIT_DRAW_SELECTION_CIRCLE), so that is where the swap is made.
 
 #include "Game.h"
 #include "Offsets.h"
 #include "cvar/Factory.h"
 #include "object/Resolve.h"
+#include "target/Reason.h"
 #include "target/SoftUnit.h"
 #include "tick/FrameTick.h"
 #include "unit/Identity.h"
@@ -56,7 +63,10 @@ using GxState_t = void(__cdecl *)();
 constexpr float kSoftScale = 0.85f;
 constexpr uint32_t kSoftAlpha = 0x80;
 
+using DrawTargetCircle_t = void(__fastcall *)(void *unit, void *edx);
+
 FrameUpdate_t g_origFrameUpdate = nullptr;
+DrawTargetCircle_t g_origDrawTargetCircle = nullptr;
 
 // The soft units (FrameTick), 0 when the side is off.
 uint64_t g_soft[2] = {};
@@ -111,6 +121,19 @@ void __fastcall FrameUpdate_h(void *obj, void *edx, int arg) {
 const Game::HookAutoRegister _hook{Offsets::FUN_CGOBJECT_FRAME_UPDATE,
                                    reinterpret_cast<void *>(&FrameUpdate_h),
                                    reinterpret_cast<void **>(&g_origFrameUpdate)};
+
+// The target's circle (slot 12, called only for the target): the soft one
+// for a loose target.
+void __fastcall DrawTargetCircle_h(void *unit, void *edx) {
+    if (Reason::IsLoose())
+        DrawCircle(unit, kSoftScale, kSoftAlpha);
+    else
+        g_origDrawTargetCircle(unit, edx);
+}
+
+const Game::HookAutoRegister _circleHook{Offsets::FUN_UNIT_DRAW_SELECTION_CIRCLE,
+                                         reinterpret_cast<void *>(&DrawTargetCircle_h),
+                                         reinterpret_cast<void **>(&g_origDrawTargetCircle)};
 
 // Picked on the UI frame, after the scene: the scan takes only objects the
 // scene drew this frame, so a pick from WorldTick (before the scene) found

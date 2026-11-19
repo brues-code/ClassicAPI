@@ -11,35 +11,42 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// The soft enemy and soft friend — Classic Era 1.15's `softenemy` /
-// `softfriend` / `anyenemy` / `anyfriend` tokens, their
-// PLAYER_SOFT_ENEMY_CHANGED / PLAYER_SOFT_FRIEND_CHANGED events and the
-// SoftTargetEnemy* / SoftTargetFriend* / SoftTargetMatchLocked cvars.
+// The soft enemy and soft friend, and the soft driver all three soft targets
+// (with Target::SoftInteract) run from — the `softenemy` / `softfriend` /
+// `anyenemy` / `anyfriend` tokens, their PLAYER_SOFT_ENEMY_CHANGED /
+// PLAYER_SOFT_FRIEND_CHANGED events and the SoftTargetEnemy* /
+// SoftTargetFriend* / SoftTargetMatchLocked / SoftTargetWithLocked cvars, as
+// the 3.80.2 Classic client runs them (docs/notes/soft-targeting-3802.md).
 //
-// The scan is Target::SoftTarget's (on screen, arc, range, nearest). What
-// qualifies is what tab targeting takes: FUN_TARGET_CANDIDATE_VALID's enemy
-// or friend mode (TargetNearestEnemy / TargetNearestFriend), minus the
-// creature types tab targeting never picks. The player is never a candidate.
+// This is its per-frame soft driver (FUN_1405dd710 around FUN_1405e0650),
+// run on the UI frame tick:
+//   1. a loose target whose object is gone is cleared (Target::Reason);
+//   2. the candidate list (Target::Priority) is rebuilt when its delay has
+//      passed; with a target and SoftTargetWithLocked 0 both soft units are
+//      cleared instead, and nothing else runs;
+//   3. on a rebuild, the pick (FUN_1405e1410; interact's in
+//      Target::SoftInteract): with SoftTargetMatchLocked 1
+//      a locked target, with 2 also a target your spell set (AutoSpell), is
+//      the side's soft unit when it is that side's candidate — even with the
+//      side off. Otherwise the first candidate of the side in soft order
+//      that is in view, in range and inside the side's arc;
+//   4. every frame, the check that keeps them (FUN_1405e1900): still that
+//      side's candidate and no critter, within SoftTarget<Side>Range of the
+//      player (3D, centre to centre); the soft enemy is also dropped when it
+//      is a locked target the player is attacking (unless
+//      SoftTargetWithLocked 2). Between rebuilds a soft unit can only be
+//      dropped, never replaced;
+//   5. SoftTargetForce (Target::Reason), then the events of the sides that
+//      changed (interact, enemy, friend), then, on a rebuild, the
+//      loose-target expiry.
+// A side is on with SoftTarget<Side> 2 or 3 (1 is gamepad, which 1.12 lacks)
+// and a range above 0. The tokens read the last result; nothing picks on a
+// read.
 //
-// Classic Era 1.15 probes:
-//   - the nearest candidate wins, not the one nearest the forward line;
-//   - SoftTargetMatchLocked 1: a target that qualifies is `softenemy`, even
-//     with a nearer enemy; past the range the nearer enemy stays;
-//   - SoftTargetMatchLocked 0: `softenemy` stays the nearest enemy, and
-//     `anyenemy` is the target that qualifies;
-//   - SoftTargetWithLocked 0: no `softenemy` and no `softfriend` while
-//     there is a target, hostile or friendly; 1 and 2 pick as usual (no
-//     probe told them apart);
-//   - `softfriend` picked a party member, not the player;
-//   - a friendly target is never `softenemy`, a hostile one never
-//     `softfriend` — the match keeps to the side's test.
-//
-// Defaults are Classic Era's: SoftTargetEnemy 1 (gamepad, so off here),
-// SoftTargetFriend 0, both ranges 45, SoftTargetMatchLocked 1,
-// SoftTargetWithLocked 1. The arcs are not: Classic Era's 2 picks the
-// nearest unit wherever the camera looks, so both default to 0, the
-// interact arc's (the unit in front of the camera).
-// Picked on the UI frame tick and when something asks (a read of a token).
+// Defaults: SoftTargetEnemy 1 (gamepad, so off here), SoftTargetFriend 0,
+// both ranges 45, SoftTargetMatchLocked 1, SoftTargetWithLocked 1 — Classic
+// Era's and 3.80.2's. Both arcs default to 0 (in front: point blank, or the
+// camera's or the facing's line through the unit), not their 2.
 // The softenemy / softfriend unit events (UNIT_HEALTH, …) follow the pick via
 // Unit::TokenEvents, as they do for focus.
 
@@ -50,17 +57,18 @@
 #include "cvar/Factory.h"
 #include "event/Custom.h"
 #include "object/Resolve.h"
-#include "target/Loose.h"
-#include "target/Nearest.h"
+#include "target/Priority.h"
+#include "target/Reason.h"
+#include "target/SoftInteract.h"
 #include "target/SoftTarget.h"
 #include "tick/FrameTick.h"
+#include "unit/Identity.h"
+#include "unit/Position.h"
 #include "unit/TokenEvents.h"
 
 namespace Target::SoftUnit {
 
 namespace {
-
-using Valid_t = int(__fastcall *)(void *player, void *cand, int mode);
 
 const Game::Doc::Event kEnemyChangedDoc{"Unit", "Fires when the softenemy unit changes.", {}};
 const Game::Doc::Event kFriendChangedDoc{"Unit", "Fires when the softfriend unit changes.", {}};
@@ -69,110 +77,124 @@ const Event::Custom::AutoReserve _friendChanged{"PLAYER_SOFT_FRIEND_CHANGED",
                                                 &kFriendChangedDoc};
 
 struct State {
-    int mode; // FUN_TARGET_CANDIDATE_VALID's
+    uint32_t type; // the side's candidate flag
     const Event::Custom::AutoReserve *changed;
     CVar::Factory::Handle enable;
     CVar::Factory::Handle arc;
     CVar::Factory::Handle range;
     uint64_t soft;
-    // The last pick's inputs: the drain it read and the locked target it
-    // saw. `picked` false forces the next read to pick (a cvar changed).
-    bool picked;
-    uint32_t pickedDrain;
-    uint64_t pickedTarget;
 };
 
-State g_enemy{Offsets::TARGET_MODE_ENEMY, &_enemyChanged};
-State g_friend{Offsets::TARGET_MODE_FRIEND, &_friendChanged};
+State g_enemy{Priority::Enemy, &_enemyChanged};
+State g_friend{Priority::Friend, &_friendChanged};
 
 CVar::Factory::Handle g_matchLocked = nullptr;
 CVar::Factory::Handle g_withLocked = nullptr;
 
-constexpr float kDefaultRange = 45.0f;
-
 State &Of(Side side) { return side == Side::Enemy ? g_enemy : g_friend; }
 
-bool Accept(const SoftTarget::Area &area, void *object, float distSq, void *ctx) {
-    const auto &st = *static_cast<const State *>(ctx);
-    return distSq <= area.rangeSq &&
-           reinterpret_cast<Valid_t>(Offsets::FUN_TARGET_CANDIDATE_VALID)(area.player, object,
-                                                                          st.mode) != 0 &&
-           !Nearest::NotTabTarget(object);
+bool On(const State &st) {
+    return SoftTarget::Enabled(st.enable) && CVar::Factory::GetFloat(st.range) > 0.0f;
 }
 
-// The target, when it passes the side's whole test.
-bool Qualifies(const State &st, const SoftTarget::Area &area, uint64_t guid) {
-    if (guid == 0)
-        return false;
-    void *object = Object::ByGuid(Offsets::TYPEMASK_UNIT, guid);
-    float distSq;
-    return object != nullptr && SoftTarget::InView(area, guid, object, distSq) &&
-           Accept(area, object, distSq, const_cast<State *>(&st));
-}
-
-uint64_t Pick(State &st) {
-    if (!SoftTarget::Enabled(st.enable))
-        return 0;
-    // A loose target is not a locked one: it neither stops the pick nor is
-    // matched (retail: the loose target follows the nearer soft enemy).
-    const uint64_t target = Loose::Locked();
-    if (target != 0 && CVar::Factory::GetInt(g_withLocked) == 0)
-        return 0;
-    SoftTarget::Area area;
-    if (!SoftTarget::Begin(area, st.arc, st.range, kDefaultRange))
-        return 0;
-    if (CVar::Factory::GetInt(g_matchLocked) != 0 && Qualifies(st, area, target))
+// FUN_1405e1280 for enemy / friend.
+uint64_t Pick(const State &st, uint32_t lockedFlags, uint64_t target) {
+    if ((lockedFlags & st.type) != 0)
         return target;
-    return SoftTarget::Nearest(area, Offsets::TYPEMASK_UNIT, &Accept, &st);
+    if (!On(st))
+        return 0;
+    return Priority::First(st.type, CVar::Factory::GetInt(st.arc));
 }
 
-// One pick per side per scene drain. The scan reads what the last drain drew,
-// which changes only when the next one does, so every read until then — the
-// circles, the icons, Lua's token reads — shares the first one's answer. The
-// locked target and the cvars are the other inputs; changing either repicks
-// at once.
-void Refresh(State &st) {
-    const uint32_t drain = SoftTarget::Drains();
-    const uint64_t target = Loose::Locked();
-    if (st.picked && st.pickedDrain == drain && st.pickedTarget == target)
+// FUN_1405e1410's locked-target match.
+uint32_t LockedFlags(uint64_t target) {
+    if (target == 0)
+        return 0;
+    const int match = CVar::Factory::GetInt(g_matchLocked);
+    const Reason::Why why = Reason::Current();
+    const bool loose = Reason::IsLoose();
+    if ((match == 1 && !loose) || (match == 2 && (!loose || why == Reason::AutoSpell)))
+        return Priority::FlagsOf(target);
+    return 0;
+}
+
+bool WithinRange(uint64_t guid, CVar::Factory::Handle range) {
+    void *player = const_cast<uint8_t *>(Unit::Identity::PlayerObject());
+    void *unit = Object::ByGuid(Offsets::TYPEMASK_UNIT, guid);
+    float a[3], b[3];
+    if (player == nullptr || !Unit::Position::Read(player, a) || !Unit::Position::Read(unit, b))
+        return false;
+    const float r = CVar::Factory::GetFloat(range);
+    return Game::DistanceSq(a, b) <= r * r;
+}
+
+// FUN_1405e1900 for enemy / friend.
+void Validate(State &st, uint64_t target) {
+    if (st.soft == 0)
         return;
-    st.picked = true;
-    st.pickedDrain = drain;
-    st.pickedTarget = target;
-    const uint64_t guid = Pick(st);
-    if (guid == st.soft)
+    bool keep = (Priority::FlagsOf(st.soft) & (st.type | Priority::Critter)) == st.type &&
+                WithinRange(st.soft, st.range);
+    if (keep && &st == &g_enemy && st.soft == target && !Reason::IsLoose() &&
+        CVar::Factory::GetInt(g_withLocked) != 2) {
+        const auto *player = Unit::Identity::PlayerObject();
+        keep = player == nullptr ||
+               Game::Read<uint64_t>(player, Offsets::OFF_UNIT_ATTACK_TARGET) == 0;
+    }
+    if (!keep)
+        st.soft = 0;
+}
+
+void Changed(State &st, uint64_t old) {
+    if (st.soft == old)
         return;
-    const uint64_t old = st.soft;
-    st.soft = guid;
     // The token's unit events follow the pick (the engine watches a unit
     // that holds a token), so the registration moves before the event fires.
     Unit::TokenEvents::Refresh(old);
-    Unit::TokenEvents::Refresh(guid);
+    Unit::TokenEvents::Refresh(st.soft);
     Event::Custom::Fire(st.changed->Slot(), "");
 }
 
 void OnFrameTick() {
+    Reason::DropVanished();
     if (!Object::RegistryReady()) {
         g_enemy.soft = 0;
         g_friend.soft = 0;
+        SoftInteract::Clear();
         return;
     }
-    Refresh(g_enemy);
-    Refresh(g_friend);
+    const uint64_t oldEnemy = g_enemy.soft;
+    const uint64_t oldFriend = g_friend.soft;
+    const bool rebuilt = Priority::Update();
+    const uint64_t target = Reason::Selection();
+    const bool allowed = target == 0 || CVar::Factory::GetInt(g_withLocked) != 0;
+    if (!allowed) {
+        g_enemy.soft = 0;
+        g_friend.soft = 0;
+        SoftInteract::Clear();
+        Priority::Invalidate();
+    } else if (rebuilt) {
+        const uint32_t locked = LockedFlags(target);
+        g_enemy.soft = Pick(g_enemy, locked, target);
+        g_friend.soft = Pick(g_friend, locked, target);
+        SoftInteract::Pick(locked, target);
+    }
+    SoftInteract::Validate();
+    Validate(g_enemy, target);
+    Validate(g_friend, target);
+    if (allowed)
+        Reason::ApplyForce();
+    SoftInteract::Notify();
+    Changed(g_enemy, oldEnemy);
+    Changed(g_friend, oldFriend);
+    if (rebuilt)
+        Reason::Expire();
 }
 
 const Tick::FrameTick::AutoSubscribe _tick{&OnFrameTick};
 
-int __fastcall SettingChanged(CVar::Factory::Handle, const char *, const char *, void *) {
-    g_enemy.picked = false;
-    g_friend.picked = false;
-    return 1;
-}
-
 void Register() {
     const auto reg = [](const char *name, const char *help, const char *value) {
-        return CVar::Factory::Register(name, help, Offsets::CVAR_CATEGORY_GAME, value,
-                                       &SettingChanged);
+        return CVar::Factory::Register(name, help, Offsets::CVAR_CATEGORY_GAME, value);
     };
     g_enemy.enable = reg("SoftTargetEnemy",
         "Sets when enemy soft targeting should be enabled. 0=off, 1=gamepad, 2=KBM, 3=always", "1");
@@ -196,37 +218,39 @@ const Game::ModuleAutoRegister _autoreg{&Register};
 
 } // namespace
 
-uint64_t Get(Side side) {
-    if (!Object::RegistryReady())
-        return 0;
-    State &st = Of(side);
-    Refresh(st);
-    return st.soft;
-}
+uint64_t Get(Side side) { return Of(side).soft; }
 
 uint64_t Current(Side side) { return Of(side).soft; }
 
-// Classic Era 1.15 probes, `anyfriend`: a target that qualifies, else
-// `softfriend`, else the target whatever its reaction (a hostile one, or a
-// friendly NPC the friend test rejects), else `softenemy` (no target, no
-// friend near). `anyenemy` takes the same order with the sides swapped; its
-// last two steps are by symmetry, not probed.
 bool Enabled(Side side) { return SoftTarget::Enabled(Of(side).enable); }
 
+int Arc(Side side) { return CVar::Factory::GetInt(Of(side).arc); }
+
+// 3.80.2's ActionTarget (FUN_1405dd580), which its `anyenemy` / `anyfriend`
+// resolve through: with no soft unit, the target; the soft unit while there
+// is no target, it is the target, or the target is loose; the target when
+// it is a candidate of the side; else the soft unit.
 uint64_t GetAny(Side side) {
-    if (!Object::RegistryReady())
-        return 0;
-    State &st = Of(side);
-    SoftTarget::Area area;
-    const uint64_t target = Loose::Selection();
-    if (SoftTarget::Enabled(st.enable) &&
-        SoftTarget::Begin(area, st.arc, st.range, kDefaultRange) && Qualifies(st, area, target))
+    const State &st = Of(side);
+    const uint64_t target = Reason::Selection();
+    if (st.soft == 0)
         return target;
-    if (const uint64_t soft = Get(side))
-        return soft;
-    if (target != 0)
-        return target;
-    return Get(side == Side::Enemy ? Side::Friend : Side::Enemy);
+    if (target == 0 || st.soft == target || Reason::IsLoose())
+        return st.soft;
+    return Priority::Has(target, st.type) ? target : st.soft;
+}
+
+uint64_t AnyTarget() {
+    const uint64_t target = Reason::Selection();
+    if (target == 0 || Reason::IsLoose()) {
+        if (g_enemy.soft != 0)
+            return g_enemy.soft;
+        if (g_friend.soft != 0)
+            return g_friend.soft;
+        if (target == 0)
+            return SoftInteract::Get();
+    }
+    return target;
 }
 
 } // namespace Target::SoftUnit

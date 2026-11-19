@@ -17,17 +17,27 @@
 
 namespace Target::SoftInteract {
 
-// The `softinteract` GUID: the object the interact key would use, or 0.
-// Read by the token resolver in `unit/TokenExtensions.cpp`.
+// The `softinteract` GUID: the object the interact key would use, or 0 —
+// the soft driver's last result. Read by the token resolver in
+// `unit/TokenExtensions.cpp`.
 uint64_t Get();
 
-// The `anyinteract` GUID: the current target when the player can interact
-// with it right now (in reach; on screen or not), else `softinteract`, else
-// the target when it is interactable but out of reach, else 0.
+// The `anyinteract` GUID: the soft object, or the target when it is locked
+// and the player can interact with it right now, or the target when there is
+// no soft object.
 uint64_t GetAny();
 
 // True when the player can interact with `object` right now: the hover
 // cursor shows its interact mode, not the Unable form.
 bool InReach(void *object);
+
+// The soft driver's (Target::SoftUnit) steps: the pick on a rebuild of the
+// candidate list (`lockedFlags` the matched locked target's candidate flags),
+// the check every frame, the clear, and the change event after the three
+// sides are settled.
+void Pick(uint32_t lockedFlags, uint64_t target);
+void Validate();
+void Clear();
+void Notify();
 
 } // namespace Target::SoftInteract

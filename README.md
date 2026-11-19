@@ -345,6 +345,7 @@ when launching with `-console`), not as Lua functions. See the
 | `PLAYER_SOFT_ENEMY_CHANGED` | *(none)* |
 | `PLAYER_SOFT_FRIEND_CHANGED` | *(none)* |
 | `PLAYER_SOFT_INTERACT_CHANGED` | `oldTarget, newTarget` |
+| `PLAYER_SOFT_TARGET_INTERACTION` | *(none)* |
 | `PLAYER_STARTED_LOOKING` | *(none)* |
 | `PLAYER_STOPPED_LOOKING` | *(none)* |
 | `PLAYER_STARTED_MOVING` | *(none)* |

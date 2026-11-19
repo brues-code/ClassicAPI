@@ -27,6 +27,12 @@ uint32_t Mode(void *object);
 // may use the object now.
 bool IsUsable(void *object);
 
+// What the cursor over `object` says about interacting with it: None (no
+// interact mode — none, the base mode, Point, Cast or Attack), Out (the
+// Unable form, or a named game object the player cannot use now), Now.
+enum class Reach { None, Out, Now };
+Reach InteractReach(void *object);
+
 // Writes the image file of `mode` over `object` into `buf`. False, with
 // `buf` untouched, for no mode, for a quest giver's cursor (retail shows no
 // icon for one), and for the base (resting) mode unless `lowPriority` —
