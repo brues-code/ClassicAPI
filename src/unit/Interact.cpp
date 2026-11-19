@@ -43,10 +43,10 @@
 // with InteractKey (and PLAYER_SOFT_TARGET_INTERACTION), for any other token
 // with Auto — both loose reasons, so a chosen target stays (retail 12.1.5:
 // the Interact Key on a nearer NPC opens its dialog while a farther unit
-// stays targeted, and with no target it targets the NPC) — then the object's
-// right-click runs without the engine's own select
-// (InteractKeepingTarget). Without looseTargeting it is the engine's own
-// right-click, select included, which nampower also detours. Both refuse
+// stays targeted, and with no target it targets the NPC). Either way it is
+// the engine's own right-click, which nampower also detours; with
+// looseTargeting its select runs for the loose reason
+// (Target::Reason::SelectFor) instead of as a click. Both refuse
 // `anyleftinteract`, as 3.80.2's does.
 //
 // 4.3.4's taint gate is dropped: 1.12 has no secure environment, and every
@@ -55,7 +55,6 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "event/Custom.h"
-#include "input/Modifier.h"
 #include "object/Resolve.h"
 #include "target/Reason.h"
 #include "unit/Identity.h"
@@ -74,7 +73,6 @@ const Game::Doc::Event kInteractionDoc{
     "Unit", "Fires when the interact key uses a soft target.", {}};
 const Event::Custom::AutoReserve _interaction{"PLAYER_SOFT_TARGET_INTERACTION",
                                               &kInteractionDoc};
-using OnRightClick_t = void(__thiscall *)(void *object, int modifier);
 
 uint64_t ResolveGuid(void *L, const char *token) {
     if (_stricmp(token, "mouseover") == 0)
@@ -85,16 +83,9 @@ uint64_t ResolveGuid(void *L, const char *token) {
                                           Game::Lua::ToFlag(L, 2));
 }
 
-// FUN_ON_SPRITE_RIGHT_CLICK without its select (FUN_SET_SELECTION_BY_GUID):
-// the active-player gate, then the object's right-click virtual.
-bool InteractKeepingTarget(void *object) {
-    if (Object::ByGuid(Offsets::TYPEMASK_PLAYER, Unit::Identity::PlayerGuid()) == nullptr)
-        return true;
-    const int modifier = Input::Modifier::IsKeyDown(0) ? 1 : 0;
-    const auto vtable = *static_cast<uintptr_t *const *>(object);
-    reinterpret_cast<OnRightClick_t>(
-        vtable[Offsets::OFF_OBJECT_VTABLE_ON_RIGHT_CLICK / sizeof(uintptr_t)])(object, modifier);
-    return true;
+bool RightClick(uint64_t guid) {
+    return reinterpret_cast<OnSpriteRightClick_t>(Offsets::FUN_ON_SPRITE_RIGHT_CLICK)(
+               static_cast<uint32_t>(guid), static_cast<uint32_t>(guid >> 32)) != 0;
 }
 
 bool Interact(void *L, bool loose) {
@@ -103,18 +94,17 @@ bool Interact(void *L, bool loose) {
         return false;
     const uint64_t guid = ResolveGuid(L, token);
     if (!loose)
-        return reinterpret_cast<OnSpriteRightClick_t>(Offsets::FUN_ON_SPRITE_RIGHT_CLICK)(
-                   static_cast<uint32_t>(guid), static_cast<uint32_t>(guid >> 32)) != 0;
-    void *object = guid != 0 ? Object::ByGuid(Offsets::TYPEMASK_OBJECT, guid) : nullptr;
-    if (object == nullptr)
+        return RightClick(guid);
+    if (guid == 0 || Object::ByGuid(Offsets::TYPEMASK_OBJECT, guid) == nullptr)
         return false;
     const bool soft = _strnicmp(token, "soft", 4) == 0 || _strnicmp(token, "any", 3) == 0;
     if (soft)
         Event::Custom::Fire(_interaction.Slot(), "");
     // The select stores only units (slot 0x58); for anything else it is a
-    // no-op, as it is for a chosen target.
-    Target::Reason::Set(guid, soft ? Target::Reason::InteractKey : Target::Reason::Auto);
-    return InteractKeepingTarget(object);
+    // no-op, as it is for a chosen target the loose reason may not replace.
+    const Target::Reason::SelectFor why{soft ? Target::Reason::InteractKey
+                                             : Target::Reason::Auto};
+    return RightClick(guid);
 }
 
 int __fastcall Script_InteractUnit(void *L) {

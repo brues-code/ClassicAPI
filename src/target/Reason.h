@@ -53,6 +53,18 @@ bool Hidden();
 // its reason.
 void Set(uint64_t guid, Why why);
 
+// For its lifetime, the next select is for `why` (by Set()'s rules) instead
+// of the reason its call site implies — for an engine function that selects
+// on its own, such as the world right-click, called on a loose reason's
+// behalf.
+class SelectFor {
+  public:
+    explicit SelectFor(Why why);
+    ~SelectFor();
+    SelectFor(const SelectFor &) = delete;
+    SelectFor &operator=(const SelectFor &) = delete;
+};
+
 // Changes the current target's reason in place: no select, no event
 // (3.80.2's Tab over a loose target that already fits).
 void Promote(Why why);

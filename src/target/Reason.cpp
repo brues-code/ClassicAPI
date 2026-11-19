@@ -87,7 +87,7 @@ Select_t g_selectOriginal = nullptr;
 
 uint64_t g_guid = 0;   // the target the reason belongs to
 Why g_reason = None;   // its reason
-Why g_pending = None;  // Set()'s reason for the select it is making
+Why g_pending = None;  // SelectFor's reason for the next select
 bool g_reforce = false; // a clear asks for SoftTargetForce next frame
 
 CVar::Factory::Handle g_force = nullptr;
@@ -335,10 +335,13 @@ void Expire() {
         Set(0, Chosen);
 }
 
+SelectFor::SelectFor(Why why) { g_pending = why; }
+
+SelectFor::~SelectFor() { g_pending = None; }
+
 void Set(uint64_t guid, Why why) {
-    g_pending = why;
+    const SelectFor pending{why};
     Select(guid);
-    g_pending = None;
 }
 
 void Promote(Why why) {
