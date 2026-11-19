@@ -118,3 +118,5 @@ LESS_THAN_OPERAND = "< %s";
 TIME_UNIT_DELIMITER = " ";
 SHOW_CLASS_COLOR = "직업 색상 표시";
 TALENT_TOOLTIP_ADDPREVIEWPOINT = "이 특성을 선택하려면 왼쪽 클릭하십시오.";
+TARGET_TOOLTIP_OPTION = "대상 표시 툴팁";
+OPTION_TOOLTIP_TARGET_TOOLTIP = "마우스 커서를 올리지 않아도 대상의 툴팁을 표시합니다.";

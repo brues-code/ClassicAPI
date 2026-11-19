@@ -118,6 +118,22 @@ local function RegisterInteractKey()
 	local gameObjectIcon = AddCVarCheckbox(category, "SoftTargetIconGameObject", CLASSICAPI_GAME_OBJECT_ICON, CLASSICAPI_GAME_OBJECT_ICON_TOOLTIP);
 	gameObjectIcon:SetParentInitializer(interactIconInitializer, function() return interactIcon:GetValue(); end);
 
+	-- Retail's "Show Target Tooltip" (Accessibility): one box for the enemy and interact tooltips.
+	do
+		local function GetValue()
+			return C_CVar.GetCVarBool("SoftTargetTooltipEnemy") and C_CVar.GetCVarBool("SoftTargetTooltipInteract");
+		end
+
+		local function SetValue(value)
+			SetCVar("SoftTargetTooltipEnemy", value and "1" or "0");
+			SetCVar("SoftTargetTooltipInteract", value and "1" or "0");
+		end
+
+		local setting = Settings.RegisterProxySetting(category, "PROXY_TARGET_TOOLTIP",
+			Settings.VarType.Boolean, TARGET_TOOLTIP_OPTION, false, GetValue, SetValue);
+		Settings.CreateCheckbox(category, setting, OPTION_TOOLTIP_TARGET_TOOLTIP);
+	end
+
 	AddHeader(layout, CLASSICAPI_ALL_SOFT_TARGET_ICONS);
 	AddCVarCheckbox(category, "SoftTargetLowPriorityIcons", CLASSICAPI_LOW_PRIORITY_ICONS, CLASSICAPI_LOW_PRIORITY_ICONS_TOOLTIP);
 	AddNumberBox(category, "SoftTargetNameplateSize", CLASSICAPI_ICON_SIZE, CLASSICAPI_ICON_SIZE_TOOLTIP);

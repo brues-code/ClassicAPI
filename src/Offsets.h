@@ -553,6 +553,22 @@ enum Offsets {
     //     GO field at +0x370.
     FUN_GAMETOOLTIP_BUILD_UNIT = 0x00529FE0,
     FUN_GAMETOOLTIP_BUILD_GAMEOBJECT = 0x0052AA20,
+    // The tooltip's fade — `void __thiscall(tooltip)`: hides at once when the
+    // anchor is the cursor (6), else arms a 2-second fade. The mouseover
+    // publisher (0x00492890) calls it on GameTooltip when the hovered object
+    // changes (benilla-re ui/mouseover.md "The tooltip stays put").
+    FUN_GAMETOOLTIP_FADE_OUT = 0x00530AE0,
+    // SetOwner's core — `void __thiscall(tooltip, void *ownerLayout, int
+    // anchor, float x, float y)`, `ret 0x10`: clears the tooltip, then stores
+    // the owner (a frame + OFF_FRAME_LAYOUT_SUBOBJECT, or 0) and the anchor.
+    // The mouseover publisher calls it as (UIParent + 0x24, 6, 0, 0) at
+    // 0x00492A1E (disassembled; benilla-re ui/mouseover.md).
+    FUN_GAMETOOLTIP_SET_OWNER = 0x0052FFE0,
+    // A game object's floating-tooltip test — vtable slot, `int
+    // __thiscall(object)`: nonzero for the generic type with its first data
+    // word set. The publisher (0x004929FA) gives such an object's tooltip to
+    // UIParent at the cursor instead of firing OnTooltipSetDefaultAnchor.
+    OFF_CGOBJECT_VTBL_FLOATING_TOOLTIP = 0x5C,
     // Pointer to the GameTooltip CFrameScriptObject the engine's mouseover
     // setter builds into (`DAT_00b4b3c4`; the value at this address is the
     // tooltip object). `Frame::Attributes` reads it to build the unit tooltip

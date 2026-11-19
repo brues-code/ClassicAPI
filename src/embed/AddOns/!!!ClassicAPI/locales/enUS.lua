@@ -429,3 +429,5 @@ LESS_THAN_OPERAND = "< %s";
 TIME_UNIT_DELIMITER = " ";
 SHOW_CLASS_COLOR = "Show Class Color";
 TALENT_TOOLTIP_ADDPREVIEWPOINT = "Left click to select this talent.";
+TARGET_TOOLTIP_OPTION = "Show Target Tooltip";
+OPTION_TOOLTIP_TARGET_TOOLTIP = "Shows your target's tooltip without needing to mouse over it";

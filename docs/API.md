@@ -26949,6 +26949,23 @@ the grey "Unable" form. The icon is hidden when the object is off the screen.
 | `SoftTargetIconGameObject` | `0` | `1` shows the icon over a game object, `0` hides it. The icon also needs `SoftTargetIconInteract`. |
 | `SoftTargetNameplateSize` | `19` | The size of the icon, and of the soft enemy and soft friend icons. |
 
+**The tooltip.** The game tooltip can show a soft target without the
+mouse over it. It shows the first of these whose setting is on: the soft
+interact object, your target, the soft enemy, the soft friend. It shows
+when that object changes. After `SoftTargetTooltipDurationMs`, it fades
+out. When none of them is set, the tooltip hides. While the mouse is over
+an object in the world, that object has the tooltip. **Show Target
+Tooltip** in the Interact Key options turns on the soft interact and the
+soft enemy tooltips together.
+
+| cvar | default | values |
+|---|---|---|
+| `SoftTargetTooltipInteract` | `0` | `1` shows the tooltip of `"softinteract"`. |
+| `SoftTargetTooltipLocked` | `0` | `1` shows the tooltip of your target. |
+| `SoftTargetTooltipEnemy` | `0` | `1` shows the tooltip of `"softenemy"`. |
+| `SoftTargetTooltipFriend` | `0` | `1` shows the tooltip of `"softfriend"`. |
+| `SoftTargetTooltipDurationMs` | `2000` | The time in milliseconds before the tooltip fades out. `0` keeps it. |
+
 When the picked object changes,
 [`PLAYER_SOFT_INTERACT_CHANGED`](#player_soft_interact_changed-event)
 fires.

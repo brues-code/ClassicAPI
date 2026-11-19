@@ -431,3 +431,5 @@ LESS_THAN_OPERAND = "< %s";
 TIME_UNIT_DELIMITER = " ";
 SHOW_CLASS_COLOR = "Отображать цвета классов";
 TALENT_TOOLTIP_ADDPREVIEWPOINT = "Щелкните левой кнопкой мыши, чтобы выбрать этот талант.";
+TARGET_TOOLTIP_OPTION = "Показывать подсказку цели";
+OPTION_TOOLTIP_TARGET_TOOLTIP = "Показывает подсказку цели без наведения указателя мыши.";

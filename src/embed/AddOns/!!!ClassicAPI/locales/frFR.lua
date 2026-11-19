@@ -331,3 +331,5 @@ LESS_THAN_OPERAND = "< %s";
 TIME_UNIT_DELIMITER = " ";
 SHOW_CLASS_COLOR = "Aff. couleurs de classe";
 TALENT_TOOLTIP_ADDPREVIEWPOINT = "Clic gauche pour sélectionner ce talent.";
+TARGET_TOOLTIP_OPTION = "Afficher la bulle d’aide de la cible";
+OPTION_TOOLTIP_TARGET_TOOLTIP = "Affiche la bulle d’aide de votre cible sans avoir besoin de passer la souris au-dessus";

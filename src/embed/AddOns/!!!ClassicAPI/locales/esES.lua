@@ -331,3 +331,5 @@ LESS_THAN_OPERAND = "< %s";
 TIME_UNIT_DELIMITER = " ";
 SHOW_CLASS_COLOR = "Mostrar color de clase";
 TALENT_TOOLTIP_ADDPREVIEWPOINT = "Haz clic izquierdo para seleccionar este talento.";
+TARGET_TOOLTIP_OPTION = "Mostrar descripción de objetivo";
+OPTION_TOOLTIP_TARGET_TOOLTIP = "Muestra la descripción de tu objetivo sin necesidad de colocar el ratón sobre él.";
