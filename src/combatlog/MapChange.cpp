@@ -32,7 +32,19 @@
 // Mountain gives Eastern Kingdoms, and the raids give none, except Onyxia's
 // Lair, whose AreaTable row is on Kalimdor (map 1) and which gave Kalimdor
 // when entered from Thunder Bluff; leaving AQ40 for Silithus writes Silithus
-// again each time. A new log file writes its map again.
+// again each time.
+//
+// Every header also names the map (Announce), as the Classic client's header
+// writer does (3.80.2's 0x1416a92f0: the header, ZONE_CHANGE, then MAP_CHANGE
+// when the player has a map), so a new file, a reload and a toggle of
+// advanced logging each write it again. The same map is the advanced block's
+// uiMapID (UiMapID): 3.80.2's line writer reads the player's map there, and
+// Era writes 1415, 1434, 1454 and 1456 in its open-world lines and 0 in raids.
+// After a loading screen the zone is still the last map's until the zone
+// commit (0x00494780 stores the zone ID with the zone text), so File names the
+// map then, not in the header.
+
+#include "combatlog/MapChange.h"
 
 #include "Game.h"
 #include "Offsets.h"
@@ -148,24 +160,34 @@ void Write(const UiMap &m) {
     File::WriteLine(line);
 }
 
-uint32_t g_session = 0;        // the log file the last line went to
-const UiMap *g_last = nullptr; // the map it named
+const UiMap *g_last = nullptr; // the map the file named last, null for none
+bool g_due = false;            // a header asked for the map
 
-void OnFrame() {
-    const uint32_t session = File::Session();
-    if (session == 0 || !::Object::RegistryReady())
+// Names the map when it changed or a header asked for it.
+void Check() {
+    if (File::Session() == 0 || !::Object::RegistryReady())
         return;
     const UiMap *map = Current();
-    if (session == g_session && map == g_last)
+    if (!g_due && map == g_last)
         return;
     if (map != nullptr)
         Write(*map);
-    g_session = session;
     g_last = map;
+    g_due = false;
 }
 
-const Tick::FrameTick::AutoSubscribe _frame{&OnFrame};
+const Tick::FrameTick::AutoSubscribe _frame{&Check};
 
 } // namespace
+
+int UiMapID() {
+    const UiMap *map = Current();
+    return map != nullptr ? map->uiMapID : 0;
+}
+
+void Announce() {
+    g_due = true;
+    Check();
+}
 
 } // namespace CombatLog::MapChange

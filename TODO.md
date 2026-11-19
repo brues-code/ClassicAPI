@@ -4494,8 +4494,10 @@ Observed (2026-11-12, BWL log `WoWCombatLog-052425_204021.txt`):
   COMBAT_LOG_VERSION 9), which fills them. Example: a warrior
   `100,100,34760,111,32368,0,0,1,0,1000,0`. The slot after absorb is 0
   in every line of both logs.
-  In Era, AP / SP / armor / absorb, the power slots (`-1,0,0,0`) and
-  uiMapID (`0`) are EMPTY. Era fills only what a client can know, so a
+  In Era, AP / SP / armor / absorb and the power slots (`-1,0,0,0`) are
+  EMPTY (the client's expansion-0 rule, docs/notes/advanced-combat-log-3802.md).
+  uiMapID is 0 only in raids: the open-world lines carry the player's map
+  (fixed 2026-11-19). Era fills only what a client can know, so a
   1.12 DLL can match it almost field for field (HP from descriptors,
   position and facing from movement info).
   Era and MoP write player HP as a percent (`93,100`) and creature HP as

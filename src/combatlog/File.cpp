@@ -31,10 +31,12 @@
 //     ("5/24/2025 20:40:21.890-5  ");
 //   - the header line (COMBAT_LOG_VERSION, ADVANCED_LOG_ENABLED, BUILD_VERSION,
 //     PROJECT_ID) starts the file and is written again on every world entry,
-//     as Era writes it after each loading screen. A ZONE_CHANGE follows each
-//     one (map ID, the real zone name, the difficulty the encounter lines
-//     use), and another comes with a new zone entered without a loading
-//     screen. BUILD_VERSION is the
+//     as Era writes it after each loading screen, and each time the
+//     advancedCombatLogging cvar is set (3.80.2's cvar callback 0x1416a9450
+//     writes it with the new value). A ZONE_CHANGE follows each one (map ID,
+//     the real zone name, the difficulty the encounter lines use), then a
+//     MAP_CHANGE (MapChange.cpp), and another ZONE_CHANGE comes with a new
+//     zone entered without a loading screen. BUILD_VERSION is the
 //     client's GetBuildInfo version (VAR_BUILD_VERSION_STRING); PROJECT_ID is
 //     Era's 2, WOW_PROJECT_CLASSIC;
 //   - GUIDs are written as retail's strings (Player-0-0000ABCD,
@@ -65,11 +67,15 @@
 //     alive); a creature's raw. Era writes both that way;
 //   - attack power, spell power, armor, absorb: 0, as Era writes them;
 //   - power: a player's power type, current and max in stored units (rage in
-//     tenths), as MoP Classic 5.5.4's log writes them. Era leaves them empty
-//     (-1,0,0,0) and writes that for every other unit, as MoP does. powerCost
-//     stays 0: no 1.12 source for it is verified;
-//   - position: the world x and y with two decimals; uiMapID 0, as Era writes
-//     it; facing in radians with four decimals;
+//     tenths), as MoP Classic 5.5.4's log writes them. A ClassicAPI
+//     extension: the Classic client's writer (3.80.2's 0x141434840) fills the
+//     power and the four stats only for a player and only when the expansion
+//     level (ClientServices+0x990) is not 0, so Era writes -1,0,0,0 for every
+//     unit. Every other unit gets -1,0,0,0 here, as in MoP. powerCost stays
+//     0: no 1.12 source for it is verified;
+//   - position: the world x and y with two decimals; uiMapID the player's
+//     world map, the one MAP_CHANGE names (MapChange::UiMapID), 0 for none;
+//     facing in radians with four decimals;
 //   - level: a creature's level; for a player, the average item level Era
 //     writes there: 16 equipment slots (all but shirt, tabard and ranged),
 //     with an empty off hand counting the main hand again, rounded down. This
@@ -89,6 +95,7 @@
 #include "cvar/Factory.h"
 #include "combatlog/Encounter.h"
 #include "combatlog/LogFile.h"
+#include "combatlog/MapChange.h"
 #include "event/EnteringWorld.h"
 #include "event/SignalHook.h"
 #include "guid/Guid.h"
@@ -104,6 +111,7 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <ctime>
 #include <string>
 #include <unordered_map>
@@ -156,10 +164,29 @@ bool g_headerAdvanced = false;
 
 bool Logging() { return Game::Read<int>(Offsets::VAR_COMBAT_LOGGING) != 0; }
 
+void Header(bool advanced, bool unknownZone = false);
+
+// Registration runs the callback too (every /reload); that is no change.
+bool g_registering = false;
+
+// Setting the cvar writes a header with the new value at once, as 3.80.2's
+// callback does. The callback runs before the value is stored, so the value
+// is parsed here as that callback parses it: hex after "0x", else decimal.
+int __fastcall OnAdvancedChanged(CVar::Factory::Handle, const char *, const char *newValue, void *) {
+    if (!g_registering && Logging() && g_log.IsOpen()) {
+        const bool hex = newValue != nullptr && newValue[0] == '0' &&
+                         (newValue[1] == 'x' || newValue[1] == 'X');
+        Header(newValue != nullptr && std::strtol(newValue, nullptr, hex ? 16 : 10) != 0);
+    }
+    return 1;
+}
+
 void RegisterCVars() {
+    g_registering = true;
     g_advancedCvar = CVar::Factory::Register(
         "advancedCombatLogging", "Whether we want advanced combat log data sent from the server",
-        Offsets::CVAR_CATEGORY_GAME, "0");
+        Offsets::CVAR_CATEGORY_GAME, "0", &OnAdvancedChanged);
+    g_registering = false;
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterCVars};
@@ -193,11 +220,16 @@ void ZoneChange(bool unknown = false) {
     Emit(line);
 }
 
-// The header line, and the ZONE_CHANGE Era writes after each one.
-void Header(bool unknownZone = false) {
+// A header written before the zone commit names its map after it.
+bool g_mapPending = false;
+
+// The header line, and the ZONE_CHANGE and MAP_CHANGE that follow each one.
+// `advanced` is its ADVANCED_LOG_ENABLED, and says whether the lines after it
+// carry the advanced block.
+void Header(bool advanced, bool unknownZone) {
     const char *version = reinterpret_cast<const char *>(
         static_cast<uintptr_t>(Offsets::VAR_BUILD_VERSION_STRING));
-    g_headerAdvanced = Advanced();
+    g_headerAdvanced = advanced;
     g_templates.clear();
     char text[128];
     std::snprintf(text, sizeof text,
@@ -205,6 +237,9 @@ void Header(bool unknownZone = false) {
                   kLogVersion, g_headerAdvanced ? 1 : 0, version, kProjectId);
     Emit(text);
     ZoneChange(unknownZone);
+    g_mapPending = unknownZone;
+    if (!unknownZone)
+        MapChange::Announce();
 }
 
 // A new log named for the local time now, and its header. True when it is open.
@@ -219,7 +254,7 @@ bool Open() {
         return false;
     g_fileTime = fileTime;
     ++g_session;
-    Header();
+    Header(Advanced());
     return true;
 }
 
@@ -241,11 +276,12 @@ const Tick::FrameTick::AutoSubscribe _frame{&OnFrame};
 // zone's names, so the real zone text is still the last map's then (leaving GM
 // Island for Stormwind wrote ZONE_CHANGE,0,"GM Island"). Era writes "UNKNOWN
 // AREA" there, and the zone once it is known: the commit's
-// ZONE_CHANGED_NEW_AREA (OnSignal) writes that. A reload stays on its map, and
-// its zone text is right.
+// ZONE_CHANGED_NEW_AREA (OnSignal) writes that, and the header's MAP_CHANGE
+// after it: the commit stores the zone ID with the zone text, and MapChange
+// reads that ID. A reload stays on its map, and its zone is right.
 void OnEnterWorld() {
     if (g_log.IsOpen())
-        Header(Game::Read<int>(Offsets::VAR_CURRENT_MAP_ID) != g_zoneMap);
+        Header(Advanced(), Game::Read<int>(Offsets::VAR_CURRENT_MAP_ID) != g_zoneMap);
 }
 
 const Event::EnteringWorld::AutoObserve _enterWorld{&OnEnterWorld};
@@ -254,9 +290,14 @@ const Event::EnteringWorld::AutoObserve _enterWorld{&OnEnterWorld};
 // ZONE_CHANGE, as in Era's log. The engine fires ZONE_CHANGED_NEW_AREA after
 // storing the zone names; one the last line already named writes nothing.
 bool OnSignal(int eventID) {
-    if (eventID == Offsets::EVENT_ZONE_CHANGED_NEW_AREA && g_log.IsOpen() &&
-        (Game::Read<int>(Offsets::VAR_CURRENT_MAP_ID) != g_zoneMap || ZoneName() != g_zoneName))
+    if (eventID != Offsets::EVENT_ZONE_CHANGED_NEW_AREA || !g_log.IsOpen())
+        return false;
+    if (Game::Read<int>(Offsets::VAR_CURRENT_MAP_ID) != g_zoneMap || ZoneName() != g_zoneName)
         ZoneChange();
+    if (g_mapPending) {
+        g_mapPending = false;
+        MapChange::Announce();
+    }
     return false;
 }
 
@@ -542,7 +583,7 @@ void AdvancedBlock(std::string &line, uint64_t guid) {
     }
     Fixed(line, pos[0], 2);
     Fixed(line, pos[1], 2);
-    Number(line, 0); // uiMapID
+    Number(line, MapChange::UiMapID());
     Fixed(line, Unit::Position::Facing(unit), 4);
     Number(line, player ? ItemLevel(unit) : Game::Read<int>(fields, Offsets::OFF_UNIT_FIELD_LEVEL));
 }
@@ -635,16 +676,10 @@ std::string Pack(const Entry &e, bool advanced, bool landed) {
 
 namespace {
 
-// The file is open for a line, with a header that says whether advanced
-// logging is on. False while combat logging is off.
+// The file is open for a line. False while combat logging is off.
 bool Ready() {
     // A line in the frame logging turned on comes before the frame's check.
-    if (!Logging() || (!g_log.IsOpen() && !Open()))
-        return false;
-    // The setting changed since the last header: say so before the line.
-    if (Advanced() != g_headerAdvanced)
-        Header();
-    return true;
+    return Logging() && (g_log.IsOpen() || Open());
 }
 
 } // namespace

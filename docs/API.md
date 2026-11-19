@@ -3562,16 +3562,18 @@ the event. The file also has these lines:
 
 | Line | When |
 |---|---|
-| `COMBAT_LOG_VERSION` | At the start, and after each loading screen. |
+| `COMBAT_LOG_VERSION` | At the start, after each loading screen, and each time that you set `advancedCombatLogging`. |
 | `ZONE_CHANGE` | After each `COMBAT_LOG_VERSION` line, and when you go into a new zone. |
-| `MAP_CHANGE` | When the world map that you are on changes: its Classic Era map ID, its name and its world bounds. In an instance with no map of its own, there is no line. |
+| `MAP_CHANGE` | After each `ZONE_CHANGE` that follows a `COMBAT_LOG_VERSION` line, and when the world map that you are on changes. The line has the Classic Era map ID, the name and the world bounds of the map. In an instance with no map of its own, there is no line. |
 | `ENCOUNTER_START`, `ENCOUNTER_END` | When the group starts and ends a fight with a world boss. The encounter ID is the creature ID of the boss. |
 | `COMBATANT_INFO` | For each group member, after an `ENCOUNTER_START`. Stats and talents are known only for you. |
 | `EMOTE` | When a boss sends a raid boss emote: the boss, its target, and the text as the chat frame shows it. The boss GUID is `0000000000000000` when no unit in view has its name, or more than one does. Monster emotes and yells are not logged. |
 
 The `advancedCombatLogging` setting adds more data to most damage, heal,
 power and cast lines: the health, the power, the position, the facing and the
-level of a unit. It also adds a `SWING_DAMAGE_LANDED` line after each
+level of a unit. The map ID in this data is the ID of the map that you are
+on, as in the last `MAP_CHANGE` line. It is `0` in an instance with no map of
+its own. It also adds a `SWING_DAMAGE_LANDED` line after each
 `SWING_DAMAGE` line. The setting is `0` by default. In the Settings window, it
 is in the Network category.
 
