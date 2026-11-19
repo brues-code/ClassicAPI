@@ -2031,6 +2031,11 @@ enum Offsets {
     // cycle compares it with its cursor entry; TargetDirection starts from it.
     VAR_CURRENT_SELECTION_GUID_LO = 0x00B4E2D8,
     VAR_CURRENT_SELECTION_GUID_HI = 0x00B4E2DC,
+    // Script_ClearTarget: `int __fastcall(lua_State *)`. Clears the target
+    // (FUN_SET_SELECTION_BY_GUID(0, 0)) and returns 1 when there was one,
+    // else nil (disassembled 0x00489FF0..; raw_globals batch entry 69).
+    // ToggleGameMenu reads the result: true ends the Escape press.
+    FUN_SCRIPT_CLEAR_TARGET = 0x00489FF0,
     // The previous target (lo/hi), TargetLastTarget's: the setter stores the
     // old selection here (`mov [0xB4E2E0], ecx` at 0x00493622) before taking
     // the new one.

@@ -27109,6 +27109,10 @@ is `1`, the attack stops instead. When there is no soft enemy and
 another arc, it is cleared when it is no longer a soft unit. When
 `SoftTargetForce` is `2`, the same happens with `"softfriend"`.
 
+`ClearTarget()` clears a loose target that is a soft unit, but returns
+false for it, unless you attack. So Escape opens the game menu, and soft
+targeting sets the forced target again.
+
 A click on the forced target, or a spell that makes it your loose target,
 shows it: `UnitExists("target")` becomes `true` and `PLAYER_TARGET_CHANGED`
 fires. To show the soft unit in a frame, use

@@ -71,6 +71,7 @@
 #include "target/SoftInteract.h"
 #include "target/SoftUnit.h"
 #include "target/Tab.h"
+#include "tick/FrameTick.h"
 #include "unit/Identity.h"
 
 #include <intrin.h>
@@ -87,6 +88,7 @@ Select_t g_selectOriginal = nullptr;
 uint64_t g_guid = 0;   // the target the reason belongs to
 Why g_reason = None;   // its reason
 Why g_pending = None;  // Set()'s reason for the select it is making
+bool g_reforce = false; // a clear asks for SoftTargetForce next frame
 
 CVar::Factory::Handle g_force = nullptr;
 CVar::Factory::Handle g_autoLock = nullptr;
@@ -155,6 +157,8 @@ void __stdcall Select_h(uint32_t guidLo, uint32_t guidHi) {
             g_guid = 0;
             g_reason = None;
             Tab::OnClear();
+            if (why != Force)
+                g_reforce = true;
         }
         return;
     }
@@ -188,6 +192,23 @@ const Game::HookAutoRegister _hook{Offsets::FUN_SET_SELECTION_BY_GUID,
                                    reinterpret_cast<void *>(&Select_h),
                                    reinterpret_cast<void **>(&g_selectOriginal)};
 
+// 3.80.2's next soft-driver pass sets the Force target again before anything
+// draws. Ours runs at the tail of the UI render, so a clear between two
+// frames (a terrain click with deselectOnClick, Escape) would draw one frame
+// without it: the clear asks for SoftTargetForce at the head of the next
+// frame instead. Never from inside the setter — the engine also clears the
+// selection while it tears the world down (0x00490BDF), and a select then
+// resolves a GUID in a manager that is gone.
+void OnFrameHead() {
+    if (!g_reforce)
+        return;
+    g_reforce = false;
+    if (Game::Read<uint8_t>(Offsets::VAR_IN_WORLD) != 0 && Object::RegistryReady())
+        ApplyForce();
+}
+
+const Tick::FrameTick::AutoSubscribeBefore _head{&OnFrameHead};
+
 // One side of SoftTargetForce. True when it set (or cleared) the target.
 bool ForceSide(SoftUnit::Side side, uint64_t target) {
     const uint64_t soft = SoftUnit::Get(side);
@@ -208,6 +229,29 @@ bool IsSoftTarget(uint64_t guid) {
     return guid == SoftUnit::Get(SoftUnit::Side::Enemy) ||
            guid == SoftUnit::Get(SoftUnit::Side::Friend) || guid == SoftInteract::Get();
 }
+
+// ClearTarget, as 3.80.2's (FUN_140ded3b0): it clears the target as 1.12's
+// does, but answers true only for a target that is not a loose soft target
+// (the soft interact, enemy or friend), or while the player attacks. So
+// Escape (ToggleGameMenu's `elseif ( ClearTarget() )`) opens the game menu
+// over a SoftTargetForce target, which Force sets again.
+Game::Lua::CFunction g_clearTargetOriginal = nullptr;
+
+int __fastcall ClearTarget_h(void *L) {
+    const uint64_t target = Selection();
+    const auto *player = Unit::Identity::PlayerObject();
+    const bool attacking =
+        player != nullptr && Game::Read<uint64_t>(player, Offsets::OFF_UNIT_ATTACK_TARGET) != 0;
+    const bool cleared = (target != 0 && !(IsLoose() && IsSoftTarget(target))) || attacking;
+    const int results = g_clearTargetOriginal(L);
+    Game::Lua::SetTop(L, -2);
+    Game::Lua::PushFlag(L, cleared);
+    return results;
+}
+
+const Game::HookAutoRegister _clearTargetHook{Offsets::FUN_SCRIPT_CLEAR_TARGET,
+                                              reinterpret_cast<void *>(&ClearTarget_h),
+                                              reinterpret_cast<void **>(&g_clearTargetOriginal)};
 
 int __fastcall Script_IsTargetLoose(void *L) {
     Game::Lua::PushBool(L, IsLoose());
