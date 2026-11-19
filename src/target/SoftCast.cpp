@@ -100,8 +100,9 @@ int Hostility(const uint8_t *record) {
     return reinterpret_cast<Hostility_t>(Offsets::FUN_SPELL_HOSTILITY)(record, nullptr);
 }
 
-// The side's any-unit when it is not the target (the engine's own default);
-// 0 for a spell of neither side.
+// 3.80.2's default spell target (FUN_1413d1ac0) for a cast with no unit: the
+// side's any-unit, and when that is empty — or for a spell of neither side —
+// AnyTarget. 0 when it is the selection, which the engine takes itself.
 uint64_t Pick(const uint8_t *record) {
     const int hostility = Hostility(record);
     uint64_t unit = 0;
@@ -109,6 +110,8 @@ uint64_t Pick(const uint8_t *record) {
         unit = SoftUnit::GetAny(SoftUnit::Side::Enemy);
     else if (hostility == Offsets::SPELL_HOSTILITY_HELPFUL)
         unit = SoftUnit::GetAny(SoftUnit::Side::Friend);
+    if (unit == 0)
+        unit = SoftUnit::AnyTarget();
     return unit != Reason::Selection() ? unit : 0;
 }
 
