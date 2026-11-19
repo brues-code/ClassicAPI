@@ -401,7 +401,7 @@ uint32_t MaskFor(int mode) {
     case Offsets::TARGET_MODE_PARTY:
         return Priority::Party;
     case Offsets::TARGET_MODE_RAID:
-        return Priority::Party | Priority::Raid;
+        return Priority::Raid; // set for party and raid members alike
     case Offsets::TARGET_MODE_ANY:
         return Priority::Unit;
     case Offsets::TARGET_MODE_ENEMY_PLAYER:
