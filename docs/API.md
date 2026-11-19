@@ -12657,11 +12657,10 @@ The counts are the same as in
 An item in the bank counts as "in inventory" only while the bank window
 is open.
 
-**Localization.** The count lines are formatted through
-[`Game::Lua::PushLocalizedFormatInt`](#) — Blizzard's `ITEMS_VARIABLE_QUANTITY`,
+**Localization.** The lines use Blizzard's `ITEMS_VARIABLE_QUANTITY`,
 `ITEMS_EQUIPPED`, `ITEMS_IN_INVENTORY`, `ITEM_SLOTS_IGNORED`, and
-`ITEM_MISSING` FrameXML globals are tried first, with English C-string
-fallbacks for servers stripped of standard GlobalStrings. The
+`ITEM_MISSING` global strings, with English fallbacks for servers
+stripped of the standard GlobalStrings. The
 companion `!!!ClassicAPI` addon ships English defaults for these keys
 so the tooltip works on bare-bones builds where FrameXML hasn't
 populated them.

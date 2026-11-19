@@ -56,7 +56,7 @@ static int __fastcall Script_GetSchoolString(void *L) {
     }
     char globalName[24];
     std::snprintf(globalName, sizeof globalName, "SPELL_SCHOOL%d_CAP", idx);
-    Game::Lua::PushLocalizedString(L, globalName, "Unknown");
+    Game::Lua::PushString(L, Game::Lua::GlobalTextOr(globalName, "Unknown"));
     return 1;
 }
 

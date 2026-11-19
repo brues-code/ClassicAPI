@@ -81,18 +81,13 @@ constexpr const char *kCopperFallback =
 // `out`. Reads `_G[globalName]` the way retail reads the coin GlobalStrings; the
 // format consumes (count, iconHeight, iconWidth). Denominations are separated
 // by one space, as the engine's formatter packs them.
-void AppendDenom(void *L, std::string &out, const char *globalName, const char *fallback,
-                 int count, int height) {
+void AppendDenom(std::string &out, const char *globalName, const char *fallback, int count,
+                 int height) {
     if (!out.empty())
         out += ' ';
-    const int top = Game::Lua::GetTop(L);
-    Game::Lua::PushLocalizedString(L, globalName, fallback); // [.., fmt]
-    const char *fmt = Game::Lua::ToString(L, -1);
     char piece[256];
-    piece[0] = '\0';
-    if (fmt != nullptr)
-        std::snprintf(piece, sizeof piece, fmt, count, height, height);
-    Game::Lua::SetTop(L, top); // pop the format string
+    std::snprintf(piece, sizeof piece, Game::Lua::GlobalTextOr(globalName, fallback), count,
+                  height, height);
     out += piece;
 }
 
@@ -104,17 +99,15 @@ constexpr const char *kCopperTextFallback = "%d Copper";
 // 4.3.4's GetCurrencyText default separator.
 constexpr const char *kDefaultSeparator = ", ";
 
-void AppendText(void *L, std::string &out, const char *separator, const char *globalName,
+void AppendText(std::string &out, const char *separator, const char *globalName,
                 const char *fallback, int count) {
     if (count == 0)
         return;
     if (!out.empty())
         out += separator;
-    const int top = Game::Lua::GetTop(L);
-    Game::Lua::PushLocalizedFormatInt(L, globalName, fallback, count);
-    if (const char *piece = Game::Lua::ToString(L, -1))
-        out += piece;
-    Game::Lua::SetTop(L, top);
+    char piece[256];
+    std::snprintf(piece, sizeof piece, Game::Lua::GlobalTextOr(globalName, fallback), count);
+    out += piece;
 }
 
 // GetCoinText(amount [, separator]) -> string
@@ -133,11 +126,11 @@ int __fastcall Script_GetCoinText(void *L) {
         Game::Lua::IsString(L, 2) ? Game::Lua::ToString(L, 2) : kDefaultSeparator;
 
     std::string out;
-    AppendText(L, out, separator, "GOLD_AMOUNT", kGoldTextFallback,
+    AppendText(out, separator, "GOLD_AMOUNT", kGoldTextFallback,
                static_cast<int>(amount / 10000));
-    AppendText(L, out, separator, "SILVER_AMOUNT", kSilverTextFallback,
+    AppendText(out, separator, "SILVER_AMOUNT", kSilverTextFallback,
                static_cast<int>((amount % 10000) / 100));
-    AppendText(L, out, separator, "COPPER_AMOUNT", kCopperTextFallback,
+    AppendText(out, separator, "COPPER_AMOUNT", kCopperTextFallback,
                static_cast<int>(amount % 100));
 
     Game::Lua::PushString(L, out.c_str());
@@ -172,14 +165,14 @@ int __fastcall Script_GetCoinTextureString(void *L) {
 
     std::string out;
     if (amount == 0) {
-        AppendDenom(L, out, "COPPER_AMOUNT_TEXTURE", kCopperFallback, 0, height);
+        AppendDenom(out, "COPPER_AMOUNT_TEXTURE", kCopperFallback, 0, height);
     } else {
         if (gold > 0)
-            AppendDenom(L, out, "GOLD_AMOUNT_TEXTURE", kGoldFallback, gold, height);
+            AppendDenom(out, "GOLD_AMOUNT_TEXTURE", kGoldFallback, gold, height);
         if (silver > 0)
-            AppendDenom(L, out, "SILVER_AMOUNT_TEXTURE", kSilverFallback, silver, height);
+            AppendDenom(out, "SILVER_AMOUNT_TEXTURE", kSilverFallback, silver, height);
         if (copper > 0)
-            AppendDenom(L, out, "COPPER_AMOUNT_TEXTURE", kCopperFallback, copper, height);
+            AppendDenom(out, "COPPER_AMOUNT_TEXTURE", kCopperFallback, copper, height);
     }
 
     Game::Lua::PushString(L, out.c_str());

@@ -188,7 +188,7 @@ int __fastcall Script_GetItemInventorySlotInfo(void *L) {
         Game::Lua::PushNil(L);
         return 1;
     }
-    Game::Lua::PushLocalizedString(L, key, key);
+    Game::Lua::PushString(L, Game::Lua::GlobalTextOr(key, key));
     return 1;
 }
 

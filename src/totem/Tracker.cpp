@@ -68,6 +68,7 @@
 #include "unit/TokenEvents.h"
 
 #include <cstdint>
+#include <cstdio>
 
 namespace Totem::Tracker {
 
@@ -450,20 +451,17 @@ int __fastcall Script_GameTooltipSetTotem(void *L) {
     Tooltip::Lines::Add(self, t.name != nullptr ? t.name : "", kNameColor);
 
     const uint32_t msLeft = SpawnTimeLeft(t);
-    const int savedTop = Game::Lua::GetTop(L);
+    char timeText[256];
     if (msLeft < 60000) {
-        Game::Lua::PushLocalizedFormatInt(L, "SPELL_TIME_REMAINING_SEC",
-                                          "%d Sec",
-                                          static_cast<int>(msLeft / 1000));
+        std::snprintf(timeText, sizeof(timeText),
+                      Game::Lua::GlobalTextOr("SPELL_TIME_REMAINING_SEC", "%d Sec"),
+                      static_cast<int>(msLeft / 1000));
     } else {
         const int minutes = static_cast<int>((msLeft - 1) / 60000 + 1); // ceil
-        Game::Lua::PushLocalizedFormatInt(L, "SPELL_TIME_REMAINING_MIN",
-                                          "%d Min", minutes);
+        std::snprintf(timeText, sizeof(timeText),
+                      Game::Lua::GlobalTextOr("SPELL_TIME_REMAINING_MIN", "%d Min"), minutes);
     }
-    const char *timeText = Game::Lua::ToString(L, -1);
-    if (timeText != nullptr)
-        Tooltip::Lines::Add(self, timeText, kTimeColor);
-    Game::Lua::SetTop(L, savedTop);
+    Tooltip::Lines::Add(self, timeText, kTimeColor);
 
     // Show ourselves — self is still at Lua stack index 1, which is what
     // Script_Show reads.

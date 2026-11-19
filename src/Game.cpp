@@ -531,31 +531,15 @@ bool CallGlobalString(void *L, const char *name, const char *arg) {
     return called;
 }
 
-void PushLocalizedString(void *L, const char *globalName, const char *fallback) {
-    PushString(L, globalName);
-    GetTable(L, GLOBALS_INDEX);
-    if (Type(L, -1) != TYPE_STRING) {
-        // Replace the non-string at top with the fallback so callers
-        // always see exactly one string at -1.
-        SetTop(L, GetTop(L) - 1);
-        PushString(L, fallback);
-    }
-}
-
 const char *GlobalText(const char *name) {
     using GetText_t = const char *(__fastcall *)(const char *name, int count, int gender);
     return reinterpret_cast<GetText_t>(static_cast<uintptr_t>(Offsets::FUN_FRAMESCRIPT_GET_TEXT))(
         name, -1, 0);
 }
 
-void PushLocalizedFormatInt(void *L, const char *globalName,
-                            const char *fallback, int n) {
-    // Resolve `string.format` from _G.
-    PushString(L, "format");
-    GetTable(L, GLOBALS_INDEX);
-    PushLocalizedString(L, globalName, fallback);
-    PushNumber(L, static_cast<double>(n));
-    Call(L, 2, 1);                // format(fmt, n) → string
+const char *GlobalTextOr(const char *name, const char *fallback) {
+    const char *text = GlobalText(name);
+    return *text != '\0' ? text : fallback;
 }
 } // namespace Lua
 

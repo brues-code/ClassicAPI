@@ -59,6 +59,7 @@
 #include "ui/ColorData.h"
 
 #include <cstdint>
+#include <cstdio>
 #include <string>
 
 namespace EquipmentSet::Tooltip {
@@ -73,18 +74,14 @@ constexpr uint32_t kRed = 0xFFFF0000u;
 // 4.3.4's tooltip title color, which its "Equipment Sets:" line uses.
 constexpr uint32_t kNormal = UI::ColorData::ByTag("NORMAL_FONT_COLOR");
 
-// Adds one localized "N unit" line: `string.format(_G[globalName] or
-// fallback, n)` (the project's GlobalString localize-or-fallback helper,
-// with the C `fallback` for servers stripped of the standard strings),
-// then the native colored add-line.
-void AddLocalizedLineInt(void *L, void *self, const char *globalName,
-                         const char *fallback, int n, const uint32_t &color) {
-    const int savedTop = Game::Lua::GetTop(L);
-    Game::Lua::PushLocalizedFormatInt(L, globalName, fallback, n);
-    const char *text = Game::Lua::ToString(L, -1);
-    if (text != nullptr)
-        ::Tooltip::Lines::Add(self, text, color);
-    Game::Lua::SetTop(L, savedTop);
+// Adds one localized "N unit" line: the global string format (the C
+// `fallback` for servers stripped of the standard strings) with `n`, then
+// the native colored add-line.
+void AddLocalizedLineInt(void *self, const char *globalName, const char *fallback, int n,
+                         const uint32_t &color) {
+    char text[256];
+    std::snprintf(text, sizeof(text), Game::Lua::GlobalTextOr(globalName, fallback), n);
+    ::Tooltip::Lines::Add(self, text, color);
 }
 
 } // namespace
@@ -123,19 +120,19 @@ int __fastcall Script_GameTooltipSetEquipmentSet(void *L) {
     // `ITEMS_EQUIPPED`, ...); addons that need their own wording can
     // override by reassigning `_G[name]` at runtime. The fallbacks
     // only fire on servers stripped of the standard GlobalStrings.
-    AddLocalizedLineInt(L, self, "ITEMS_VARIABLE_QUANTITY", "%d items",
+    AddLocalizedLineInt(self, "ITEMS_VARIABLE_QUANTITY", "%d items",
                         totalSlots, kWhite);
 
     if (t.equipped > 0) {
-        AddLocalizedLineInt(L, self, "ITEMS_EQUIPPED", "%d equipped",
+        AddLocalizedLineInt(self, "ITEMS_EQUIPPED", "%d equipped",
                             t.equipped, kGreen);
     }
     if (t.inInventory > 0) {
-        AddLocalizedLineInt(L, self, "ITEMS_IN_INVENTORY", "%d in inventory",
+        AddLocalizedLineInt(self, "ITEMS_IN_INVENTORY", "%d in inventory",
                             t.inInventory, kWhite);
     }
     if (t.ignored > 0) {
-        AddLocalizedLineInt(L, self, "ITEM_SLOTS_IGNORED", "%d slots ignored",
+        AddLocalizedLineInt(self, "ITEM_SLOTS_IGNORED", "%d slots ignored",
                             t.ignored, kGray);
     }
     // Missing slots: list each by name using the itemID we stored at
@@ -162,25 +159,19 @@ int __fastcall Script_GameTooltipSetEquipmentSet(void *L) {
             unnamedMissing++;
             continue;
         }
-        // Build "Missing: <name>" using Blizzard's `ITEM_MISSING` format
-        // global. Wrap inline since AddLocalizedLineInt only handles
-        // %d args — we need %s here.
-        const int savedTop = Game::Lua::GetTop(L);
-        Game::Lua::PushString(L, "format");
-        Game::Lua::GetTable(L, Game::Lua::GLOBALS_INDEX);
-        Game::Lua::PushLocalizedString(L, "ITEM_MISSING", "Missing: %s");
-        Game::Lua::PushString(L, name);
-        Game::Lua::Call(L, 2, 1);
-        const char *line = Game::Lua::ToString(L, -1);
-        if (line != nullptr)
-            ::Tooltip::Lines::Add(self, line, kRed);
-        Game::Lua::SetTop(L, savedTop);
+        // "Missing: <name>" from Blizzard's `ITEM_MISSING` format global,
+        // formatted the way the engine formats its own global strings:
+        // SStrPrintf(buf, n, GetText(key), ...).
+        char line[256];
+        std::snprintf(line, sizeof(line), Game::Lua::GlobalTextOr("ITEM_MISSING", "Missing: %s"),
+                      name);
+        ::Tooltip::Lines::Add(self, line, kRed);
     }
     if (unnamedMissing > 0) {
         // Pre-itemID-format files or items the cache has no record of.
         // No Blizzard format global maps cleanly here; addons can
         // override with `_G.CLASSICAPI_EQUIPMENTSET_MISSING`.
-        AddLocalizedLineInt(L, self, "CLASSICAPI_EQUIPMENTSET_MISSING",
+        AddLocalizedLineInt(self, "CLASSICAPI_EQUIPMENTSET_MISSING",
                             "%d missing", unnamedMissing, kRed);
     }
 
