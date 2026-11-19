@@ -61,6 +61,8 @@
 // Not covered: a spell that starts a melee swing (Heroic Strike) takes its
 // unit from the melee resolve the request calls directly, which 1.12 has.
 
+#include "target/SoftCast.h"
+
 #include "Common.h"
 #include "Game.h"
 #include "Offsets.h"
@@ -199,5 +201,7 @@ void Register() {
 const Game::ModuleAutoRegister _autoreg{&Register};
 
 } // namespace
+
+uint64_t DefaultTarget(const uint8_t *record) { return record != nullptr ? Pick(record) : 0; }
 
 } // namespace Target::SoftCast
