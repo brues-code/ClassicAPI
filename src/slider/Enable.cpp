@@ -27,12 +27,14 @@
 // OnLayerMouseDown is the same function without the check, so the co-hook
 // adds it: a disabled slider goes straight to the base. With the drag bit
 // never set, the slider's mouse-move ignores the cursor as it does for a
-// slider not pressed.
+// slider not pressed. An enabled slider's press that pages (Slider::Value::
+// Page, the later clients' stepsPerPage) goes to the base the same way.
 
 #include "Game.h"
 #include "Offsets.h"
 #include "frame/EnableScripts.h"
 #include "frame/Flags.h"
+#include "slider/Value.h"
 
 #include <cstdint>
 
@@ -49,7 +51,7 @@ bool IsDisabled(void *slider) {
 }
 
 void __fastcall MouseDown_h(void *slider, void *edx, void *event) {
-    if (IsDisabled(slider))
+    if (IsDisabled(slider) || Slider::Value::Page(slider, event))
         reinterpret_cast<MouseDown_t>(Offsets::FUN_FRAME_ON_MOUSE_DOWN)(slider, edx, event);
     else
         g_origMouseDown(slider, edx, event);

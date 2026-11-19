@@ -441,6 +441,10 @@ build instructions.
   - [`editBox:ClearHistory()`](#editboxclearhistory)
   - [`editBox:Enable()` / `editBox:Disable()` / `editBox:IsEnabled()`](#editboxenable--editboxdisable--editboxisenabled)
   - [`slider:Enable()` / `slider:Disable()` / `slider:SetEnabled(enabled)` / `slider:IsEnabled()`](#sliderenable--sliderdisable--slidersetenabledenabled--sliderisenabled)
+  - [`slider:SetValue(value [, treatAsMouseEvent])` and `OnValueChanged(self, value, userInput)`](#slidersetvaluevalue--treatasmouseevent-and-onvaluechangedself-value-userinput)
+  - [`slider:SetObeyStepOnDrag(obeyStepOnDrag)` / `slider:GetObeyStepOnDrag()`](#slidersetobeystepondragobeystepondrag--slidergetobeystepondrag)
+  - [`slider:SetStepsPerPage(stepsPerPage)` / `slider:GetStepsPerPage()`](#slidersetstepsperpagestepsperpage--slidergetstepsperpage)
+  - [`slider:IsDraggingThumb()`](#sliderisdraggingthumb)
   - [`OnEnable` and `OnDisable` (scripts)](#onenable-and-ondisable-scripts)
   - [`OnMinMaxChanged(self, min, max)` (script)](#onminmaxchangedself-min-max-script)
   - [`statusBar:SetReverseFill(isReverseFill)` / `statusBar:GetReverseFill()`](#statusbarsetreversefillisreversefill--statusbargetreversefill)
@@ -10131,6 +10135,48 @@ its `OnEnable` script. `slider:SetEnabled(enabled)` calls `Enable()` when
 - A disabled slider still runs its `OnMouseDown` and `OnMouseUp` scripts,
   and `slider:SetValue()` still changes its value.
 - Each call runs the script, also when the slider is already in that state.
+
+### `slider:SetValue(value [, treatAsMouseEvent])` and `OnValueChanged(self, value, userInput)`
+
+`slider:SetValue(value)` rounds `value` to the nearest value step above the
+minimum, then clamps it to the range. A value at or above the maximum is
+not rounded, so the slider can always reach its maximum.
+
+`OnValueChanged` gets a second argument, `userInput`. It is `true` when the
+mouse moved the slider, and `false` when code set the value.
+
+- If the new value is within `0.0000002` of the current value, nothing
+  changes and `OnValueChanged` does not run.
+- A value from the mouse always runs `OnValueChanged`, also when the value
+  does not change. The slider rounds it only when
+  `slider:GetObeyStepOnDrag()` is `true`.
+- If `treatAsMouseEvent` is `true`, `SetValue` handles `value` as a value
+  from the mouse, and `userInput` is `true`.
+
+```lua
+slider:SetScript("OnValueChanged", function(self, value, userInput)
+    if userInput then SetCVar("myVolume", value) end
+end)
+```
+
+### `slider:SetObeyStepOnDrag(obeyStepOnDrag)` / `slider:GetObeyStepOnDrag()`
+
+Sets and returns whether the slider rounds a dragged value to the value
+step. The value is `true` when the slider is created. Set it to `false` to
+let the thumb move freely between steps. In XML, use the `obeyStepOnDrag`
+attribute of `<Slider>`.
+
+### `slider:SetStepsPerPage(stepsPerPage)` / `slider:GetStepsPerPage()`
+
+Sets and returns how many value steps a click outside the thumb moves the
+value. The value moves toward the click, and no drag starts. A click on the
+thumb starts a drag. The value is `0` when the slider is created: then a
+click anywhere moves the thumb to the cursor and starts a drag. In XML, use
+the `stepsPerPage` attribute of `<Slider>`.
+
+### `slider:IsDraggingThumb()`
+
+Returns `true` while the mouse drags the slider, and `false` at other times.
 
 ### `OnEnable` and `OnDisable` (scripts)
 

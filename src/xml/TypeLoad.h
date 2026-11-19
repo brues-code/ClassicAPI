@@ -37,6 +37,7 @@ enum Loader {
     BUTTON,      // FUN_XML_BUTTON_LOAD (CheckButton's loader calls it first)
     EDIT_BOX,    // FUN_XML_EDITBOX_LOAD
     STATUS_BAR,  // FUN_XML_STATUSBAR_LOAD
+    SLIDER,      // FUN_XML_SLIDER_LOAD
     LOADER_COUNT
 };
 

@@ -6,12 +6,13 @@
 	  is 1.12's OptionsSliderTemplate: its backdrop (set in
 	  MinimalSliderMixin:OnLoad) and its thumb. The steppers are the
 	  spellbook's page arrows.
-	- No obeyStepOnDrag key: this client's slider always rounds its value to
-	  the step, so it obeys the step on a drag already.
 	- No NarrationSliderMixin: this client has no narration.
 	-->
 	<Slider name="MinimalSliderTemplate" orientation="HORIZONTAL" mixin="MinimalSliderMixin" enableMouse="true" virtual="true">
 		<Size x="200" y="17"/>
+		<KeyValues>
+			<KeyValue key="obeyStepOnDrag" value="true" type="boolean"/>
+		</KeyValues>
 		<HitRectInsets>
 			<AbsInset left="0" right="0" top="-10" bottom="-10"/>
 		</HitRectInsets>

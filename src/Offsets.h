@@ -4355,8 +4355,31 @@ enum Offsets {
     // then with VALUE_FLAG_VALUE_SET calls FUN_SLIDER_SET_VALUE on the value.
     // Called by Slider:SetMinMaxValues (0x00790874), LoadXML and SetValueStep.
     FUN_SLIDER_SET_MIN_MAX_VALUES = 0x007898F0,
-    // CSimpleSlider::SetValue — `void __thiscall(slider, float)`, `ret 4`.
+    // CSimpleSlider::SetValue — `void __thiscall(slider, float)`, `ret 4`:
+    // with a range, clamps, rounds to the step, returns on an equal value,
+    // else stores it, ORs VALUE_FLAG_CHANGED | VALUE_FLAG_VALUE_SET and fires
+    // OFF_SLIDER_ONVALUECHANGED_SLOT with VAR_SCRIPT_FMT_F (0x00789A2A, 0x00789A44).
     FUN_SLIDER_SET_VALUE = 0x00789930,
+    // Its callers' return addresses: CSimpleSlider::OnMouseMove (0x00789BA0,
+    // vtable +0x3C, which OnLayerMouseDown also runs for the press) after its
+    // cursor-to-value call, and FUN_SCRIPT_SLIDER_SET_VALUE.
+    RET_SLIDER_DRAG_SET_VALUE = 0x00789C5A,
+    RET_SCRIPT_SLIDER_SET_VALUE = 0x00790A34,
+    // Script Slider:SetValue — `int __fastcall(lua_State *)`: checks self and
+    // a number at 2, then calls FUN_SLIDER_SET_VALUE with it (0x00790A2F).
+    FUN_SCRIPT_SLIDER_SET_VALUE = 0x00790980,
+    // The rest of the slider's block (benilla-re ui/slider; OnMouseMove reads
+    // them at 0x00789BB7..0x00789C3F): the step, the thumb (CSimpleTexture *),
+    // the orientation (0 HORIZONTAL, 1 VERTICAL) and the OnValueChanged slot.
+    OFF_SLIDER_STEP = 0x324,
+    OFF_SLIDER_THUMB = 0x328,
+    OFF_SLIDER_ORIENTATION = 0x32C,
+    OFF_SLIDER_ONVALUECHANGED_SLOT = 0x330,
+    // Flags bit 3: the mouse is dragging the slider. OnLayerMouseDown sets it,
+    // the mouse-up (slot 27) and hide (slot 13) clear it; OnMouseMove acts only with it.
+    VALUE_FLAG_DRAGGING = 0x8,
+    // The engine's "%f" format literal, the fmt SetValue fires OnValueChanged with.
+    VAR_SCRIPT_FMT_F = 0x00835160,
     // CSimpleStatusBar::SetMinMaxValues — `void __thiscall(bar, float min,
     // float max)`, `ret 8`: stores min (max when min > max) and max, ORs 0x3
     // into the flags, then with VALUE_FLAG_VALUE_SET clears it and calls the
@@ -5001,6 +5024,11 @@ enum Offsets {
     // the payload's button (OFF_MOUSE_EVENT_BUTTON 0x04) sits at +0x14 and its
     // held mask at +0x18. 0x0076BF70 ANDs +0x14 with the drag mask.
     OFF_UI_MOUSE_EVENT_BUTTON = 0x14,
+    // The cursor in the same copy, in the units of OFF_REGION_RECT, y up:
+    // CSimpleSlider::OnMouseMove reads x at +0x24 (0x00789BFE) and y at +0x28
+    // (0x00789C2D) against the slider's rect.
+    OFF_UI_MOUSE_EVENT_X = 0x24,
+    OFF_UI_MOUSE_EVENT_Y = 0x28,
     OFF_MOUSE_EVENT_BUTTONS = 0x18,
     // CSimpleFrame::EnableEvent `__thiscall(frame, kind, priority)`, ret 8:
     // sets the kind's bit in OFF_FRAME_ENABLED_EVENTS and, when the frame is
@@ -14538,6 +14566,12 @@ enum Offsets {
     // BarTexture (0x00782F5B, set at 0x00782F63) and BarColor, `minValue` /
     // `maxValue` / `defaultValue` and `orientation` (Ghidra).
     FUN_XML_STATUSBAR_LOAD = 0x00782EF0,
+    // The Slider node loader (same sub-object convention, `ret 8` at
+    // 0x007896DF). It calls FUN_XML_FRAME_LOAD first (0x00789596), then reads
+    // `drawLayer` and each ThumbTexture, `minValue` / `maxValue` (into
+    // FUN_SLIDER_SET_MIN_MAX_VALUES), `valueStep`, `defaultValue` (into
+    // FUN_SLIDER_SET_VALUE) and `orientation` (benilla-re ui/xmltypes).
+    FUN_XML_SLIDER_LOAD = 0x00789580,
     // By-name template lookup — the same one `inherits=` resolves through.
     // `__fastcall(const char *name) -> definition node`, 0 if unregistered
     // (case-insensitive, hashed). See FUN_006ee6f0 in Templates.cpp notes.

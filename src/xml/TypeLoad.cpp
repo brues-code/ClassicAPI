@@ -33,7 +33,7 @@ struct Site {
 constexpr Site kSites[LOADER_COUNT] = {
     {Offsets::FUN_XML_TEXTURE_LOAD, true},  {Offsets::FUN_XML_FONTSTRING_LOAD, true},
     {Offsets::FUN_XML_BUTTON_LOAD, false},  {Offsets::FUN_XML_EDITBOX_LOAD, false},
-    {Offsets::FUN_XML_STATUSBAR_LOAD, false},
+    {Offsets::FUN_XML_STATUSBAR_LOAD, false}, {Offsets::FUN_XML_SLIDER_LOAD, false},
 };
 
 Loader_t g_orig[LOADER_COUNT] = {};
@@ -58,7 +58,7 @@ template <int I> uintptr_t __fastcall Hook(void *self, void *edx, const void *no
 // Each element registers its own address, so each is built in place.
 const Game::HookAutoRegister _hooks[LOADER_COUNT] = {
     TYPE_LOAD_HOOK(TEXTURE), TYPE_LOAD_HOOK(FONT_STRING), TYPE_LOAD_HOOK(BUTTON),
-    TYPE_LOAD_HOOK(EDIT_BOX), TYPE_LOAD_HOOK(STATUS_BAR),
+    TYPE_LOAD_HOOK(EDIT_BOX), TYPE_LOAD_HOOK(STATUS_BAR), TYPE_LOAD_HOOK(SLIDER),
 };
 
 #undef TYPE_LOAD_HOOK

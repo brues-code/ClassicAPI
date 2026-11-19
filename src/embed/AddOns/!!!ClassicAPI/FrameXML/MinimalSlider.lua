@@ -3,19 +3,9 @@
 -- Differences from the retail source:
 --   - The bar is 1.12's OptionsSliderTemplate backdrop (see MinimalSlider.xml),
 --     set here because the template has no atlas pieces.
---   - No SetObeyStepOnDrag: this client's slider always rounds its value to
---     the step.
 --   - Thumb is the slider's thumb texture, read here: retail's template names
 --     it with a parentKey.
 --   - No narration: this client has none.
---   - SetValue does not report the value it sets. 1.12's slider rounds every
---     value to the step in single-precision floats, and the rounding does
---     not settle: a value that comes back through a setting rounds a hair
---     away again and fires OnValueChanged again, so the Settings slider and
---     its setting called each other until the stack ran out. When the value
---     the slider lands on is within rounding of the one asked for,
---     OnValueChanged updates the labels and steppers but does not trigger
---     the OnValueChanged event; the caller already has the value.
 
 local STEPPER_DISABLED_ALPHA = 0.5;
 
@@ -31,6 +21,7 @@ local SLIDER_BACKDROP = {
 MinimalSliderMixin = {};
 
 function MinimalSliderMixin:OnLoad()
+	self:SetObeyStepOnDrag(self.obeyStepOnDrag);
 	self:SetBackdrop(SLIDER_BACKDROP);
 	self.Thumb = self:GetThumbTexture();
 end
@@ -162,11 +153,6 @@ function MinimalSliderWithSteppersMixin:Init(value, minValue, maxValue, steps, f
 		self:FormatValue(value);
 		self:UpdateStepperStates();
 
-		local requested = self.requestedValue;
-		if requested and math.abs(value - requested) <= slider:GetValueStep() * 0.001 then
-			return;
-		end
-
 		self:TriggerEvent(MinimalSliderWithSteppersMixin.Event.OnValueChanged, value);
 	end
 	self.Slider:SetScript("OnValueChanged", OnValueChanged);
@@ -231,9 +217,7 @@ function MinimalSliderWithSteppersMixin:SetEnabled(enabled)
 end
 
 function MinimalSliderWithSteppersMixin:SetValue(value)
-	self.requestedValue = value;
 	self.Slider:SetValue(value);
-	self.requestedValue = nil;
 end
 
 function MinimalSliderWithSteppersMixin:IsSliderEnabled()
