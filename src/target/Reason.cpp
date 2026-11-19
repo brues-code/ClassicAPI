@@ -165,8 +165,11 @@ void __stdcall Select_h(uint32_t guidLo, uint32_t guidHi) {
     // A click on the target while a spell waits for one binds the spell: the
     // setter's own early-out, and no raise.
     if (guid == target) {
+        // Read before the setter: binding the awaiting spell ends its
+        // targeting, so the flags read 0 afterwards.
+        const bool bindsSpell = Game::Read<uint32_t>(Offsets::VAR_SPELL_TARGETING_FLAGS) != 0;
         g_selectOriginal(guidLo, guidHi);
-        if (Game::Read<uint32_t>(Offsets::VAR_SPELL_TARGETING_FLAGS) == 0 && why > current) {
+        if (!bindsSpell && why > current) {
             g_guid = guid;
             g_reason = why;
             reinterpret_cast<FireEvent_t>(Offsets::FUN_FIRE_EVENT_NO_ARGS)(
