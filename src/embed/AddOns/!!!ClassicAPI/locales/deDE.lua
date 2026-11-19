@@ -330,3 +330,4 @@ D_SECONDS = "%d |4Sekunde:Sekunden;";
 LESS_THAN_OPERAND = "< %s";
 TIME_UNIT_DELIMITER = " ";
 SHOW_CLASS_COLOR = "Klassenfarben anzeigen";
+TALENT_TOOLTIP_ADDPREVIEWPOINT = "Linksklick, um dieses Talent zu wählen.";

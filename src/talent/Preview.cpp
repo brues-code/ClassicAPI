@@ -47,6 +47,8 @@
 // 1.12 has one talent group and no pet talents: `isPet` and `groupIndex` are
 // read as in 3.3.5, and anything but the player's group 1 has no plan.
 
+#include "talent/Preview.h"
+
 #include "Game.h"
 #include "Offsets.h"
 #include "dbc/Lookup.h"
@@ -116,15 +118,6 @@ int Tier(const uint8_t *row) {
     return static_cast<int>(Field(row, Offsets::OFF_TALENT_TIER));
 }
 
-// The last rank slot with a spell, plus 1.
-int MaxRank(const uint8_t *row) {
-    for (int slot = Offsets::TALENT_MAX_RANKS - 1; slot >= 0; --slot) {
-        if (RankSpell(row, slot) != 0)
-            return slot + 1;
-    }
-    return 0;
-}
-
 bool Knows(const uint8_t *player, uint32_t spellID) {
     return reinterpret_cast<Knows_t>(Offsets::FUN_UNIT_KNOWS_SPELL)(player, spellID) ||
            reinterpret_cast<Knows_t>(Offsets::FUN_UNIT_KNOWS_HIGHER_RANK)(player, spellID);
@@ -159,8 +152,8 @@ std::unordered_map<uint32_t, int> g_planned;
 // The character the plan was made on.
 uint64_t g_owner = 0;
 
-// The local player, with the plan of another character dropped. Null out of
-// the world.
+} // namespace
+
 const uint8_t *Player() {
     const uint8_t *player = Unit::Identity::PlayerObject();
     if (player == nullptr)
@@ -173,11 +166,38 @@ const uint8_t *Player() {
     return player;
 }
 
-// The rank the plan shows: the planned rank, else the learned one.
+const uint8_t *TalentRow(int tab, int index) {
+    return Row(Tab(tab), index);
+}
+
+const uint8_t *RowOfRankSpell(uint32_t spellID, int *slot) {
+    for (int tab = 0, tabs = TabCount(); tab < tabs; ++tab) {
+        const uint8_t *info = Tab(tab);
+        for (int i = 0, n = info != nullptr ? NumTalents(info) : 0; i < n; ++i) {
+            const uint8_t *row = Row(info, i);
+            for (int s = 0; row != nullptr && s < Offsets::TALENT_MAX_RANKS; ++s) {
+                if (RankSpell(row, s) == spellID) {
+                    *slot = s;
+                    return row;
+                }
+            }
+        }
+    }
+    return nullptr;
+}
+
 int PreviewRank(const uint8_t *player, const uint8_t *row) {
     const int learned = LearnedRank(player, row);
     const auto it = g_planned.find(Field(row, 0));
     return it != g_planned.end() && it->second > learned ? it->second : learned;
+}
+
+int MaxRank(const uint8_t *row) {
+    for (int slot = Offsets::TALENT_MAX_RANKS - 1; slot >= 0; --slot) {
+        if (RankSpell(row, slot) != 0)
+            return slot + 1;
+    }
+    return 0;
 }
 
 int TabPlanned(const uint8_t *player, const uint8_t *tab) {
@@ -189,6 +209,17 @@ int TabPlanned(const uint8_t *player, const uint8_t *tab) {
     }
     return points;
 }
+
+// 3.3.5's group argument (TalentInfoGetScriptGroupIndex): a number names a
+// group, anything else is the active one. Only group 1 exists.
+bool IsPlayerGroup(void *L, int isPetIndex, int groupIndex) {
+    if (Game::Lua::ToFlag(L, isPetIndex))
+        return false;
+    return !Game::Lua::IsNumber(L, groupIndex) ||
+           static_cast<int>(Game::Lua::ToNumber(L, groupIndex)) == 1;
+}
+
+namespace {
 
 int GroupPlanned(const uint8_t *player) {
     int points = 0;
@@ -282,6 +313,28 @@ bool Validate(const uint8_t *player, int tabIndex, const uint8_t *row, int point
     return true;
 }
 
+// The 0-based tab of a row in the player's tabs, or -1.
+int TabOf(const uint8_t *row) {
+    for (int tab = 0, tabs = TabCount(); tab < tabs; ++tab) {
+        const uint8_t *info = Tab(tab);
+        if (info == nullptr || NumTalents(info) <= 0)
+            continue;
+        const uint8_t *first = Row(info, 0);
+        if (row >= first && row < first + NumTalents(info) * Offsets::TALENT_ENTRY_STRIDE)
+            return tab;
+    }
+    return -1;
+}
+
+} // namespace
+
+bool CanChange(const uint8_t *player, const uint8_t *row, int points) {
+    int delta = 0;
+    return Validate(player, TabOf(row), row, points, &delta) && delta != 0;
+}
+
+namespace {
+
 // --- PREVIEW_TALENT_POINTS_CHANGED ---------------------------------------------
 
 const Game::Doc::Field kEventPayload[] = {
@@ -319,15 +372,6 @@ const Game::HookAutoRegister _pointsHook{Offsets::FUN_ON_CHARACTER_POINTS_CHANGE
                                          reinterpret_cast<void **>(&g_origPointsChanged)};
 
 // --- Lua -----------------------------------------------------------------------------
-
-// 3.3.5's group argument (TalentInfoGetScriptGroupIndex): a number names a
-// group, anything else is the active one. Only group 1 exists.
-bool IsPlayerGroup(void *L, int isPetIndex, int groupIndex) {
-    if (Game::Lua::ToFlag(L, isPetIndex))
-        return false;
-    return !Game::Lua::IsNumber(L, groupIndex) ||
-           static_cast<int>(Game::Lua::ToNumber(L, groupIndex)) == 1;
-}
 
 int Index0(void *L, int index) {
     return static_cast<int>(Game::Lua::ToNumber(L, index)) - 1;

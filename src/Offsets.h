@@ -11706,6 +11706,57 @@ enum Offsets {
     // ui/talents#character-points).
     FUN_ON_CHARACTER_POINTS_CHANGED = 0x004C7000,
 
+    // The talent tooltip (benilla-re ui/tooltipspell#talent-tooltips). The
+    // GameTooltip method SetTalent (FUN_SCRIPT_GAMETOOLTIP_SET_TALENT)
+    // scans the rank slots for the learned rank, then builds a talent
+    // without flag bit 0 with BuildPassiveTalent (`void __thiscall(tooltip,
+    // talent row)`, RET 4) and any other with BuildSpell
+    // (FUN_GAMETOOLTIP_BUILD_SPELL_TOOLTIP): the learned rank's spell, then
+    // the next rank's with `rebuild` set. Each reads the learned state at
+    // these sites, all disassembled:
+    //   - the rank scans, KnowsSpell then KnowsHigherRank on each rank
+    //     spell: SetTalent 0x005352E7 / 0x005352F9, BuildSpell 0x0052E782 /
+    //     0x0052E794 (the "Rank x/y" line), BuildPassiveTalent 0x0052B143 /
+    //     0x0052B152 (the name, rank line and both descriptions);
+    //   - AddTalentRequirements (0x0052B390, `uint __thiscall(tooltip, row)`,
+    //     1 when nothing is missing), the red line for each prerequisite
+    //     talent not at its rank: the same pair on the prerequisite's rank
+    //     spells, 0x0052B43F / 0x0052B450; then the tier line, which reads
+    //     the tab's points spent with `mov ecx,[eax+4]; jmp 0x0052B545` at
+    //     0x0052B5A4 (5 bytes, eax = the TabInfo);
+    //   - the green TOOLTIP_TALENT_LEARN line, added through
+    //     FUN_GAMETOOLTIP_ADD_TEXT_LINE at 0x0052F79C (BuildSpell) and
+    //     0x0052B36E (BuildPassiveTalent).
+    // The required-spell test (0x0052B5BE / 0x0052B5CE) is not a talent rank.
+    // Each builder ends with `mov [tooltip+0xD0],1` and the Show vmethod
+    // (VTBL_FRAME_SHOW), which sizes the tooltip and runs OnShow:
+    // `call [edx+0x88]` at 0x0052F7AF (BuildSpell, ebx = its argument frame:
+    // the talent at [ebx+0x1C], `rebuild` at [ebx+0x20]) and
+    // `call [eax+0x88]` at 0x0052B381 (BuildPassiveTalent), 6 bytes each with
+    // ecx = the tooltip. SetTalent (0x00535386) is BuildPassiveTalent's only
+    // caller.
+    FUN_GAMETOOLTIP_BUILD_PASSIVE_TALENT = 0x0052B0A0,
+    CALL_SET_TALENT_KNOWS_SPELL = 0x005352E7,
+    CALL_SET_TALENT_KNOWS_HIGHER_RANK = 0x005352F9,
+    SITE_BUILD_SPELL_SHOW = 0x0052F7AF,
+    SITE_BUILD_PASSIVE_TALENT_SHOW = 0x0052B381,
+    CALL_BUILD_SPELL_TALENT_KNOWS_SPELL = 0x0052E782,
+    CALL_BUILD_SPELL_TALENT_KNOWS_HIGHER_RANK = 0x0052E794,
+    CALL_BUILD_PASSIVE_TALENT_KNOWS_SPELL = 0x0052B143,
+    CALL_BUILD_PASSIVE_TALENT_KNOWS_HIGHER_RANK = 0x0052B152,
+    CALL_TALENT_REQUIREMENTS_KNOWS_SPELL = 0x0052B43F,
+    CALL_TALENT_REQUIREMENTS_KNOWS_HIGHER_RANK = 0x0052B450,
+    SITE_TALENT_REQUIREMENTS_TAB_POINTS = 0x0052B5A4,
+    SITE_TALENT_REQUIREMENTS_TAB_POINTS_RESUME = 0x0052B545,
+    CALL_BUILD_SPELL_TALENT_LEARN_LINE = 0x0052F79C,
+    CALL_BUILD_PASSIVE_TALENT_LEARN_LINE = 0x0052B36E,
+    // The one-cell line add both builders use: `void __thiscall(tooltip,
+    // const char *text, const void *color, int wrap)`, RET 0xC.
+    FUN_GAMETOOLTIP_ADD_TEXT_LINE = 0x005303B0,
+    // The green of the TOOLTIP_TALENT_LEARN line (both builders push it),
+    // packed like VAR_TOOLTIP_TEXT_COLOR.
+    VAR_TOOLTIP_GREEN_COLOR = 0x00C0D3AC,
+
     // Talent.dbc — standard 5-DWORD class shape, records pointer at
     // `+0x08` and count at `+0x0C` of the class instance at
     // `0x00C0D6E0`. Records is an array of `TalentRec *` indexed

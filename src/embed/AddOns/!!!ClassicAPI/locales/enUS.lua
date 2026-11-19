@@ -428,3 +428,4 @@ D_SECONDS = "%d |4Second:Seconds;";
 LESS_THAN_OPERAND = "< %s";
 TIME_UNIT_DELIMITER = " ";
 SHOW_CLASS_COLOR = "Show Class Color";
+TALENT_TOOLTIP_ADDPREVIEWPOINT = "Left click to select this talent.";

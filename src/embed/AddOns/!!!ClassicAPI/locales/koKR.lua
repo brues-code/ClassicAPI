@@ -117,3 +117,4 @@ D_SECONDS = "%d초";
 LESS_THAN_OPERAND = "< %s";
 TIME_UNIT_DELIMITER = " ";
 SHOW_CLASS_COLOR = "직업 색상 표시";
+TALENT_TOOLTIP_ADDPREVIEWPOINT = "이 특성을 선택하려면 왼쪽 클릭하십시오.";

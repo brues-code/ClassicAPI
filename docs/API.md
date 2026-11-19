@@ -1211,6 +1211,7 @@ build instructions.
   - [`LearnPreviewTalents([isPet])`](#learnpreviewtalentsispet)
   - [`C_SpecializationInfo.GetTalentInfo(query)`](#c_specializationinfogettalentinfoquery)
   - [`C_SpecializationInfo.GetTalentPrereqs(tabIndex, talentIndex[, isInspect[, isPet[, groupIndex]]])`](#c_specializationinfogettalentprereqstabindex-talentindex-isinspect-ispet-groupindex)
+  - [`GameTooltip:SetTalent(tabIndex, talentIndex[, isInspect[, isPet[, groupIndex[, isPreview]]]])`](#gametooltipsettalenttabindex-talentindex-isinspect-ispet-groupindex-ispreview)
 
 - [Targeting](#targeting)
   - [`GetPlayerFacing()`](#getplayerfacing)
@@ -26676,6 +26677,29 @@ other than 1, the third and fourth values are `nil`. If `tabIndex` or
 `talentIndex` is not a number, the function raises the error `Usage:
 C_SpecializationInfo.GetTalentPrereqs(tabIndex, talentIndex[, isInspect[,
 isPet[, groupIndex]]])`.
+
+### `GameTooltip:SetTalent(tabIndex, talentIndex[, isInspect[, isPet[, groupIndex[, isPreview]]]])`
+
+`isPreview` shows the talent with the rank in the plan. Without `isPreview`,
+the tooltip shows the learned rank, as before.
+
+```lua
+GameTooltip:SetOwner(UIParent, "ANCHOR_CURSOR")
+GameTooltip:SetTalent(1, 1, nil, nil, nil, true)
+```
+
+With `isPreview`, the tooltip changes in these ways:
+
+- The rank line, the description and the next rank use the planned rank.
+- The red lines for necessary talents and tier points use the plan. Planned
+  points count for the tier.
+- The green "click to learn" line is not shown. A green
+  `TALENT_TOOLTIP_ADDPREVIEWPOINT` line is shown when
+  `AddPreviewTalentPoints` can add one point to the talent.
+
+`isPreview` has an effect only for your own talents in group 1. When
+`isInspect` or `isPet` is true, or `groupIndex` is not 1, the tooltip shows
+the learned rank.
 
 #### `PREVIEW_TALENT_POINTS_CHANGED` event
 
