@@ -9576,6 +9576,14 @@ enum Offsets {
     // for the GUID is the "no implicit target" form — engine falls back
     // to the player's current selected target.
     FUN_SPELL_CAST_DISPATCH = 0x004B3300,
+    // The two engine calls of it (E8 rel32; benilla-re tables/signatures.tsv
+    // call offsets 0x66 / 0x74, its only callers per tables/calls.tsv).
+    // Script_CastSpell and Script_CastSpellByName load the selection
+    // (`mov ebx,[0xB4E2DC]; mov edi,[0xB4E2D8]`), or the player for the
+    // onSelf argument, and push it as the target — the "current target"
+    // stand-in for a cast with no unit given.
+    CALL_SCRIPT_CAST_SPELL_DISPATCH = 0x004B4356,
+    CALL_SCRIPT_CAST_SPELL_BY_NAME_DISPATCH = 0x004B4B24,
 
     // Macro "primary spell" parser — `__fastcall(MacroEntry *entry)`.
     // Walks the macro body (stored at `entry + OFF_MACRO_BODY`) line

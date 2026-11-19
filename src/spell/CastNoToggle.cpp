@@ -214,10 +214,10 @@ int __fastcall Script_CastSpellNoToggle(void *L) {
         // error, same as UnitHealth.
         Spell::AtUnit::CastByName(spellName, unitToken, placeGroundSpell);
     } else {
-        // Script_CastSpellByName (0x004B4AB0) with no onSelf flag: the
-        // name's book slot through the cast dispatcher, at the current
-        // selection.
-        Spell::Placement::DispatchSpellCastByName(spellName, Target::Reason::Selection());
+        // CastSpellByName with no unit: the name's book slot through the
+        // cast dispatcher with no target, the default spell target as an
+        // action button and `/cast` take it (Target::SoftCast).
+        Spell::Placement::DispatchSpellCastByName(spellName);
     }
 
     // Reflect the post-cast state: true if either toggle is now active.

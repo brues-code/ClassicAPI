@@ -46,6 +46,15 @@
 // 1, the Arcane Blast probe (retail's default too); TargetAutoFriend to 0,
 // the Arcane Intellect probe (3.80.2's and Classic Era's default).
 //
+// `/cast` and the spellbook take the same path. 1.12's CastSpellByName and
+// CastSpell pass the selection to the cast dispatch as an explicit target,
+// where an action button passes none, so a heal macro went at a hostile Force
+// target while the same spell on a button went to the soft friend. 3.80.2's
+// CastSpellByName (FUN_141756f10) resolves a missing unit through the default
+// spell target (FUN_141b8e5b0's nil-token branch → FUN_1413d1ac0), the
+// button's rule. So at those two engine calls the selection becomes "no unit
+// given"; the player (onSelf, or the player selected) stays explicit.
+//
 // Not covered: a spell that starts a melee swing (Heroic Strike) takes its
 // unit from the melee resolve the request calls directly, which 1.12 has.
 
@@ -60,6 +69,7 @@
 #include "spell/CastPacket.h"
 
 #include <cstdint>
+#include <initializer_list>
 
 namespace Target::SoftCast {
 
@@ -70,6 +80,8 @@ using Range_t = uint8_t(__fastcall *)(void *caster, const uint8_t *record, uint3
 using Arm_t = uint8_t(__fastcall *)(void *caster, const uint8_t *record, uint32_t guidLo,
                                     uint32_t guidHi);
 using Hostility_t = int(__fastcall *)(const uint8_t *record, void *edx);
+using Dispatch_t = void(__fastcall *)(unsigned slot, int bookType, unsigned guidLo,
+                                      unsigned guidHi);
 
 // The soft unit the current request's range check took, for its arm.
 uint64_t g_requestSoft = 0;
@@ -118,6 +130,13 @@ uint8_t __fastcall Arm_h(void *caster, const uint8_t *record, uint32_t guidLo, u
     return arm(caster, record, guidLo, guidHi);
 }
 
+void __fastcall ScriptDispatch_h(unsigned slot, int bookType, unsigned guidLo, unsigned guidHi) {
+    const uint64_t guid = (static_cast<uint64_t>(guidHi) << 32) | guidLo;
+    if (guid != 0 && guid == Reason::Selection() && guid != Unit::Identity::PlayerGuid())
+        guidLo = guidHi = 0;
+    reinterpret_cast<Dispatch_t>(Offsets::FUN_SPELL_CAST_DISPATCH)(slot, bookType, guidLo, guidHi);
+}
+
 void OnCastGo(const Spell::CastPacket::Go &g) {
     if (g.header.caster != Unit::Identity::PlayerGuid() || g.hitCount == 0)
         return;
@@ -143,6 +162,10 @@ void Register() {
                          reinterpret_cast<const void *>(&Range_h));
     Common::RedirectCall(Offsets::CALL_CAST_TARGET_ARM, Offsets::FUN_SPELL_TARGET_ARM,
                          reinterpret_cast<const void *>(&Arm_h));
+    for (const uintptr_t site : {static_cast<uintptr_t>(Offsets::CALL_SCRIPT_CAST_SPELL_DISPATCH),
+                                 static_cast<uintptr_t>(Offsets::CALL_SCRIPT_CAST_SPELL_BY_NAME_DISPATCH)})
+        Common::RedirectCall(site, Offsets::FUN_SPELL_CAST_DISPATCH,
+                             reinterpret_cast<const void *>(&ScriptDispatch_h));
 }
 
 const Game::ModuleAutoRegister _autoreg{&Register};
