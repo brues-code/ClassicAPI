@@ -1275,6 +1275,8 @@ build instructions.
   - [`GetCraftListLink()`](#getcraftlistlink)
   - [`GetTradeSkillRecipeLink(index)`](#gettradeskillrecipelinkindex)
   - [`GetTradeSkillDescription(index)`](#gettradeskilldescriptionindex)
+  - [`GetTradeSkillTools(index)`](#gettradeskilltoolsindex)
+  - [`GetCraftSpellFocus(index)`](#getcraftspellfocusindex)
   - [`IsTradeSkillLinked()`](#istradeskilllinked)
   - [`IsCraftLinked()`](#iscraftlinked)
 
@@ -27913,6 +27915,41 @@ end
 
 The Craft window (Enchanting, pet training) already has this in
 `GetCraftDescription`.
+
+### `GetTradeSkillTools(index)`
+
+Returns what the recipe in row `index` of the trade-skill window needs near
+the player. The values come in pairs: a name, then 1 when the requirement is
+met or nil when it is not. The spell focus, for example a Cooking Fire or an
+Anvil, is the first pair. The tools, for example a Blacksmith Hammer, come
+after it.
+
+The spell-focus flag is 1 only when a matching object is in range of the
+player. The range is the same range that the server uses for the cast. If the
+client does not show the object, the flag is nil.
+
+While the trade-skill window is open, it reads the flags again every 0.75
+seconds. A requirement that is not met shows in red, and the Create buttons
+stay disabled.
+
+```lua
+local function PrintMissing(...)
+    for i = 1, select("#", ...), 2 do
+        local name, met = select(i, ...)
+        if not met then
+            print("Missing: " .. name)
+        end
+    end
+end
+PrintMissing(GetTradeSkillTools(GetTradeSkillSelectionIndex()))
+```
+
+### `GetCraftSpellFocus(index)`
+
+Returns what the recipe in row `index` of the craft window needs near the
+player. The function works like
+[`GetTradeSkillTools`](#gettradeskilltoolsindex), and the craft window reads
+the flags again in the same way.
 
 ### `IsTradeSkillLinked()`
 

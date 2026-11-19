@@ -2501,6 +2501,14 @@ enum Offsets {
     OFF_GAMEOBJECT_FIELD_ROTATION = 0x10, // 4 floats, the quaternion x, y, z, w
     OFF_GAMEOBJECT_FIELD_STATE = 0x20,
     OFF_GAMEOBJECT_FIELD_TYPE_ID = 0x3C,
+    // A game object's typed data, the engine's own way (GameObjectUsableInCombat
+    // 0x005F5970 is the model): `int __fastcall(type, propertyId)` gives the
+    // data column a type uses for a property id (3.3.5's CGameObjectDef
+    // PROPERTY_ID numbering), or -1; then `uint32_t __thiscall(go, column)`
+    // reads that column of the cached record (`[go+0x214]+0x1C+column*4`),
+    // 0 without a record or for a column past 23, -1 included.
+    FUN_GAMEOBJECT_FIND_TYPE_COLUMN = 0x00621B00,
+    FUN_GAMEOBJECT_GET_DATA_COLUMN = 0x005F8150,
     // A dynamic object's block at the same `+0x110` (records from 0x0083B9C0).
     OFF_DYNAMICOBJECT_FIELD_CASTER = 0x00, // GUID
     OFF_DYNAMICOBJECT_FIELD_BYTES = 0x08,  // low byte: 1 a spell's area, 2 far sight
@@ -7893,6 +7901,10 @@ enum Offsets {
     //         spellbook tab/profession icon)
     VAR_SKILL_LINE_RECORDS = 0x00C0D92C,
     VAR_SKILL_LINE_COUNT = 0x00C0D930,
+    // SpellFocusObject.dbc (docs/DBCs.md): records slot and largest id, as
+    // Script_GetTradeSkillTools bounds and indexes them (0x004FFA62).
+    VAR_SPELL_FOCUS_OBJECT_RECORDS = 0x00C0D800,
+    VAR_SPELL_FOCUS_OBJECT_COUNT = 0x00C0D804,
     OFF_SKILL_LINE_NAME = 0x0C,
 
     // Player's known-skills table — separate from the DBC. Populated
@@ -13096,6 +13108,12 @@ enum Offsets {
     // with craft).
     VAR_TRADESKILL_ENTRIES = 0x00BDDFC0,
     VAR_TRADESKILL_COUNT = 0x00BDE04C,
+    // `int __fastcall(L)`: GetTradeSkillTools(index) and GetCraftSpellFocus(index).
+    // Each pushes (name, flag) pairs: the recipe's spell focus first, its flag
+    // a constant 1 (`push 0x3FF00000` at 0x004FFA8B), then each totem item
+    // with 1 or nil from an inventory search. TradeSkill::Tools hooks both.
+    FUN_SCRIPT_GET_TRADE_SKILL_TOOLS = 0x004FF980,
+    FUN_SCRIPT_GET_CRAFT_SPELL_FOCUS = 0x004F78B0,
     // SkillLine.dbc row ID of the currently-open trade skill window
     // (the profession the player has open). Bounds-checked against
     // `VAR_SKILL_LINE_COUNT` and used as `records[id]` by
@@ -13455,6 +13473,11 @@ enum Offsets {
     // Targets 0x8000 and no other spell does (extracted Spell.dbc).
     OFF_SPELL_RECORD_TARGETS = 0x34,
     OFF_SPELL_RECORD_TARGET_CREATURE_TYPE = 0x38,
+    // u32 column 15, RequiresSpellFocus: the SpellFocusObject.dbc id the
+    // recipe needs near the caster, 0 for none. Read at +0x3C by
+    // Script_GetTradeSkillTools (0x004FFA51) and Script_GetCraftSpellFocus;
+    // Spell.dbc: 2538 Charred Wolf Meat = 4 (Cooking Fire).
+    OFF_SPELL_RECORD_REQUIRES_SPELL_FOCUS = 0x3C,
     // CasterAuraState / TargetAuraState (columns 16 / 17): aura state n
     // (0 = none) the caster / target must hold, as bit n−1 of
     // OFF_UNIT_FIELD_AURASTATE. FUN_SPELL_IS_USABLE reads `[edi+0x40]` /

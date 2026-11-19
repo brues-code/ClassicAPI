@@ -83,6 +83,7 @@ Util\PlayerUtil.lua
 Util\SlashCommandsRegistry.lua
 Util\LinkUtil.lua
 Util\TradeSkillLink.lua
+Util\TradeSkillRequirements.lua
 Util\IconDataProvider.lua
 Util\GameTooltip.lua
 Util\Rectangle.lua
