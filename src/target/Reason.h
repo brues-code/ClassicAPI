@@ -72,6 +72,13 @@ class SelectFor {
 // (3.80.2's Tab over a loose target that already fits).
 void Promote(Why why);
 
+// Puts back a target and reason saved with Selection() / Current() before a
+// temporary select (a click-cast macro's TargetUnit): a Force target is
+// cleared for SoftTargetForce to set again, hidden, next frame; any other is
+// selected again with its old reason, whatever replaced it; one whose unit
+// is gone, or none, clears.
+void Restore(uint64_t guid, Why why);
+
 // The soft-target driver's steps, in its order each frame: a loose target
 // whose object is gone is cleared; after the soft picks, SoftTargetForce;
 // on a frame that rebuilt the candidate list, the loose-target expiry.

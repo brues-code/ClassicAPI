@@ -121,6 +121,7 @@
 #include "spell/AtUnit.h"
 #include "spell/Placement.h"
 #include "storm/String.h"
+#include "target/Reason.h"
 #include "tick/WorldTick.h"
 #include "unit/Focus.h"
 #include "unit/Identity.h"
@@ -708,18 +709,15 @@ bool DispatchVerb(void *L, int fi, const char *prefix, const char *suffix,
         // the previous target so the click doesn't leave the player retargeted.
         // The macro's actions (/cast etc.) dispatch against the clicked unit
         // synchronously while it's selected, so restoring the target afterward
-        // doesn't affect them.
-        uint64_t prevTarget = 0;
+        // doesn't affect them. The target's reason is saved with it: put
+        // back as a plain select, a soft target (SoftTargetForce's hidden
+        // one included) would come back chosen — locked and shown.
         const bool swapped = unit != nullptr;
-        if (swapped) {
-            prevTarget =
-                (static_cast<uint64_t>(Game::Read<volatile uint32_t>(
-                     Offsets::VAR_CURRENT_SELECTION_GUID_HI))
-                 << 32) |
-                Game::Read<volatile uint32_t>(
-                    Offsets::VAR_CURRENT_SELECTION_GUID_LO);
+        const uint64_t prevTarget = swapped ? Target::Reason::Selection() : 0;
+        const Target::Reason::Why prevWhy =
+            swapped ? Target::Reason::Current() : Target::Reason::None;
+        if (swapped)
             Game::Lua::CallGlobalString(L, "TargetUnit", unit);
-        }
         char macro[Offsets::MACRO_BODY_SIZE];
         bool handled = false;
         // `macrotext` is raw macro text (the modern default), `macro` a saved
@@ -731,17 +729,10 @@ bool DispatchVerb(void *L, int fi, const char *prefix, const char *suffix,
         } else if (ReadModAttr(L, fi, prefix, "macro", suffix, macro, sizeof macro)) {
             handled = Macro::Execute::Saved(macro, button);
         }
-        // Restore the target the click swapped away from. `FUN_TARGET_BY_GUID`
-        // validates the GUID resolves to a live unit and bails otherwise, so a
-        // target that despawned mid-macro is dropped cleanly rather than
-        // committed; a zero prior target means "no target" → ClearTarget.
-        if (swapped) {
-            if (prevTarget)
-                reinterpret_cast<void(__fastcall *)(const uint64_t *)>(
-                    Offsets::FUN_TARGET_BY_GUID)(&prevTarget);
-            else
-                Game::Lua::CallGlobal(L, "ClearTarget");
-        }
+        // Restore the target the click swapped away from, with its reason; a
+        // target that despawned mid-macro, or none, clears.
+        if (swapped)
+            Target::Reason::Restore(prevTarget, prevWhy);
         return handled;
     }
     if (Ascii::EqualCI(verb, "stop") || Ascii::EqualCI(verb, "stopcasting")) {

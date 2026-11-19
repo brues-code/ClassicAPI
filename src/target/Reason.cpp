@@ -373,4 +373,16 @@ void Promote(Why why) {
     g_reason = why;
 }
 
+void Restore(uint64_t guid, Why why) {
+    if (guid == 0 || why == Force || Object::ByGuid(Offsets::TYPEMASK_UNIT, guid) == nullptr) {
+        Set(0, Chosen);
+        return;
+    }
+    // A choice is always admitted, so the select replaces whatever stands;
+    // the old reason, loose or locked, goes back on after it.
+    Set(guid, Chosen);
+    if (Selection() == guid)
+        Promote(why);
+}
+
 } // namespace Target::Reason
