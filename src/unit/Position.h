@@ -15,6 +15,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "object/Resolve.h"
 
 // Shared world-position and facing reads for any CGObject-derived unit.
 // The position comes from the object's `GetPosition` virtual (vtable
@@ -64,6 +65,17 @@ inline float Facing(void *obj) {
 // Convenience: resolve a token and read its position in one step.
 inline bool ReadToken(const char *token, float out[3]) {
     return Read(Game::ResolveUnitToken(token), out);
+}
+
+// `obj`'s bounding radius in yards (UNIT_FIELD_BOUNDINGRADIUS,
+// `[m_objectFields + 0x1F0]`): the size each side adds to a range check,
+// as the engine's interact, loot and melee checks add it (0x005EC1A4).
+// 0 for a null object or one whose descriptor is not populated yet.
+inline float BoundingRadius(const void *obj) {
+    const uint8_t *fields = Object::Fields(obj);
+    if (fields == nullptr)
+        return 0.0f;
+    return Game::Read<float>(fields, Offsets::OFF_UNIT_FIELD_BOUNDING_RADIUS);
 }
 
 } // namespace Unit::Position

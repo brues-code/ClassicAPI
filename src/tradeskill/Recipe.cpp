@@ -83,18 +83,11 @@ const uint8_t *PlayerSkillLineFor(int spellID) {
                        Game::Read<uint32_t>(ability, Offsets::OFF_SLA_SKILL_ID));
 }
 
-// The recipe spell ID in 1-based row `n`, or 0. The engine truncates,
-// subtracts 1 and compares unsigned against the row count, so only an index
-// that truncates into [1, count] passes. Compared as a double first: casting
-// NaN or an out-of-range value to an integer is undefined in C++. A header
-// row holds -1, which has no Spell.dbc record.
+// The recipe spell ID in 1-based row `n`, or 0. A header row holds -1,
+// which has no Spell.dbc record.
 int RowSpellID(double n) {
-    const uint32_t count = Game::Read<uint32_t>(Offsets::VAR_TRADESKILL_COUNT);
-    if (!(n >= 1.0 && n < static_cast<double>(count) + 1.0))
-        return 0;
-    return Spell::Lookup::RecipeSlotSpellID(Offsets::VAR_TRADESKILL_ENTRIES,
-                                            Offsets::VAR_TRADESKILL_COUNT,
-                                            static_cast<int>(n) - 1);
+    return Spell::Lookup::RecipeRowSpellID(Offsets::VAR_TRADESKILL_ENTRIES,
+                                           Offsets::VAR_TRADESKILL_COUNT, n);
 }
 
 int __fastcall Script_GetTradeSkillRecipeLink(void *L) {

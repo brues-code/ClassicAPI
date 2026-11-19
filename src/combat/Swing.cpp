@@ -128,23 +128,6 @@ uint32_t AttackTimeMs(SwingType type) {
     return *reinterpret_cast<const uint32_t *>(desc + off);
 }
 
-namespace {
-
-// Reads a unit's bounding radius (the same field `Unit::Range`'s
-// `UnitInRange`/`UnitDistanceSquared` and `Combat::SwingRange` read) off its
-// descriptor. 0 for a null object or an unpopulated descriptor.
-float BoundingRadius(void *obj) {
-    if (obj == nullptr)
-        return 0.0f;
-    auto *fields = Object::Fields(obj);
-    if (fields == nullptr)
-        return 0.0f;
-    return *reinterpret_cast<const float *>(
-        fields + Offsets::OFF_UNIT_FIELD_BOUNDING_RADIUS);
-}
-
-} // namespace
-
 bool InMeleeRange(void *player, void *target) {
     float playerPos[3];
     float targetPos[3];
@@ -155,7 +138,8 @@ bool InMeleeRange(void *player, void *target) {
         Game::Read<float>(static_cast<uintptr_t>(Offsets::VAR_MELEE_REACH_LEEWAY));
     const float floorRange =
         Game::Read<float>(static_cast<uintptr_t>(Offsets::VAR_MELEE_REACH_MIN));
-    float maxRange = BoundingRadius(player) + BoundingRadius(target) + leeway;
+    float maxRange = Unit::Position::BoundingRadius(player) +
+                     Unit::Position::BoundingRadius(target) + leeway;
     if (maxRange < floorRange)
         maxRange = floorRange;
 

@@ -61,18 +61,11 @@ int __fastcall Script_GetTrainerServiceItemLink(void *L) {
         Game::Lua::Error(L, "Usage: GetTrainerServiceItemLink(index)");
         return 0;
     }
-    // GetTrainerService (0x004D89B0) takes the truncated index - 1 and
-    // compares it unsigned against the service count. Compared as a double
-    // first: casting NaN or an out-of-range value to an integer is undefined
-    // in C++.
-    const double n = Game::Lua::ToNumber(L, 1);
-    const uint32_t count = Game::Read<uint32_t>(Offsets::VAR_TRAINER_SERVICE_COUNT);
-    if (n >= 1.0 && n < static_cast<double>(count) + 1.0 &&
-        Game::Read<int>(Offsets::VAR_TRAINER_TYPE) == Offsets::TRAINER_TYPE_TRADESKILLS) {
-        const uint8_t *trainerSpell = Spell::Lookup::RecordForID(
-            Spell::Lookup::RecipeSlotSpellID(Offsets::VAR_TRAINER_SERVICES,
-                                             Offsets::VAR_TRAINER_SERVICE_COUNT,
-                                             static_cast<int>(n) - 1));
+    // GetTrainerService (0x004D89B0) reads the row by the shared row rule.
+    if (Game::Read<int>(Offsets::VAR_TRAINER_TYPE) == Offsets::TRAINER_TYPE_TRADESKILLS) {
+        const uint8_t *trainerSpell = Spell::Lookup::RecordForID(Spell::Lookup::RecipeRowSpellID(
+            Offsets::VAR_TRAINER_SERVICES, Offsets::VAR_TRAINER_SERVICE_COUNT,
+            Game::Lua::ToNumber(L, 1)));
         const uint8_t *recipe = trainerSpell != nullptr ? TaughtSpell(trainerSpell) : nullptr;
         if (recipe != nullptr &&
             Game::Read<int>(recipe, Offsets::OFF_SPELL_RECORD_EFFECT) ==

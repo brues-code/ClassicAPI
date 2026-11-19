@@ -84,12 +84,10 @@ uint32_t DataProperty(void *go, uint32_t type, uint32_t property) {
 // the player.
 bool FocusInRange(uint32_t focusID) {
     void *player = Object::ByGuid(Offsets::TYPEMASK_PLAYER, Unit::Identity::PlayerGuid());
-    const uint8_t *playerFields = Object::Fields(player);
     float playerPos[3];
-    if (playerFields == nullptr || !Unit::Position::Read(player, playerPos))
+    if (!Unit::Position::Read(player, playerPos))
         return false;
-    const float playerRadius =
-        Game::Read<float>(playerFields, Offsets::OFF_UNIT_FIELD_BOUNDING_RADIUS);
+    const float playerRadius = Unit::Position::BoundingRadius(player);
 
     bool found = false;
     Object::ForEachVisible([&](uint64_t guid) {
@@ -118,18 +116,12 @@ bool FocusInRange(uint32_t focusID) {
 
 // After the original pushed `ret` values for row arg 1 of the list at
 // `entriesVar`/`countVar`: nils the spell-focus flag when the focus is not
-// in range. The original truncates the index, subtracts 1 and compares
-// unsigned against the count; compared as a double first, since casting
-// NaN or an out-of-range double to an integer is undefined in C++.
+// in range.
 void CorrectFocusFlag(void *L, int ret, uintptr_t entriesVar, uintptr_t countVar) {
     if (ret < 2)
         return;
-    const double n = Game::Lua::ToNumber(L, 1);
-    const uint32_t count = Game::Read<uint32_t>(countVar);
-    if (!(n >= 1.0 && n < static_cast<double>(count) + 1.0))
-        return;
     const uint8_t *spell = Spell::Lookup::RecordForID(
-        Spell::Lookup::RecipeSlotSpellID(entriesVar, countVar, static_cast<int>(n) - 1));
+        Spell::Lookup::RecipeRowSpellID(entriesVar, countVar, Game::Lua::ToNumber(L, 1)));
     if (spell == nullptr)
         return;
     const uint32_t focusID =

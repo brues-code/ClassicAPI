@@ -57,21 +57,6 @@ namespace {
 
 constexpr float kRangeYards = 40.0f;
 
-// Reads a unit's bounding radius (the engine's per-unit range "size
-// factor") from `[m_objectFields + 0x1F0]`. Returns 0 for a null object
-// or a unit whose descriptor isn't populated yet — a safe fallback that
-// degrades to the plain base-range check. Same field the loot/interact
-// range checks (loot/Nearby.cpp) read.
-float BoundingRadius(void *obj) {
-    if (obj == nullptr)
-        return 0.0f;
-    auto *fields = Object::Fields(obj);
-    if (fields == nullptr)
-        return 0.0f;
-    return *reinterpret_cast<const float *>(
-        fields + Offsets::OFF_UNIT_FIELD_BOUNDING_RADIUS);
-}
-
 // Resolves `token` once and reads both its world position and bounding
 // radius. Returns false when the position is unavailable (unresolved /
 // absent token, or an object with no known position yet — e.g. a party
@@ -81,7 +66,7 @@ bool ReadPosAndReach(const char *token, float pos[3], float *reach) {
     void *obj = Game::ResolveUnitToken(token);
     if (!Unit::Position::Read(obj, pos))
         return false;
-    *reach = BoundingRadius(obj);
+    *reach = Unit::Position::BoundingRadius(obj);
     return true;
 }
 
@@ -92,7 +77,7 @@ bool ReadMoverPosAndReach(float pos[3], float *reach) {
         Game::Read<uint64_t>(static_cast<uintptr_t>(Offsets::VAR_ACTIVE_MOVER_GUID)));
     if (!Unit::Position::Read(mover, pos))
         return false;
-    *reach = BoundingRadius(mover);
+    *reach = Unit::Position::BoundingRadius(mover);
     return true;
 }
 

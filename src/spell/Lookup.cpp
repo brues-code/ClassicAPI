@@ -157,26 +157,26 @@ int SpellbookItemArgsToID(void *L, int slotIdx, int bankIdx) {
     return SpellbookSlotToID(slot, SpellBankArgToBookType(L, bankIdx));
 }
 
-int RecipeSlotSpellID(uintptr_t entriesVar, uintptr_t countVar, int slotIndex0) {
-    if (slotIndex0 < 0)
-        return 0;
-    const int count = static_cast<int>(
-        *reinterpret_cast<const uint32_t *>(countVar));
-    if (slotIndex0 >= count)
+int RecipeRowSpellID(uintptr_t entriesVar, uintptr_t countVar, double index1) {
+    const uint32_t count = *reinterpret_cast<const uint32_t *>(countVar);
+    if (!(index1 >= 1.0 && index1 < static_cast<double>(count) + 1.0))
         return 0;
     auto **entries = *reinterpret_cast<const uint8_t ***>(entriesVar);
     if (entries == nullptr)
         return 0;
-    auto *entry = entries[slotIndex0];
+    auto *entry = entries[static_cast<int>(index1) - 1];
     if (entry == nullptr)
         return 0;
     return static_cast<int>(*reinterpret_cast<const uint32_t *>(
         entry + Offsets::OFF_CRAFT_ENTRY_SPELL_ID));
 }
 
-int NthRecipeReagentItemID(const uint8_t *spellRecord, int reagentIndex1) {
-    if (spellRecord == nullptr || reagentIndex1 < 1)
+int NthRecipeReagentItemID(const uint8_t *spellRecord, double reagentIndex1) {
+    if (spellRecord == nullptr ||
+        !(reagentIndex1 >= 1.0 &&
+          reagentIndex1 < static_cast<double>(Offsets::SPELL_RECIPE_MAX_REAGENTS) + 1.0))
         return 0;
+    const int n = static_cast<int>(reagentIndex1);
     auto *reagents = reinterpret_cast<const uint32_t *>(
         spellRecord + Offsets::OFF_SPELL_REAGENT_ID);
     int found = 0;
@@ -184,7 +184,7 @@ int NthRecipeReagentItemID(const uint8_t *spellRecord, int reagentIndex1) {
         const int itemID = static_cast<int>(reagents[i]);
         if (itemID == 0)
             return 0;
-        if (++found == reagentIndex1)
+        if (++found == n)
             return itemID;
     }
     return 0;

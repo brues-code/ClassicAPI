@@ -135,23 +135,30 @@ const char *IconPath(const uint8_t *spellRecord, bool active);
 // that the next call overwrites, so push or copy the result at once.
 const char *DisplayIconPath(const uint8_t *spellRecord);
 
-// Resolves a 0-based UI slot into the recipe's spellID. Used by the
-// tradeskill, craft and trainer windows — they share the same storage shape:
-// `[entriesVar]` is a pointer to a heap-allocated array of recipe-
-// entry pointers, with the entry's first u32 holding the spellID.
+// Resolves a Lua row index (1-based, as a script passes it) into the
+// recipe's spellID. Used by the tradeskill, craft and trainer windows — they
+// share the same storage shape: `[entriesVar]` is a pointer to a
+// heap-allocated array of recipe-entry pointers, with the entry's first u32
+// holding the spellID. Pass `entriesVar` + `countVar` matching the UI
+// surface (`VAR_TRADESKILL_*`, `VAR_CRAFT_*` or `VAR_TRAINER_SERVICE*`).
 //
-// Pass `entriesVar` + `countVar` matching the UI surface
-// (`VAR_TRADESKILL_*`, `VAR_CRAFT_*` or `VAR_TRAINER_SERVICE*`). Returns 0 if the UI is
-// closed, the index is OOR, the entry slot is null, or the entry's
-// spellID is 0.
-int RecipeSlotSpellID(uintptr_t entriesVar, uintptr_t countVar, int slotIndex0);
+// The index follows the engine's row getters' rule: it is truncated, 1 is
+// subtracted and the result is compared unsigned against the count
+// (GetTradeSkillItemLink 0x004FF410: __ftol, dec, `jnc`), so only an index
+// that truncates into [1, count] passes. Compared as a double first:
+// casting NaN or an out-of-range double to an integer is undefined in C++.
+// Returns 0 if the UI is closed, the index is out of range, the entry slot
+// is null, or the entry's spellID is 0.
+int RecipeRowSpellID(uintptr_t entriesVar, uintptr_t countVar, double index1);
 
 // Walks the recipe's reagent itemID array at
 // `spellRecord + OFF_SPELL_REAGENT_ID` and returns the itemID
-// of the Nth (1-based) non-zero reagent. Returns 0 if the spell
-// record is null, the reagent index is < 1, or we hit a 0 slot
-// before reaching N — matching the engine's
-// `Script_GetTradeSkillReagentItemLink` bail behavior.
-int NthRecipeReagentItemID(const uint8_t *spellRecord, int reagentIndex1);
+// of the Nth (1-based) non-zero reagent, N being the Lua number
+// `reagentIndex1` truncated. Returns 0 if the spell record is null, the
+// index does not truncate into [1, SPELL_RECIPE_MAX_REAGENTS], or we hit a
+// 0 slot before reaching N — matching the engine's
+// `Script_GetTradeSkillReagentItemLink` bail behavior. Compared as a double
+// first, as RecipeRowSpellID does.
+int NthRecipeReagentItemID(const uint8_t *spellRecord, double reagentIndex1);
 
 } // namespace Spell::Lookup

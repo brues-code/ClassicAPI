@@ -35,10 +35,8 @@ int __fastcall Script_GetCraftSpellID(void *L) {
         Game::Lua::Error(L, "Usage: GetCraftSpellID(craftIndex)");
         return 0;
     }
-    const int craftIndex = static_cast<int>(Game::Lua::ToNumber(L, 1)) - 1;
-
-    const int spellID = Spell::Lookup::RecipeSlotSpellID(
-        Offsets::VAR_CRAFT_ENTRIES, Offsets::VAR_CRAFT_COUNT, craftIndex);
+    const int spellID = Spell::Lookup::RecipeRowSpellID(
+        Offsets::VAR_CRAFT_ENTRIES, Offsets::VAR_CRAFT_COUNT, Game::Lua::ToNumber(L, 1));
     if (spellID <= 0)
         return 0;
 

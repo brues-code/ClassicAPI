@@ -33,13 +33,10 @@ int __fastcall Script_GetCraftReagentItemID(void *L) {
         Game::Lua::Error(L, "Usage: GetCraftReagentItemID(craftIndex, reagentIndex)");
         return 0;
     }
-    const int craftIndex = static_cast<int>(Game::Lua::ToNumber(L, 1)) - 1;
-    const int reagentIndex = static_cast<int>(Game::Lua::ToNumber(L, 2));
-
-    const int spellID = Spell::Lookup::RecipeSlotSpellID(
-        Offsets::VAR_CRAFT_ENTRIES, Offsets::VAR_CRAFT_COUNT, craftIndex);
-    const uint8_t *record = Spell::Lookup::RecordForID(spellID);
-    const int itemID = Spell::Lookup::NthRecipeReagentItemID(record, reagentIndex);
+    const uint8_t *record = Spell::Lookup::RecordForID(Spell::Lookup::RecipeRowSpellID(
+        Offsets::VAR_CRAFT_ENTRIES, Offsets::VAR_CRAFT_COUNT, Game::Lua::ToNumber(L, 1)));
+    const int itemID =
+        Spell::Lookup::NthRecipeReagentItemID(record, Game::Lua::ToNumber(L, 2));
     if (itemID == 0)
         return 0;
 

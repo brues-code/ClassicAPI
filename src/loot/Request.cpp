@@ -31,13 +31,6 @@ using LootUnit_t = void(__thiscall *)(void *player, void *target,
                                       char useDistanceCheck);
 using UpdateBaseAnimation_t = void(__thiscall *)(void *unit, uint32_t mask);
 
-// The per-unit reach `CanLootNow` adds for each side (`[m_objectFields +
-// 0x1F0]`).
-float Reach(const void *unit) {
-    auto *fields = Object::Fields(unit);
-    return Game::Read<float>(fields, Offsets::OFF_UNIT_FIELD_BOUNDING_RADIUS);
-}
-
 } // namespace
 
 bool IsMounted(const void *player) {
@@ -58,7 +51,7 @@ bool InReach(void *player, void *target) {
         return false;
     // `CanLootNow`'s reach for a unit (`0x005EC142`..`0x005EC17E`), with the
     // engine's own constants read live.
-    float reach = Reach(target) + Reach(player) +
+    float reach = Unit::Position::BoundingRadius(target) + Unit::Position::BoundingRadius(player) +
                   Game::Read<float>(static_cast<uintptr_t>(Offsets::VAR_MELEE_REACH_LEEWAY));
     const float minReach =
         Game::Read<float>(static_cast<uintptr_t>(Offsets::VAR_MELEE_REACH_MIN));
