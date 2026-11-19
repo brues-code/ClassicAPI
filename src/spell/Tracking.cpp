@@ -16,7 +16,7 @@
 #include "spell/Cancel.h"
 #include "spell/Lookup.h"
 #include "spell/Placement.h"
-#include "target/Loose.h"
+#include "target/Reason.h"
 
 #include <cstdint>
 
@@ -158,7 +158,7 @@ static int __fastcall Script_SetTracking(void *L) {
     if (EnumerateTracking(index, &spellID) < index)
         return 0;
 
-    Spell::Placement::DispatchSpellCast(spellID, Target::Loose::Selection());
+    Spell::Placement::DispatchSpellCast(spellID, Target::Reason::Selection());
     return 0;
 }
 

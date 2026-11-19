@@ -51,7 +51,7 @@
 #include "spell/Lookup.h"
 #include "spell/MacroPrimarySpell.h"
 #include "spell/Placement.h"
-#include "target/Loose.h"
+#include "target/Reason.h"
 
 #include <cstdint>
 #include <cstring>
@@ -217,7 +217,7 @@ int __fastcall Script_CastSpellNoToggle(void *L) {
         // Script_CastSpellByName (0x004B4AB0) with no onSelf flag: the
         // name's book slot through the cast dispatcher, at the current
         // selection.
-        Spell::Placement::DispatchSpellCastByName(spellName, Target::Loose::Selection());
+        Spell::Placement::DispatchSpellCastByName(spellName, Target::Reason::Selection());
     }
 
     // Reflect the post-cast state: true if either toggle is now active.

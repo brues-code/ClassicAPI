@@ -58,7 +58,11 @@
 // `LAB_005159d3..0x00515A2C` walker instruction-for-instruction
 // (SStrCmpI "target" + ObjectByGUID + read UNIT_FIELD_TARGET).
 //
-// Resolution order in the hook: raw GUID, focus, the soft targets,
+// - `target*` while the target is a SoftTargetForce one
+//   (`Target::Reason::Hidden`): nil, as 3.80.2's resolver answers
+//   `reason == 4 ? 0 : target`, so `targettarget` is nil too.
+//
+// Resolution order in the hook: raw GUID, a hidden target, focus, the soft targets,
 // nameplateN (requires a digit), markN (one digit 1..8), totemN (one
 // digit 1..4), then a name. Each branch short-circuits; on no match
 // the original engine resolver runs unchanged.
@@ -67,6 +71,7 @@
 #include "Offsets.h"
 #include "nameplate/Walk.h"
 #include "object/Resolve.h"
+#include "target/Reason.h"
 #include "target/SoftInteract.h"
 #include "target/SoftUnit.h"
 #include "totem/Tracker.h"
@@ -360,6 +365,10 @@ uint64_t __fastcall Hook_h(const char *token) {
         if (digits > 0)
             return WalkSuffix(guid, p);
     }
+
+    // A Force target is hidden from `target` and every chain built on it.
+    if (Target::Reason::Hidden() && IsTargetChain(token))
+        return 0;
 
     // A letter-only prefix of ours whose rest is no `target` chain: a name
     // gets the first look, else it stays the quiet nil it always was.

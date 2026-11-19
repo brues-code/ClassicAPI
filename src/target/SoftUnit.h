@@ -30,6 +30,9 @@ uint64_t Current(Side side);
 // SoftTargetEnemy / SoftTargetFriend turns the side on.
 bool Enabled(Side side);
 
+// SoftTargetEnemyArc / SoftTargetFriendArc.
+int Arc(Side side);
+
 // The `anyenemy` / `anyfriend` GUID: the current target when it qualifies as
 // that side's soft target, else Get(side), else the current target, else the
 // other side's soft unit.

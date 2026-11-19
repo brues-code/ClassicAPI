@@ -50,7 +50,7 @@
 #include "cvar/Factory.h"
 #include "event/Custom.h"
 #include "object/Resolve.h"
-#include "target/Loose.h"
+#include "target/Reason.h"
 #include "target/Nearest.h"
 #include "target/SoftTarget.h"
 #include "tick/FrameTick.h"
@@ -115,7 +115,7 @@ uint64_t Pick(State &st) {
         return 0;
     // A loose target is not a locked one: it neither stops the pick nor is
     // matched (retail: the loose target follows the nearer soft enemy).
-    const uint64_t target = Loose::Locked();
+    const uint64_t target = Reason::LockedTarget();
     if (target != 0 && CVar::Factory::GetInt(g_withLocked) == 0)
         return 0;
     SoftTarget::Area area;
@@ -133,7 +133,7 @@ uint64_t Pick(State &st) {
 // at once.
 void Refresh(State &st) {
     const uint32_t drain = SoftTarget::Drains();
-    const uint64_t target = Loose::Locked();
+    const uint64_t target = Reason::LockedTarget();
     if (st.picked && st.pickedDrain == drain && st.pickedTarget == target)
         return;
     st.picked = true;
@@ -213,12 +213,14 @@ uint64_t Current(Side side) { return Of(side).soft; }
 // last two steps are by symmetry, not probed.
 bool Enabled(Side side) { return SoftTarget::Enabled(Of(side).enable); }
 
+int Arc(Side side) { return CVar::Factory::GetInt(Of(side).arc); }
+
 uint64_t GetAny(Side side) {
     if (!Object::RegistryReady())
         return 0;
     State &st = Of(side);
     SoftTarget::Area area;
-    const uint64_t target = Loose::Selection();
+    const uint64_t target = Reason::Selection();
     if (SoftTarget::Enabled(st.enable) &&
         SoftTarget::Begin(area, st.arc, st.range, kDefaultRange) && Qualifies(st, area, target))
         return target;

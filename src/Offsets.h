@@ -1981,6 +1981,9 @@ enum Offsets {
     // stopAutoAttackOnTargetChange test at the same point. Both E8 calls,
     // targets checked against the exe.
     CALL_SET_SELECTION_FIRE_TARGET_CHANGED = 0x0049389C,
+    // The event both of those fire: PLAYER_TARGET_CHANGED (`mov ecx,0xC3`
+    // at 0x00493897 before the FUN_FIRE_EVENT_NO_ARGS call above).
+    EVENT_PLAYER_TARGET_CHANGED = 0xC3,
     CALL_SET_SELECTION_ATTACK_START = 0x004938C8,
     // CGGameUI::OnSpriteRightClick — the world right-click on an object:
     // `int __stdcall(uint32_t guidLo, uint32_t guidHi)`, `ret 8`. No active
@@ -5594,6 +5597,10 @@ enum Offsets {
     // (0.5, 0x200122). The decal's vertices carry the full ARGB, and the
     // circle blends (source alpha, one), so the alpha byte is its brightness.
     FUN_CGOBJECT_FRAME_UPDATE = 0x00614A90,
+    // A unit's slot 12 itself, CGUnit_C::DrawSelectionCircle: `void
+    // __thiscall(unit)`, plain `ret` (benilla-re crates/objectlayer
+    // unitm1_fp.rs). Slot 12 is called only for the target (0x00614ADA).
+    FUN_UNIT_DRAW_SELECTION_CIRCLE = 0x00608E00,
     // CGObject_C::SetLight / ClearLight — `void __thiscall(obj, int bit)`.
     // SetLight ORs the bit into the object's light bits (+0xB8) and gives the
     // model the light state's emissive colour (+0x178..+0x17A / 255); ClearLight
@@ -13021,9 +13028,13 @@ enum Offsets {
     // these are the non-toggling start/stop it calls internally.
     //   START: __thiscall(player, const uint64_t *targetGuid). Validates
     //     CanAttack on the target, sends CMSG_ATTACKSWING (opcode 0x141), and
-    //     stamps the victim GUID at [player+0xC48]. Idempotent / switch-aware
-    //     on a valid target (never stops an in-progress attack); an
-    //     unattackable target while attacking routes to STOP.
+    //     stamps the victim GUID at [player+0xC48]. Idempotent on a valid
+    //     target (never stops an in-progress attack), but it does NOT switch
+    //     one: the swing is sent only while no victim is stamped (or the word at
+    //     [player+0xC54] is set), so moving a
+    //     running attack takes STOP first (the target setter's ReleaseTarget
+    //     does exactly that). An unattackable target while attacking routes
+    //     to STOP.
     //   STOP: __fastcall(player). Clears the attack state; self-guards on the
     //     attack flag, so it is a no-op (safe) when not attacking.
     //   RESOLVE_TARGET: __thiscall(player, uint64_t *outGuid) -> int. Validates

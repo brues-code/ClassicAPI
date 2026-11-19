@@ -18,9 +18,9 @@
 namespace Target::SoftAttack {
 
 // FUN_ATTACK_RESOLVE_TARGET with action targeting: with no GUID given and no
-// target, the melee attack settles on `softenemy`, and the target stays
-// empty. Otherwise the engine's resolve unchanged. Nonzero when `guid` holds
-// a unit to attack; else the engine has shown why not.
+// locked target, the melee attack settles on `softenemy`, and the target is
+// left as it is. Otherwise the engine's resolve unchanged. Nonzero when
+// `guid` holds a unit to attack; else the engine has shown why not.
 int ResolveMelee(void *player, uint64_t *guid);
 
 } // namespace Target::SoftAttack

@@ -23,11 +23,16 @@
 // direct calls, so the cvar is two call redirects in that function only:
 // the event fire also stops auto-repeat, and the melee restart is skipped.
 // Defaults to 0 as in 4.3.4, which is 1.12's behavior.
+//
+// The event fire also drops PLAYER_TARGET_CHANGED for a Force target
+// (Target::Reason): 3.80.2's set-target fires it only when the stored
+// reason is not 4.
 
 #include "Common.h"
 #include "Game.h"
 #include "Offsets.h"
 #include "cvar/Character.h"
+#include "target/Reason.h"
 
 #include <cstdint>
 
@@ -44,7 +49,8 @@ CVar::Factory::Handle g_stopOnChange = nullptr;
 bool StopOnChange() { return CVar::Factory::GetInt(g_stopOnChange) != 0; }
 
 void __fastcall FireTargetChanged(int eventID) {
-    reinterpret_cast<FireEvent_t>(Offsets::FUN_FIRE_EVENT_NO_ARGS)(eventID);
+    if (!Target::Reason::Hidden())
+        reinterpret_cast<FireEvent_t>(Offsets::FUN_FIRE_EVENT_NO_ARGS)(eventID);
     if (StopOnChange())
         reinterpret_cast<StopAutoRepeat_t>(Offsets::FUN_STOP_AUTO_REPEAT_SPELL)();
 }
