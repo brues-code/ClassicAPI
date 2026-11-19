@@ -1,18 +1,13 @@
 <Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\FrameXML\UI.xsd">
 	<!--
 	Templates from retail's Blizzard_SharedXML/Mainline/SharedUIPanelTemplates.xml.
-	Retail draws the panel frames, the close button and the resize grip with
-	atlases and a NineSlice this client does not have, so:
-	- PortraitFrameBaseTemplate's border is the tooltip border, with a dark
-	  title bar under the title, as TableInspector draws its window. The
-	  border is the same with and without the portrait.
-	- InsetFrameTemplate is a darker fill without a border: retail's content
-	  sits on its thin inset border, which a tooltip border would hide.
-	- The inset sits where retail puts it without the portrait.
+	Retail draws the close button, the resize grip and some controls with
+	atlases this client does not have, so:
 	- The close button is 1.12's own (UIPanelCloseButton's art).
 	- The resize grip is the chat frame's expand arrow, turned to point at
 	  the corner.
-	- No FrameGlow, gamepad jump hints, TopTileStreaks or button bar.
+	- No FrameGlow, gamepad jump hints, TopTileStreaks or button bar, and
+	  no FocusFramesInterfaceMixin.
 	- DarkMenuElementTemplate's hover is 1.12's dropdown highlight
 	  (UI-QuestTitleHighlight), stretched over the row: the
 	  common-dropdown-customize-mouseover atlas is art this client does not
@@ -21,6 +16,8 @@
 	  SteppersIncrementButtonTemplate and SteppersDecrementButtonTemplate
 	  are atlases.
 	-->
+	<Script file="NineSlice.lua"/>
+	<Script file="NineSliceLayouts.lua"/>
 	<Script file="PortraitFrame.lua"/>
 	<Script file="SharedUIPanelTemplates.lua"/>
 
@@ -66,14 +63,108 @@
 		</Scripts>
 	</Button>
 
+	<Frame name="NineSliceCodeTemplate" mixin="NineSlicePanelMixin" virtual="true">
+		<Scripts>
+			<OnLoad method="OnLoad"/>
+		</Scripts>
+	</Frame>
+
+<!--
+*******************************************************************************
+   Frame border element
+	Can have any arbitrary NineSlice theme applied, appears over all frame
+	content, but under any elements like tutorials, notifications, custom
+	artwork, etc...
+*******************************************************************************
+-->
+	<Frame name="NineSlicePanelTemplate" inherits="NineSliceCodeTemplate" frameLevel="500" setAllPoints="true" virtual="true"/>
+<!--
+*******************************************************************************
+    InsetFrameTemplate
+
+	This is the inner frame used for content by many panels.
+*******************************************************************************
+-->
 	<Frame name="InsetFrameTemplate" useParentLevel="true" virtual="true">
+		<KeyValues>
+			<KeyValue key="layoutType" value="InsetFrameTemplate" type="string"/>
+		</KeyValues>
+		<Layers>
+			<Layer level="BACKGROUND" textureSubLevel="-5">
+				<!-- TODO: Convert this to atlas -->
+				<Texture parentKey="Bg" file="Interface\FrameGeneral\UI-Background-Marble" horizTile="true" vertTile="true" setAllPoints="true"/>
+			</Layer>
+		</Layers>
+		<Frames>
+			<Frame parentKey="NineSlice" useParentLevel="true" inherits="NineSlicePanelTemplate"/>
+		</Frames>
+	</Frame>
+
+	<Frame name="FlatPanelBackgroundTemplate" virtual="true">
 		<Layers>
 			<Layer level="BACKGROUND">
-				<Texture parentKey="Bg" name="$parentBg" setAllPoints="true">
-					<Color r="0" g="0" b="0" a="0.5"/>
+				<Texture parentKey="BottomLeft" atlas="uiframebackground-nineslice-cornerbottomleft" useAtlasSize="true">
+					<Anchors>
+						<Anchor point="BOTTOMLEFT"/>
+					</Anchors>
+					<Color color="PANEL_BACKGROUND_COLOR"/>
+				</Texture>
+				<Texture parentKey="BottomRight" atlas="uiframebackground-nineslice-cornerbottomright" useAtlasSize="true">
+					<Anchors>
+						<Anchor point="BOTTOMRIGHT"/>
+					</Anchors>
+					<Color color="PANEL_BACKGROUND_COLOR"/>
+				</Texture>
+				<Texture parentKey="BottomEdge">
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeKey="$parent.BottomLeft" relativePoint="TOPRIGHT"/>
+						<Anchor point="BOTTOMRIGHT" relativeKey="$parent.BottomRight" relativePoint="BOTTOMLEFT"/>
+					</Anchors>
+					<Color color="PANEL_BACKGROUND_COLOR"/>
+				</Texture>
+				<Texture parentKey="TopSection">
+					<Anchors>
+						<Anchor point="TOPLEFT"/>
+						<Anchor point="BOTTOMRIGHT" relativeKey="$parent.BottomRight" relativePoint="TOPRIGHT"/>
+					</Anchors>
+					<Color color="PANEL_BACKGROUND_COLOR"/>
 				</Texture>
 			</Layer>
 		</Layers>
+	</Frame>
+
+<!--
+*******************************************************************************
+   Simple Panel templates
+	Barebones panel templates that can have space for a button bar at the bottom
+	and an inset for content, the inset defaults to being vertically centered
+	with sufficient padding for a bottom row of buttons
+*******************************************************************************
+-->
+	<Frame name="SimplePanelTemplate" virtual="true">
+		<KeyValues>
+			<KeyValue key="layoutType" value="SimplePanelTemplate" type="string"/>
+		</KeyValues>
+		<Size x="338" y="424"/>
+		<Layers>
+			<Layer level="BACKGROUND" textureSubLevel="-6">
+				<Texture name="$parentBg" file="Interface\FrameGeneral\UI-Background-Rock" horizTile="true" vertTile="true" parentKey="Bg">
+					<Anchors>
+						<Anchor point="TOPLEFT" x="0" y="-6"/>
+						<Anchor point="BOTTOMRIGHT" x="-2" y="3"/>
+					</Anchors>
+				</Texture>
+			</Layer>
+		</Layers>
+		<Frames>
+			<Frame parentKey="Inset" inherits="InsetFrameTemplate">
+				<Anchors>
+					<Anchor point="TOPLEFT" x="4" y="-26"/>
+					<Anchor point="BOTTOMRIGHT" x="-6" y="26"/>
+				</Anchors>
+			</Frame>
+			<Frame parentKey="NineSlice" inherits="NineSlicePanelTemplate"/>
+		</Frames>
 	</Frame>
 
 <!--
@@ -83,22 +174,12 @@
 *******************************************************************************
 -->
 	<Frame name="PortraitFrameBaseTemplate" mixin="PortraitFrameMixin" virtual="true">
+		<KeyValues>
+			<KeyValue key="layoutType" value="PortraitFrameTemplate" type="string"/>
+		</KeyValues>
 		<Size x="338" y="424"/>
-		<Backdrop edgeFile="Interface\Tooltips\UI-Tooltip-Border">
-			<EdgeSize val="16"/>
-		</Backdrop>
-		<Layers>
-			<Layer level="BACKGROUND">
-				<Texture>
-					<Anchors>
-						<Anchor point="TOPLEFT" x="5" y="-5"/>
-						<Anchor point="BOTTOMRIGHT" relativePoint="TOPRIGHT" x="-5" y="-24"/>
-					</Anchors>
-					<Color r="0.1" g="0.1" b="0.1" a="0.95"/>
-				</Texture>
-			</Layer>
-		</Layers>
 		<Frames>
+			<Frame parentKey="NineSlice" inherits="NineSlicePanelTemplate"/>
 			<Frame parentKey="PortraitContainer" frameLevel="400">
 				<Size x="1" y="1"/>
 				<Anchors>
@@ -145,6 +226,33 @@
 		</Frames>
 	</Frame>
 
+	<Frame name="PortraitFrameTexturedBaseTemplate" inherits="PortraitFrameBaseTemplate" virtual="true">
+		<Layers>
+			<Layer level="BACKGROUND" textureSubLevel="-6">
+				<Texture name="$parentBg" file="Interface\FrameGeneral\UI-Background-Rock" horizTile="true" vertTile="true" parentKey="Bg">
+					<Anchors>
+						<Anchor point="TOPLEFT" x="2" y="-21"/>
+						<Anchor point="BOTTOMRIGHT" x="-2" y="2"/>
+					</Anchors>
+				</Texture>
+			</Layer>
+		</Layers>
+	</Frame>
+
+	<Frame name="PortraitFrameTemplateNoCloseButton" inherits="PortraitFrameTexturedBaseTemplate" virtual="true"/>
+
+	<Frame name="PortraitFrameTemplate" inherits="PortraitFrameTemplateNoCloseButton" virtual="true">
+		<Frames>
+			<Button name="$parentCloseButton" parentKey="CloseButton" inherits="UIPanelCloseButtonDefaultAnchors"/>
+		</Frames>
+	</Frame>
+
+	<Frame name="PortraitFrameTemplateMinimizable" inherits="PortraitFrameTemplate" virtual="true">
+		<KeyValues>
+			<KeyValue key="layoutType" value="PortraitFrameTemplateMinimizable" type="string"/>
+		</KeyValues>
+	</Frame>
+
 <!--
 *******************************************************************************
     ButtonFrameTemplate
@@ -154,13 +262,12 @@
 -->
 	<Frame name="ButtonFrameBaseTemplate" inherits="PortraitFrameBaseTemplate" virtual="true">
 		<Layers>
-			<Layer level="BACKGROUND">
-				<Texture name="$parentBg" parentKey="Bg">
+			<Layer level="BACKGROUND" textureSubLevel="-6">
+				<Texture name="$parentBg" file="Interface\FrameGeneral\UI-Background-Rock" horizTile="true" vertTile="true" parentKey="Bg">
 					<Anchors>
-						<Anchor point="TOPLEFT" x="5" y="-24"/>
-						<Anchor point="BOTTOMRIGHT" x="-5" y="5"/>
+						<Anchor point="TOPLEFT" x="2" y="-21"/>
+						<Anchor point="BOTTOMRIGHT" x="-2" y="2"/>
 					</Anchors>
-					<Color r="0" g="0" b="0" a="0.75"/>
 				</Texture>
 			</Layer>
 		</Layers>
@@ -173,11 +280,22 @@
 		<Frames>
 			<Frame name="$parentInset" parentKey="Inset" useParentLevel="true" inherits="InsetFrameTemplate">
 				<Anchors>
-					<Anchor point="TOPLEFT" x="9" y="-60" />
+					<Anchor point="TOPLEFT" x="4" y="-60" />
 					<Anchor point="BOTTOMRIGHT" x="-6" y="26" />
 				</Anchors>
 			</Frame>
 		</Frames>
+	</Frame>
+<!--
+*******************************************************************************
+    ButtonFrameTemplateMinimizable
+	This is a Button Frame that is minimizable
+*******************************************************************************
+-->
+	<Frame name="ButtonFrameTemplateMinimizable" inherits="ButtonFrameTemplate" virtual="true">
+		<KeyValues>
+			<KeyValue key="layoutType" value="PortraitFrameTemplateMinimizable" type="string"/>
+		</KeyValues>
 	</Frame>
 
 	<Button name="PanelResizeButtonTemplate" mixin="PanelResizeButtonMixin" virtual="true">

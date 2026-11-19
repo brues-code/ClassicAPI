@@ -1,8 +1,6 @@
 -- Backport of retail's Blizzard_SharedXML/PortraitFrame.lua.
 --
 -- Implementation differences from the retail source:
---   - The border is a backdrop (SharedUIPanelTemplates.xml), the same with
---     and without the portrait, so SetBorder has no layout to apply.
 --   - No SetPortraitToClassIcon or SetPortraitToSpecIcon: this client has no
 --     class circles art (CLASS_ICON_TCOORDS) and no specializations.
 --   - No DefaultPanelMixin or PortraitFrameFlatBaseMixin: their templates are
@@ -47,6 +45,8 @@ function PortraitFrameMixin:HasPortraitTexture()
 end
 
 function PortraitFrameMixin:SetBorder(layoutName)
+	local layout = NineSliceUtil.GetLayout(layoutName);
+	NineSliceUtil.ApplyLayout(self.NineSlice, layout);
 end
 
 function PortraitFrameMixin:SetPortraitToAsset(texture)

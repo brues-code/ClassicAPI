@@ -12,6 +12,14 @@ TextureKitConstants = {
 	AddressModeAllowAssetToDetermine = 3,
 };
 
+function GetFinalNameFromTextureKit(fmt, textureKits)
+	if type(textureKits) == "table" then
+		return fmt:format(unpack(textureKits));
+	else
+		return fmt:format(textureKits);
+	end
+end
+
 function SetClampedTextureRotation(texture, rotationDegrees)
     if (rotationDegrees ~= 0 and rotationDegrees ~= 90 and rotationDegrees ~= 180 and rotationDegrees ~= 270) then
         error("SetRotation: rotationDegrees must be 0, 90, 180, or 270");

@@ -5,9 +5,6 @@
 --   - 1.12's cursor table has no UI_MOVE_CURSOR or UI_RESIZE_CURSOR, so
 --     PanelDragBarMixin:UpdateCursor and PanelResizeButtonMixin's
 --     OnEnter / OnLeave do nothing.
---   - The ButtonFrameTemplate border is the same with and without the
---     portrait, so ButtonFrameTemplate_HidePortrait / ShowPortrait move only
---     the title; the background and inset stay inside the border.
 --   - 1.12 FrameXML owns UIPanelCloseButton (its own OnClick), so
 --     UIPanelCloseButtonDefaultAnchors inherits UIPanelCloseButtonNoScripts
 --     and runs UIPanelCloseButton_OnClick itself.
@@ -125,7 +122,21 @@ end
 function PanelDragBarMixin:UpdateCursor()
 end
 
+local function ButtonFrameTemplate_UpdateRegionAnchor(region, desiredOffsetX)
+	-- It's unfortunate that region needs to be checked here, but there's code that uses ButtonFrameTemplate_*Portrait calls
+	-- on frames that don't actually inherit from ButtonFrameTemplate.
+	if region then
+		local point, relativeTo, relativePoint, currentOffsetX, offsetY = region:GetPointByName("TOPLEFT");
+		if point then
+			region:SetPoint(point, relativeTo, relativePoint, desiredOffsetX, offsetY);
+		end
+	end
+end
+
 local function ButtonFrameTemplate_UpdateAnchors(self, isPortraitMode)
+	ButtonFrameTemplate_UpdateRegionAnchor(self.Bg, isPortraitMode and 2 or 7);
+	ButtonFrameTemplate_UpdateRegionAnchor(self.Inset, isPortraitMode and 4 or 9);
+
 	if self.TitleContainer then
 		self.TitleContainer:SetPoint("TOPLEFT", self, "TOPLEFT", isPortraitMode and 58 or 0, -1);
 		self.TitleContainer:SetPoint("TOPRIGHT", self, "TOPRIGHT", isPortraitMode and -24 or 0, -1);
@@ -146,6 +157,16 @@ function ButtonFrameTemplate_ShowPortrait(self)
 
 	local isPortraitMode = true;
 	ButtonFrameTemplate_UpdateAnchors(self, isPortraitMode);
+end
+
+function ButtonFrameTemplateMinimizable_HidePortrait(self)
+	self:SetBorder("ButtonFrameTemplateNoPortraitMinimizable");
+	self:SetPortraitShown(false);
+end
+
+function ButtonFrameTemplateMinimizable_ShowPortrait(self)
+	self:SetBorder("PortraitFrameTemplateMinimizable");
+	self:SetPortraitShown(true);
 end
 
 UIPanelCloseButtonDefaultAnchorsMixin = {};

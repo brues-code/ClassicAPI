@@ -1360,6 +1360,7 @@ build instructions.
   - [BackdropTemplate](#backdroptemplate)
   - [Menus and dropdowns](#menus-and-dropdowns)
   - [Atlases in XML](#atlases-in-xml)
+  - [Global colors in XML](#global-colors-in-xml)
   - [Masks in XML](#masks-in-xml)
   - [`function` and `method` on XML script handlers](#function-and-method-on-xml-script-handlers)
   - [`style` on button font elements](#style-on-button-font-elements)
@@ -30034,8 +30035,32 @@ attribute. They are the same as
 The atlas applies after the other content of the element. An atlas that
 ClassicAPI does not know keeps the texture that the element set.
 
+A `<Color>` element inside an atlas texture tints the atlas. It is the same
+as `texture:SetVertexColor`:
+
+```xml
+<Texture parentKey="BottomLeft" atlas="uiframebackground-nineslice-cornerbottomleft" useAtlasSize="true">
+    <Color r="0.2" g="0.2" b="0.2"/>
+</Texture>
+```
+
 A `<Size>` element, an `<Anchor>` or an `<Offset>` can give only `x` or
 only `y`. The value that it does not give is 0.
+
+### Global colors in XML
+
+A `<Color>` element takes a `color` attribute: the name of a global color,
+such as `NORMAL_FONT_COLOR` or `PANEL_BACKGROUND_COLOR`. An `a` attribute
+on the same element replaces the alpha of that color:
+
+```xml
+<Texture parentKey="Shade" setAllPoints="true">
+    <Color color="BLACK_FONT_COLOR" a="0.5"/>
+</Texture>
+```
+
+A name that is not a global color keeps the `r`, `g`, `b` and `a` values of
+the element.
 
 ### Masks in XML
 

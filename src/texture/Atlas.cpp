@@ -29,6 +29,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "debug/Log.h"
+#include "frame/Region.h"
 #include "frame/RegionDestruction.h"
 #include "texture/Slice.h"
 #include "texture/Wrap.h"
@@ -748,9 +749,31 @@ void OnRegionDestroyed(void *region) { g_applied.erase(region); }
 
 const Frame::RegionDestruction::AutoSubscribe _destructionSub{&OnRegionDestroyed};
 
+// A <Color> under an atlas texture tints the atlas, as 4.3.4's loader tints a
+// texture that already has its image (SetVertexColor) and retail tints an atlas
+// (FlatPanelBackgroundTemplate's corners, which PortraitFrameFlatBaseMixin
+// re-tints with SetVertexColor). 1.12's loader turned the colour into a solid
+// image before the atlas replaced it, so the colour goes on here, after.
+// An `alpha` attribute keeps its alpha byte: Xml::NativeSetters sets it as
+// the colour's alpha, before or after this.
+void TintFromColor(void *object, const void *node, void *status) {
+    const void *colorNode = nullptr;
+    for (const void *c = Xml::FirstChild(node); c != nullptr; c = Xml::NextSibling(c))
+        if (Xml::TagIs(c, "Color"))
+            colorNode = c;
+    if (colorNode == nullptr)
+        return;
+    uint32_t bgra = 0;
+    Xml::ReadColor(colorNode, bgra, status);
+    const char *alpha = Xml::Attr(node, "alpha");
+    if (alpha != nullptr && *alpha != '\0')
+        bgra = (bgra & 0x00FFFFFFu) | (Frame::Region::Color(object) & 0xFF000000u);
+    Frame::Region::SetColor(object, bgra);
+}
+
 // The XML `<Texture atlas="name" useAtlasSize="true">`: texture:SetAtlas(name,
 // useAtlasSize), run as its own Lua call so the loader's stack is left alone.
-void OnTextureNode(void *object, const void *node, void * /*status*/) {
+void OnTextureNode(void *object, const void *node, void *status) {
     const char *name = Xml::Attr(node, "atlas");
     void *L = Game::Lua::State();
     if (name == nullptr || *name == '\0' || L == nullptr)
@@ -763,6 +786,8 @@ void OnTextureNode(void *object, const void *node, void * /*status*/) {
     Game::Lua::PushBool(L, useSize != nullptr && Game::StringToFlag(useSize));
     Game::Lua::PCall(L, 3, 0, 0);
     Game::Lua::SetTop(L, top);
+    if (Shows(object))
+        TintFromColor(object, node, status);
 }
 
 const Xml::TypeLoad::AutoSubscribe _xmlSub{Xml::TypeLoad::TEXTURE, &OnTextureNode};

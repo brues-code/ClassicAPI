@@ -305,6 +305,41 @@ constexpr Entry kAtlases[] = {
     {"ui-hud-unitframe-target-portraiton-boss-rare-star", "Interface\\DamageMeter\\DamageMeterIcons", 20, 20, 0.40234375f, 0.50390625f, 0.77734375f, 0.87890625f, 2130, 20547, false, false}, // interface/hud/uiunitframeboss
     {"hordesymbol", "Interface\\DamageMeter\\DamageMeterIcons", 32, 32, 0.13671875f, 0.26171875f, 0.77734375f, 0.90234375f, 647, 6902, false, false}, // interface/minimap/objecticonsatlas
     {"alliancesymbol", "Interface\\DamageMeter\\DamageMeterIcons", 32, 32, 0.26953125f, 0.39453125f, 0.77734375f, 0.90234375f, 647, 6901, false, false}, // interface/minimap/objecticonsatlas
+    // EMBEDDED ART. The NineSlice layouts the ported panel templates use
+    // (PortraitFrameTemplate, ButtonFrameTemplateNoPortrait and their
+    // Minimizable variants, SimplePanelTemplate, InsetFrameTemplate) and the
+    // corners of FlatPanelBackgroundTemplate, cut from the _forever_ build's
+    // sheets as the damage meter's are. The layouts name the 1x atlases; this
+    // build has the metal art only as -2x, which is cut down to the 1x size
+    // retail lays it out at (the corner is 75 wide: the portrait ring at the
+    // template's -5,7 sits in the -13,16 corner only at that size). A tiling
+    // edge repeats only when it spans its file on the tiled axis
+    // (Texture::Atlas::Repeats), so each tile width or height has its own
+    // file, padded on the other axis alone and resampled with its neighbours
+    // so the seam stays continuous; the corners share one sheet.
+    {"UI-Frame-PortraitMetal-CornerTopLeft", "Interface\\FrameGeneral\\UIFrameMetal", 75, 75, 0.00390625f, 0.296875f, 0.00390625f, 0.296875f, 1390, 7672, false, false}, // interface/framegeneral/uiframemetal2x
+    {"UI-Frame-Metal-CornerTopLeft", "Interface\\FrameGeneral\\UIFrameMetal", 75, 75, 0.3046875f, 0.59765625f, 0.00390625f, 0.296875f, 1390, 7678, false, false}, // interface/framegeneral/uiframemetal2x
+    {"UI-Frame-Metal-CornerTopRight", "Interface\\FrameGeneral\\UIFrameMetal", 75, 75, 0.60546875f, 0.8984375f, 0.00390625f, 0.296875f, 1390, 7679, false, false}, // interface/framegeneral/uiframemetal2x
+    {"UI-Frame-Metal-CornerTopRightDouble", "Interface\\FrameGeneral\\UIFrameMetal", 75, 75, 0.00390625f, 0.296875f, 0.3046875f, 0.59765625f, 1390, 7715, false, false}, // interface/framegeneral/uiframemetal2x
+    {"UI-Frame-Metal-CornerBottomLeft", "Interface\\FrameGeneral\\UIFrameMetal", 32, 32, 0.5625f, 0.6875f, 0.3046875f, 0.4296875f, 1390, 7674, false, false}, // interface/framegeneral/uiframemetal2x
+    {"UI-Frame-Metal-CornerBottomRight", "Interface\\FrameGeneral\\UIFrameMetal", 32, 32, 0.6953125f, 0.8203125f, 0.3046875f, 0.4296875f, 1390, 7677, false, false}, // interface/framegeneral/uiframemetal2x
+    {"UI-Frame-SimpleMetal-CornerTopLeft", "Interface\\FrameGeneral\\UIFrameMetal", 64, 64, 0.3046875f, 0.5546875f, 0.3046875f, 0.5546875f, 1380, 7682, false, false}, // interface/framegeneral/uiframesimplemetal
+    {"UI-Frame-InnerTopLeft", "Interface\\FrameGeneral\\UIFrameMetal", 6, 6, 0.96875f, 0.9921875f, 0.3046875f, 0.328125f, 948, 6379, false, false}, // interface/interface/framegeneral/uiframe
+    {"UI-Frame-InnerTopRight", "Interface\\FrameGeneral\\UIFrameMetal", 6, 6, 0.00390625f, 0.02734375f, 0.60546875f, 0.62890625f, 948, 6389, false, false}, // interface/interface/framegeneral/uiframe
+    {"UI-Frame-InnerBotLeftCorner", "Interface\\FrameGeneral\\UIFrameMetal", 6, 6, 0.03515625f, 0.05859375f, 0.60546875f, 0.62890625f, 948, 6381, false, false}, // interface/interface/framegeneral/uiframe
+    {"UI-Frame-InnerBotRight", "Interface\\FrameGeneral\\UIFrameMetal", 6, 6, 0.06640625f, 0.08984375f, 0.60546875f, 0.62890625f, 948, 6388, false, false}, // interface/interface/framegeneral/uiframe
+    {"uiframebackground-nineslice-cornerbottomleft", "Interface\\FrameGeneral\\UIFrameMetal", 16, 16, 0.828125f, 0.890625f, 0.3046875f, 0.3671875f, 2120, 20550, false, false}, // interface/framegeneral/uiframebackground
+    {"uiframebackground-nineslice-cornerbottomright", "Interface\\FrameGeneral\\UIFrameMetal", 16, 16, 0.8984375f, 0.9609375f, 0.3046875f, 0.3671875f, 2120, 20551, false, false}, // interface/framegeneral/uiframebackground
+    {"_UI-Frame-Metal-EdgeTop", "Interface\\FrameGeneral\\UIFrameMetalEdgeTop", 32, 75, 0.0f, 1.0f, 0.0078125f, 0.59375f, 1395, 7676, true, false}, // interface/framegeneral/uiframemetalhorizontal2x
+    {"_UI-Frame-Metal-EdgeBottom", "Interface\\FrameGeneral\\UIFrameMetalEdgeBottom", 16, 32, 0.0f, 1.0f, 0.015625f, 0.515625f, 1395, 7673, true, false}, // interface/framegeneral/uiframemetalhorizontal2x
+    {"!UI-Frame-Metal-EdgeLeft", "Interface\\FrameGeneral\\UIFrameMetalEdgeSides", 75, 16, 0.00390625f, 0.296875f, 0.0f, 1.0f, 1394, 7680, false, true}, // interface/framegeneral/uiframemetalvertical2x
+    {"!UI-Frame-Metal-EdgeRight", "Interface\\FrameGeneral\\UIFrameMetalEdgeSides", 75, 16, 0.3046875f, 0.59765625f, 0.0f, 1.0f, 1394, 7681, false, true}, // interface/framegeneral/uiframemetalvertical2x
+    {"_UI-Frame-SimpleMetal-EdgeTop", "Interface\\FrameGeneral\\UIFrameSimpleMetalEdgeTop", 64, 64, 0.0f, 1.0f, 0.0078125f, 0.5078125f, 1380, 7683, true, false}, // interface/framegeneral/uiframesimplemetal
+    {"!UI-Frame-SimpleMetal-EdgeLeft", "Interface\\FrameGeneral\\UIFrameSimpleMetalEdgeLeft", 64, 64, 0.0078125f, 0.5078125f, 0.0f, 1.0f, 1381, 7684, false, true}, // interface/framegeneral/uiframesimplemetalvertical
+    {"_UI-Frame-InnerTopTile", "Interface\\FrameGeneral\\UIFrameInsetEdgeTopBottom", 256, 3, 0.0f, 1.0f, 0.0625f, 0.25f, 950, 6399, true, false}, // interface/framegeneral/uiframehorizontal
+    {"_UI-Frame-InnerBotTile", "Interface\\FrameGeneral\\UIFrameInsetEdgeTopBottom", 256, 3, 0.0f, 1.0f, 0.375f, 0.5625f, 950, 6402, true, false}, // interface/framegeneral/uiframehorizontal
+    {"!UI-Frame-InnerLeftTile", "Interface\\FrameGeneral\\UIFrameInsetEdgeSides", 3, 256, 0.0625f, 0.25f, 0.0f, 1.0f, 949, 6378, false, true}, // interface/framegeneral/uiframevertical
+    {"!UI-Frame-InnerRightTile", "Interface\\FrameGeneral\\UIFrameInsetEdgeSides", 3, 256, 0.375f, 0.5625f, 0.0f, 1.0f, 949, 6396, false, true}, // interface/framegeneral/uiframevertical
 };
 
 constexpr int kAtlasCount = sizeof(kAtlases) / sizeof(kAtlases[0]);
