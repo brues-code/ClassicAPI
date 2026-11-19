@@ -15,6 +15,8 @@
 #include "Offsets.h"
 #include "spell/Cancel.h"
 #include "spell/Lookup.h"
+#include "spell/Placement.h"
+#include "target/Loose.h"
 
 #include <cstdint>
 
@@ -52,22 +54,18 @@ static bool IsTrackingSpell(int spellID) {
 }
 
 // Walks the player spellbook in slot order counting tracking spells. If
-// `wantNth >= 1` and an Nth tracking spell exists, writes its spellID and
-// 1-based spellbook slot to `*outSpellID` / `*outSlot`. Returns the total
+// `wantNth >= 1` and an Nth tracking spell exists, writes its spellID to
+// `*outSpellID`. Returns the total
 // number of tracking spells found (so callers detect out-of-range by
 // comparing the return against `wantNth`).
 //
-static int EnumerateTracking(int wantNth, int *outSpellID, int *outSlot) {
+static int EnumerateTracking(int wantNth, int *outSpellID) {
     int found = 0;
-    Spell::Lookup::ForEachBookSpell(0, [&](int i, int spellID) {
+    Spell::Lookup::ForEachBookSpell(0, [&](int, int spellID) {
         if (!IsTrackingSpell(spellID))
             return true;
-        if (++found == wantNth) {
-            if (outSpellID != nullptr)
-                *outSpellID = spellID;
-            if (outSlot != nullptr)
-                *outSlot = i + 1;
-        }
+        if (++found == wantNth && outSpellID != nullptr)
+            *outSpellID = spellID;
         return true;
     });
     return found;
@@ -76,7 +74,7 @@ static int EnumerateTracking(int wantNth, int *outSpellID, int *outSlot) {
 // `GetNumTrackingTypes()` -> number of tracking spells in the player's book.
 static int __fastcall Script_GetNumTrackingTypes(void *L) {
     Game::Lua::PushNumber(L,
-                          static_cast<double>(EnumerateTracking(0, nullptr, nullptr)));
+                          static_cast<double>(EnumerateTracking(0, nullptr)));
     return 1;
 }
 
@@ -103,8 +101,7 @@ static int __fastcall Script_GetTrackingInfo(void *L) {
         return 0;
 
     int spellID = 0;
-    int slot = 0;
-    if (EnumerateTracking(index, &spellID, &slot) < index)
+    if (EnumerateTracking(index, &spellID) < index)
         return 0; // index past the number of tracking types -> nil
 
     const uint8_t *record = Spell::Lookup::RecordForID(spellID);
@@ -133,11 +130,11 @@ static int __fastcall Script_GetTrackingInfo(void *L) {
 
 // `SetTracking(index)` — selects (activates) the tracking spell at `index`.
 // Vanilla has no "set tracking" primitive: choosing a tracker IS casting its
-// spell (the tracking dropdown does exactly this). So we resolve the entry's
-// spellbook slot and tail-call the engine's own `Script_CastSpell(slot,
-// "spell")` — reusing its slot bounds-check, target resolution, and error
-// handling rather than reconstructing the cast path. Returns nil for an
-// out-of-range index.
+// spell (the tracking dropdown does exactly this). So we cast the entry's
+// spell the way the engine's `Script_CastSpell(slot, "spell")` (0x004B42F0)
+// does: its book slot through the cast dispatcher (FUN_SPELL_CAST_DISPATCH)
+// with the current selection as the target. Returns nil for an out-of-range
+// index.
 //
 // With no number, 3.3.5 cancels the active tracking aura. That is vanilla's
 // `CancelTrackingBuff()` (`0x004E4A80`): send CMSG_CANCEL_AURA for the
@@ -158,19 +155,11 @@ static int __fastcall Script_SetTracking(void *L) {
         return 0;
 
     int spellID = 0;
-    int slot = 0;
-    if (EnumerateTracking(index, &spellID, &slot) < index)
+    if (EnumerateTracking(index, &spellID) < index)
         return 0;
 
-    // Rebuild the stack as CastSpell(slot, "spell") and hand off to the
-    // engine handler. `slot` is 1-based, matching what a Lua `CastSpell`
-    // caller passes.
-    Game::Lua::SetTop(L, 0);
-    Game::Lua::PushNumber(L, static_cast<double>(slot));
-    Game::Lua::PushString(L, "spell");
-    using CastSpell_t = int(__fastcall *)(void *);
-    auto castSpell = reinterpret_cast<CastSpell_t>(Offsets::FUN_SCRIPT_CAST_SPELL);
-    return castSpell(L);
+    Spell::Placement::DispatchSpellCast(spellID, Target::Loose::Selection());
+    return 0;
 }
 
 // --- Documentation ----------------------------------------------------------

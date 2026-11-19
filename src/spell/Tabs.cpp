@@ -19,16 +19,15 @@
 // tab's SkillLine.dbc ID next to its spell count, but the stock Lua surface
 // (`GetSpellTabInfo`) exposes only name / texture / offset / count — neither
 // the ID nor the slot → tab direction was ever reachable from Lua. Both are
-// direct reads of that array here. `GetSpellBookSkillLineInfo` calls the
-// engine's own `Script_GetSpellTabInfo` for the name / icon so the
-// GENERAL-tab localization and the SkillLine → SpellIcon chain stay the
-// engine's, then reshapes its four returns into the modern table.
+// direct reads of that array here. `GetSpellBookSkillLineInfo` builds the
+// modern table from the same reads `Script_GetSpellTabInfo` makes.
 
 #include "Tabs.h"
 
 #include "Game.h"
 #include "Lookup.h"
 #include "Offsets.h"
+#include "dbc/Lookup.h"
 
 #include <cstdint>
 
@@ -43,8 +42,6 @@ const uint8_t *TabEntry(int index0) {
         return nullptr;
     return entries[index0];
 }
-
-using ScriptFn_t = int(__fastcall *)(void *L);
 
 // `C_SpellBook.GetNumSpellBookSkillLines()` -> number.
 int __fastcall Script_GetNumSpellBookSkillLines(void *L) {
@@ -61,21 +58,42 @@ int __fastcall Script_GetSpellBookSkillLineInfo(void *L) {
     if (index < 1 || index > Count())
         return 0;
 
-    // The engine function reads L[1] (our index) and pushes
-    // `name, texture, offset, numSpells`. Stack afterwards:
-    // [index, name, texture, offset, numSpells].
-    Game::Lua::SetTop(L, 1);
-    reinterpret_cast<ScriptFn_t>(
-        static_cast<uintptr_t>(Offsets::FUN_SCRIPT_GET_SPELL_TAB_INFO))(L);
+    const uint8_t *entry = TabEntry(index - 1);
+    if (entry == nullptr)
+        return 0;
+
+    // Script_GetSpellTabInfo (0x004B3CE0): skill line 0 is the General tab,
+    // the GENERAL global string with the Ability_Kick icon; any other skill
+    // line gives its SkillLine.dbc name and SpellIcon.dbc path, nil for a
+    // missing row.
+    const char *name = nullptr;
+    const char *icon = nullptr;
+    const uint32_t skillLineID =
+        Game::Read<uint32_t>(entry, Offsets::OFF_SPELL_TAB_SKILL_LINE_ID);
+    if (skillLineID == 0) {
+        name = Game::Lua::GlobalText("GENERAL");
+        icon = "Interface\\Icons\\Ability_Kick";
+    } else if (const uint8_t *skillLine = DBC::Record(Offsets::VAR_SKILL_LINE_RECORDS,
+                                                      Offsets::VAR_SKILL_LINE_COUNT,
+                                                      skillLineID)) {
+        name = DBC::LocalizedString(skillLine, Offsets::OFF_SKILL_LINE_NAME);
+        icon = DBC::StringField(Offsets::VAR_SPELL_ICON_RECORDS, Offsets::VAR_SPELL_ICON_COUNT,
+                                Game::Read<uint32_t>(skillLine, Offsets::OFF_SKILL_LINE_SPELL_ICON),
+                                Offsets::OFF_SPELLICON_PATH);
+    }
+    using SlotOffset_t = int(__fastcall *)(unsigned tabIndex0);
+    const int offset = reinterpret_cast<SlotOffset_t>(
+        static_cast<uintptr_t>(Offsets::FUN_SPELL_TAB_SLOT_OFFSET))(index - 1);
 
     Game::Lua::NewTable(L);
-    Game::Lua::SetFieldString(L, "name", Game::Lua::ToString(L, 2));
+    Game::Lua::SetFieldString(L, "name", name);
     // `iconID` is the texture PATH — the same deviation as
     // `C_SpellBook.GetSpellBookItemInfo`'s iconID (no fileIDs here).
-    Game::Lua::SetFieldString(L, "iconID", Game::Lua::ToString(L, 3));
-    Game::Lua::SetFieldNumber(L, "itemIndexOffset", Game::Lua::ToNumber(L, 4));
-    Game::Lua::SetFieldNumber(L, "numSpellBookItems",
-                              Game::Lua::ToNumber(L, 5));
+    Game::Lua::SetFieldString(L, "iconID", icon);
+    Game::Lua::SetFieldNumber(L, "itemIndexOffset", static_cast<double>(offset));
+    Game::Lua::SetFieldNumber(
+        L, "numSpellBookItems",
+        static_cast<double>(Game::Read<uint32_t>(entry, Offsets::OFF_SPELL_TAB_NUM_SPELLS)));
     Game::Lua::SetFieldBool(L, "isGuild", false);
     Game::Lua::SetFieldBool(L, "shouldHide", false);
     // specID / offSpecID stay nil — no specializations.

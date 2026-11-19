@@ -7906,6 +7906,9 @@ enum Offsets {
     VAR_SPELL_FOCUS_OBJECT_RECORDS = 0x00C0D800,
     VAR_SPELL_FOCUS_OBJECT_COUNT = 0x00C0D804,
     OFF_SKILL_LINE_NAME = 0x0C,
+    // u32 SpellIcon.dbc ID — the spellbook tab icon (`Script_GetSpellTabInfo`
+    // reads `[record + 0x54]` and looks it up in SpellIcon, 0x004B3D96).
+    OFF_SKILL_LINE_SPELL_ICON = 0x54,
 
     // Player's known-skills table — separate from the DBC. Populated
     // by the engine on login from server data; entries are pointers
@@ -9148,9 +9151,9 @@ enum Offsets {
     FUN_SPELL_TAB_SLOT_OFFSET = 0x004B2580,
     // The engine's own `Script_GetSpellTabInfo(index)` Lua C function
     // (`int __fastcall(void *L)`; reads `L[1]`, pushes `name, texture,
-    // offset, numSpells`). `C_SpellBook.GetSpellBookSkillLineInfo` reshapes
-    // the stack and calls it directly so the GENERAL-tab localization and the
-    // SkillLine → SpellIcon chain stay the engine's.
+    // offset, numSpells`). `C_SpellBook.GetSpellBookSkillLineInfo` mirrors
+    // its reads: FrameScript_GetText("GENERAL") for skill line 0, else the
+    // SkillLine name and SpellIcon path, and FUN_SPELL_TAB_SLOT_OFFSET.
     FUN_SCRIPT_GET_SPELL_TAB_INFO = 0x004B3CE0,
 
     // Active minimap-tracking spell ID (0 = none). Vanilla tracks exactly
@@ -9443,8 +9446,10 @@ enum Offsets {
     // — standard Lua C function ABI. Reads `name` from stack[1] (string)
     // and `onSelf` from stack[2] (boolean), resolves the name (with
     // optional `(Rank N)` suffix) through `FUN_004B3950`, then dispatches
-    // to the engine's cast path at `FUN_004B3300`. Returns 0 (no Lua
-    // results). Callable directly from C++ — push args on stack, call.
+    // to the engine's cast path at `FUN_004B3300` with the current
+    // selection (`VAR_CURRENT_SELECTION_GUID`), or the active player when
+    // `onSelf` is set. Returns 0 (no Lua results). C++ callers mirror it
+    // with `Spell::Placement::DispatchSpellCastByName`.
     FUN_SCRIPT_CAST_SPELL_BY_NAME = 0x004B4AB0,
 
     // `Script_CastSpell` — engine's Lua wrapper for the slot-based
@@ -9452,8 +9457,6 @@ enum Offsets {
     // Parses (slot, bookType) from stack[1]/[2] via `FUN_004B3EC0`, then
     // dispatches through `FUN_SPELL_CAST_DISPATCH` with the current target
     // (or self). Raises "Invalid spell slot in CastSpell" for a bad slot.
-    // Callable from C++ by preparing the stack and tail-calling it (the
-    // `Spell::Tracking::SetTracking` "select = cast" path does this).
     FUN_SCRIPT_CAST_SPELL = 0x004B42F0,
 
     // ReadBookSlotArgs — `int __fastcall(void *L, int *slot, int *pet)`,
