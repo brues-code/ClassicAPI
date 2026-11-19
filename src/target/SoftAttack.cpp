@@ -11,10 +11,12 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// Action targeting for melee: an attack with no locked target goes to
-// `softenemy`, and the target is left as it is (3.80.2's attack path,
-// FUN_1414c6cb0: it sets the target, reason 3, only for a unit other than
-// the action target — the soft enemy unless a locked target qualifies).
+// Action targeting for melee: an attack with no unit given goes to
+// `anyenemy` — the soft enemy, or a locked target that is an enemy
+// candidate — and attacking that unit leaves the target as it is (3.80.2's
+// attack path, FUN_1414c6cb0: it sets the target, reason 3, only for a unit
+// other than that action target). A friendly locked target does not stop
+// the attack from going to the soft enemy.
 //
 // 1.12 selects whatever it attacks, twice: the resolve
 // (FUN_ATTACK_RESOLVE_TARGET) runs the attacker's state ladder, then settles
@@ -26,8 +28,8 @@
 //   - in the resolve, while that soft enemy is being settled, the call only
 //     stands it in the selection slot for the read-back, and the slot gets
 //     its target back when the resolve returns;
-//   - in the start, the select is skipped for the soft enemy the resolve
-//     just settled while there is still no locked target.
+//   - in the start, the select is skipped for the unit the resolve just
+//     settled.
 // Everything else — the state errors, the friendly-target tab, the final
 // alive / CanAttack test, the swing packet — is the engine's own. Every
 // other select of theirs is the Attack reason (Target::Reason): a new unit
@@ -79,7 +81,7 @@ void __stdcall Select_h(uint32_t guidLo, uint32_t guidHi) {
 
 void __stdcall StartSelect_h(uint32_t guidLo, uint32_t guidHi) {
     const uint64_t guid = (static_cast<uint64_t>(guidHi) << 32) | guidLo;
-    if (g_settled != 0 && guid == g_settled && Reason::LockedTarget() == 0) {
+    if (g_settled != 0 && guid == g_settled) {
         g_settled = 0;
         return;
     }
@@ -107,10 +109,10 @@ const Game::ModuleAutoRegister _autoreg{&Register};
 
 int ResolveMelee(void *player, uint64_t *guid) {
     g_settled = 0;
-    if (*guid != 0 || Reason::LockedTarget() != 0)
+    if (*guid != 0)
         return Resolve(player, guid);
-    const uint64_t soft = SoftUnit::Get(SoftUnit::Side::Enemy);
-    if (soft == 0)
+    const uint64_t soft = SoftUnit::GetAny(SoftUnit::Side::Enemy);
+    if (soft == 0 || soft == Reason::Selection())
         return Resolve(player, guid);
     *guid = soft;
     g_settling = soft;

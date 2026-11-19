@@ -11,9 +11,11 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// Action targeting for spells: a spell cast with no locked target goes to
-// the soft unit — `softenemy` for a harmful spell, `softfriend` for a
-// helpful one.
+// Action targeting for spells: a spell cast with no unit given goes to
+// `anyenemy` when harmful and `anyfriend` when helpful — the soft unit, or a
+// locked target that is a candidate of that side (3.80.2's default spell
+// target, FUN_1413d1ac0). A friendly locked target does not stop a harmful
+// spell from going to the soft enemy.
 //
 // Retail 12.x probes, Enable Action Targeting on:
 //   - Arcane Blast with no target and a soft enemy: it casts at the soft
@@ -25,8 +27,8 @@
 // 1.12's cast request (FUN_006E4B60, nampower hooks its entry) reads its
 // target GUID twice, and both calls are redirected (see
 // CALL_CAST_CHECK_TARGET_RANGE / CALL_CAST_TARGET_ARM in Offsets.h). With no
-// GUID and no locked target:
-//   - the range pre-check is handed the soft unit of the spell's side, from
+// GUID, when the side's any-unit is not the target:
+//   - the range pre-check is handed that unit, the side from
 //     the engine's own classifier (GetSpellHostility). It range-checks only a
 //     unit the spell can take, so a soft unit out of the spell's range gets
 //     the engine's "Out of range", and a self spell is not affected;
@@ -82,20 +84,23 @@ int Hostility(const uint8_t *record) {
     return reinterpret_cast<Hostility_t>(Offsets::FUN_SPELL_HOSTILITY)(record, nullptr);
 }
 
+// The side's any-unit when it is not the target (the engine's own default);
+// 0 for a spell of neither side.
 uint64_t Pick(const uint8_t *record) {
     const int hostility = Hostility(record);
+    uint64_t unit = 0;
     if (hostility == kHarmful)
-        return SoftUnit::Get(SoftUnit::Side::Enemy);
-    if (hostility == kHelpful)
-        return SoftUnit::Get(SoftUnit::Side::Friend);
-    return 0;
+        unit = SoftUnit::GetAny(SoftUnit::Side::Enemy);
+    else if (hostility == kHelpful)
+        unit = SoftUnit::GetAny(SoftUnit::Side::Friend);
+    return unit != Reason::Selection() ? unit : 0;
 }
 
 uint8_t __fastcall Range_h(void *caster, const uint8_t *record, uint32_t guidLo, uint32_t guidHi,
                            uint32_t report) {
     auto range = reinterpret_cast<Range_t>(Offsets::FUN_CHECK_SPELL_TARGET_RANGE);
     g_requestSoft = 0;
-    if ((guidLo | guidHi) != 0 || Reason::LockedTarget() != 0 || record == nullptr)
+    if ((guidLo | guidHi) != 0 || record == nullptr)
         return range(caster, record, guidLo, guidHi, report);
     const uint64_t soft = Pick(record);
     if (soft == 0)
@@ -109,7 +114,7 @@ uint8_t __fastcall Arm_h(void *caster, const uint8_t *record, uint32_t guidLo, u
     auto arm = reinterpret_cast<Arm_t>(Offsets::FUN_SPELL_TARGET_ARM);
     const uint64_t soft = g_requestSoft;
     g_requestSoft = 0;
-    if (soft == 0 || (guidLo | guidHi) != 0 || Reason::LockedTarget() != 0)
+    if (soft == 0 || (guidLo | guidHi) != 0)
         return arm(caster, record, guidLo, guidHi);
     if (arm(caster, record, static_cast<uint32_t>(soft), static_cast<uint32_t>(soft >> 32)) != 0)
         return 1;

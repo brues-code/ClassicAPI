@@ -22,11 +22,13 @@ namespace Target::Reason {
 // here sets are listed.
 enum Why : int {
     None = 0,
-    Locked = 2,    // stored for Attack
-    Attack = 3,    // the melee attack's own select; never stored
-    Force = 4,     // SoftTargetForce: hidden from `target`, no PLAYER_TARGET_CHANGED
-    AutoSpell = 6, // TargetAutoEnemy / TargetAutoFriend: your spell landed on the soft unit
-    Chosen = 8,    // every other select: a click, Tab, TargetUnit, ...
+    Auto = 1,        // set by the game: TargetEnemyAttacker, the interact key on a unit token
+    Locked = 2,      // stored for Attack, and for Auto with TargetAutoLock
+    Attack = 3,      // the melee attack's own select; never stored
+    Force = 4,       // SoftTargetForce: hidden from `target`, no PLAYER_TARGET_CHANGED
+    InteractKey = 5, // the interact key on a soft / any token
+    AutoSpell = 6,   // TargetAutoEnemy / TargetAutoFriend: your spell landed on the soft unit
+    Chosen = 8,      // every other select: a click, Tab, TargetUnit, ...
 };
 
 // The current target, or 0.
@@ -39,16 +41,14 @@ Why Current();
 // targeting, not chosen.
 bool IsLoose();
 
-// The target when it is locked (not loose), else 0.
-uint64_t LockedTarget();
-
 // A Force target: the `target` token resolves nothing for it.
 bool Hidden();
 
 // Sets (or with 0 clears) the target for `why`, by 3.80.2's rules: a loose
-// reason never replaces a locked target, Force over a loose target keeps
-// its reason, Attack is stored as Locked, and re-setting the target only
-// raises its reason.
+// reason never replaces a locked target (and Auto replaces only an Auto
+// one), Force over a loose target keeps its reason, Attack (and Auto with
+// TargetAutoLock) is stored as Locked, and re-setting the target only raises
+// its reason.
 void Set(uint64_t guid, Why why);
 
 // The soft-target driver's steps, in its order each frame: a loose target

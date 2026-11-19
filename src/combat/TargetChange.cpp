@@ -24,7 +24,9 @@
 // the event fire also stops auto-repeat, and the melee restart is skipped.
 // Defaults to 0 as in 4.3.4, which is 1.12's behavior.
 //
-// The event fire also drops PLAYER_TARGET_CHANGED for a Force target
+// The melee restart is also skipped for an Auto target (3.80.2 carries the
+// attack for every reason but 1), and the event fire drops
+// PLAYER_TARGET_CHANGED for a Force target
 // (Target::Reason): 3.80.2's set-target fires it only when the stored
 // reason is not 4.
 
@@ -56,7 +58,7 @@ void __fastcall FireTargetChanged(int eventID) {
 }
 
 void __fastcall RestartMelee(void *player, void *, const uint64_t *guid) {
-    if (!StopOnChange())
+    if (!StopOnChange() && Target::Reason::Current() != Target::Reason::Auto)
         reinterpret_cast<AttackStart_t>(Offsets::FUN_ATTACK_START)(player, nullptr, guid);
 }
 

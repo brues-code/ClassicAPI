@@ -298,6 +298,7 @@ build instructions.
   - [`PLAYER_LEVEL_CHANGED` event](#player_level_changed-event)
   - [`PLAYER_MOUNT_DISPLAY_CHANGED` event](#player_mount_display_changed-event)
   - [`PLAYER_SOFT_ENEMY_CHANGED` / `PLAYER_SOFT_FRIEND_CHANGED` events](#player_soft_enemy_changed--player_soft_friend_changed-events)
+  - [`PLAYER_SOFT_TARGET_INTERACTION` event](#player_soft_target_interaction-event)
   - [`PLAYER_SOFT_INTERACT_CHANGED` event](#player_soft_interact_changed-event)
   - [`PLAYER_SWING` event](#player_swing-event)
   - [`PLAYER_SWING_RANGE_UPDATE` event](#player_swing_range_update-event)
@@ -7262,6 +7263,13 @@ f:SetScript("OnEvent", function()
     print("soft enemy:", UnitName("softenemy"))
 end)
 ```
+
+### `PLAYER_SOFT_TARGET_INTERACTION` event
+
+Fires when
+[`C_PlayerInteractionManager.InteractUnit`](#c_playerinteractionmanagerinteractunitunit--exactmatch--loosetargeting)
+uses a `"soft…"` or `"any…"` token, for example when you press the
+Interact Key. It has no arguments.
 
 ### `PLAYER_SOFT_INTERACT_CHANGED` event
 
@@ -26859,10 +26867,12 @@ returns a boolean.
 
 - `unit` and `exactMatch` are the same as for `InteractUnit`. Use
   `"anyinteract"` for the object that the Interact Key uses.
-- `looseTargeting` is `true` if you do not give it. When it is `true` and
-  you have a target, the interaction does not change your target. When it
-  is `false`, or when you have no target, a unit that you interact with
-  becomes your target.
+- `looseTargeting` is `true` if you do not give it. When it is `true`, a
+  unit that you interact with becomes your loose target, but a target that
+  you chose does not change. A `"soft…"` or `"any…"` token also fires
+  [`PLAYER_SOFT_TARGET_INTERACTION`](#player_soft_target_interaction-event).
+  When it is `false`, a unit that you interact with becomes your target.
+- `"anyleftinteract"` does nothing and returns `false`.
 
 Returns `true` if the interaction ran, or `false` if nothing matched.
 
@@ -26987,13 +26997,15 @@ is `2`, a loose target that your spell set also counts. When
 while you have a target. When you attack your locked target, it is not the
 soft enemy, unless `SoftTargetWithLocked` is `2`.
 
-**Attacks.** When you have no locked target, **Attack Target**,
-`/startattack`, `AttackTarget()` and `StartAttack()` attack `"softenemy"`.
-Your target does not change. When you attack a different unit, that unit
+**Attacks.** **Attack Target**, `/startattack`, `AttackTarget()` and
+`StartAttack()` attack `"anyenemy"` when you give no unit. That is
+`"softenemy"`, unless your locked target is an enemy that qualifies. Your
+target does not change. When you attack a different unit, that unit
 becomes your locked target.
 
-**Spells.** When you have no locked target, a harmful spell goes to
-`"softenemy"` and a helpful spell goes to `"softfriend"`. A spell that
+**Spells.** When you give no unit, a harmful spell goes to `"anyenemy"`
+and a helpful spell goes to `"anyfriend"`. For example, with a friendly
+locked target, a harmful spell goes to `"softenemy"`. A spell that
 only you can receive still goes to you. If the soft unit is out of the
 spell's range, the cast fails with "Out of range". When your harmful spell
 lands on `"softenemy"` and `TargetAutoEnemy` is `1`, that unit becomes
@@ -27051,6 +27063,8 @@ with `"target"` and one time with `"softenemy"`. `"anyenemy"` and
 | `SoftTargetForce` | `1` | `1`: with no locked target, your target is set to `"softenemy"`. `2`: the same with `"softfriend"`. `0`: soft targeting sets no target. |
 | `TargetAutoEnemy` | `1` | `1`: your harmful spell that lands on `"softenemy"` makes it your loose target. `0`: it does not. This setting is saved for each character. |
 | `TargetAutoFriend` | `0` | The same, for your helpful spell on `"softfriend"`. This setting is saved for each character. |
+| `TargetEnemyAttacker` | `0` | `1`: a unit whose attack or harmful spell hits you becomes your target, when you have no target or one that the game set. While you attack, a running attack does not move to it. This setting is saved for each character. |
+| `TargetAutoLock` | `1` | `1`: a target that the game sets (`TargetEnemyAttacker`, `C_PlayerInteractionManager.InteractUnit` on a unit token) is locked. `0`: it is loose. This setting is saved for each character. |
 
 **The circles.** A selection circle shows under `"softenemy"` and under
 `"softfriend"`. It has the same color as the circle under your target, but
@@ -27099,6 +27113,8 @@ See [Soft enemy and soft friend](#soft-enemy-and-soft-friend-softenemy--softfrie
   `"target"`, so `UnitExists("target")` is `false` for it.
 - A spell that makes its unit your target (`TargetAutoEnemy`,
   `TargetAutoFriend`) makes a loose target.
+- The Interact Key (`C_PlayerInteractionManager.InteractUnit` with
+  `"anyinteract"`) makes a loose target.
 - A target that you choose is locked.
 - With no target, the result is `false`.
 

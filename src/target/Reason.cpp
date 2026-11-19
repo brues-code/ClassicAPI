@@ -16,11 +16,15 @@
 // and "SoftTargetForce in detail").
 //
 // Every target carries the reason it was set for. 1, 4, 5 and 6 are loose
-// (set by soft targeting); the rest are locked. 3.80.2's set-target
+// (set by the game); the rest are locked. 3.80.2's set-target
 // (FUN_1405ddef0) applies, in order:
-//   - a loose reason never replaces a locked target (silently dropped);
+//   - a loose reason never replaces a locked target (silently dropped); over
+//     a loose target, Auto (1) only replaces another Auto target, with
+//     another unit, while the player is not attacking or auto-repeating and
+//     the old one has left the view;
 //   - Force (4) over a loose target keeps that target's reason; Attack (3)
-//     is stored as 2;
+//     is stored as 2, and so is Auto with TargetAutoLock on (its default,
+//     Classic Era's and 3.80.2's);
 //   - the same GUID again only raises the reason, and a raise fires
 //     PLAYER_TARGET_CHANGED;
 //   - a Force target fires no PLAYER_TARGET_CHANGED, and the `target` token
@@ -51,18 +55,20 @@
 //     kept while it is a candidate in view and range (in combat lock: in
 //     melee, or in the frustum too).
 //
-// Not yet: reasons 1 (TargetEnemyAttacker, the interact key) and 5 (the
-// interact key with looseTargeting).
+// A running melee attack is not carried to an Auto target
+// (Combat::TargetChange).
 
 #include "target/Reason.h"
 
 #include "Game.h"
 #include "Offsets.h"
+#include "cvar/Character.h"
 #include "cvar/Factory.h"
 #include "object/Resolve.h"
 #include "target/Priority.h"
 #include "target/SoftInteract.h"
 #include "target/SoftUnit.h"
+#include "unit/Identity.h"
 
 namespace Target::Reason {
 
@@ -78,8 +84,37 @@ Why g_reason = None;   // its reason
 Why g_pending = None;  // Set()'s reason for the select it is making
 
 CVar::Factory::Handle g_force = nullptr;
+CVar::Factory::Handle g_autoLock = nullptr;
 
-bool IsLooseWhy(Why why) { return why == Force || why == AutoSpell; }
+bool IsLooseWhy(Why why) {
+    return why == Auto || why == Force || why == InteractKey || why == AutoSpell;
+}
+
+// The player is busy with the target: attacking it, or an auto-repeat spell
+// (Auto Shot) running.
+bool Engaged() {
+    const auto *player = Unit::Identity::PlayerObject();
+    return (player != nullptr && Game::Read<uint64_t>(player, Offsets::OFF_UNIT_ATTACK_TARGET) != 0) ||
+           Game::Read<int>(Offsets::VAR_ACTIVE_AUTO_REPEAT_SPELL) != 0;
+}
+
+// 3.80.2's loose-reason gate: a loose reason takes an empty target, never a
+// locked one. Over a loose target, Force, InteractKey and AutoSpell always
+// take it; Auto only replaces another Auto target, with another unit, while
+// the player is not engaged and the old target has left the view (no longer
+// a candidate in the frustum and not excluded).
+bool Admit(Why why, uint64_t guid, uint64_t target, Why current) {
+    if (!IsLooseWhy(why) || target == 0)
+        return true;
+    if (!IsLooseWhy(current))
+        return false;
+    if (why != Auto)
+        return true;
+    if (why < current || guid == target || Engaged())
+        return false;
+    const uint32_t flags = Priority::FlagsOf(target);
+    return (flags & (Priority::InFrustum | Priority::Excluded)) != Priority::InFrustum;
+}
 
 void Select(uint64_t guid) {
     reinterpret_cast<Select_t>(Offsets::FUN_SET_SELECTION_BY_GUID)(
@@ -93,11 +128,11 @@ void __stdcall Select_h(uint32_t guidLo, uint32_t guidHi) {
     const uint64_t target = Selection();
     const Why current = Current();
 
-    if (IsLooseWhy(why) && target != 0 && !IsLooseWhy(current))
+    if (!Admit(why, guid, target, current))
         return;
     if (why == Force && target != 0)
         why = current;
-    else if (why == Attack)
+    else if (why == Attack || (why == Auto && CVar::Factory::GetInt(g_autoLock) != 0))
         why = Locked;
 
     if (guid == 0) {
@@ -172,6 +207,7 @@ const Game::Doc::Function kIsTargetLoose{
     {}, kIsTargetLooseRets, "TargetScript"};
 
 void Register() {
+    g_autoLock = CVar::Character::Register("TargetAutoLock", "Lock targets auto-set by the game", Offsets::CVAR_CATEGORY_GAME, "1");
     g_force = CVar::Factory::Register("SoftTargetForce", "Auto-set target to match soft target. 1 = for enemies, 2 = for friends", Offsets::CVAR_CATEGORY_GAME, "1");
     Game::Lua::RegisterGlobalFunction("IsTargetLoose", &Script_IsTargetLoose, &kIsTargetLoose);
 }
@@ -192,8 +228,6 @@ Why Current() {
 }
 
 bool IsLoose() { return IsLooseWhy(Current()); }
-
-uint64_t LockedTarget() { return IsLoose() ? 0 : Selection(); }
 
 bool Hidden() { return Current() == Force; }
 
