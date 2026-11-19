@@ -7266,7 +7266,10 @@ end)
 ### `PLAYER_SOFT_INTERACT_CHANGED` event
 
 Fires when the `"softinteract"` object changes to a different object, or
-to nothing. See [Soft interact](#soft-interact-softinteract--anyinteract).
+to nothing, and when you become able or unable to interact with it from
+where you stand. It fires before `PLAYER_SOFT_ENEMY_CHANGED` and
+`PLAYER_SOFT_FRIEND_CHANGED`. See
+[Soft interact](#soft-interact-softinteract--anyinteract).
 
 - `arg1` is the GUID of the previous object, or `nil`.
 - `arg2` is the GUID of the new object, or `nil`.
@@ -26871,7 +26874,7 @@ end
 
 ### Soft interact (`softinteract` / `anyinteract`)
 
-Soft interact picks the nearest object in front of you that you can
+Soft interact picks the best object in front of you that you can
 interact with. Bind **Interact With Target** to a key, then press it to
 interact with that object. This is the Interact Key.
 
@@ -26885,33 +26888,40 @@ To turn it off:
 **What it picks.** It picks only an object that shows an interact cursor
 when you put the mouse over it. For example: an NPC with a service, a
 corpse that you can loot or skin, a mailbox, a chest, or an herb or mining
-node. It does not pick an enemy that you can only attack. The object must
-be on the screen, and inside the arc and the range of the settings below.
-If more than one object qualifies, it picks the nearest one.
+node. It does not pick an enemy that you can only attack, or a player's
+corpse. A game object or a dead unit must be within 16 yards. The object
+must be on the screen and inside the arc. If more than one object
+qualifies, the best one wins, the same as for the
+[soft enemy](#soft-enemy-and-soft-friend-softenemy--softfriend--anyenemy--anyfriend):
+near the center of the view and near to you. While you fish, your bobber
+is picked first, wherever it is on the screen. When `SoftTargetMatchLocked`
+is `1`, your locked target is picked when you can interact with it now.
+The pick is made again 10 times each second. Between two picks, the object
+can only be removed, for example when it goes out of the range below.
 
 **Unit tokens.**
 
 - `"softinteract"` is the object that soft interact picked. It is empty
   when nothing qualifies or when soft interact is off.
-- `"anyinteract"` is your target when you can interact with it now. This
-  is true also when the target is behind you. When your target is too far
-  away, `"anyinteract"` is the same as `"softinteract"`. If
-  `"softinteract"` is empty, `"anyinteract"` is your target. When you
+- `"anyinteract"` is your locked target when you can interact with it now.
+  This is true also when the target is behind you. When your target is
+  too far away or loose, `"anyinteract"` is the same as `"softinteract"`.
+  If `"softinteract"` is empty, `"anyinteract"` is your target. When you
   cannot interact with your target, `"anyinteract"` is the same as
   `"softinteract"`.
 - `"anyleftinteract"` is the same as `"anyinteract"`.
 
-Both tokens can point at a game object or a corpse. `UnitGUID` returns
+Both tokens can point at a game object. `UnitGUID` returns
 the GUID of that object. Functions that read unit data, such as
-`UnitName`, return nothing for a game object or a corpse.
+`UnitName`, return nothing for a game object.
 
 **Settings.**
 
 | cvar | default | values |
 |---|---|---|
 | `SoftTargetInteract` | `3` | `0` off, `1` gamepad, `2` keyboard and mouse, `3` always. Only `2` and `3` turn soft interact on. |
-| `SoftTargetInteractArc` | `0` | `0`: the object must be directly in front of the camera, within about 1.2 yards of a line from you in the direction of the camera. `1`: the object must be within 30 degrees of the direction of the camera, on each side. `2`: the object can be in any direction. The arc follows the camera, not the direction that your character faces. |
-| `SoftTargetInteractRange` | `10` | The maximum distance in yards. The range cannot be more than the `targetNearestDistance` cvar. |
+| `SoftTargetInteractArc` | `0` | `0`: directly in front. The object is very near, or the center line of the camera or of your character goes through it. `1`: also inside a small cone in front of the camera. `2`: anywhere on the screen. |
+| `SoftTargetInteractRange` | `10` | The maximum distance in yards. A soft object farther away is removed. |
 | `SoftTargetInteractRangeIsHard` | `0` | `0`: an object that you can interact with now is picked also when it is past the range. `1`: the range always applies. |
 
 **The icon.** When `SoftTargetIconInteract` is `1`, an icon shows over the
@@ -26919,8 +26929,8 @@ picked object. For a game object, such as a mailbox, a chest or a node,
 `SoftTargetIconGameObject` must also be `1`. The icon is the cursor
 image that the mouse shows over the object (see
 [`SetUnitCursorTexture`](#setunitcursortexturetexture-unit--style--includelowpriority)).
-For a unit, the icon is above its name. For a game object or a corpse, the
-icon is above the top of the object. When you are too far away, the icon is
+For a unit, the icon is above its name. For a game object, the icon is
+above the top of the object. When you are too far away, the icon is
 the grey "Unable" form. The icon is hidden when the object is off the screen.
 
 | cvar | default | values |
@@ -26939,8 +26949,8 @@ fires.
 
 ### Soft enemy and soft friend (`softenemy` / `softfriend` / `anyenemy` / `anyfriend`)
 
-Soft enemy picks the nearest enemy near you, and soft friend picks the
-nearest friendly unit. They do not change your target. An addon or a
+Soft enemy picks the best enemy near you, and soft friend picks the
+best friendly unit. They never change a target that you chose. An addon or a
 macro uses the picked unit through its token.
 
 Both are off by default. To turn them on:

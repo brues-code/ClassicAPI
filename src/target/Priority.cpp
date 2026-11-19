@@ -17,8 +17,11 @@
 // rebuilt in three steps, as 3.80.2's FUN_1405e3ee0 / 4b30 / 5800 do:
 //
 //   1. Gather: every unit in the object manager within the bank's far range
-//      plus both reaches (dead units: 16 yd), never the player, a unit the
-//      player possesses, or one with no model. Each is classified: Enemy
+//      plus both reaches (dead units: 16 yd) and every game object within
+//      16 yd, never the player, a unit the player possesses, or one with no
+//      model. Interact: the cursor over it would show an interact mode
+//      (1.12's own verdict, Cursor::Hover); OwnObject: the player's channel
+//      object (the fishing bobber). A unit is also classified: Enemy
 //      (alive and attackable; a PvP-flagged unit never, while the player is
 //      not flagged), Friend (alive, friendly either way, selectable,
 //      assistable), Critter (the creature type's never-tab-target flag),
@@ -35,14 +38,14 @@
 //   3. Score: the bank's weighted terms — camera alignment, distance (mixed
 //      linear and squared), a sideways term along the camera's second row,
 //      distance from the target, melee, the facing and camera ease terms, the
-//      cone, point blank, PvP, combat lock, boss and critter — then the soft
-//      order, best first.
+//      cone, point blank, PvP, combat lock, boss, critter and own object —
+//      then the soft order, best first.
 //
 // The tables are 3.80.2's three banks; soft targeting uses bank 1 (its
 // TargetPriorityValueBank default; bank 2 is hold-to-target, not here). Where 1.12 has
 // the input, it is 1.12's own: reach is UNIT_FIELD_BOUNDINGRADIUS (what its
-// melee and interact ranges add), the model's radius and height are the
-// selection radius and box height the model sets, the frustum is the world
+// melee and interact ranges add), the model's box is the bounds the engine
+// stores when the model loads (+0xC0) times the scale, the frustum is the world
 // frame's own view-projection, and line of sight is CWorld::Intersect with
 // the LoS geometry, between the two units at half their model height.
 //
@@ -57,6 +60,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "creature/Info.h"
+#include "cursor/Hover.h"
 #include "cvar/Factory.h"
 #include "object/Resolve.h"
 #include "target/Nearest.h"
@@ -87,15 +91,15 @@ constexpr float kDeg = 0.017453292f;
 struct Bank {
     float rangeFar, rangeNear, angInner, angOuter, expA, expB, coneAng, interactRange;
     float fwd, distMix, distW, sideW, fromTargetW, melee, faceIn, faceOut, camIn, camOut;
-    float cone, camRay, close, pvpPlayer, pvpNpc, combat, boss, critter, noLos;
+    float cone, camRay, close, pvpPlayer, pvpNpc, combat, boss, critter, noLos, ownObject;
 };
 constexpr Bank kBanks[3] = {
     {61, 4, 30 * kDeg, 120 * kDeg, 1, 1, 30 * kDeg, 16, 10, 0.3f, -10, -6, 0, 0, 0, 0, 200,
-     1000, 0, 0, 0, 30000, 10000, 0, 0, 0, 0},
+     1000, 0, 0, 0, 30000, 10000, 0, 0, 0, 0, 0},
     {51, 3, 20 * kDeg, 90 * kDeg, 1, 2, 18 * kDeg, 16, 200, 0.5f, -10, -10, -50, 200, 100, 400,
-     300, 500, 2000, 0, 1500, 30000, 10000, 40000, 1000, -20000, -4000},
+     300, 500, 2000, 0, 1500, 30000, 10000, 40000, 1000, -20000, -4000, 20000},
     {100, 1, 5 * kDeg, 6 * kDeg, 0.4f, 10, 5 * kDeg, 16, 200, 0.25f, -1, 0, 0, 200, 0, 0, 0, 0,
-     1600, 3000, 0, 100, 50, 100, 0, -20000, 0},
+     1600, 3000, 0, 100, 50, 100, 0, -20000, 0, 100},
 };
 
 // The engine's registered values of its internal cvars (no help text, not
@@ -113,6 +117,7 @@ struct Entry {
     uint32_t flags;
     float pos[3];
     float radius;
+    float base;
     float height;
     float aFace;
     float aCam;
@@ -191,7 +196,8 @@ bool BoxInFrustum(const Camera &c, const Entry &e) {
     for (int i = 0; i < 8; ++i) {
         const float corner[4] = {e.pos[0] + ((i & 1) ? e.radius : -e.radius) - c.pos[0],
                                  e.pos[1] + ((i & 2) ? e.radius : -e.radius) - c.pos[1],
-                                 e.pos[2] + ((i & 4) ? e.height : 0.0f) - c.pos[2], 0.0f};
+                                 e.pos[2] + e.base + ((i & 4) ? e.height : 0.0f) - c.pos[2],
+                                 0.0f};
         float clip[4];
         reinterpret_cast<Transform_t>(Offsets::FUN_C44_TRANSFORM)(clip, corner, m);
         uint32_t out = 0;
@@ -216,8 +222,9 @@ bool BoxInFrustum(const Camera &c, const Entry &e) {
 bool NeedsLos(uint32_t flags) { return (flags & (Enemy | Player)) == Enemy; }
 
 bool InLineOfSight(const Entry &player, const Entry &e) {
-    const float start[3] = {player.pos[0], player.pos[1], player.pos[2] + 0.5f * player.height};
-    const float end[3] = {e.pos[0], e.pos[1], e.pos[2] + 0.5f * e.height};
+    const float start[3] = {player.pos[0], player.pos[1],
+                            player.pos[2] + player.base + 0.5f * player.height};
+    const float end[3] = {e.pos[0], e.pos[1], e.pos[2] + e.base + 0.5f * e.height};
     float hit[3];
     float t = 1.0f;
     const char blocked = reinterpret_cast<Intersect_t>(Offsets::FUN_CWORLD_INTERSECT)(
@@ -261,24 +268,68 @@ bool Friendly(const void *player, const void *unit) {
            Unit::Relation::Reaction(unit, player) >= 4;
 }
 
-// Step 1 for one object: the entry, or false to leave it out.
+// The model's box from its bounds (+0xC0, model space) and the object's
+// scale: the half width about the position, and the bottom and height.
+void ReadBox(void *object, Entry &e) {
+    const float scale = Game::Read<float>(object, Offsets::OFF_CGOBJECT_SCALE);
+    const float *b = Game::Ptr<float>(object, Offsets::OFF_CGOBJECT_BOUNDS);
+    e.radius = 0.5f * std::max(b[3] - b[0], b[4] - b[1]) * scale;
+    e.base = b[2] * scale;
+    e.height = (b[5] - b[2]) * scale;
+}
+
+// 3.80.2's interact test (FUN_1405e6f70), on 1.12's own judgement: the
+// cursor over the object shows an interact mode. OwnObject is the player's
+// channel object (the fishing bobber).
+void ClassifyInteract(const void *player, uint64_t guid, void *object, Entry &e) {
+    if (Cursor::Hover::InteractReach(object) == Cursor::Hover::Reach::None)
+        return;
+    e.flags |= Interact;
+    const uint8_t *fields = Object::Fields(player);
+    if ((e.flags & GameObject) != 0 && fields != nullptr &&
+        Game::Read<uint64_t>(fields, Offsets::OFF_UNIT_FIELD_CHANNEL_OBJECT) == guid)
+        e.flags |= OwnObject;
+}
+
+bool WithinRange(const float *a, const float *b, float range) {
+    const float dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2];
+    return dx * dx + dy * dy + dz * dz <= range * range;
+}
+
+// Step 1 for one object (the gather callback 0x1405e66d0 and the
+// classifiers): the entry, or false to leave it out.
 bool Admit(void *player, const float *playerPos, uint64_t playerGuid, const Bank &bank,
            uint64_t guid, Entry &e) {
+    if (guid == playerGuid)
+        return false;
+    void *object = Object::ByGuid(Offsets::TYPEMASK_UNIT | Offsets::TYPEMASK_GAMEOBJECT, guid);
+    if (object == nullptr || object == player ||
+        Game::Read<void *>(object, Offsets::OFF_CGOBJECT_MODEL) == nullptr ||
+        !Unit::Position::Read(object, e.pos))
+        return false;
+    e.guid = guid;
+    e.object = object;
+
     void *unit = Object::ByGuid(Offsets::TYPEMASK_UNIT, guid);
-    if (unit == nullptr || unit == player || guid == playerGuid)
-        return false;
-    if (Game::Read<void *>(unit, Offsets::OFF_CGOBJECT_MODEL) == nullptr)
-        return false;
+    if (unit == nullptr) {
+        e.flags = GameObject;
+        if (!WithinRange(e.pos, playerPos, bank.interactRange))
+            return false;
+        ClassifyInteract(player, guid, object, e);
+        if ((e.flags & Interact) == 0)
+            return false;
+        ReadBox(object, e);
+        return true;
+    }
+
     const uint8_t *fields = Object::Fields(unit);
-    if (fields == nullptr || !Unit::Position::Read(unit, e.pos))
+    if (fields == nullptr)
         return false;
     const uint32_t unitFlags = Game::Read<uint32_t>(fields, Offsets::OFF_UNIT_FIELD_FLAGS);
     if ((unitFlags & Offsets::UNIT_FLAG_POSSESSED) != 0 &&
         Game::Read<uint64_t>(fields, Offsets::OFF_UNIT_FIELD_CHARMEDBY) == playerGuid)
         return false;
 
-    e.guid = guid;
-    e.object = unit;
     e.flags = Unit;
     const bool dead = Game::Read<int32_t>(fields, Offsets::OFF_UNIT_FIELD_HEALTH) <= 0;
     float range;
@@ -289,9 +340,7 @@ bool Admit(void *player, const float *playerPos, uint64_t playerGuid, const Bank
         range = bank.rangeFar + Unit::Position::BoundingRadius(player) +
                 Unit::Position::BoundingRadius(unit);
     }
-    const float dx = e.pos[0] - playerPos[0], dy = e.pos[1] - playerPos[1],
-                dz = e.pos[2] - playerPos[2];
-    if (dx * dx + dy * dy + dz * dz > range * range)
+    if (!WithinRange(e.pos, playerPos, range))
         return false;
 
     const bool isPlayer = Object::ByGuid(Offsets::TYPEMASK_PLAYER, guid) != nullptr;
@@ -313,12 +362,10 @@ bool Admit(void *player, const float *playerPos, uint64_t playerGuid, const Bank
     }
     if (Nearest::NotTabTarget(unit))
         e.flags |= Critter;
-    if ((e.flags & (Enemy | Friend)) == 0)
+    ClassifyInteract(player, guid, unit, e);
+    if ((e.flags & (Enemy | Friend | Interact)) == 0)
         return false;
-
-    const float scale = Game::Read<float>(unit, Offsets::OFF_CGOBJECT_SCALE);
-    e.radius = Game::Read<float>(unit, Offsets::OFF_CGUNIT_SELECTION_RADIUS) * scale;
-    e.height = Game::Read<float>(unit, Offsets::OFF_CGOBJECT_BOX_HEIGHT) * scale;
+    ReadBox(unit, e);
     return true;
 }
 
@@ -340,7 +387,7 @@ bool Geometry(const Camera &c, const Entry &player, float facing, const Bank &ba
     e.aFace = std::fabs(Wrap(heading - facing));
     const float camAngle = Wrap(heading - c.yaw);
     e.aCam = std::fabs(camAngle);
-    if ((e.flags & Dead) == 0)
+    if ((e.flags & (Unit | Dead)) == Unit)
         d -= Unit::Position::BoundingRadius(player.object) +
              Unit::Position::BoundingRadius(e.object);
 
@@ -446,6 +493,8 @@ void Score(const Camera &c, const Entry &player, const float *targetPos, float c
         s += bank.camRay;
     if ((e.flags & PvpPriority) != 0)
         s += (e.flags & Player) != 0 ? bank.pvpPlayer : bank.pvpNpc;
+    if ((e.flags & OwnObject) != 0)
+        s += bank.ownObject;
     s += bank.cone * e.cone;
     e.score = s;
 }
@@ -463,9 +512,7 @@ void Build() {
     player.guid = Unit::Identity::PlayerGuid();
     if (!Unit::Position::Read(playerObj, player.pos))
         return;
-    player.height =
-        Game::Read<float>(playerObj, Offsets::OFF_CGOBJECT_BOX_HEIGHT) *
-        Game::Read<float>(playerObj, Offsets::OFF_CGOBJECT_SCALE);
+    ReadBox(playerObj, player);
     const float facing = Unit::Position::Facing(playerObj);
     const Bank &bank = kBanks[kBank];
 
@@ -552,7 +599,8 @@ bool Has(uint64_t guid, uint32_t mask) {
 uint64_t First(uint32_t type, int arc) {
     if ((g_allFlags & type) != type)
         return 0;
-    const uint32_t need = type | InFrustum | Visible | InRange;
+    // An interact candidate needs no InRange: its 16 yd gather is its range.
+    const uint32_t need = type | InFrustum | Visible | ((type & Interact) != 0 ? 0 : InRange);
     const uint32_t any = arc == 0   ? (PointBlank | CameraRay | FacingRay)
                          : arc == 1 ? (PointBlank | CameraRay | FacingRay | InCone)
                                     : InFrustum;

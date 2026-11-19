@@ -2169,6 +2169,10 @@ enum Offsets {
     // no-attachment inputs (benilla-re objectbase / unitnames).
     OFF_CGOBJECT_SCALE = 0x90,
     OFF_CGOBJECT_BOX_HEIGHT = 0xBC,
+    // The model's bounding box beside it, six floats {min xyz, max xyz} in
+    // model space: 0x615150 copies it there when the model loads (benilla-re
+    // objectlayer/objectbase.md).
+    OFF_CGOBJECT_BOUNDS = 0xC0,
     // CLayoutFrame::SetWidth / SetHeight — `void __thiscall(region +
     // OFF_REGION_ANCHOR, float internal)`, ret 4: store +0x50 / +0x54 and
     // lay the frame out.

@@ -116,6 +116,22 @@ uint32_t Mode(void *object) {
     }
 }
 
+Reach InteractReach(void *object) {
+    const uint32_t mode = Mode(object);
+    if (mode == 0 || mode == Game::Read<uint32_t>(Offsets::VAR_CURSOR_BASE_MODE))
+        return Reach::None;
+    if (mode == Offsets::CURSOR_MODE_CUSTOM)
+        return IsUsable(object) ? Reach::Now : Reach::Out;
+    if (Extended::Is(mode))
+        return Extended::IsUnable(mode) ? Reach::Out : Reach::Now;
+    const bool unable = mode > Offsets::CURSOR_MODE_LAST_NAMED;
+    const uint32_t kind = unable ? mode - Offsets::CURSOR_MODE_UNABLE_OFFSET : mode;
+    if (kind == 0 || kind > Offsets::CURSOR_MODE_LAST_NAMED || kind == Offsets::CURSOR_MODE_POINT ||
+        kind == Offsets::CURSOR_MODE_CAST || kind == Offsets::CURSOR_MODE_ATTACK)
+        return Reach::None;
+    return unable ? Reach::Out : Reach::Now;
+}
+
 bool IsUsable(void *object) {
     return reinterpret_cast<IsUsable_t>(Offsets::FUN_GAMEOBJECT_IS_USABLE)(object, nullptr) != 0;
 }

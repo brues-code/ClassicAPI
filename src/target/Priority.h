@@ -22,9 +22,12 @@ namespace Target::Priority {
 enum Flag : uint32_t {
     Unit = 0x1,
     Player = 0x2,
+    GameObject = 0x4,
     Dead = 0x20,
     Enemy = 0x40,
     Friend = 0x80,
+    Interact = 0x100,
+    OwnObject = 0x200, // the player's channel object (the fishing bobber)
     Boss = 0x800,
     PvpPriority = 0x4000,
     CombatLock = 0x8000,
@@ -56,8 +59,8 @@ uint32_t FlagsOf(uint64_t guid);
 bool Has(uint64_t guid, uint32_t mask);
 
 // The first candidate in soft order that holds `type`, is not excluded, is
-// in view and range, and is inside the arc (0 directly in front, 1 the front
-// cone, 2 anywhere on screen); 0 when none.
+// in view (and for enemy / friend in range), and is inside the arc (0
+// directly in front, 1 the front cone, 2 anywhere on screen); 0 when none.
 uint64_t First(uint32_t type, int arc);
 
 } // namespace Target::Priority

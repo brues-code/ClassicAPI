@@ -13,49 +13,15 @@
 
 #pragma once
 
-// The scan every soft target shares (interact, enemy, friend): objects drawn
-// on screen, inside the kind's arc, nearest first. Each kind adds its own
-// test of what qualifies and how the range applies.
-
 #include "cvar/Factory.h"
-
-#include <cstdint>
 
 namespace Target::SoftTarget {
 
 // A SoftTarget<Kind> cvar's 0 off / 1 gamepad / 2 KBM / 3 always. 1.12 has
 // no gamepad, so only 2 and 3 turn the kind on.
-bool Enabled(CVar::Factory::Handle enable);
-
-// Where the player stands and what the kind's arc and range cvars allow.
-struct Area {
-    void *player;
-    float pos[3];
-    float yaw; // the camera's
-    int arc;
-    float coneHalf;
-    float rangeSq;
-};
-
-// Fills `area` from the player and the kind's cvars. The range is capped by
-// the tab-target range targetNearestDistance. False outside the world.
-bool Begin(Area &area, CVar::Factory::Handle arc, CVar::Factory::Handle range,
-           float defaultRange);
-
-// Counts the scene's entity drains. What is on screen changes only when it
-// does, so a pick holds until then.
-uint32_t Drains();
-
-// True when `guid`, whose object is `object`, is drawn and inside the arc;
-// `distSq` is its squared distance from the player. The range is the
-// caller's test.
-bool InView(const Area &area, uint64_t guid, void *object, float &distSq);
-
-// A kind's test for an object in view.
-using Accept = bool (*)(const Area &area, void *object, float distSq, void *ctx);
-
-// The GUID of the nearest object of `typeMask` in view that `accept` takes,
-// or 0. The player is never a candidate.
-uint64_t Nearest(const Area &area, int typeMask, Accept accept, void *ctx);
+inline bool Enabled(CVar::Factory::Handle enable) {
+    const int v = CVar::Factory::GetInt(enable);
+    return v == 2 || v == 3;
+}
 
 } // namespace Target::SoftTarget

@@ -11,7 +11,8 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// The soft enemy and soft friend — the `softenemy` / `softfriend` /
+// The soft enemy and soft friend, and the soft driver all three soft targets
+// (with Target::SoftInteract) run from — the `softenemy` / `softfriend` /
 // `anyenemy` / `anyfriend` tokens, their PLAYER_SOFT_ENEMY_CHANGED /
 // PLAYER_SOFT_FRIEND_CHANGED events and the SoftTargetEnemy* /
 // SoftTargetFriend* / SoftTargetMatchLocked / SoftTargetWithLocked cvars, as
@@ -23,7 +24,8 @@
 //   2. the candidate list (Target::Priority) is rebuilt when its delay has
 //      passed; with a target and SoftTargetWithLocked 0 both soft units are
 //      cleared instead, and nothing else runs;
-//   3. on a rebuild, the pick (FUN_1405e1410): with SoftTargetMatchLocked 1
+//   3. on a rebuild, the pick (FUN_1405e1410; interact's in
+//      Target::SoftInteract): with SoftTargetMatchLocked 1
 //      a locked target, with 2 also a target your spell set (AutoSpell), is
 //      the side's soft unit when it is that side's candidate — even with the
 //      side off. Otherwise the first candidate of the side in soft order
@@ -35,7 +37,8 @@
 //      SoftTargetWithLocked 2). Between rebuilds a soft unit can only be
 //      dropped, never replaced;
 //   5. SoftTargetForce (Target::Reason), then the events of the sides that
-//      changed, then, on a rebuild, the loose-target expiry.
+//      changed (interact, enemy, friend), then, on a rebuild, the
+//      loose-target expiry.
 // A side is on with SoftTarget<Side> 2 or 3 (1 is gamepad, which 1.12 lacks)
 // and a range above 0. The tokens read the last result; nothing picks on a
 // read.
@@ -56,6 +59,7 @@
 #include "object/Resolve.h"
 #include "target/Priority.h"
 #include "target/Reason.h"
+#include "target/SoftInteract.h"
 #include "target/SoftTarget.h"
 #include "tick/FrameTick.h"
 #include "unit/Identity.h"
@@ -165,16 +169,20 @@ void OnFrameTick() {
     if (!allowed) {
         g_enemy.soft = 0;
         g_friend.soft = 0;
+        SoftInteract::Clear();
         Priority::Invalidate();
     } else if (rebuilt) {
         const uint32_t locked = LockedFlags(target);
         g_enemy.soft = Pick(g_enemy, locked, target);
         g_friend.soft = Pick(g_friend, locked, target);
+        SoftInteract::Pick(locked, target);
     }
+    SoftInteract::Validate();
     Validate(g_enemy, target);
     Validate(g_friend, target);
     if (allowed)
         Reason::ApplyForce();
+    SoftInteract::Notify();
     Changed(g_enemy, oldEnemy);
     Changed(g_friend, oldFriend);
     if (rebuilt)

@@ -11,45 +11,50 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// The soft-interact target — the modern Interact Key (Classic Era 1.15's
+// The soft-interact target — the modern Interact Key: the
 // `SoftTargetInteract*` cvars, the `softinteract` / `anyinteract` tokens and
 // PLAYER_SOFT_INTERACT_CHANGED; the key itself is the INTERACTTARGET binding
-// calling `C_PlayerInteractionManager.InteractUnit("anyinteract")`).
+// calling `C_PlayerInteractionManager.InteractUnit("anyinteract")`.
 //
-// No decomp has it (it post-dates 4.3.4), so the contract comes from
-// Blizzard's interface code and the exe's cvar help. The scan (on screen,
-// arc, range, nearest) is Target::SoftTarget's; this kind adds:
-//
-//   - "Can this be interacted with" is the hover cursor's verdict
-//     (Cursor::Hover): the mode the cursor would show over the object. A
-//     mode other than none, the base mode, Point, Cast and Attack (and
-//     their Unable forms) is an interact mode; the Unable form is "out of
-//     reach", as is a named game object cursor the player cannot use now.
-//   - With SoftTargetInteractRangeIsHard 0 something interactable right now
-//     (in reach / usable) still counts past SoftTargetInteractRange.
-//   - It is picked when something asks: a read of the token (the key's
-//     InteractUnit("anyinteract"), UnitGUID, the icon's per-frame read while
-//     SoftTargetIconInteract is on), and on the UI frame tick only while a
-//     frame is registered for PLAYER_SOFT_INTERACT_CHANGED — so with no icon
-//     and no listener nothing runs per frame.
-//
+// As the 3.80.2 Classic client runs it (docs/notes/soft-targeting-3802.md),
+// from the soft driver (Target::SoftUnit):
+//   - the candidates are Target::Priority's interact candidates: units, and
+//     game objects within 16 yd, that the cursor over them would show an
+//     interact mode for (1.12's own verdict, Cursor::Hover);
+//   - the pick, on a rebuild (FUN_1405e1410 / 1280): a locked target that is
+//     an interact candidate the player can use right now, when
+//     SoftTargetMatchLocked matches it; else, with the player's own channel
+//     object (the fishing bobber) a candidate, the best of those anywhere on
+//     screen; else the best interact candidate in view inside
+//     SoftTargetInteractArc;
+//   - the check, every frame (FUN_1405e1900): still a candidate the cursor
+//     shows an interact mode over, within SoftTargetInteractRange of the
+//     player (3D, centre to centre) — or, with SoftTargetInteractRangeIsHard
+//     0, usable right now from where the player stands;
+//   - PLAYER_SOFT_INTERACT_CHANGED(old, new), first of the three soft events,
+//     when the object changes or becomes usable / unusable.
 // SoftTargetInteract's 1 is "gamepad"; 1.12 has no gamepad, so only 2 (KBM)
 // and 3 (always) turn it on. It defaults to 3, what the "Enable Interact
 // Key" setting writes: the key does nothing until bound. The other defaults
 // are Classic Era's (0, 10, 0).
+//
+// Not here: 3.80.2 also drops the object the player is already interacting
+// with (its open gossip / vendor / loot) — 1.12 keeps no single GUID for it.
 
 #include "target/SoftInteract.h"
 
 #include "Game.h"
 #include "Offsets.h"
-#include "cursor/Extended.h"
 #include "cursor/Hover.h"
 #include "cvar/Factory.h"
 #include "event/Custom.h"
 #include "guid/Guid.h"
 #include "object/Resolve.h"
+#include "target/Priority.h"
+#include "target/Reason.h"
 #include "target/SoftTarget.h"
-#include "tick/FrameTick.h"
+#include "unit/Identity.h"
+#include "unit/Position.h"
 
 #include <cstdint>
 
@@ -57,8 +62,7 @@ namespace Target::SoftInteract {
 
 namespace {
 
-constexpr int kTypeMask =
-    Offsets::TYPEMASK_UNIT | Offsets::TYPEMASK_GAMEOBJECT | Offsets::TYPEMASK_CORPSE;
+using Cursor::Hover::Reach;
 
 const Game::Doc::Field kChangedPayload[] = {
     Game::Doc::Req("oldTarget", "WOWGUID", "The previous soft-interact object, or nil."),
@@ -74,88 +78,38 @@ CVar::Factory::Handle g_range = nullptr;
 CVar::Factory::Handle g_rangeIsHard = nullptr;
 
 uint64_t g_soft = 0;
-// The drain of the last pick; `g_picked` false forces the next read to pick
-// (a cvar changed). See Refresh.
-bool g_picked = false;
-uint32_t g_pickedDrain = 0;
+bool g_now = false; // usable right now
+// What the last event told.
+uint64_t g_told = 0;
+bool g_toldNow = false;
 
-// ── The hover cursor's verdict ───────────────────────────────────────────
-
-enum class Reach { None, Out, Now };
-
-Reach ReachOf(void *object) {
-    const uint32_t mode = Cursor::Hover::Mode(object);
-    if (mode == 0 || mode == Game::Read<uint32_t>(Offsets::VAR_CURSOR_BASE_MODE))
-        return Reach::None;
-    if (mode == Offsets::CURSOR_MODE_CUSTOM)
-        return Cursor::Hover::IsUsable(object) ? Reach::Now : Reach::Out;
-    if (Cursor::Extended::Is(mode))
-        return Cursor::Extended::IsUnable(mode) ? Reach::Out : Reach::Now;
-    const bool unable = mode > Offsets::CURSOR_MODE_LAST_NAMED;
-    const uint32_t kind = unable ? mode - Offsets::CURSOR_MODE_UNABLE_OFFSET : mode;
-    if (kind == 0 || kind > Offsets::CURSOR_MODE_LAST_NAMED || kind == Offsets::CURSOR_MODE_POINT ||
-        kind == Offsets::CURSOR_MODE_CAST || kind == Offsets::CURSOR_MODE_ATTACK)
-        return Reach::None;
-    return unable ? Reach::Out : Reach::Now;
+void *ObjectOf(uint64_t guid) {
+    return guid != 0 ? Object::ByGuid(Offsets::TYPEMASK_UNIT | Offsets::TYPEMASK_GAMEOBJECT, guid)
+                     : nullptr;
 }
 
-// ── Picking ──────────────────────────────────────────────────────────────
+Reach ReachOf(uint64_t guid) {
+    void *object = ObjectOf(guid);
+    return object != nullptr ? Cursor::Hover::InteractReach(object) : Reach::None;
+}
 
-bool Accept(const SoftTarget::Area &area, void *object, float distSq, void *ctx) {
-    const Reach reach = ReachOf(object);
-    if (reach == Reach::None)
+bool On() {
+    return SoftTarget::Enabled(g_enable) && (CVar::Factory::GetFloat(g_range) > 0.0f ||
+                                             CVar::Factory::GetInt(g_rangeIsHard) == 0);
+}
+
+bool WithinRange(uint64_t guid) {
+    void *player = const_cast<uint8_t *>(Unit::Identity::PlayerObject());
+    float a[3], b[3];
+    if (player == nullptr || !Unit::Position::Read(player, a) ||
+        !Unit::Position::Read(ObjectOf(guid), b))
         return false;
-    const bool hard = *static_cast<const bool *>(ctx);
-    return distSq <= area.rangeSq || (!hard && reach == Reach::Now);
+    const float r = CVar::Factory::GetFloat(g_range);
+    return Game::DistanceSq(a, b) <= r * r;
 }
-
-uint64_t Pick() {
-    SoftTarget::Area area;
-    if (!SoftTarget::Begin(area, g_arc, g_range, 10.0f))
-        return 0;
-    bool hard = CVar::Factory::GetInt(g_rangeIsHard) != 0;
-    return SoftTarget::Nearest(area, kTypeMask, &Accept, &hard);
-}
-
-void Set(uint64_t guid) {
-    if (guid == g_soft)
-        return;
-    const uint64_t old = g_soft;
-    g_soft = guid;
-    char oldBuf[Guid::STRING_SIZE];
-    char newBuf[Guid::STRING_SIZE];
-    Event::Custom::Fire(_changed.Slot(), "%s%s",
-                        old ? Guid::FormatAsString(old, oldBuf, sizeof oldBuf) : nullptr,
-                        guid ? Guid::FormatAsString(guid, newBuf, sizeof newBuf) : nullptr);
-}
-
-// One pick per scene drain, shared by every read until the next (the icon,
-// Lua's token reads, the listener tick): the scan reads what the last drain
-// drew, which changes only when the next one does.
-void Refresh() {
-    const uint32_t drain = SoftTarget::Drains();
-    if (g_picked && g_pickedDrain == drain)
-        return;
-    g_picked = true;
-    g_pickedDrain = drain;
-    Set(SoftTarget::Enabled(g_enable) ? Pick() : 0);
-}
-
-bool Watched() { return Event::Custom::HasListeners(_changed.Slot()); }
-
-void OnFrameTick() {
-    if (!Object::RegistryReady()) {
-        g_soft = 0;
-        return;
-    }
-    if (Watched())
-        Refresh();
-}
-
-const Tick::FrameTick::AutoSubscribe _tick{&OnFrameTick};
 
 int __fastcall SettingChanged(CVar::Factory::Handle, const char *, const char *, void *) {
-    g_picked = false;
+    Priority::Invalidate();
     return 1;
 }
 
@@ -178,46 +132,76 @@ const Game::ModuleAutoRegister _autoreg{&Register};
 
 } // namespace
 
-// Fresh when nothing watches; the frame tick's pick (this frame's) when a
-// listener does.
-uint64_t Get() {
-    if (!Object::RegistryReady())
-        return 0;
-    if (!Watched())
-        Refresh();
-    return g_soft;
-}
+uint64_t Get() { return g_soft; }
 
-// Retail 12.1.5 probes, camera still:
-//   - a soft-interact game object in front: with an interactable NPC
-//     targeted `anyinteract` is the NPC, with no target it is the game
-//     object — the target wins;
-//   - an NPC targeted out of reach (the Unable form): facing away from
-//     everything (`softinteract` nil) `anyinteract` is the target; facing
-//     a nearer NPC (`softinteract`) it is that NPC.
-// So a target in reach wins, an out-of-reach one yields to `softinteract`
-// and is used only when nothing is picked — the key then still runs the
-// engine's interact on it ("You need to be closer", or the click-to-move
-// walk). Being behind the camera does not disqualify the target; the
-// cursor verdict does not look at facing.
+// 3.80.2's ActionTarget for interact (FUN_1405dd580 with 0x100): with no
+// soft object, the target; the soft object while the target is empty,
+// loose or the soft object itself; the target when it is an interact
+// candidate the player can use right now; else the soft object.
 uint64_t GetAny() {
-    if (!Object::RegistryReady())
-        return 0;
-    const uint64_t target = Game::Read<uint64_t>(Offsets::VAR_CURRENT_SELECTION_GUID_LO);
-    Reach reach = Reach::None;
-    if (target != 0) {
-        void *object = Object::ByGuid(kTypeMask, target);
-        if (object != nullptr)
-            reach = ReachOf(object);
-    }
-    if (reach == Reach::Now)
+    const uint64_t target = Reason::Selection();
+    if (g_soft == 0)
         return target;
-    const uint64_t soft = Get();
-    if (soft != 0 || reach == Reach::None)
-        return soft;
-    return target;
+    if (target == 0 || g_soft == target || Reason::IsLoose() ||
+        !Priority::Has(target, Priority::Interact))
+        return g_soft;
+    return ReachOf(target) == Reach::Now ? target : g_soft;
 }
 
-bool InReach(void *object) { return ReachOf(object) == Reach::Now; }
+bool InReach(void *object) { return Cursor::Hover::InteractReach(object) == Reach::Now; }
+
+void Pick(uint32_t lockedFlags, uint64_t target) {
+    const bool on = On();
+    if ((lockedFlags & Priority::Interact) != 0) {
+        if (!on) {
+            g_soft = 0;
+            return;
+        }
+        if (!Reason::IsLoose() && ReachOf(target) == Reach::Now) {
+            g_soft = target;
+            return;
+        }
+    } else if (!on) {
+        g_soft = 0;
+        return;
+    }
+    g_soft = Priority::First(Priority::Interact | Priority::OwnObject, 2);
+    if (g_soft == 0)
+        g_soft = Priority::First(Priority::Interact, CVar::Factory::GetInt(g_arc));
+}
+
+void Validate() {
+    g_now = false;
+    if (g_soft == 0)
+        return;
+    const Reach reach = ReachOf(g_soft);
+    if (!Priority::Has(g_soft, Priority::Interact) || reach == Reach::None) {
+        g_soft = 0;
+        return;
+    }
+    g_now = reach == Reach::Now;
+    if (!WithinRange(g_soft) && (CVar::Factory::GetInt(g_rangeIsHard) != 0 || !g_now)) {
+        g_soft = 0;
+        g_now = false;
+    }
+}
+
+void Clear() {
+    g_soft = 0;
+    g_now = false;
+}
+
+void Notify() {
+    if (g_soft == g_told && g_now == g_toldNow)
+        return;
+    const uint64_t old = g_told;
+    g_told = g_soft;
+    g_toldNow = g_now;
+    char oldBuf[Guid::STRING_SIZE];
+    char newBuf[Guid::STRING_SIZE];
+    Event::Custom::Fire(_changed.Slot(), "%s%s",
+                        old ? Guid::FormatAsString(old, oldBuf, sizeof oldBuf) : nullptr,
+                        g_soft ? Guid::FormatAsString(g_soft, newBuf, sizeof newBuf) : nullptr);
+}
 
 } // namespace Target::SoftInteract
