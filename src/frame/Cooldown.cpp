@@ -164,12 +164,13 @@ struct Fields {
     uint32_t done;     // this cooldown has ended (or was cleared); OnCooldownDone ran
     uint32_t paused;
     uint32_t pausedAt; // ms, the time the frame holds at while paused
-    float modRate;     // scales the flash and the display duration, not the sweep
+    float modRate;     // above 0: the frame's clock runs at real / modRate (ScaledMs)
     uint32_t drawSwipe;
     uint32_t drawBling;
     Slot slots[SLOT_COUNT];
     uint32_t texturesSet; // 1 << TextureSlot for each slot a setter or the XML filled
     float rotation;       // radians, clockwise: where the sweep starts
+    float edgeTexScale;   // 1 / edge scale; 0 until set, then 4.3.4's layout scale (EdgeTexScale)
     void *countdown;      // the CSimpleFontString of the countdown numbers
     uint32_t hideCountdownNumbers;
     float abbrevThreshold;      // s: below it, m:ss in place of whole minutes
@@ -217,6 +218,13 @@ uint32_t ClampMs(double ms) {
         return UINT32_MAX;
     return static_cast<uint32_t>(ms);
 }
+
+// A length in ms on the frame's own clock. The later clients' CGCooldown
+// keeps its timer as round(duration / modRate) and its elapsed time as
+// round(real / modRate) (3.80.2: the setter 0x141942AF0, the elapsed reader
+// 0x141942320), so the sweep still ends after `duration` of real time while
+// the countdown numbers and GetCooldownDisplayDuration read the scaled time.
+uint32_t ScaledMs(const Fields &f, uint32_t ms) { return ClampMs(ms / static_cast<double>(f.modRate) + 0.5); }
 
 uint32_t ColorByte(double c) {
     if (!(c > 0.0))
@@ -353,6 +361,18 @@ void RotateQuadTexCoords(C2Vector *tc, float angle, float scale) {
     tc[3] = {(d - e) * scale + 0.5f, (d + e) * scale + 0.5f};
 }
 
+// The scale of the edge's texcoords about the texture centre. 4.3.4 scales
+// them by CLayoutFrame::m_layoutScale, the frame's effective scale. The later
+// clients keep the same frame-sized quad turned the same way, scaled by a
+// stored factor that SetEdgeScale writes as 1 / scale and SetUseCircularEdge
+// as 1 (true) or 1 / sqrt(2) (false), their default (3.80.2: Script
+// SetEdgeScale 0x140C48E20, SetUseCircularEdge 0x140C4A530, the edge
+// animation 0x1419426D0). A frame that sets neither keeps 4.3.4's look.
+float EdgeTexScale(void *frame) {
+    const float stored = F(frame).edgeTexScale;
+    return stored != 0.0f ? stored : Game::Read<float>(frame, Offsets::OFF_LAYOUT_SCALE);
+}
+
 // The fan's texcoords from its positions, the texture spread over the frame.
 // 4.3.4 sets only the top (0.5, 0) and the centre (0.5, 0.5), which this
 // mapping gives too, and leaves the rest at 0; star4 is one colour, so that
@@ -386,10 +406,8 @@ void AnimateVerts(void *frame) {
             AnimateSweep(f, r, start + done, start + 1.0f);
         MapStarTexCoords(f, r);
 
-        // CLayoutFrame::m_layoutScale, the frame's effective scale.
         if (f.drawEdge)
-            RotateQuadTexCoords(f.edgeTexCoords, done * -6.2831855f - f.rotation,
-                                Game::Read<float>(frame, Offsets::OFF_LAYOUT_SCALE));
+            RotateQuadTexCoords(f.edgeTexCoords, done * -6.2831855f - f.rotation, EdgeTexScale(frame));
         PublishStrips(f);
         return;
     }
@@ -484,11 +502,52 @@ void SetSlotTexture(void *frame, TextureSlot slot, const char *file, const uint3
     UpdateColors(frame);
 }
 
+// The time the frame's clock reads: a paused frame holds at its pause.
+uint32_t ClockNow(const Fields &f) { return f.paused ? f.pausedAt : Time::Clock::NowMs(); }
+
+// The sweep is over: the flash from `now`, or the frame hides. The caller
+// runs OnCooldownDone if it should. 3.80.2's 0x141942A70, reached from the
+// update at the end of the sweep and from SetCooldown with duration 0.
+//
+// Retail ends a reverse cooldown like any other, where 4.3.4 holds it at
+// `duration - 1` (live probe: reverse SetCooldown(T, 2) ran OnCooldownDone at
+// T + 2, still shown at T + 2.5, hidden by T + 4). The flash is 1000 ms on the
+// frame's clock, so 1000 * modRate real ms, and the getters then report it
+// (live probe: SetCooldown(T, 4, 0.5) finished at T + 4 with times T + 4000, 500).
+void EndSweep(void *frame, uint32_t now) {
+    Fields &f = F(frame);
+    f.done = 1;
+    if (!f.drawBling) {
+        Hide(frame);
+        return;
+    }
+    f.startTime = now;
+    f.flashing = 1;
+    const float flash = 1000.0f * f.modRate;
+    f.duration = flash >= 1.0f ? static_cast<uint32_t>(flash) : 1;
+    f.elapsed = 0;
+    UpdateColors(frame);
+}
+
 // OFFSET (4.3.4): 0x009FFAD0. A paused frame holds at the moment of the call,
 // which is what CooldownFrame_SetDisplayAsPercentage (Pause, then SetCooldown
 // back-dated by the shown fraction) relies on.
+//
+// The later clients' setter (3.80.2: 0x141942AF0) adds three rules before it:
+// a duration of 0 ends a running sweep at once, with the flash and without
+// OnCooldownDone; a start of 0 starts nothing (it only clears a zero-length
+// timer, which this frame never keeps past one update); and a modRate that is
+// not above 0 (or is NaN) is 1.
 void SetCooldown(void *frame, uint32_t start, uint32_t duration, float modRate) {
     Fields &f = F(frame);
+    if (duration == 0 && f.duration != 0 && !f.done && !f.flashing) {
+        EndSweep(frame, ClockNow(f));
+        return;
+    }
+    if (start == 0)
+        return;
+    if (!(std::fabs(modRate) >= 2.3841858e-07f) || modRate < 0.0f)
+        modRate = 1.0f;
     f.startTime = start;
     f.duration = duration;
     f.modRate = modRate;
@@ -593,6 +652,10 @@ void FormatCountdown(char (&out)[16], uint32_t ms, float abbrevThreshold,
 // From the update walk: the numbers while the sweep runs, nothing otherwise.
 // SetText only when the text changes.
 //
+// The time left and the minimum-duration gate read the frame's clock
+// (ScaledMs): a 4 s cooldown at modRate 0.5 counts down from 8 (3.80.2's
+// countdown 0x141942380 takes both from the stored, scaled timer).
+//
 // A countdown formatter replaces FormatCountdown and both thresholds, and gets
 // the seconds left unrounded; the gates stay (retail probe: "%.3f" showed
 // "28.118" 1.882 s into a 30 s cooldown with the milliseconds threshold at
@@ -602,8 +665,10 @@ void UpdateCountdown(void *frame) {
     Fields &f = F(frame);
     if (f.countdown == nullptr)
         return;
+    const uint32_t duration = ScaledMs(f, f.duration);
+    const uint32_t left = f.elapsed < f.duration ? duration - ScaledMs(f, f.elapsed) : 0;
     const bool shown = !f.hideCountdownNumbers && !f.flashing && !f.done &&
-                       f.duration > f.minCountdownDuration && f.elapsed < f.duration &&
+                       duration > f.minCountdownDuration && left > 0 &&
                        CVar::Factory::GetInt(g_countdownForCooldowns) != 0;
     char numbers[16] = "";
     const char *text = numbers;
@@ -611,11 +676,11 @@ void UpdateCountdown(void *frame) {
     int top = 0;
     if (shown && f.countdownFormatter != nullptr && (L = Game::Lua::State()) != nullptr) {
         top = Game::Lua::GetTop(L);
-        text = Text::NumericFormatter::Format(L, f.countdownFormatter, (f.duration - f.elapsed) / 1000.0);
+        text = Text::NumericFormatter::Format(L, f.countdownFormatter, left / 1000.0);
         if (text == nullptr)
             text = "";
     } else if (shown) {
-        FormatCountdown(numbers, f.duration - f.elapsed, f.abbrevThreshold, f.millisecondsThreshold);
+        FormatCountdown(numbers, left, f.abbrevThreshold, f.millisecondsThreshold);
     }
     if (*f.countdownText != text) {
         f.countdownText->assign(text);
@@ -651,7 +716,7 @@ void __fastcall OnFrameUpdate(void *self, void *, float elapsedSec) {
     Fields &f = F(self);
     // 4.3.4: `now <= start ? 0 : now - start`, compared wrap-safe. A paused
     // frame reads the time it was paused at.
-    const uint32_t now = f.paused ? f.pausedAt : Time::Clock::NowMs();
+    const uint32_t now = ClockNow(f);
     f.elapsed = Time::Clock::Reached(now, f.startTime) ? Time::Clock::Elapsed(f.startTime, now) : 0;
     bool finished = false;
     if (f.elapsed >= f.duration) {
@@ -665,25 +730,8 @@ void __fastcall OnFrameUpdate(void *self, void *, float elapsedSec) {
             f.done = 1;
             Hide(self);
         } else {
-            f.done = 1;
             finished = true;
-            // Retail ends a reverse cooldown like any other, where 4.3.4 holds
-            // it at `duration - 1` (live probe: reverse SetCooldown(T, 2) ran
-            // OnCooldownDone at T + 2, still shown at T + 2.5, hidden by T + 4).
-            if (f.drawBling) {
-                // Retail: the sweep ends at start + duration whatever the
-                // modRate; the flash lasts 1000 * modRate ms, and the getters
-                // then report the flash (live probe: SetCooldown(T, 4, 0.5)
-                // finished at T + 4 with times T + 4000, 500).
-                f.startTime = now;
-                f.flashing = 1;
-                const float flash = 1000.0f * f.modRate;
-                f.duration = flash >= 1.0f ? static_cast<uint32_t>(flash) : 1;
-                f.elapsed = 0;
-                UpdateColors(self);
-            } else {
-                Hide(self);
-            }
+            EndSweep(self, now);
         }
     }
     AnimateVerts(self);
@@ -918,8 +966,7 @@ int __fastcall Script_GetCooldownDisplayDuration(void *L) {
     if (frame == nullptr)
         return 0;
     const Fields &f = F(frame);
-    const double duration = static_cast<double>(f.duration);
-    Game::Lua::PushNumber(L, f.modRate > 0.0f ? duration / f.modRate : duration);
+    Game::Lua::PushNumber(L, static_cast<double>(ScaledMs(f, f.duration)));
     return 1;
 }
 
@@ -1070,6 +1117,37 @@ int __fastcall Script_GetRotation(void *L) {
         return 0;
     Game::Lua::PushNumber(L, F(frame).rotation);
     return 1;
+}
+
+// The edge texture's size against the frame: the texcoord scale is its inverse,
+// with the scale held to 0.001 or more both ways, as 3.80.2's pair does.
+int __fastcall Script_SetEdgeScale(void *L) {
+    void *frame = ResolveCooldown(L);
+    if (frame == nullptr)
+        return 0;
+    if (!Game::Lua::IsNumber(L, 2)) {
+        Game::Lua::Error(L, "Usage: %s:SetEdgeScale(scale)", Game::Lua::ObjectDisplayName(frame));
+        return 0;
+    }
+    F(frame).edgeTexScale = 1.0f / std::fmax(static_cast<float>(Game::Lua::ToNumber(L, 2)), 0.001f);
+    return 0;
+}
+
+int __fastcall Script_GetEdgeScale(void *L) {
+    void *frame = ResolveCooldown(L);
+    if (frame == nullptr)
+        return 0;
+    Game::Lua::PushNumber(L, 1.0f / std::fmax(EdgeTexScale(frame), 0.001f));
+    return 1;
+}
+
+// Writes the same factor as SetEdgeScale: true is edge scale 1, false (or
+// nil) sqrt(2), the later clients' default. There is no getter.
+int __fastcall Script_SetUseCircularEdge(void *L) {
+    void *frame = ResolveCooldown(L);
+    if (frame != nullptr)
+        F(frame).edgeTexScale = Game::Lua::ToFlag(L, 2) ? 1.0f : 0.70710677f;
+    return 0;
 }
 
 int __fastcall Script_SetHideCountdownNumbers(void *L) {
@@ -1265,6 +1343,9 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"SetBlingTexture", &Script_SetBlingTexture},
     {"SetRotation", &Script_SetRotation},
     {"GetRotation", &Script_GetRotation},
+    {"SetEdgeScale", &Script_SetEdgeScale},
+    {"GetEdgeScale", &Script_GetEdgeScale},
+    {"SetUseCircularEdge", &Script_SetUseCircularEdge},
     {"SetHideCountdownNumbers", &Script_SetHideCountdownNumbers},
     {"GetHideCountdownNumbers", &Script_GetHideCountdownNumbers},
     {"GetCountdownFontString", &Script_GetCountdownFontString},
@@ -1282,11 +1363,13 @@ const Game::Doc::Field kSetCooldownArgs[] = {
     Game::Doc::Req("start", "number", "Cooldown start time, in seconds as returned by GetTime."),
     Game::Doc::Req("duration", "number", "Cooldown length in seconds."),
     Game::Doc::Opt("modRate", "number", "1",
-                   "Scales the end flash and GetCooldownDisplayDuration; the sweep still ends at start + duration."),
+                   "Divides the countdown numbers and GetCooldownDisplayDuration, and multiplies the end "
+                   "flash's length; the sweep still ends at start + duration. A value that is not above 0 is 1."),
 };
 const Game::Doc::Function kSetCooldown{
     "Shows the frame and runs the cooldown sweep from a start time and duration in seconds, "
-    "then the end flash.",
+    "then the end flash. A start of 0 does nothing. A duration of 0 ends a running sweep at once, "
+    "with the end flash and without OnCooldownDone.",
     kSetCooldownArgs, {}};
 const Game::Doc::Field kSetCooldownDurationArgs[] = {
     Game::Doc::Req("duration", "number", "Cooldown length in seconds."),
@@ -1381,6 +1464,24 @@ const Game::Doc::Function kSetRotation{
     "Sets where the sweep starts, as a clockwise angle from the top.", kRotationArg, {}};
 const Game::Doc::Function kGetRotation{
     "Returns where the sweep starts, as a clockwise angle from the top.", {}, kRotationRet};
+const Game::Doc::Field kEdgeScaleArg[] = {
+    Game::Doc::Req("scale", "number", "The edge texture's size against the frame; values below 0.001 are 0.001."),
+};
+const Game::Doc::Field kEdgeScaleRet[] = {
+    Game::Doc::Req("scale", "number"),
+};
+const Game::Doc::Function kSetEdgeScale{
+    "Sets the size of the edge texture against the frame. SetUseCircularEdge sets the same value.",
+    kEdgeScaleArg, {}};
+const Game::Doc::Function kGetEdgeScale{
+    "Returns the size of the edge texture against the frame. Until SetEdgeScale or "
+    "SetUseCircularEdge is called, it follows the frame's effective scale.",
+    {}, kEdgeScaleRet};
+const Game::Doc::Field kCircularEdgeArg[] = {
+    Game::Doc::Opt("useCircularEdge", "bool", "false"),
+};
+const Game::Doc::Function kSetUseCircularEdge{
+    "Sets the edge scale to 1 when true, or to the square root of 2 when false.", kCircularEdgeArg, {}};
 const Game::Doc::Function kSetHideCountdownNumbers{
     "Sets whether the countdown numbers are hidden. The numbers show only while the "
     "countdownForCooldowns CVar is 1.",
@@ -1463,6 +1564,9 @@ const Game::Doc::Method g_methodDocs[] = {
     {"SetBlingTexture", &kSetBlingTexture},
     {"SetRotation", &kSetRotation},
     {"GetRotation", &kGetRotation},
+    {"SetEdgeScale", &kSetEdgeScale},
+    {"GetEdgeScale", &kGetEdgeScale},
+    {"SetUseCircularEdge", &kSetUseCircularEdge},
     {"SetHideCountdownNumbers", &kSetHideCountdownNumbers},
     {"GetHideCountdownNumbers", &kGetHideCountdownNumbers},
     {"GetCountdownFontString", &kGetCountdownFontString},
