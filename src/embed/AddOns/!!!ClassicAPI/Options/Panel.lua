@@ -98,6 +98,37 @@ local FORCE_CHOICES = {
 	{ 2, CLASSICAPI_LOOSE_TARGET_FOLLOWS_FRIEND },
 };
 
+local WITH_LOCKED_CHOICES = {
+	{ 0, CLASSICAPI_CHOICE_OFF },
+	{ 1, CLASSICAPI_CHOICE_ON },
+	{ 2, CLASSICAPI_KEEP_ACTION_TARGETING_ALWAYS },
+};
+
+local MATCH_LOCKED_CHOICES = {
+	{ 0, CLASSICAPI_CHOICE_OFF },
+	{ 1, CLASSICAPI_PREFER_YOUR_TARGET_CHOSEN },
+	{ 2, CLASSICAPI_PREFER_YOUR_TARGET_SPELLS },
+};
+
+local COMBAT_LOCK_CHOICES = {
+	{ 0, CLASSICAPI_CHOICE_OFF },
+	{ 1, CLASSICAPI_COMBAT_LOCK_IN_COMBAT },
+	{ 2, CLASSICAPI_COMBAT_LOCK_ATTACKING },
+};
+
+local PVP_PRIORITY_CHOICES = {
+	{ 0, CLASSICAPI_CHOICE_OFF },
+	{ 1, CLASSICAPI_PVP_PRIORITY_PLAYERS_BOSSES },
+	{ 2, CLASSICAPI_PVP_PRIORITY_ALL },
+	{ 3, CLASSICAPI_PVP_PRIORITY_PLAYERS },
+};
+
+local ANY_ON_SCREEN_CHOICES = {
+	{ 0, CLASSICAPI_CHOICE_OFF },
+	{ 1, CLASSICAPI_TAB_ANY_IGNORE_COMBAT },
+	{ 2, CLASSICAPI_TAB_ANY_OUT_OF_RANGE },
+};
+
 -- ---------------------------------------------------------------------------
 -- Interact Key
 -- ---------------------------------------------------------------------------
@@ -160,9 +191,36 @@ local function RegisterActionTargeting()
 	AddCVarCheckbox(category, "SoftTargetIconFriend", CLASSICAPI_FRIEND_ICON, CLASSICAPI_FRIEND_ICON_TOOLTIP);
 
 	AddHeader(layout, CLASSICAPI_WHEN_YOU_HAVE_A_TARGET);
-	AddCVarCheckbox(category, "SoftTargetWithLocked", CLASSICAPI_KEEP_ACTION_TARGETING, CLASSICAPI_KEEP_ACTION_TARGETING_TOOLTIP);
-	AddCVarCheckbox(category, "SoftTargetMatchLocked", CLASSICAPI_PREFER_YOUR_TARGET, CLASSICAPI_PREFER_YOUR_TARGET_TOOLTIP);
+	AddDropdown(category, "SoftTargetWithLocked", CLASSICAPI_KEEP_ACTION_TARGETING, CLASSICAPI_KEEP_ACTION_TARGETING_TOOLTIP, WITH_LOCKED_CHOICES);
+	AddDropdown(category, "SoftTargetMatchLocked", CLASSICAPI_PREFER_YOUR_TARGET, CLASSICAPI_PREFER_YOUR_TARGET_TOOLTIP, MATCH_LOCKED_CHOICES);
 	AddDropdown(category, "SoftTargetForce", CLASSICAPI_LOOSE_TARGET_FOLLOWS, CLASSICAPI_LOOSE_TARGET_FOLLOWS_TOOLTIP, FORCE_CHOICES);
+
+	AddHeader(layout, CLASSICAPI_TARGETS_THE_GAME_SETS);
+	AddCVarCheckbox(category, "TargetAutoEnemy", CLASSICAPI_TARGET_AUTO_ENEMY, CLASSICAPI_TARGET_AUTO_ENEMY_TOOLTIP);
+	AddCVarCheckbox(category, "TargetAutoFriend", CLASSICAPI_TARGET_AUTO_FRIEND, CLASSICAPI_TARGET_AUTO_FRIEND_TOOLTIP);
+	AddCVarCheckbox(category, "TargetEnemyAttacker", CLASSICAPI_TARGET_ENEMY_ATTACKER, CLASSICAPI_TARGET_ENEMY_ATTACKER_TOOLTIP);
+	AddCVarCheckbox(category, "TargetAutoLock", CLASSICAPI_TARGET_AUTO_LOCK, CLASSICAPI_TARGET_AUTO_LOCK_TOOLTIP);
+
+	AddHeader(layout, CLASSICAPI_TARGET_PRIORITY);
+	AddDropdown(category, "TargetPriorityCombatLock", CLASSICAPI_COMBAT_LOCK, CLASSICAPI_COMBAT_LOCK_TOOLTIP, COMBAT_LOCK_CHOICES);
+	AddCVarCheckbox(category, "TargetPriorityCombatLockContextualRelaxation", CLASSICAPI_COMBAT_LOCK_RELAXATION, CLASSICAPI_COMBAT_LOCK_RELAXATION_TOOLTIP);
+	AddDropdown(category, "TargetPriorityPvp", CLASSICAPI_PVP_PRIORITY, CLASSICAPI_PVP_PRIORITY_TOOLTIP, PVP_PRIORITY_CHOICES);
+
+	AddHeader(layout, CLASSICAPI_TAB_TARGETING);
+	local scoredTab, scoredTabInitializer = Settings.SetupCVarCheckbox(category, "TargetNearestUseNew", CLASSICAPI_SCORED_TAB, CLASSICAPI_SCORED_TAB_TOOLTIP);
+	-- The rest of the section only applies to the scored Tab.
+	local function IsScoredTab() return scoredTab:GetValue(); end
+	AddDropdown(category, "TargetPriorityAllowAnyOnScreen", CLASSICAPI_TAB_ANY_ON_SCREEN, CLASSICAPI_TAB_ANY_ON_SCREEN_TOOLTIP, ANY_ON_SCREEN_CHOICES):SetParentInitializer(scoredTabInitializer, IsScoredTab);
+	AddCVarCheckbox(category, "TargetPriorityContinueFromManualTarget", CLASSICAPI_TAB_CONTINUE_FROM_CLICK, CLASSICAPI_TAB_CONTINUE_FROM_CLICK_TOOLTIP):SetParentInitializer(scoredTabInitializer, IsScoredTab);
+	AddNumberBox(category, "TargetPriorityAutoTargetIgnoreWindow", CLASSICAPI_TAB_IGNORE_WINDOW, CLASSICAPI_TAB_IGNORE_WINDOW_TOOLTIP):SetParentInitializer(scoredTabInitializer, IsScoredTab);
+	AddCVarCheckbox(category, "TargetPriorityPvpLock", CLASSICAPI_TAB_PVP_LOCK, CLASSICAPI_TAB_PVP_LOCK_TOOLTIP):SetParentInitializer(scoredTabInitializer, IsScoredTab);
+
+	AddHeader(layout, CLASSICAPI_TARGET_TOOLTIPS);
+	AddCVarCheckbox(category, "SoftTargetTooltipInteract", CLASSICAPI_TOOLTIP_INTERACT, CLASSICAPI_TOOLTIP_INTERACT_TOOLTIP);
+	AddCVarCheckbox(category, "SoftTargetTooltipLocked", CLASSICAPI_TOOLTIP_TARGET, CLASSICAPI_TOOLTIP_TARGET_TOOLTIP);
+	AddCVarCheckbox(category, "SoftTargetTooltipEnemy", CLASSICAPI_TOOLTIP_ENEMY, CLASSICAPI_TOOLTIP_ENEMY_TOOLTIP);
+	AddCVarCheckbox(category, "SoftTargetTooltipFriend", CLASSICAPI_TOOLTIP_FRIEND, CLASSICAPI_TOOLTIP_FRIEND_TOOLTIP);
+	AddNumberBox(category, "SoftTargetTooltipDurationMs", CLASSICAPI_TOOLTIP_DURATION, CLASSICAPI_TOOLTIP_DURATION_TOOLTIP);
 end
 
 -- ---------------------------------------------------------------------------
