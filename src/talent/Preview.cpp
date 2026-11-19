@@ -123,16 +123,6 @@ bool Knows(const uint8_t *player, uint32_t spellID) {
            reinterpret_cast<Knows_t>(Offsets::FUN_UNIT_KNOWS_HIGHER_RANK)(player, spellID);
 }
 
-// GetTalentInfo's rank: 0 when none is learned.
-int LearnedRank(const uint8_t *player, const uint8_t *row) {
-    for (int slot = Offsets::TALENT_MAX_RANKS - 1; slot >= 0; --slot) {
-        const uint32_t spellID = RankSpell(row, slot);
-        if (spellID != 0 && Knows(player, spellID))
-            return slot + 1;
-    }
-    return 0;
-}
-
 // GetTalentInfo's 8th value: the talent's required spell, when it has one, is
 // known.
 bool MeetsRequiredSpell(const uint8_t *player, const uint8_t *row) {
@@ -153,6 +143,15 @@ std::unordered_map<uint32_t, int> g_planned;
 uint64_t g_owner = 0;
 
 } // namespace
+
+int LearnedRank(const uint8_t *player, const uint8_t *row) {
+    for (int slot = Offsets::TALENT_MAX_RANKS - 1; slot >= 0; --slot) {
+        const uint32_t spellID = RankSpell(row, slot);
+        if (spellID != 0 && Knows(player, spellID))
+            return slot + 1;
+    }
+    return 0;
+}
 
 const uint8_t *Player() {
     const uint8_t *player = Unit::Identity::PlayerObject();

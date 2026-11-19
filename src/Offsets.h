@@ -11815,10 +11815,10 @@ enum Offsets {
     VAR_TALENT_DBC_FLAT_COUNT = 0x00C0D6E4,
     OFF_TALENT_DBC_TAB_ID = 0x04,
 
-    // Engine's `Script_GetTalentInfo` Lua C function. We call it from
-    // `GetTalentSpellID` to derive the player's currentRank without
-    // re-implementing the spell-knowledge checks at `0x0060C740` /
-    // `0x0060C8D0`. Signature: `int __fastcall(void *L)` — reads tab and
+    // Engine's `Script_GetTalentInfo` Lua C function. Its currentRank is
+    // the highest rank whose spell passes the knowledge checks at
+    // `0x0060C740` / `0x0060C8D0`; `Talent::Preview::LearnedRank` mirrors
+    // that with the same two calls. Signature: `int __fastcall(void *L)` — reads tab and
     // talent index from Lua stack[1] and stack[2], pushes 6 returns
     // (name, icon, tier, column, currentRank, maxRank). Errors (calls
     // lua_error) on invalid input or pre-login state, so callers must

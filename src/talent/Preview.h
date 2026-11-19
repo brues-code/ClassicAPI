@@ -29,6 +29,10 @@ const uint8_t *TalentRow(int tab, int index);
 // 0-based slot. Null when no talent of the player has the spell.
 const uint8_t *RowOfRankSpell(uint32_t spellID, int *slot);
 
+// GetTalentInfo's rank: the highest rank whose spell `player` knows, 0 when
+// none is learned.
+int LearnedRank(const uint8_t *player, const uint8_t *row);
+
 // The rank the plan shows: the planned rank, else the learned one.
 int PreviewRank(const uint8_t *player, const uint8_t *row);
 
