@@ -28,7 +28,9 @@ enum Why : int {
     Force = 4,       // SoftTargetForce: hidden from `target`, no PLAYER_TARGET_CHANGED
     InteractKey = 5, // the interact key on a soft / any token
     AutoSpell = 6,   // TargetAutoEnemy / TargetAutoFriend: your spell landed on the soft unit
-    Chosen = 8,      // every other select: a click, Tab, TargetUnit, ...
+    Chosen = 8,      // every other select: TargetUnit, assist, 1.12's own Tab, ...
+    Click = 9,       // a click on the object in the world
+    Tab = 10,        // Tab on the scored list (TargetNearestUseNew)
 };
 
 // The current target, or 0.
@@ -50,6 +52,10 @@ bool Hidden();
 // TargetAutoLock) is stored as Locked, and re-setting the target only raises
 // its reason.
 void Set(uint64_t guid, Why why);
+
+// Changes the current target's reason in place: no select, no event
+// (3.80.2's Tab over a loose target that already fits).
+void Promote(Why why);
 
 // The soft-target driver's steps, in its order each frame: a loose target
 // whose object is gone is cleared; after the soft picks, SoftTargetForce;

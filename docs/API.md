@@ -1222,6 +1222,7 @@ build instructions.
   - [`TargetNearest([reverse])`](#targetnearestreverse)
   - [`TargetNearestEnemyPlayer([reverse])`](#targetnearestenemyplayerreverse)
   - [`TargetNearestFriendPlayer([reverse])`](#targetnearestfriendplayerreverse)
+  - [Scored Tab targeting (`TargetNearestUseNew`)](#scored-tab-targeting-targetnearestusenew)
   - [`InteractUnit(unit [, exactMatch])`](#interactunitunit--exactmatch)
   - [`C_PlayerInteractionManager.InteractUnit(unit [, exactMatch [, looseTargeting]])`](#c_playerinteractionmanagerinteractunitunit--exactmatch--loosetargeting)
   - [Soft interact (`softinteract` / `anyinteract`)](#soft-interact-softinteract--anyinteract)
@@ -26744,7 +26745,7 @@ More target-selection functions, next to `TargetNearestEnemy`,
 `ClearTarget`.
 
 Not backported (no equivalent here — soft-target / action-camera features):
-`TargetPriorityHighlightStart/End`, `IsTargetLoose`, `TargetToggle`.
+`TargetPriorityHighlightStart/End`, `TargetToggle`.
 
 ### `GetPlayerFacing()`
 
@@ -26822,6 +26823,63 @@ Like `TargetNearest`, but only enemy **players**.
 ### `TargetNearestFriendPlayer([reverse])`
 
 Like `TargetNearest`, but only friendly **players** that you can assist.
+
+### Scored Tab targeting (`TargetNearestUseNew`)
+
+When `TargetNearestUseNew` is `1`, the Tab functions pick from the scored
+list that [soft targeting](#soft-enemy-and-soft-friend-softenemy--softfriend--anyenemy--anyfriend)
+uses. These functions are `TargetNearestEnemy`, `TargetNearestFriend`,
+`TargetNearestPartyMember`, `TargetNearestRaidMember`, `TargetNearest`,
+`TargetNearestEnemyPlayer` and `TargetNearestFriendPlayer`. The Tab key and
+an attack with no target also use the scored list. When the cvar is `0`
+(the default), the functions work as described above.
+
+**The order.** Units near the center of the camera and near you come
+first. An enemy that casts or channels a spell counts for more. A unit must
+be on the screen, in line of sight and in range. Critters are skipped.
+
+**Soft units first.** When there is a `"softenemy"`, `TargetNearestEnemy`
+targets it, unless it is already your locked target. `TargetNearestFriend`
+does the same with `"softfriend"`. When your target is loose and the
+function accepts it, the call only locks the target.
+`PLAYER_TARGET_CHANGED` does not fire for this change.
+
+**The cycle.** Each call selects the best unit that the cycle has not
+selected yet. A call with `reverse` goes back through the units that the
+cycle selected, in the reverse order. After you go back, a call without
+`reverse` replaces the units that came after the target.
+
+**Restarts.** The cycle starts again from the best unit in these cases:
+
+- 3 seconds after the target changed.
+- The camera turned more than 20° since the target changed.
+- You moved more than 15 yards since the target changed.
+
+The cycle forgets the units that it selected after 6 seconds, a turn of
+more than 80°, or a move of more than 100 yards. It also forgets them when
+your target is cleared. When you click a unit, the next call continues from
+that unit.
+
+**Combat.** When your target is an enemy in combat with you, only enemies
+in combat count (`TargetPriorityCombatLock`). When no enemy in combat is in
+front of the camera, all enemies count
+(`TargetPriorityCombatLockContextualRelaxation`). When no enemy in combat
+qualifies, all enemies count. When no unit qualifies, the target does not
+change.
+
+`TargetNearestRaidMember` selects only the members of your own party. In a
+raid, that is your group.
+
+| cvar | default | values |
+|---|---|---|
+| `TargetNearestUseNew` | `0` | `1`: the Tab functions use the scored list. `0`: they use the list of nearest units. |
+| `TargetPriorityAllowAnyOnScreen` | `0` | `1`: when your target does not qualify, enemies that are not in combat also count at once. `2`: the same, and when no unit qualifies, units out of range or behind you also count. |
+| `TargetPriorityContinueFromManualTarget` | `1` | `1`: after you click a unit, the next call continues from it. `0`: the next call starts from the best unit. |
+| `TargetPriorityAutoTargetIgnoreWindow` | `500` | Milliseconds. For this time after the game set your target (for example `TargetEnemyAttacker`), that target does not set the place in the cycle. |
+
+```
+/dump SetCVar("TargetNearestUseNew", "1"), GetCVar("TargetNearestUseNew")
+```
 
 ### `InteractUnit(unit [, exactMatch])`
 

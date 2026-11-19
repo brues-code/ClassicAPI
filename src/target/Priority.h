@@ -13,6 +13,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 namespace Target::Priority {
@@ -23,6 +24,8 @@ enum Flag : uint32_t {
     Unit = 0x1,
     Player = 0x2,
     GameObject = 0x4,
+    Party = 0x8, // a player in the party (set with Raid)
+    Raid = 0x10, // a player in the party or the raid
     Dead = 0x20,
     Enemy = 0x40,
     Friend = 0x80,
@@ -48,8 +51,37 @@ enum Flag : uint32_t {
 // rebuilt.
 bool Update();
 
+// Rebuilds the list unless it was built at this millisecond, and restarts
+// the TargetPriorityUpdateDelay wait (3.80.2's Tab does this before it picks).
+void Refresh();
+
 // Drops the list and rebuilds it on the next Update.
 void Invalidate();
+
+// The tab order: the candidates by tab score (the soft score plus the
+// casting term), best first. Valid until the next rebuild.
+size_t TabSize();
+uint64_t TabGuid(size_t rank);
+uint32_t TabFlags(size_t rank);
+
+// `guid`'s place in the tab order, or -1 when it is not a candidate.
+int TabRank(uint64_t guid);
+
+// Some candidate is a combat-locked enemy inside the camera cone (3.80.2's
+// "contextual relaxation" input), as of the last rebuild.
+bool LockedInCone();
+
+// TargetPriorityCombatLock, and its test (FUN_1405e3490) for the player and
+// the unit `guid`: false for anything that is not a unit.
+int CombatLockMode();
+bool CombatLockedWith(uint64_t guid);
+
+// TargetPriorityCombatLockContextualRelaxation.
+bool CombatLockRelaxation();
+
+// The camera's yaw, the angle the candidate geometry measures from; false
+// without a camera.
+bool CameraYaw(float &yaw);
 
 // The candidate's flag word, or 0 when `guid` is not a candidate.
 uint32_t FlagsOf(uint64_t guid);

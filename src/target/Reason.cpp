@@ -34,11 +34,13 @@
 //     (Combat::TargetChange's restart).
 //
 // 1.12 has one target setter, FUN_SET_SELECTION_BY_GUID, so the reason is
-// recorded around it: Set() hands its reason to the hook, and a select from
-// anywhere else in the engine (a click, Tab, TargetUnit, assist, ...) is a
-// choice — Chosen. The reason is in place before the original runs, so the
-// setter's own PLAYER_TARGET_CHANGED fire (redirected in
-// Combat::TargetChange) sees it.
+// recorded around it: Set() hands its reason to the hook, a select called
+// from one of the world-click handlers is a Click, and a select from
+// anywhere else in the engine (TargetUnit, assist, 1.12's own Tab, ...) is
+// a choice — Chosen. The reason is in place before the original runs, so
+// the setter's own PLAYER_TARGET_CHANGED fire (redirected in
+// Combat::TargetChange) sees it. Each new target, and each clear, is also
+// handed to Target::Tab, which keeps its cycle state from them.
 //
 // The soft-target driver (Target::SoftUnit) runs the per-frame steps in
 // 3.80.2's order (FUN_1405dd710 around its soft driver):
@@ -68,7 +70,10 @@
 #include "target/Priority.h"
 #include "target/SoftInteract.h"
 #include "target/SoftUnit.h"
+#include "target/Tab.h"
 #include "unit/Identity.h"
+
+#include <intrin.h>
 
 namespace Target::Reason {
 
@@ -121,9 +126,18 @@ void Select(uint64_t guid) {
         static_cast<uint32_t>(guid), static_cast<uint32_t>(guid >> 32));
 }
 
+// An engine select's reason, by its call site: a world click, or a choice.
+Why EngineWhy(uintptr_t returnAddress) {
+    return returnAddress == Offsets::RET_CLICK_SELECT ||
+                   returnAddress == Offsets::RET_SPRITE_RIGHT_CLICK_SELECT
+               ? Click
+               : Chosen;
+}
+
 void __stdcall Select_h(uint32_t guidLo, uint32_t guidHi) {
     const uint64_t guid = (static_cast<uint64_t>(guidHi) << 32) | guidLo;
-    Why why = g_pending != None ? g_pending : Chosen;
+    Why why = g_pending != None ? g_pending
+                                : EngineWhy(reinterpret_cast<uintptr_t>(_ReturnAddress()));
     g_pending = None;
     const uint64_t target = Selection();
     const Why current = Current();
@@ -140,6 +154,7 @@ void __stdcall Select_h(uint32_t guidLo, uint32_t guidHi) {
         if (Selection() == 0) {
             g_guid = 0;
             g_reason = None;
+            Tab::OnClear();
         }
         return;
     }
@@ -164,7 +179,9 @@ void __stdcall Select_h(uint32_t guidLo, uint32_t guidHi) {
         // Refused (charmed), or bound to an awaiting spell instead.
         g_guid = oldGuid;
         g_reason = oldReason;
+        return;
     }
+    Tab::OnSet(target, guid, why);
 }
 
 const Game::HookAutoRegister _hook{Offsets::FUN_SET_SELECTION_BY_GUID,
@@ -275,6 +292,14 @@ void Set(uint64_t guid, Why why) {
     g_pending = why;
     Select(guid);
     g_pending = None;
+}
+
+void Promote(Why why) {
+    const uint64_t selection = Selection();
+    if (selection == 0)
+        return;
+    g_guid = selection;
+    g_reason = why;
 }
 
 } // namespace Target::Reason

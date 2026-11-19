@@ -25,7 +25,9 @@
 //      (alive and attackable; a PvP-flagged unit never, while the player is
 //      not flagged), Friend (alive, friendly either way, selectable,
 //      assistable), Critter (the creature type's never-tab-target flag),
-//      Boss, and CombatLock (an enemy in combat while the player is engaged).
+//      Boss, CombatLock (an enemy in combat while the player is engaged),
+//      and for a living player Party (and Raid: a party member) or Raid (a
+//      raid member).
 //   2. Geometry: InFrustum (the model's box against the view frustum pulled
 //      in by 0.2 on every side), Visible (and in line of sight, for an enemy
 //      that is not a player), PointBlank, InMelee, the angles to the
@@ -39,7 +41,8 @@
 //      linear and squared), a sideways term along the camera's second row,
 //      distance from the target, melee, the facing and camera ease terms, the
 //      cone, point blank, PvP, combat lock, boss, critter and own object —
-//      then the soft order, best first.
+//      then the soft order, best first. The tab score adds the casting term
+//      (an enemy casting or channeling), and the tab order sorts by it.
 //
 // The tables are 3.80.2's three banks; soft targeting uses bank 1 (its
 // TargetPriorityValueBank default; bank 2 is hold-to-target, not here). Where 1.12 has
@@ -52,8 +55,9 @@
 // Not in 1.12, so not here: the "trivial" and the 0x1000 template bits, the
 // spec's melee weight (MeleeA is used), unit flags3, the transport test of
 // the exclusion, and the PvP-zone rules (TargetPriorityPvp; outside a PvP
-// zone 3.80.2 only applies the not-flagged rule above). The tab-only terms
-// (casting, group) are left out; only the soft order is built.
+// zone 3.80.2 only applies the not-flagged rule above), the tab-only group
+// term (it needs a specialization flag), and the casting term's
+// uninterruptible test.
 
 #include "target/Priority.h"
 
@@ -62,6 +66,7 @@
 #include "creature/Info.h"
 #include "cursor/Hover.h"
 #include "cvar/Factory.h"
+#include "group/Roster.h"
 #include "object/Resolve.h"
 #include "target/Nearest.h"
 #include "target/Reason.h"
@@ -92,14 +97,15 @@ struct Bank {
     float rangeFar, rangeNear, angInner, angOuter, expA, expB, coneAng, interactRange;
     float fwd, distMix, distW, sideW, fromTargetW, melee, faceIn, faceOut, camIn, camOut;
     float cone, camRay, close, pvpPlayer, pvpNpc, combat, boss, critter, noLos, ownObject;
+    float casting;
 };
 constexpr Bank kBanks[3] = {
     {61, 4, 30 * kDeg, 120 * kDeg, 1, 1, 30 * kDeg, 16, 10, 0.3f, -10, -6, 0, 0, 0, 0, 200,
-     1000, 0, 0, 0, 30000, 10000, 0, 0, 0, 0, 0},
+     1000, 0, 0, 0, 30000, 10000, 0, 0, 0, 0, 0, 0},
     {51, 3, 20 * kDeg, 90 * kDeg, 1, 2, 18 * kDeg, 16, 200, 0.5f, -10, -10, -50, 200, 100, 400,
-     300, 500, 2000, 0, 1500, 30000, 10000, 40000, 1000, -20000, -4000, 20000},
+     300, 500, 2000, 0, 1500, 30000, 10000, 40000, 1000, -20000, -4000, 20000, 4000},
     {100, 1, 5 * kDeg, 6 * kDeg, 0.4f, 10, 5 * kDeg, 16, 200, 0.25f, -1, 0, 0, 200, 0, 0, 0, 0,
-     1600, 3000, 0, 100, 50, 100, 0, -20000, 0, 100},
+     1600, 3000, 0, 100, 50, 100, 0, -20000, 0, 100, 500},
 };
 
 // The engine's registered values of its internal cvars (no help text, not
@@ -123,13 +129,16 @@ struct Entry {
     float aCam;
     float cone;
     float score;
+    float tabScore;
 };
 
 std::vector<Entry> g_entries;
 std::vector<const Entry *> g_softOrder;
+std::vector<const Entry *> g_tabOrder;
 uint32_t g_allFlags = 0;
 uint32_t g_lastBuild = 0;
 bool g_built = false;
+bool g_lockedInCone = false;
 
 CVar::Factory::Handle g_combatLock = nullptr;
 CVar::Factory::Handle g_relaxation = nullptr;
@@ -346,6 +355,12 @@ bool Admit(void *player, const float *playerPos, uint64_t playerGuid, const Bank
     const bool isPlayer = Object::ByGuid(Offsets::TYPEMASK_PLAYER, guid) != nullptr;
     if (isPlayer)
         e.flags |= Player;
+    if (isPlayer && !dead) {
+        if (Group::Roster::IsPartyMember(guid))
+            e.flags |= Party | Raid;
+        else if (Group::Roster::IsRaidMember(guid))
+            e.flags |= Raid;
+    }
     if (!dead && !isPlayer && IsBoss(guid))
         e.flags |= Boss;
     if (!dead) {
@@ -444,7 +459,16 @@ bool Geometry(const Camera &c, const Entry &player, float facing, const Bank &ba
     return (e.flags & (InCone | CombatLock)) == (InCone | CombatLock);
 }
 
-// Step 3 (FUN_1405e5800), the soft score.
+// The tab score's casting test (3.80.2: unit +0x794 / +0x7cc): a cast in
+// progress, or a channel.
+bool Casting(void *unit) {
+    const uint8_t *fields = Object::Fields(unit);
+    return Game::Read<uint32_t>(unit, Offsets::OFF_UNIT_CAST_SPELL) != 0 ||
+           (fields != nullptr &&
+            Game::Read<uint32_t>(fields, Offsets::OFF_UNIT_FIELD_CHANNEL_SPELL) != 0);
+}
+
+// Step 3 (FUN_1405e5800), the soft and the tab score.
 void Score(const Camera &c, const Entry &player, const float *targetPos, float combat,
            const Bank &bank, Entry &e) {
     float toCam[3] = {e.pos[0] - c.pos[0], e.pos[1] - c.pos[1], e.pos[2] - c.pos[2]};
@@ -497,12 +521,17 @@ void Score(const Camera &c, const Entry &player, const float *targetPos, float c
         s += bank.ownObject;
     s += bank.cone * e.cone;
     e.score = s;
+    e.tabScore = s;
+    if ((e.flags & (Unit | Enemy)) == (Unit | Enemy) && Casting(e.object))
+        e.tabScore += bank.casting;
 }
 
 void Build() {
     g_entries.clear();
     g_softOrder.clear();
+    g_tabOrder.clear();
     g_allFlags = 0;
+    g_lockedInCone = false;
     void *playerObj = const_cast<uint8_t *>(Unit::Identity::PlayerObject());
     Camera camera;
     if (playerObj == nullptr || !ReadCamera(camera))
@@ -526,6 +555,7 @@ void Build() {
     bool lockedInCone = false;
     for (Entry &e : g_entries)
         lockedInCone |= Geometry(camera, player, facing, bank, e);
+    g_lockedInCone = lockedInCone;
 
     float targetPos[3];
     void *target = Object::ByGuid(Offsets::TYPEMASK_OBJECT, Reason::Selection());
@@ -536,9 +566,12 @@ void Build() {
         Score(camera, player, haveTarget ? targetPos : nullptr, combat, bank, e);
         g_allFlags |= e.flags;
         g_softOrder.push_back(&e);
+        g_tabOrder.push_back(&e);
     }
     std::stable_sort(g_softOrder.begin(), g_softOrder.end(),
                      [](const Entry *a, const Entry *b) { return a->score > b->score; });
+    std::stable_sort(g_tabOrder.begin(), g_tabOrder.end(),
+                     [](const Entry *a, const Entry *b) { return a->tabScore > b->tabScore; });
 }
 
 const Entry *Find(uint64_t guid) {
@@ -576,11 +609,61 @@ bool Update() {
     return true;
 }
 
+void Refresh() {
+    if (!Object::RegistryReady()) {
+        Invalidate();
+        return;
+    }
+    const uint32_t now = Time::Clock::NowMs();
+    if (g_built && g_lastBuild == now)
+        return;
+    g_built = true;
+    g_lastBuild = now;
+    Build();
+}
+
 void Invalidate() {
     g_entries.clear();
     g_softOrder.clear();
+    g_tabOrder.clear();
     g_allFlags = 0;
+    g_lockedInCone = false;
     g_built = false;
+}
+
+size_t TabSize() { return g_tabOrder.size(); }
+
+uint64_t TabGuid(size_t rank) { return g_tabOrder[rank]->guid; }
+
+uint32_t TabFlags(size_t rank) { return g_tabOrder[rank]->flags; }
+
+int TabRank(uint64_t guid) {
+    if (guid == 0)
+        return -1;
+    for (size_t i = 0; i < g_tabOrder.size(); ++i)
+        if (g_tabOrder[i]->guid == guid)
+            return static_cast<int>(i);
+    return -1;
+}
+
+bool LockedInCone() { return g_lockedInCone; }
+
+int CombatLockMode() { return CVar::Factory::GetInt(g_combatLock, 1); }
+
+bool CombatLockedWith(uint64_t guid) {
+    const void *player = Unit::Identity::PlayerObject();
+    const void *unit = Object::ByGuid(Offsets::TYPEMASK_UNIT, guid);
+    return player != nullptr && unit != nullptr && CombatLocked(player, unit);
+}
+
+bool CombatLockRelaxation() { return CVar::Factory::GetInt(g_relaxation, 1) != 0; }
+
+bool CameraYaw(float &yaw) {
+    Camera camera;
+    if (!ReadCamera(camera))
+        return false;
+    yaw = camera.yaw;
+    return true;
 }
 
 uint32_t FlagsOf(uint64_t guid) {

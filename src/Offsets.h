@@ -1926,6 +1926,8 @@ enum Offsets {
     FUN_TARGET_CANDIDATE_VALID = 0x00493E40,
     TARGET_MODE_ENEMY = 1,
     TARGET_MODE_FRIEND = 2,
+    TARGET_MODE_PARTY = 3,
+    TARGET_MODE_RAID = 4,
     // ClassicAPI modes (4.3.4's types 0 / 2 / 4); values past the engine's.
     TARGET_MODE_ANY = 5,
     TARGET_MODE_ENEMY_PLAYER = 6,
@@ -2029,6 +2031,16 @@ enum Offsets {
     // cycle compares it with its cursor entry; TargetDirection starts from it.
     VAR_CURRENT_SELECTION_GUID_LO = 0x00B4E2D8,
     VAR_CURRENT_SELECTION_GUID_HI = 0x00B4E2DC,
+    // The previous target (lo/hi), TargetLastTarget's: the setter stores the
+    // old selection here (`mov [0xB4E2E0], ecx` at 0x00493622) before taking
+    // the new one.
+    VAR_LAST_SELECTION_GUID_LO = 0x00B4E2E0,
+    // Return addresses of the setter's two world-click calls (both E8,
+    // checked against the exe): the left-click select 0x004925D0 calls it at
+    // 0x0049280C, FUN_ON_SPRITE_RIGHT_CLICK at 0x00492870. A select that
+    // returns to one of them is a click on the object.
+    RET_CLICK_SELECT = 0x00492811,
+    RET_SPRITE_RIGHT_CLICK_SELECT = 0x00492875,
 
     // ── Hover cursor (the engine's "can I interact with this" verdict) ───
     // SetCursorMode: `void __fastcall(uint32_t mode)` — `cmp [0xBE2C2C],ecx;
