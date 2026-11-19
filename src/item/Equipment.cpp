@@ -13,6 +13,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "cursor/Info.h"
 #include "item/Arg.h"
 #include "item/Cursor.h"
 #include "item/ID.h"
@@ -206,9 +207,7 @@ int __fastcall Script_C_Item_IsEquippedItem(void *L) {
 //
 // The item is resolved AFTER that clear, so a location naming the slot a
 // held item came from resolves to it (its slot reads empty while held) and a
-// name search sees the returned item too. `Script_ClearCursor` is
-// `FUN_00495190(1, 1)` and nothing else — it takes no arguments and reads no
-// Lua stack — so our own arguments survive it.
+// name search sees the returned item too.
 //
 // Returns nothing. Silently no-ops on bad/missing input, an item the player
 // doesn't have, or the engine refusing the swap (combat lockdown,
@@ -221,9 +220,9 @@ int __fastcall Script_C_Item_EquipItemByName(void *L) {
     // FUN_INVENTORY_SWAP's end-of-call cleanup at FUN_00495190(0, 1) clears
     // LOCAL cursor globals but skips the visual-lock-flag clear
     // (`item+0x314 & ~1`) — so a held item would stay visually locked until
-    // a relog refreshed state. ClearCursor's FUN_00495190(1, 1) includes it.
-    reinterpret_cast<int(__fastcall *)(void *)>(
-        Offsets::FUN_SCRIPT_CLEAR_CURSOR)(L);
+    // a relog refreshed state. ClearCursor's FUN_00495190(1, 1) includes it;
+    // Script_ClearCursor (0x004895B0) is that call and nothing else.
+    ::Cursor::Info::Clear();
 
     Item::Location::ByGUIDResult found;
     if (!Item::Location::FindItemArgOrLocation(L, 1, &found)) {
