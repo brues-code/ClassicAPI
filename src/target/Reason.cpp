@@ -36,21 +36,23 @@
 // setter's own PLAYER_TARGET_CHANGED fire (redirected in
 // Combat::TargetChange) sees it.
 //
-// Each frame, after the soft picks (3.80.2's FUN_1405dd710 around its soft
-// driver):
-//   - a loose target whose object is gone is cleared;
-//   - SoftTargetForce (1 enemies, 2 friends) sets the target to the soft
+// The soft-target driver (Target::SoftUnit) runs the per-frame steps in
+// 3.80.2's order (FUN_1405dd710 around its soft driver):
+//   - DropVanished: a loose target whose object is gone is cleared;
+//   - ApplyForce, after the soft picks: SoftTargetForce (1 enemies, 2
+//     friends) sets the target to the soft
 //     unit with Force while there is no target or a loose one; with no soft
 //     unit and that side's arc 0, it clears the loose target instead. Read
 //     literally: the friend side runs whenever the enemy side set nothing,
 //     also when the target already is the soft enemy (Force 3 swaps between
 //     the two each frame — 3.80.2 does the same; 3 is not a documented value);
-//   - a Force target that is no longer a soft target is cleared.
+//   - Expire, on a frame that rebuilt the candidate list: a Force target
+//     that is no longer a soft target is cleared; any other loose target is
+//     kept while it is a candidate in view and range (in combat lock: in
+//     melee, or in the frustum too).
 //
 // Not yet: reasons 1 (TargetEnemyAttacker, the interact key) and 5 (the
-// interact key with looseTargeting), and the candidate-list part of the
-// expiry (a loose target that leaves line of sight or range) — both come
-// with the Target Priority picker.
+// interact key with looseTargeting).
 
 #include "target/Reason.h"
 
@@ -58,9 +60,9 @@
 #include "Offsets.h"
 #include "cvar/Factory.h"
 #include "object/Resolve.h"
+#include "target/Priority.h"
 #include "target/SoftInteract.h"
 #include "target/SoftUnit.h"
-#include "tick/FrameTick.h"
 
 namespace Target::Reason {
 
@@ -150,36 +152,10 @@ bool ForceSide(SoftUnit::Side side, uint64_t target) {
     return true;
 }
 
-void ApplyForce() {
-    const uint64_t target = Selection();
-    if (target != 0 && !IsLoose())
-        return;
-    const int force = CVar::Factory::GetInt(g_force);
-    if ((force & 1) != 0 && ForceSide(SoftUnit::Side::Enemy, target))
-        return;
-    if ((force & 2) != 0)
-        ForceSide(SoftUnit::Side::Friend, target);
-}
-
 bool IsSoftTarget(uint64_t guid) {
     return guid == SoftUnit::Get(SoftUnit::Side::Enemy) ||
            guid == SoftUnit::Get(SoftUnit::Side::Friend) || guid == SoftInteract::Get();
 }
-
-void OnFrameTick() {
-    if (!Object::RegistryReady()) {
-        g_guid = 0;
-        g_reason = None;
-        return;
-    }
-    if (IsLoose() && Object::ByGuid(Offsets::TYPEMASK_OBJECT, Selection()) == nullptr)
-        Set(0, Chosen);
-    ApplyForce();
-    if (Current() == Force && !IsSoftTarget(Selection()))
-        Set(0, Chosen);
-}
-
-const Tick::FrameTick::AutoSubscribe _tick{&OnFrameTick};
 
 int __fastcall Script_IsTargetLoose(void *L) {
     Game::Lua::PushBool(L, IsLoose());
@@ -220,6 +196,46 @@ bool IsLoose() { return IsLooseWhy(Current()); }
 uint64_t LockedTarget() { return IsLoose() ? 0 : Selection(); }
 
 bool Hidden() { return Current() == Force; }
+
+void DropVanished() {
+    if (!Object::RegistryReady()) {
+        g_guid = 0;
+        g_reason = None;
+        return;
+    }
+    if (IsLoose() && Object::ByGuid(Offsets::TYPEMASK_OBJECT, Selection()) == nullptr)
+        Set(0, Chosen);
+}
+
+void ApplyForce() {
+    const uint64_t target = Selection();
+    if (target != 0 && !IsLoose())
+        return;
+    const int force = CVar::Factory::GetInt(g_force);
+    if ((force & 1) != 0 && ForceSide(SoftUnit::Side::Enemy, target))
+        return;
+    if ((force & 2) != 0)
+        ForceSide(SoftUnit::Side::Friend, target);
+}
+
+void Expire() {
+    if (!IsLoose())
+        return;
+    const uint64_t target = Selection();
+    if (Current() == Force) {
+        if (!IsSoftTarget(target))
+            Set(0, Chosen);
+        return;
+    }
+    const uint32_t flags = Priority::FlagsOf(target);
+    if ((flags & Priority::CombatLock) != 0 && (flags & Priority::InMelee) != 0)
+        return;
+    const uint32_t need = (flags & Priority::CombatLock) != 0
+                              ? (Priority::InFrustum | Priority::Visible | Priority::InRange)
+                              : (Priority::Visible | Priority::InRange);
+    if ((flags & need) != need)
+        Set(0, Chosen);
+}
 
 void Set(uint64_t guid, Why why) {
     g_pending = why;

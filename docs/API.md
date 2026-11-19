@@ -26950,11 +26950,19 @@ Both are off by default. To turn them on:
 /console SoftTargetFriend 3
 ```
 
-**What they pick.** Soft enemy picks a unit that Tab targeting can select
-as an enemy: a living unit that you can attack. Soft friend picks a living
-unit that you can assist, for example a party member. Neither picks you.
-The unit must be on the screen, and inside the arc and the range of the
-settings below. If more than one unit qualifies, it picks the nearest one.
+**What they pick.** Soft enemy picks a living unit that you can attack.
+When you are not flagged for PvP, it does not pick a unit that is flagged
+for PvP. Soft friend picks a living, friendly unit that you can assist, for
+example a party member. Neither picks you or a unit that you control. The
+unit must be on the screen, in line of sight (for an enemy that is not a
+player), not far behind you, and inside the arc. Units farther from where
+you and the camera face must be nearer: the full distance (51 yards) is
+allowed only near the front. If more than one unit qualifies, the best one
+wins. The best unit is near the center of the view and near to you. A unit
+in melee range, a unit in the center of the camera, and an enemy that is in
+combat with you while you attack count for more. Critters count for much
+less. The pick is made again 10 times each second. Between two picks, a soft
+unit can only be removed, for example when it goes out of the range below.
 
 **Locked and loose targets.** A target that you choose (with a click,
 Tab, `/target` or `TargetUnit`) is a locked target. A target that soft
@@ -26963,11 +26971,11 @@ target. A click on a loose target makes it locked.
 [`IsTargetLoose()`](#istargetloose) tells the two apart.
 
 **Your target.** When `SoftTargetMatchLocked` is `1`, a locked target is
-the soft unit when it qualifies. For example, when you target an enemy
-inside the range, `"softenemy"` is that enemy, also when another enemy is
-nearer. When `SoftTargetWithLocked` is `0`, there is no soft enemy and no
-soft friend while you have a locked target. A loose target counts for
-neither setting.
+the soft unit when it qualifies, also when another unit is better. When it
+is `2`, a loose target that your spell set also counts. When
+`SoftTargetWithLocked` is `0`, there is no soft enemy and no soft friend
+while you have a target. When you attack your locked target, it is not the
+soft enemy, unless `SoftTargetWithLocked` is `2`.
 
 **Attacks.** When you have no locked target, **Attack Target**,
 `/startattack`, `AttackTarget()` and `StartAttack()` attack `"softenemy"`.
@@ -27003,13 +27011,10 @@ and `"softenemy"`.
 - `"softenemy"` is the unit that soft enemy picked. It is empty when
   nothing qualifies or when soft enemy is off.
 - `"softfriend"` is the unit that soft friend picked, in the same way.
-- `"anyenemy"` is the first of these that exists:
-  1. your target, when it qualifies as a soft enemy
-  2. `"softenemy"`
-  3. your target
-  4. `"softfriend"`
-- `"anyfriend"` is the same as `"anyenemy"`, with enemy and friend
-  changed around.
+- `"anyenemy"` is `"softenemy"`. It is your target instead when your
+  target is locked and qualifies as a soft enemy, or when there is no soft
+  enemy.
+- `"anyfriend"` is the same, for `"softfriend"`.
 
 A `target` suffix also works, for example `"softenemytarget"`.
 
@@ -27027,10 +27032,12 @@ with `"target"` and one time with `"softenemy"`. `"anyenemy"` and
 |---|---|---|
 | `SoftTargetEnemy` | `1` | `0` off, `1` gamepad, `2` keyboard and mouse, `3` always. Only `2` and `3` turn soft enemy on. |
 | `SoftTargetFriend` | `0` | The same values, for soft friend. |
-| `SoftTargetEnemyArc` / `SoftTargetFriendArc` | `0` | The same values as `SoftTargetInteractArc`. |
-| `SoftTargetEnemyRange` / `SoftTargetFriendRange` | `45` | The maximum distance in yards. The range cannot be more than the `targetNearestDistance` cvar. |
-| `SoftTargetMatchLocked` | `1` | `1`: your target is the soft unit when it qualifies. `0`: the soft unit is always the nearest unit that qualifies. |
-| `SoftTargetWithLocked` | `1` | `0`: no soft enemy and no soft friend while you have a locked target. `1` and `2`: they are picked also while you have a locked target. |
+| `SoftTargetEnemyArc` / `SoftTargetFriendArc` | `0` | `0`: directly in front. The unit is very near, or the center line of the camera or of your character goes through it. `1`: also inside a small cone in front of the camera. `2`: anywhere on the screen. |
+| `SoftTargetEnemyRange` / `SoftTargetFriendRange` | `45` | The maximum distance in yards. A soft unit farther away is removed. `0` turns the side off. |
+| `SoftTargetMatchLocked` | `1` | `1`: a locked target is the soft unit when it qualifies. `2`: a loose target that your spell set also counts. `0`: the soft unit is always the best unit. |
+| `SoftTargetWithLocked` | `1` | `0`: no soft enemy and no soft friend while you have a target. `1`: they are picked also while you have a target. `2`: the same, and your attacked target can also be the soft enemy. |
+| `TargetPriorityCombatLock` | `1` | `1`: while you attack, an enemy that is in combat counts for more. `2`: only an enemy in combat that attacks. |
+| `TargetPriorityCombatLockContextualRelaxation` | `1` | `1`: enemies in combat count for more only when one of them is in front of the camera. `0`: always. |
 | `SoftTargetForce` | `1` | `1`: with no locked target, your target is set to `"softenemy"`. `2`: the same with `"softfriend"`. `0`: soft targeting sets no target. |
 | `TargetAutoEnemy` | `1` | `1`: your harmful spell that lands on `"softenemy"` makes it your loose target. `0`: it does not. This setting is saved for each character. |
 | `TargetAutoFriend` | `0` | The same, for your helpful spell on `"softfriend"`. This setting is saved for each character. |

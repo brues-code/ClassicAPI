@@ -1965,6 +1965,15 @@ enum Offsets {
     // world frame's camera update adds it to the position for the look-at
     // point (0x004830CA). Camera vtable 0x00808A9C, slot 0x00511F40.
     VTBL_CAMERA_FORWARD = 0x04,
+    // The camera basis's second row, the same way: slot 0x00511FE0 (vtable
+    // 0x00808A9C read from the exe: 0x50D6D0, 0x511F40, 0x511FE0, 0x512080;
+    // benilla-re uicamera/driver.md "Riding a transport": the slots return the
+    // rows forward, left, up). 4.3.4 names it CGCamera::Right (row b of the
+    // facing matrix); in WoW's axes the row points left.
+    VTBL_CAMERA_LEFT = 0x08,
+    // The camera's near clip, the value CGWorldFrame::GetScreenCoordinates
+    // culls against (`znear > clip.z`, benilla-re ui screen_projection.rs).
+    OFF_CAMERA_NEAR_CLIP = 0x38,
     OFF_CAMERA_POSITION = 0x08,
     // `FUN_SET_SELECTION_BY_GUID` (0x00493540) — canonical target setter the
     // native tab-cycle commits through. `__stdcall(uint32_t guidLo, uint32_t
@@ -3148,6 +3157,9 @@ enum Offsets {
     // secure-frame system here, so the modern lockdown semantics
     // reduce to a plain combat flag check.
     UNIT_FLAG_IN_COMBAT = 0x00080000,
+    // vmangos UNIT_FLAG_PET_IN_COMBAT; the 3.80.2 client's priority targeting
+    // tests the same bit of the same field for "the player is engaged".
+    UNIT_FLAG_PET_IN_COMBAT = 0x00000800,
     // Bit 24 of UNIT_FIELD_FLAGS — set by the engine when a player is
     // possessed (priest's `Mind Control`, warlock's `Subjugate Demon`).
     // Standard vanilla `UNIT_FLAG_POSSESSED = 0x01000000` per emulator
@@ -8500,6 +8512,9 @@ enum Offsets {
     OFF_CREATURE_NAME = 0x00,      // char *Name[4]; [0] is the primary name
     OFF_CREATURE_SUBNAME = 0x10,   // char *SubName (title); "" if none
     OFF_CREATURE_TYPE_FLAGS = 0x14, // CreatureTypeFlags (SuppressesWoundAnim 0x006125F0 reads it)
+    // Its boss bit: vmangos CREATURE_TYPEFLAGS_BOSS; the 3.80.2 client's
+    // priority targeting reads bit 2 of the same template field as "boss".
+    CREATURE_TYPE_FLAG_BOSS = 0x4,
     OFF_CREATURE_TYPE = 0x18,      // CreatureType (1=Beast, 7=Humanoid, ...)
     OFF_CREATURE_FAMILY = 0x1C,    // CreatureFamily
     OFF_CREATURE_RANK = 0x20,      // 0=normal,1=elite,2=rareelite,3=worldboss,4=rare

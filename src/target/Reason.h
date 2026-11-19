@@ -51,4 +51,11 @@ bool Hidden();
 // raises its reason.
 void Set(uint64_t guid, Why why);
 
+// The soft-target driver's steps, in its order each frame: a loose target
+// whose object is gone is cleared; after the soft picks, SoftTargetForce;
+// on a frame that rebuilt the candidate list, the loose-target expiry.
+void DropVanished();
+void ApplyForce();
+void Expire();
+
 } // namespace Target::Reason
