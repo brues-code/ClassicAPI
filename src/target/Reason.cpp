@@ -238,11 +238,6 @@ bool ForceSide(SoftUnit::Side side, uint64_t target) {
     return true;
 }
 
-bool IsSoftTarget(uint64_t guid) {
-    return guid == SoftUnit::Get(SoftUnit::Side::Enemy) ||
-           guid == SoftUnit::Get(SoftUnit::Side::Friend) || guid == SoftInteract::Get();
-}
-
 // ClearTarget, as 3.80.2's (FUN_140ded3b0): it clears the target as 1.12's
 // does, but answers true only for a target that is not a loose soft target
 // (the soft interact, enemy or friend), or while the player attacks. So
@@ -304,6 +299,12 @@ Why Current() {
 bool IsLoose() { return IsLooseWhy(Current()); }
 
 bool Hidden() { return Current() == Force; }
+
+bool IsSoftTarget(uint64_t guid) {
+    return guid != 0 && (guid == SoftUnit::Get(SoftUnit::Side::Enemy) ||
+                         guid == SoftUnit::Get(SoftUnit::Side::Friend) ||
+                         guid == SoftInteract::Get());
+}
 
 void DropVanished() {
     if (!Object::RegistryReady()) {

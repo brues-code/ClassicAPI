@@ -3025,6 +3025,14 @@ enum Offsets {
     // this image: slot 10 reads 0x0076A690. A frame whose vfptr is this
     // address is a live default plate (addon-built plates are normal frames).
     VAR_NAMEPLATE_VTABLE = 0x0081DE50,
+    // CGNamePlateFrame::OnUpdate (0x007CB950) dims the plate: with its unit
+    // looked up (EAX), `mov ecx,[0xB4E2D8]; mov edx,[0xB4E2DC]` (8B 0D …
+    // 8B 15 …, 12 bytes) loads the selection, then no selection or the
+    // unit's GUID == it → alpha 0xFF, else 0x7F, written through vtable
+    // +0x28 when it changed; the button's OnUpdate (Lua scripts) runs after.
+    // benilla-re ui/nameplates "Name, flash and dim"; bytes from its
+    // tables/signatures.tsv row for 0x7cb950 (offset 0x87).
+    SITE_NAMEPLATE_DIM_SELECTION = 0x007CB9D7,
 
     // CGCreature client-side creature-data cache row. Populated by the
     // engine when an NPC GUID becomes visible (the same row the

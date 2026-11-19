@@ -46,6 +46,9 @@ bool IsLoose();
 // A Force target: the `target` token resolves nothing for it.
 bool Hidden();
 
+// `guid` is one of the soft targets: the soft enemy, friend or interact.
+bool IsSoftTarget(uint64_t guid);
+
 // Sets (or with 0 clears) the target for `why`, by 3.80.2's rules: a loose
 // reason never replaces a locked target (and Auto replaces only an Auto
 // one), Force over a loose target keeps its reason, Attack (and Auto with
