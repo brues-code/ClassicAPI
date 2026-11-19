@@ -27156,7 +27156,7 @@ with `"target"` and one time with `"softenemy"`. `"anyenemy"` and
 | `SoftTargetForce` | `1` | `1`: with no locked target, your target is set to `"softenemy"`. `2`: the same with `"softfriend"`. `0`: soft targeting sets no target. |
 | `TargetAutoEnemy` | `1` | `1`: your harmful spell that lands on `"softenemy"` makes it your loose target. `0`: it does not. This setting is saved for each character. |
 | `TargetAutoFriend` | `0` | The same, for your helpful spell on `"softfriend"`. This setting is saved for each character. |
-| `TargetEnemyAttacker` | `0` | `1`: a unit whose attack or harmful spell hits you becomes your target, when you have no target or one that the game set. While you attack, a running attack does not move to it. This setting is saved for each character. |
+| `TargetEnemyAttacker` | `1` | `1`: a unit becomes your target when its melee attack hits you, or when it starts to cast a spell at you and cannot help you. This occurs when you have no target or one that the game set. `0`: being attacked never sets your target. While you attack, a running attack does not move to it. This setting is saved for each character. |
 | `TargetAutoLock` | `1` | `1`: a target that the game sets (`TargetEnemyAttacker`, `C_PlayerInteractionManager.InteractUnit` on a unit token) is locked. `0`: it is loose. This setting is saved for each character. |
 
 **The circles.** A selection circle shows under `"softenemy"` and under

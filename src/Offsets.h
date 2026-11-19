@@ -2042,6 +2042,16 @@ enum Offsets {
     // returns to one of them is a click on the object.
     RET_CLICK_SELECT = 0x00492811,
     RET_SPRITE_RIGHT_CLICK_SELECT = 0x00492875,
+    // Return addresses of 1.12's own attacker auto-targets (E8 calls of the
+    // setter; benilla-re tables/signatures.tsv call offsets): the attacker
+    // state handler 0x006255B0 selects the attacker of the active player
+    // with no selection (0x006259FE, objectlayer/unitcombat), and the spell
+    // start handler 0x006E7700 a caster that cannot assist the player and
+    // targets it, with no selection (0x006E799C, spell/handlers "Spell
+    // start"). 3.80.2 makes both behind TargetEnemyAttacker with reason 1
+    // (FUN_1415a04d0, FUN_1413d66b0); Target::AutoTarget does that.
+    RET_ATTACKER_STATE_SELECT = 0x00625A03,
+    RET_SPELL_START_SELECT = 0x006E79A1,
 
     // ── Hover cursor (the engine's "can I interact with this" verdict) ───
     // SetCursorMode: `void __fastcall(uint32_t mode)` — `cmp [0xBE2C2C],ecx;

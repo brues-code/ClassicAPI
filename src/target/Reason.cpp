@@ -35,9 +35,10 @@
 //
 // 1.12 has one target setter, FUN_SET_SELECTION_BY_GUID, so the reason is
 // recorded around it: Set() hands its reason to the hook, a select called
-// from one of the world-click handlers is a Click, and a select from
-// anywhere else in the engine (TargetUnit, assist, 1.12's own Tab, ...) is
-// a choice — Chosen. The reason is in place before the original runs, so
+// from one of the world-click handlers is a Click, 1.12's own two attacker
+// auto-targets are dropped (Target::AutoTarget makes them, as 3.80.2 does),
+// and a select from anywhere else in the engine (TargetUnit, assist, 1.12's
+// own Tab, ...) is a choice — Chosen. The reason is in place before the original runs, so
 // the setter's own PLAYER_TARGET_CHANGED fire (redirected in
 // Combat::TargetChange) sees it. Each new target, and each clear, is also
 // handed to Target::Tab, which keeps its cycle state from them.
@@ -136,10 +137,19 @@ Why EngineWhy(uintptr_t returnAddress) {
                : Chosen;
 }
 
+// 1.12's own attacker auto-targets: ungated, and only with no target.
+// Target::AutoTarget makes them as 3.80.2 does instead.
+bool EngineAttackerSelect(uintptr_t returnAddress) {
+    return returnAddress == Offsets::RET_ATTACKER_STATE_SELECT ||
+           returnAddress == Offsets::RET_SPELL_START_SELECT;
+}
+
 void __stdcall Select_h(uint32_t guidLo, uint32_t guidHi) {
     const uint64_t guid = (static_cast<uint64_t>(guidHi) << 32) | guidLo;
-    Why why = g_pending != None ? g_pending
-                                : EngineWhy(reinterpret_cast<uintptr_t>(_ReturnAddress()));
+    const auto returnAddress = reinterpret_cast<uintptr_t>(_ReturnAddress());
+    if (g_pending == None && EngineAttackerSelect(returnAddress))
+        return;
+    Why why = g_pending != None ? g_pending : EngineWhy(returnAddress);
     g_pending = None;
     const uint64_t target = Selection();
     const Why current = Current();
