@@ -264,6 +264,7 @@ void ResetFrame(void *L, void *frame) {
 void ResetTexture(void *L, void *tex) {
     ResetRegion(L, tex);
     Method(L, tex, "SetTexture", {Nil()});
+    Method(L, tex, "ClearTextureSlice", {});
     Method(L, tex, "SetTexCoord", {Num(0), Num(1), Num(0), Num(1)});
     Method(L, tex, "SetVertexColor", {Num(1), Num(1), Num(1), Num(1)});
     Method(L, tex, "SetBlendMode", {Str("BLEND")});

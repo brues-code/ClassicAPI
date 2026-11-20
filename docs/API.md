@@ -9950,18 +9950,28 @@ and bottom edges stretch across, and the left and right edges stretch down. The
 center stretches in both directions. Thus a panel background keeps its corners
 and its border at the same size when the panel changes size.
 
-The margins are in the pixels of the image. One pixel of a corner covers one
-unit of the width or the height of the texture. If the texture is smaller than
-the two margins of one direction, the two margins shrink by the same ratio.
-Each corner and edge still shows its full margin of the image. When the two
-margins of one direction are wider than the image, both pieces show their full
-margin, and the rows or columns where they overlap show in both pieces.
+The margins are whole numbers of image pixels, from `0` to `4294967295`. A
+fraction is cut to a whole number. A negative value is an error. One pixel of
+a corner covers one unit of the width or the height of the texture.
 
-`GetTextureSliceMargins()` returns the four margins. It returns nothing when no
-margins are set. Margins of `0` draw the image whole.
+- In a direction where the texture is not larger than the image, the image is
+  not sliced. It shrinks as a whole in that direction.
+- When one direction has no margins, the corners and edges of the other
+  direction scale with it. For example, a bar with only left and right margins
+  that is drawn twice as tall as its image gets caps twice as wide.
+- If the texture is smaller than the two margins of one direction, the two
+  margins shrink by the same ratio. Each corner and edge still shows its full
+  margin of the image. When the two margins of one direction are wider than
+  the image, both pieces show their full margin, and the rows or columns where
+  they overlap show in both pieces.
+
+`GetTextureSliceMargins()` returns the four margins. It returns nothing when
+the texture has no margins and no mode. After only `SetTextureSliceMode`, it
+returns `0, 0, 0, 0`. Margins of `0` draw the image whole.
 
 `SetTexture` keeps the margins. `SetAtlas` replaces them with the slice data of
-the atlas, and an atlas without slice data clears them.
+the atlas, and an atlas without slice data clears them. `SetToDefaults` clears
+them.
 
 ```lua
 local bg = frame:CreateTexture(nil, "BACKGROUND")
@@ -9972,27 +9982,31 @@ bg:SetTextureSliceMargins(16, 16, 16, 16)
 
 Notes on a sliced texture:
 
-- `SetTexCoord` selects the part of the image that the pieces come from. A
-  margin that is outside this part does not show.
+- `SetTexCoord` selects the part of the image that is sliced. The margins
+  start at the edges of this part. Thus a status bar with a sliced fill shows
+  its end cap at the end of the fill.
 - Coordinates that turn the image by a quarter turn draw the image whole.
 - A texture with `SetHorizTile` or `SetVertTile` on draws the image whole.
 - `SetRotation`, `SetVertexOffset` and animations move all the pieces together.
-- A gradient from `SetGradient` or `SetGradientAlpha` applies to each piece
-  separately, not once across the texture.
+  The corners keep their size.
+- A gradient from `SetGradient` or `SetGradientAlpha` goes once across the
+  whole texture.
 
 ### `texture:SetTextureSliceMode(sliceMode)` / `texture:GetTextureSliceMode()`
 
 Sets whether the edges and the center of a sliced texture stretch or tile.
 `sliceMode` is a value of [`Enum.UITextureSliceMode`](#enumuitextureslicemode).
-A value that is not in this enum is an error.
+A value that is not in this enum is an error. A fraction is cut to a whole
+number.
 
 In the `Tiled` mode, the edges and the center repeat the part of the image
 between the margins at its own size. One pixel of the image covers one unit of
 the texture, the same as in the corners. The top and bottom edges repeat
 across, the left and right edges repeat down, and the center repeats in both
 directions. The repeats start next to the top-left corner. The last repeat in
-each direction is cut off at the far margin, so no repeat is squeezed. A very
-large texture with a very small repeat draws stretched instead.
+each direction is cut off at the far margin, so no repeat is squeezed. A
+direction without margins does not repeat. A very large texture with a very
+small repeat draws stretched instead.
 
 `GetTextureSliceMode()` returns the mode. It returns nothing when the texture
 has no margins and no mode. The default mode is `Stretched`.
