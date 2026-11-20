@@ -11,100 +11,98 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// `UNIT_DISTANCE_CHECK_UPDATE` — a group member came into view or left it.
+// `UNIT_DISTANCE_CHECK_UPDATE: unitTarget, isInDistance` — whether a unit is
+// within 250 yards, as the 3.80.2 client polls it (0x141AE33A0), with the
+// rest Unit::PolledEvent's (RegisterUnitEvent units only, per-GUID answers, a
+// first-check fire, one fire per token). Retail's one reader,
+// CompactUnitFrame_GetCenterStatusIconState, shows the other-phase icon only
+// for a unit in distance.
 //
-// Retail's one reader, CompactUnitFrame_GetCenterStatusIconState, shows the
-// other-phase icon only for a member within 250 yards
-// (DISTANCE_THRESHOLD_SQUARED): close enough that the client would draw it.
-// That is the server's view distance (tortoise-wow's
-// Visibility.Distance.Continents and .Instances default to 250), so in 1.12
-// a member is in distance exactly while the client holds its object.
-//
-// UpdateRaidMemberRecord (FUN_UPDATE_RAID_MEMBER_RECORD) has four callers,
-// which are a player object entering the object table (PostInit, and
-// PostUpdate on reactivation) and leaving it (the release slot, and
-// ~CGPlayer_C for an object never released). Each call points here: a
-// group member's GUID is noted, and the next world tick fires for each of
-// its tokens with whether the object table holds it then. The release slot
-// runs before the manager moves the object to the released table, so a fire
-// in place would show the member still in view to UnitIsVisible.
+// 3.80.2's answer is `distanceSquared < 62500` (0x146AD78A0 + 0x48), from its
+// distance core (0x141BB0FD0, also UnitDistanceSquared's):
+//   - Measured from the active mover, else the player (Unit::Range::FromUnit).
+//   - 2D: x and y only, squared, rounded to a whole number.
+//   - A unit in view gives its position; a member out of view the position
+//     of its member record (SMSG_PARTY_MEMBER_STATS, Group::MemberStats).
+//   - With no position, the distance stays 0, so the answer is true.
+// Its gate (0x141698520) measures only you and group members, and only on
+// open-world maps, so every other unit, pets and every instance are true.
+// Here the gate is you and every group unit (Group::Roster::IsGroupUnit:
+// members and their pets), on every map; any other unit is true. 3.80.2
+// does not compare maps, so a member on another continent is measured across
+// two coordinate spaces; here a member record on another map is false. The
+// maps compare as the client names them, through AreaTable's map column for
+// both areas (VAR_PLAYER_AREA_ID is what the record builder 0x005F0880 stores
+// as the area).
 
-#include "Common.h"
 #include "Game.h"
 #include "Offsets.h"
-#include "event/Custom.h"
+#include "dbc/Lookup.h"
 #include "object/Resolve.h"
+#include "event/Custom.h"
+#include "group/MemberStats.h"
+#include "group/Roster.h"
 #include "tick/WorldTick.h"
 #include "unit/Identity.h"
+#include "unit/PolledEvent.h"
+#include "unit/Position.h"
+#include "unit/Range.h"
 
-#include <algorithm>
+#include <cmath>
 #include <cstdint>
-#include <vector>
 
 namespace Unit::DistanceCheck {
 
 namespace {
 
+constexpr const char *kName = "UNIT_DISTANCE_CHECK_UPDATE";
+constexpr long long kDistanceSquared = 62500; // 250 yards
+
 const Game::Doc::Field kPayload[] = {
     Game::Doc::Req("unitTarget", "UnitToken"),
     Game::Doc::Req("isInDistance", "bool"),
 };
-const Game::Doc::Event kDoc{"Unit", "Fires when a group member comes into view or leaves it.",
+const Game::Doc::Event kDoc{"Unit", "Fires when a unit comes within 250 yards of you or leaves that distance.",
                             kPayload};
-const Event::Custom::AutoReserve kEvent{"UNIT_DISTANCE_CHECK_UPDATE", &kDoc};
+const Event::Custom::AutoReserve kEvent{kName, &kDoc};
 
-using UpdateRaidRecord_t = void(__fastcall *)(void *player, uint32_t mode, uint32_t withPet);
-using IsGroupMember_t = int(__fastcall *)(const uint64_t *guid);
-
-std::vector<uint64_t> g_changed;
-
-void __fastcall UpdateRaidRecordSite(void *player, uint32_t mode, uint32_t withPet) {
-    reinterpret_cast<UpdateRaidRecord_t>(Offsets::FUN_UPDATE_RAID_MEMBER_RECORD)(player, mode,
-                                                                               withPet);
-    if (!Event::Custom::HasListeners(kEvent.Slot()))
-        return;
-    const uint64_t guid = ::Object::Guid(player);
-    if (guid == 0 || guid == Unit::Identity::PlayerGuid() ||
-        reinterpret_cast<IsGroupMember_t>(Offsets::FUN_UNIT_IS_GROUP_MEMBER_OR_PET)(&guid) == 0)
-        return;
-    if (std::find(g_changed.begin(), g_changed.end(), guid) == g_changed.end())
-        g_changed.push_back(guid);
+// The map an area is on (AreaTable's map column), -1 for an unknown area.
+int MapOfArea(uint32_t areaId) {
+    const uint8_t *row = DBC::Record(Offsets::VAR_AREATABLE_RECORDS, Offsets::VAR_AREATABLE_COUNT, areaId);
+    return row != nullptr ? Game::Read<int>(row, Offsets::OFF_AREATABLE_MAP_ID) : -1;
 }
 
-void OnWorldTick() {
-    if (g_changed.empty())
-        return;
-    std::vector<uint64_t> changed;
-    changed.swap(g_changed);
-    const int slot = kEvent.Slot();
-    void *L = Game::Lua::State();
-    if (L == nullptr || !Event::Custom::HasListeners(slot))
-        return;
-    const int top = Game::Lua::GetTop(L);
-    for (const uint64_t guid : changed) {
-        const bool inView = Object::ByGuid(Offsets::TYPEMASK_PLAYER, guid) != nullptr;
-        Unit::Identity::ForEachToken(guid, [&](const char *token) {
-            Game::Lua::PushString(L, token);
-            Game::Lua::PushBool(L, inView);
-            Event::Custom::FireValues(slot, L, top + 1, 2);
-            Game::Lua::SetTop(L, top);
-        });
+bool IsInDistance(uint64_t guid) {
+    if (guid != Unit::Identity::PlayerGuid() && !Group::Roster::IsGroupUnit(guid))
+        return true;
+    float from[3] = {};
+    if (!Unit::Position::Read(Unit::Range::FromUnit(), from))
+        return true;
+
+    float x = 0.0f;
+    float y = 0.0f;
+    float pos[3] = {};
+    uint32_t area = 0;
+    if (Unit::Position::Read(Object::ByGuid(Offsets::TYPEMASK_UNIT, guid), pos)) {
+        x = pos[0];
+        y = pos[1];
+    } else if (Group::MemberStats::Position(guid, &x, &y, &area)) {
+        const int map = MapOfArea(area);
+        const int playerMap = MapOfArea(Game::Read<uint32_t>(Offsets::VAR_PLAYER_AREA_ID) & 0xFFFF);
+        if (map != -1 && playerMap != -1 && map != playerMap)
+            return false;
+    } else {
+        return true;
     }
+    const float dx = x - from[0];
+    const float dy = y - from[1];
+    return std::llround(dx * dx + dy * dy) < kDistanceSquared;
 }
 
-void Register() {
-    const auto *site = reinterpret_cast<const void *>(&UpdateRaidRecordSite);
-    Common::RedirectCall(Offsets::CALL_PLAYER_POST_INIT_RAID_RECORD,
-                         Offsets::FUN_UPDATE_RAID_MEMBER_RECORD, site);
-    Common::RedirectCall(Offsets::CALL_PLAYER_POST_UPDATE_RAID_RECORD,
-                         Offsets::FUN_UPDATE_RAID_MEMBER_RECORD, site);
-    Common::RedirectCall(Offsets::CALL_PLAYER_RELEASE_RAID_RECORD,
-                         Offsets::FUN_UPDATE_RAID_MEMBER_RECORD, site);
-    Common::RedirectCall(Offsets::CALL_PLAYER_DTOR_RAID_RECORD,
-                         Offsets::FUN_UPDATE_RAID_MEMBER_RECORD, site);
-}
+Unit::PolledEvent::Poller g_poller{kName, kEvent, &IsInDistance};
 
-const Game::ModuleAutoRegister _autoreg{&Register};
+void OnWorldTick() { g_poller.Tick(); }
+
 const Tick::WorldTick::AutoSubscribe _tick{&OnWorldTick};
 
 } // namespace

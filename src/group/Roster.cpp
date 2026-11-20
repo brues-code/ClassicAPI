@@ -61,6 +61,13 @@ bool RaidMemberOnline(const uint8_t *member) {
            (Game::Read<uint32_t>(member, Offsets::OFF_RAID_SLOT_FLAGS) & Offsets::RAID_SLOT_FLAG_ONLINE) != 0;
 }
 
+bool IsGroupUnit(uint64_t guid) {
+    using IsGroupMemberOrPet_t = int(__fastcall *)(const uint64_t *guid);
+    if (guid == 0 || (PartyCount() == 0 && RaidCount() == 0))
+        return false;
+    return reinterpret_cast<IsGroupMemberOrPet_t>(Offsets::FUN_UNIT_IS_GROUP_MEMBER_OR_PET)(&guid) != 0;
+}
+
 bool IsRaidMember(uint64_t guid) {
     if (guid == 0)
         return false;

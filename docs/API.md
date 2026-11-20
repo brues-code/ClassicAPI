@@ -7853,31 +7853,40 @@ end)
 
 ### `UNIT_DISTANCE_CHECK_UPDATE` event
 
-Fires when a group member comes into view or leaves it.
+Fires when a unit comes within 250 yards of you or goes farther away.
 
 ```
 UNIT_DISTANCE_CHECK_UPDATE: unitTarget, isInDistance
 ```
 
-- **`unitTarget`** (string) — the unit token of the member, for example
-  `party1` or `raid12`. A member that has more than one token (for
-  example `party1` and `raid3`) gets one event for each token.
-- **`isInDistance`** (boolean) — `true` when the client can see the
-  member, `false` when the client cannot see the member.
+- **`unitTarget`** (string) — the unit token.
+- **`isInDistance`** (boolean) — `true` when the unit is less than 250
+  yards from you.
 
-The client can see a member that is near enough for the server to send
-it. The server sets this distance. When the event fires,
-[`UnitIsVisible(unitTarget)`](https://warcraft.wiki.gg/wiki/API_UnitIsVisible)
-already gives the new state.
+The distance is measured on the map, without height. It is measured
+from the unit that you move. Usually this is you. The event measures
+these units:
 
-The event fires for party and raid members. It does not fire for
-`player` or for pets.
+- you, and the members of your party or raid, and the pets of these
+  units;
+- a member who is not in view, from the last position that the server
+  sent for that member. A member on a different map is not in distance.
+
+All other units are always in distance. A unit with no known position
+is also in distance.
+
+The units, the first event and the tokens follow the same rules as
+[`UNIT_IN_RANGE_UPDATE`](#unit_in_range_update-event):
+
+- Only the units that you give to `RegisterUnitEvent` are measured.
+- The first measurement of a unit fires the event.
+- The event fires one time for each token of the unit.
 
 ```lua
 local f = CreateFrame("Frame")
-f:RegisterEvent("UNIT_DISTANCE_CHECK_UPDATE")
+f:RegisterUnitEvent("UNIT_DISTANCE_CHECK_UPDATE", "party1", "party2")
 f:SetScript("OnEvent", function()
-    print(UnitName(arg1), arg2 and "came into view" or "left view")
+    print(UnitName(arg1), arg2 and "is near" or "is far away")
 end)
 ```
 
@@ -7935,21 +7944,23 @@ UNIT_IN_RANGE_UPDATE: unitTarget, isInRange
 - **`isInRange`** (boolean) — the new first return value of
   `UnitInRange(unitTarget)`.
 
-The frames that are registered for the event select the units that the
-client checks:
+The client checks only the units that frames give to
+`RegisterUnitEvent` for this event. A frame that uses `RegisterEvent`
+adds no units. It gets the events for the units that other frames give.
+The client checks the units on each frame, while a frame is registered
+for the event.
 
-- A frame that uses `RegisterUnitEvent` adds its units. You can use any
-  unit token, for example `target` or `focus`.
-- A frame that uses `RegisterEvent` adds `pet`, each party and raid
-  member, and the pets of these members.
+The client keeps one value for each unit:
 
-The client checks these units on each frame, but only while a frame is
-registered for the event. To check fewer units, use `RegisterUnitEvent`
-with only the units that you show.
+- The first check of a unit fires the event, also when the value is
+  `false`.
+- After that, the event fires only when the value changes.
+- When you go through a loading screen, the client forgets the values.
+  Thus, the next check of each unit fires the event again.
 
-The event fires only when the value changes. The first check of a unit
-does not fire the event. Thus, read `UnitInRange` when you start to
-show a unit.
+The event fires one time for each token of the unit, for example
+`party1`, `raid3` and `target`. A frame that uses `RegisterUnitEvent`
+gets only the events for its own tokens.
 
 ```lua
 local f = CreateFrame("Frame")
@@ -29095,25 +29106,33 @@ UnitStandState("party1")    -- 0 if the slot is empty
 
 ### `UnitInRange(unit)`
 
-Returns `(inRange, checkedRange)` — whether `unit` is within 40 yards
-of the player, plus a flag indicating whether the range check could
-actually be performed.
+Returns `(inRange, checkedRange)`. The function tells you if a member of
+your group is within 40 yards of you.
 
-While you control another unit (for example with Mind Control or Eyes
-of the Beast), the distance is measured from that unit. When the client
-moves no unit, the result is `(false, false)`.
+The function checks only group units. A group unit is you, a party or
+raid member, or the pet of one of these, while you are in a party or a
+raid. For all other units, the result is `(false, false)`. This includes
+your target, other players and creatures, and you and your pet when you
+are not in a group.
+
+The distance is measured from the unit that you move. Usually this is
+you. While you control another unit (for example with Mind Control or
+Eyes of the Beast), it is that unit.
 
 ```lua
 local inRange, checked = UnitInRange("party1")
 if checked and not inRange then
-    -- partymate is loaded but >40 yards away → skip the heal
+    -- the party member is more than 40 yards away: skip the heal
 end
 ```
 
 | Return | Meaning |
 |--------|---------|
-| `inRange` | `true` if the unit is within a 40-yard heal's reach of the player. `false` if out of range OR if `checkedRange` is `false`. |
-| `checkedRange` | `true` when a position-based range check was performed. `false` when the unit's position isn't available — either the token didn't resolve (empty `partyN` slot, no target, raid member in a different zone, etc.) or `unit == "player"` (see below). |
+| `inRange` | `true` when the unit is in view and within the reach of a 40-yard heal. Otherwise `false`. |
+| `checkedRange` | `true` for a group unit, also when the unit is not in view or is on a different map. `false` for all other units. |
+
+A group member who is not in view gives `(false, true)`. In a group,
+`UnitInRange("player")` gives `(true, true)`.
 
 **Reach-aware.** The threshold is not a flat 40 yards on the raw
 center-to-center distance — it's `40 + playerReach + targetReach`, the
@@ -29125,16 +29144,6 @@ large target the reach gap is 2–3 yards). If the size of a unit is not
 known yet, the reach term is 0 and the check degrades to a plain
 40-yard cap. Note this is the one difference from `UnitDistanceSquared`,
 which stays raw center-to-center.
-
-> **`UnitInRange("player")` returns `(false, false)`** by design.
-> The function is meant for healing-frame "is *another* unit in range"
-> checks; querying yourself is
-> meaningless. The result is always `checkedRange=false`, so it is
-> unambiguous.
-
-Works for any visible unit (party/raid members in your zone, target,
-mouseover, etc.). For raid members in a different zone or otherwise
-not visible to the client, the function reports `(false, false)`.
 
 ### `UnitDistanceSquared(unit)`
 
@@ -29166,8 +29175,8 @@ UnitXP_SP3's niche). The value equals what you'd compute from the
 [`UnitPosition`](#unitpositionunit) coordinates. It does not need
 another DLL.
 
-> No self-quirk (unlike `UnitInRange`): `UnitDistanceSquared("player")`
-> returns a legitimate `(0, true)`. Because a real `0` (self, or two
+> `UnitDistanceSquared("player")` returns `(0, true)`, also when you
+> are not in a group. Because a real `0` (self, or two
 > exactly co-located units) is indistinguishable by value from the miss
 > placeholder, always branch on `checkedPosition`.
 

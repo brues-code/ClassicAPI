@@ -13,10 +13,22 @@
 // `GetPosition` virtual (vtable slot 5) `CheckInteractDistance` uses:
 //
 //   `UnitInRange(unit) → (inRange, checkedRange)` — 40-yard healing-
-//     range check. Reach-aware: matches the engine's own spell-range
-//     formula (see below), so a 40-yard heal registers in-range against
-//     a target whose *center* is slightly past 40 yards but whose body
-//     is within reach.
+//     range check for the group, as the 3.80.2 client's
+//     (Script_UnitInRange 0x140E39B80, core 0x141BB0D80) does it:
+//       - Only group units are checked: you, a party or raid member, or
+//         the pet of one, while you are in a group (its member list holds
+//         you only then). Anything else, you and your pet when solo
+//         included, is (false, false).
+//       - A group unit is checked even when it is not in view: (false,
+//         true) for a member out of view or on another map.
+//       - It measures from the active mover, else the player; with
+//         neither it is (false, false).
+//     Reach-aware: matches the engine's own spell-range formula (see
+//     below), so a 40-yard heal registers in-range against a target whose
+//     *center* is slightly past 40 yards but whose body is within reach.
+//     3.80.2 also wants two flag bits of the unit clear and no
+//     restricted-targeting aura, and takes the range from an aura (effect
+//     225) when one is up; 1.12 has no counterpart of these.
 //   `UnitDistanceSquared(unit) → (distanceSquared, checkedPosition)` —
 //     the raw squared world distance player→unit. Squared because
 //     nearly every consumer compares against a threshold (`distSq <=
@@ -35,16 +47,16 @@
 // yards past the raw 40, which is why a pure center-to-center 40-yard cap
 // reported out-of-range for a target the client could actually heal.
 //
-// UnitInRange measures from the active mover, as 4.3.4's does
-// (`CGUnit_C::s_activeMover`): the unit the client moves, which is the
-// player, or the unit it controls (Mind Control, Eyes of the Beast). No
-// mover gives no answer, as in 4.3.4.
+// The active mover is `CGUnit_C::s_activeMover`: the unit the client moves,
+// which is the player, or the unit it controls (Mind Control, Eyes of the
+// Beast).
 
 #include "unit/Range.h"
 
 #include "Game.h"
-#include "baselib/Ascii.h"
+#include "group/Roster.h"
 #include "object/Resolve.h"
+#include "unit/Identity.h"
 #include "unit/Position.h"
 #include "Offsets.h"
 
@@ -70,17 +82,6 @@ bool ReadPosAndReach(const char *token, float pos[3], float *reach) {
     return true;
 }
 
-// The active mover's world position and reach (VAR_ACTIVE_MOVER_GUID).
-bool ReadMoverPosAndReach(float pos[3], float *reach) {
-    void *mover = Object::ByGuid(
-        Offsets::TYPEMASK_UNIT,
-        Game::Read<uint64_t>(static_cast<uintptr_t>(Offsets::VAR_ACTIVE_MOVER_GUID)));
-    if (!Unit::Position::Read(mover, pos))
-        return false;
-    *reach = Unit::Position::BoundingRadius(mover);
-    return true;
-}
-
 // Squared world distance from the player to `token`'s unit (raw,
 // center-to-center; reach is applied by the caller when needed).
 bool PlayerToUnitDistSq(const char *token, float *outSq) {
@@ -96,11 +97,11 @@ bool PlayerToUnitDistSq(const char *token, float *outSq) {
 
 int __fastcall Script_UnitInRange(void *L) {
     if (!Game::Lua::IsString(L, 1)) {
-        Game::Lua::Error(L, "Usage: UnitInRange(\"unit\")");
+        Game::Lua::Error(L, "Usage: local inRange, checkedRange = UnitInRange(unit)");
         return 0;
     }
     bool inRange = false;
-    const bool checked = InRange(Game::Lua::ToString(L, 1), &inRange);
+    const bool checked = InRange(Unit::Identity::GuidForToken(Game::Lua::ToString(L, 1)), &inRange);
     Game::Lua::PushBool(L, inRange);
     Game::Lua::PushBool(L, checked);
     return 2;
@@ -137,12 +138,12 @@ const Game::Doc::Field kUnitArgs[] = {
     Game::Doc::Req("unit", "UnitToken"),
 };
 const Game::Doc::Field kInRangeRets[] = {
-    Game::Doc::Req("inRange", "bool", "True when the unit is within reach of a 40-yard heal."),
+    Game::Doc::Req("inRange", "bool", "True when the unit is in view and within reach of a 40-yard heal."),
     Game::Doc::Req("checkedRange", "bool",
-                   "False when the unit is not in view, and always false for \"player\"."),
+                   "True for you, a group member or the pet of one while you are in a group."),
 };
 const Game::Doc::Function kUnitInRange{
-    "Returns whether a unit is within 40 yards of you.", kUnitArgs, kInRangeRets,
+    "Returns whether a group member is within 40 yards of you.", kUnitArgs, kInRangeRets,
     "UnitGlobals"};
 
 const Game::Doc::Field kDistanceRets[] = {
@@ -164,33 +165,32 @@ const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 
 } // namespace
 
-bool InRange(const char *token, bool *inRange) {
+void *FromUnit() {
+    if (void *mover = Object::ByGuid(Offsets::TYPEMASK_UNIT,
+                                     Game::Read<uint64_t>(static_cast<uintptr_t>(Offsets::VAR_ACTIVE_MOVER_GUID))))
+        return mover;
+    return const_cast<uint8_t *>(Unit::Identity::PlayerObject());
+}
+
+bool InRange(uint64_t guid, bool *inRange) {
     *inRange = false;
-    // Documented Blizzard quirk: `UnitInRange("player")` returns
-    // false. The function is meant for healing-frame "is *another*
-    // unit in range" checks; querying yourself is meaningless and
-    // the API returns nil/false to flag that. We match the modern
-    // behavior — no position read, no range check.
-    // Tokens resolve ignoring case, so the compare does too.
-    if (token == nullptr || Ascii::EqualCI(token, "player"))
+    void *from = FromUnit();
+    if (from == nullptr || !Group::Roster::IsGroupUnit(guid))
         return false;
 
+    void *unit = Object::ByGuid(Offsets::TYPEMASK_UNIT, guid);
     float unitPos[3] = {};
-    float moverPos[3] = {};
-    float unitReach = 0.0f;
-    float moverReach = 0.0f;
-    if (!ReadPosAndReach(token, unitPos, &unitReach) ||
-        !ReadMoverPosAndReach(moverPos, &moverReach))
-        return false;
-
-    const float distSq = Game::DistanceSq(unitPos, moverPos);
+    float fromPos[3] = {};
+    if (!Unit::Position::Read(unit, unitPos) || !Unit::Position::Read(from, fromPos))
+        return true;
 
     // Effective range = base + both units' reach, mirroring the engine's
     // spell-range formula (FUN_006e3480). Without the reach terms a target
     // whose center sits just past 40 yards but whose body is within reach
     // reports out-of-range even though a 40-yard heal would land.
-    const float effRange = kRangeYards + moverReach + unitReach;
-    *inRange = distSq <= effRange * effRange;
+    const float effRange =
+        kRangeYards + Unit::Position::BoundingRadius(from) + Unit::Position::BoundingRadius(unit);
+    *inRange = Game::DistanceSq(unitPos, fromPos) <= effRange * effRange;
     return true;
 }
 

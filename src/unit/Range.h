@@ -13,12 +13,19 @@
 
 #pragma once
 
+#include <cstdint>
+
 namespace Unit::Range {
 
-// UnitInRange's check for `token`: true (the range was checked) with
-// `*inRange` set when both positions are known; false for an absent unit,
-// no active mover, and "player". `token` must be a unit token — the engine's
-// resolver raises a Lua error for any other string.
-bool InRange(const char *token, bool *inRange);
+// The unit range checks measure from: the active mover (the unit the client
+// moves: the player, or a unit it controls), else the player object. Null
+// with neither.
+void *FromUnit();
+
+// UnitInRange's check for `guid` (3.80.2's 0x141BB0D80): returns
+// checkedRange, true for any group unit (Group::Roster::IsGroupUnit) while a
+// FromUnit exists, and sets `*inRange` when the unit is in view and within
+// reach of a 40-yard heal. Any other unit is (false, false).
+bool InRange(uint64_t guid, bool *inRange);
 
 } // namespace Unit::Range

@@ -53,4 +53,10 @@ bool RaidMemberOnline(const uint8_t *member);
 // IsRaidMember (0x004BAF00): `guid` is on the roster.
 bool IsRaidMember(uint64_t guid);
 
+// While you are in a party or raid: `guid` is you, a member, or the pet of
+// one of these (FUN_UNIT_IS_GROUP_MEMBER_OR_PET). False when solo. This is
+// the 3.80.2 client's group gate (its member list holds you only while you
+// are in a group): UnitInRange answers only for these units.
+bool IsGroupUnit(uint64_t guid);
+
 } // namespace Group::Roster

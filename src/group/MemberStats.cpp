@@ -81,6 +81,20 @@ Stats Lookup(uint64_t guid) {
     return s;
 }
 
+bool Position(uint64_t guid, float *x, float *y, uint32_t *areaId) {
+    if (guid == 0)
+        return false;
+    auto statsFn = reinterpret_cast<Lookup_t>(
+        static_cast<uintptr_t>(Offsets::FUN_GROUP_MEMBER_STATS_LOOKUP));
+    const uint8_t *e = statsFn(&guid);
+    if (e == nullptr)
+        return false;
+    *x = Game::Read<int16_t>(e, Offsets::OFF_GROUP_MEMBER_POS_X);
+    *y = Game::Read<int16_t>(e, Offsets::OFF_GROUP_MEMBER_POS_Y);
+    *areaId = U16(e, Offsets::OFF_GROUP_MEMBER_AREA_ID);
+    return true;
+}
+
 const uint16_t *AuraArray(uint64_t guid) {
     if (guid == 0)
         return nullptr;

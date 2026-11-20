@@ -9964,6 +9964,11 @@ enum Offsets {
     // shape from SMSG_PARTY_MEMBER_STATS_FULL).
     FUN_GROUP_MEMBER_STATS_LOOKUP = 0x00496400,
     OFF_GROUP_MEMBER_AREA_ID = 0x14,
+    // The member's position, i16 x then y, truncated: GROUP_UPDATE_FLAG_POSITION
+    // (0x100) of SMSG_PARTY_MEMBER_STATS, read into the record in field order
+    // (benilla objectlayer/party, `0x418d30`; the server writes X then Y).
+    OFF_GROUP_MEMBER_POS_X = 0x16,
+    OFF_GROUP_MEMBER_POS_Y = 0x18,
     // `+0x08` status-flags byte of the stats block (see field map above);
     // bit 0 is the online flag `Script_UnitIsConnected` tests. Sibling
     // `FUN_GROUP_MEMBER_SLOT_LOOKUP` (`0x00496420`, `__fastcall(u64 *guid)
@@ -10023,10 +10028,6 @@ enum Offsets {
     // call earlier. Targets checked against the exe; no loaded DLL
     // references the function or a site.
     FUN_UPDATE_RAID_MEMBER_RECORD = 0x004BADC0,
-    CALL_PLAYER_POST_INIT_RAID_RECORD = 0x005DEC43,
-    CALL_PLAYER_POST_UPDATE_RAID_RECORD = 0x005DECAF,
-    CALL_PLAYER_RELEASE_RAID_RECORD = 0x005E9ACF,
-    CALL_PLAYER_DTOR_RAID_RECORD = 0x005DD6AB,
     // Bit 1: flagged for PvP — Script_UnitIsPVP's test (0x00516502) for a
     // token with no unit object.
     GROUP_MEMBER_STATUS_PVP = 0x2,
