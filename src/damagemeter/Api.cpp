@@ -13,9 +13,11 @@
 
 // C_DamageMeter, retail's damage meter API (DamageMeterDocumentation.lua),
 // over the live meter (damagemeter/Live.cpp). The tables are built by
-// damagemeter/Tables.cpp. An unknown session, or a type that is not a
-// DamageMeterType, gives an empty session (our choice: the documented
-// returns are not nilable).
+// damagemeter/Tables.cpp. As in the 3.80.2 client: a type or a session type
+// out of its enum's range, or a sessionID that is not a number, raises the
+// function's usage error (its enum readers FUN_140bc9cc0 / FUN_140c007e0);
+// an unknown sessionID, Expired, and Current with no session give the
+// empty table.
 
 #include "Game.h"
 #include "damagemeter/Live.h"
@@ -31,7 +33,40 @@ namespace Lua = Game::Lua;
 using Game::Doc::Opt;
 using Game::Doc::Req;
 
-int IntArg(void *L, int index) { return static_cast<int>(Lua::CheckNumber(L, index)); }
+constexpr const char *kUsageFromID =
+    "Usage: local session = C_DamageMeter.GetCombatSessionFromID(sessionID, type)";
+constexpr const char *kUsageFromType =
+    "Usage: local session = C_DamageMeter.GetCombatSessionFromType(sessionType, type)";
+constexpr const char *kUsageSourceFromID =
+    "Usage: local sessionSource = C_DamageMeter.GetCombatSessionSourceFromID(sessionID, type [, "
+    "sourceGUID, sourceCreatureID])";
+constexpr const char *kUsageSourceFromType =
+    "Usage: local sessionSource = C_DamageMeter.GetCombatSessionSourceFromType(sessionType, type "
+    "[, sourceGUID, sourceCreatureID])";
+constexpr const char *kUsageDuration =
+    "Usage: local durationSeconds = C_DamageMeter.GetSessionDurationSeconds(sessionType)";
+
+// A number from 0 to `max`, else the usage error.
+uint32_t RangeArg(void *L, int index, double max, const char *usage) {
+    if (!Lua::IsNumber(L, index))
+        Lua::Error(L, "%s", usage);
+    const double value = Lua::ToNumber(L, index);
+    if (!(value >= 0 && value <= max))
+        Lua::Error(L, "%s", usage);
+    return static_cast<uint32_t>(value);
+}
+
+int TypeArg(void *L, int index, const char *usage) {
+    return static_cast<int>(RangeArg(L, index, TYPE_COUNT - 1, usage));
+}
+
+int SessionTypeArg(void *L, int index, const char *usage) {
+    return static_cast<int>(RangeArg(L, index, SESSION_TYPE_COUNT - 1, usage));
+}
+
+uint32_t SessionIDArg(void *L, int index, const char *usage) {
+    return RangeArg(L, index, 4294967295.0, usage);
+}
 
 const char *GuidArg(void *L, int index) {
     return Lua::Type(L, index) == Lua::TYPE_STRING ? Lua::ToString(L, index) : nullptr;
@@ -45,9 +80,7 @@ View SessionView(int sessionType) {
     return Live::Sessions().ViewOfType(sessionType, Live::NowMs());
 }
 
-View IDView(int sessionID) {
-    return Live::Sessions().ViewOfSession(static_cast<uint32_t>(sessionID), Live::NowMs());
-}
+View IDView(uint32_t sessionID) { return Live::Sessions().ViewOfSession(sessionID, Live::NowMs()); }
 
 int __fastcall Script_GetAvailableCombatSessions(void *L) {
     Tables::PushAvailableSessions(L, Live::Sessions(), Live::NowMs());
@@ -55,38 +88,38 @@ int __fastcall Script_GetAvailableCombatSessions(void *L) {
 }
 
 int __fastcall Script_GetCombatSessionFromID(void *L) {
-    const int sessionID = IntArg(L, 1);
-    const int type = IntArg(L, 2);
+    const uint32_t sessionID = SessionIDArg(L, 1, kUsageFromID);
+    const int type = TypeArg(L, 2, kUsageFromID);
     Tables::PushCombatSession(L, IDView(sessionID), type);
     return 1;
 }
 
 int __fastcall Script_GetCombatSessionFromType(void *L) {
-    const int sessionType = IntArg(L, 1);
-    const int type = IntArg(L, 2);
+    const int sessionType = SessionTypeArg(L, 1, kUsageFromType);
+    const int type = TypeArg(L, 2, kUsageFromType);
     Tables::PushCombatSession(L, SessionView(sessionType), type);
     return 1;
 }
 
 int __fastcall Script_GetCombatSessionSourceFromID(void *L) {
-    const int sessionID = IntArg(L, 1);
-    const int type = IntArg(L, 2);
+    const uint32_t sessionID = SessionIDArg(L, 1, kUsageSourceFromID);
+    const int type = TypeArg(L, 2, kUsageSourceFromID);
     Tables::PushCombatSessionSource(L, IDView(sessionID), type, GuidArg(L, 3), CreatureArg(L, 4));
     return 1;
 }
 
 int __fastcall Script_GetCombatSessionSourceFromType(void *L) {
-    const int sessionType = IntArg(L, 1);
-    const int type = IntArg(L, 2);
+    const int sessionType = SessionTypeArg(L, 1, kUsageSourceFromType);
+    const int type = TypeArg(L, 2, kUsageSourceFromType);
     Tables::PushCombatSessionSource(L, SessionView(sessionType), type, GuidArg(L, 3),
                                     CreatureArg(L, 4));
     return 1;
 }
 
 int __fastcall Script_GetSessionDurationSeconds(void *L) {
-    const View view = SessionView(IntArg(L, 1));
-    if (view.hasDuration)
-        Lua::PushNumber(L, view.seconds);
+    const View view = SessionView(SessionTypeArg(L, 1, kUsageDuration));
+    if (view.durationMs > 0)
+        Lua::PushNumber(L, static_cast<double>(view.durationMs / 1000));
     else
         Lua::PushNil(L);
     return 1;
@@ -110,17 +143,18 @@ int __fastcall Script_ResetAllCombatSessions(void *) {
 const Game::Doc::Field kAvailableFields[] = {
     Req("sessionID", "number"),
     Req("name", "cstring", "The enemy the session is named after; empty when none."),
-    Opt("durationSeconds", "number"),
+    Opt("durationSeconds", "number", nullptr, "Whole seconds; nil for none."),
 };
 const Game::Doc::Structure kAvailable{"DamageMeterAvailableCombatSession", "DamageMeter",
                                       kAvailableFields,
                                       "Data for a combat session currently being tracked."};
 
 const Game::Doc::Field kSessionFields[] = {
-    Req("combatSources", "table", "An array of DamageMeterCombatSource, highest first."),
+    Req("combatSources", "table",
+        "An array of DamageMeterCombatSource, highest first; deaths in the order they came."),
     Opt("maxAmount", "number", "0"),
     Opt("totalAmount", "number", "0"),
-    Opt("durationSeconds", "number"),
+    Opt("durationSeconds", "number", nullptr, "Whole seconds; nil for none."),
 };
 const Game::Doc::Structure kSession{
     "DamageMeterCombatSession", "DamageMeter", kSessionFields,
@@ -141,28 +175,31 @@ const Game::Doc::Field kSourceFields[] = {
     Req("name", "cstring"),
     Req("classFilename", "cstring", "Empty for a creature."),
     Req("specIconID", "fileID", "Always 0."),
-    Req("totalAmount", "number"),
-    Req("amountPerSecond", "number"),
+    Req("totalAmount", "number", "In Deaths mode, 1: each death is a source of its own."),
+    Req("amountPerSecond", "number",
+        "The amount over the session's whole seconds; 0 for Interrupts, Dispels and Deaths."),
     Req("isLocalPlayer", "bool"),
     Req("deathRecapID", "number",
-        "The C_DeathRecap ID of your last death in Deaths mode; 0 for anyone else."),
-    Req("deathTimeSeconds", "number"),
-    Req("classification", "cstring"),
-    Req("sourceDisplayType", "DamageMeterSourceDisplayType"),
-    Opt("factionGroup", "cstring"),
+        "In Deaths mode, the death's C_DeathRecap ID: only your own deaths have one; else 0."),
+    Req("deathTimeSeconds", "number",
+        "In Deaths mode, the whole seconds from the session's start, -1 in Overall; else 0."),
+    Req("classification", "cstring", "A creature's UnitClassification; empty for a player or a pet."),
+    Req("sourceDisplayType", "DamageMeterSourceDisplayType", "None for a creature."),
+    Opt("factionGroup", "cstring", nullptr, "Only for an enemy player."),
 };
 const Game::Doc::Structure kSource{
     "DamageMeterCombatSource", "DamageMeter", kSourceFields,
     "Aggregated data for a single source (unit) in a damage meter combat session."};
 
 const Game::Doc::Field kSpellFields[] = {
-    Req("spellID", "number"),
+    Req("spellID", "number", "0 in EnemyDamageTaken mode, where each line is one attacker."),
     Req("totalAmount", "number"),
-    Req("amountPerSecond", "number"),
-    Req("creatureName", "cstring", "The pet or guardian that cast it; empty for the source's own."),
-    Req("overkillAmount", "number"),
+    Req("amountPerSecond", "number", "0 for Interrupts, Dispels and Deaths."),
+    Req("creatureName", "cstring",
+        "The pet or guardian that cast it, in the damage and healing modes; else empty."),
+    Req("overkillAmount", "number", "In Deaths mode, the hit's overkill; else 0."),
     Req("isAvoidable", "bool", "Always false."),
-    Req("isDeadly", "bool"),
+    Req("isDeadly", "bool", "In Deaths mode, true for the hit that killed; else false."),
     Req("combatSpellDetails", "DamageMeterCombatSpellUnitDetails"),
 };
 const Game::Doc::Structure kSpell{"DamageMeterCombatSpell", "DamageMeter", kSpellFields,

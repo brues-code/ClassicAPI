@@ -14,12 +14,12 @@
 #pragma once
 
 // The damage meter's totals: sessions -> sources -> spells -> targets, for
-// each of retail's storages (Enum.DamageMeterStorageType), fed with neutral
-// events. Nothing here knows where an event comes from: the live front end
-// (damagemeter/Live.cpp) feeds it from the combat log entries, and the replay
-// can feed it from a recording with its own unit keys. The caller resolves
-// each unit's identity and owner; the meter applies retail's rules for which
-// storage an event fills.
+// each of retail's storages (Enum.DamageMeterStorageType), and a list of
+// deaths, fed with neutral events. Nothing here knows where an event comes
+// from: the live front end (damagemeter/Live.cpp) feeds it from the combat
+// log entries, and the replay can feed it from a recording with its own unit
+// keys. The caller resolves each unit's identity and owner; the meter applies
+// retail's rules for which storage an event fills.
 //
 // Times are milliseconds on the caller's clock, any epoch, as long as it only
 // moves forward.
@@ -30,6 +30,7 @@
 #include <string>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 namespace DamageMeter {
 
@@ -63,6 +64,20 @@ enum SourceDisplayType : int {
     DISPLAY_ALLY = 1,
     DISPLAY_ENEMY = 2,
 };
+
+// Enum.DamageMeterSpellDetailsDisplayType: how a source's spell lines are
+// listed for a type (3.80.2's FUN_142987a80 switch).
+enum SpellDetailsDisplayType : int {
+    DETAILS_SPELL_CASTED = 0,               // DamageDone .. Absorbs: one line a spell
+    DETAILS_UNIT_SPECIFIC_SPELL_CASTED = 1, // DamageTaken, Avoidable: a spell and attacker
+    DETAILS_SPELL_AFFECTED = 2,             // Interrupts, Dispels: the spell stopped
+    DETAILS_DEATHS = 3,                     // Deaths: the hits of one death
+    DETAILS_ENEMY_DAMAGE_TAKEN = 4,         // EnemyDamageTaken: one line an attacker
+};
+
+// The SpellDetailsDisplayType of a DamageMeterType; DETAILS_SPELL_CASTED for a
+// value that is not one.
+int DetailsOf(int type);
 
 // Enum.DamageMeterStorageType: what the meter keeps. Two types read one
 // storage (DamageDone and Dps, HealingDone and Hps), as in retail.
@@ -136,8 +151,6 @@ struct MeterEvent {
 struct Target {
     MeterUnit unit;
     double amount = 0;
-    double overkill = 0;
-    bool deadly = false;
 };
 
 // A spell of a source: its ID and, for a minion's spell credited to its
@@ -153,45 +166,60 @@ struct SpellKey {
 struct Spell {
     SpellKey key;
     double amount = 0;
-    double overkill = 0;
-    bool deadly = false;
     std::unordered_map<uint64_t, Target> targets; // by Unit::key
 };
 
+// One hit an ally took, kept for the ally's next death (a death's lines).
+struct DeathHit {
+    Actor attacker;
+    uint32_t spellID = 0;
+    double amount = 0;
+    double overkill = 0;
+    bool deadly = false;
+};
+
+// A source of a storage, or one death in Totals::deaths: a death is a source
+// of its own (3.80.2's map<int, SourceCombatData> at session +0x30), with its
+// time, its C_DeathRecap ID and the hits before it.
 struct Source {
     MeterUnit unit;
-    double total = 0;
-    int64_t deathMs = 0; // the time of its last death, for STORAGE_DEATHS
-    int deathRecapID = 0; // that death's C_DeathRecap ID; 0 for none
+    double total = 0; // a death: 1
     std::map<SpellKey, Spell> spells;
+    int64_t deathMs = 0;
+    int deathRecapID = 0; // 0 for none
+    std::vector<DeathHit> hits;
 };
 
-// Every storage's sources, by Unit::key.
+// Every storage's sources, by Unit::key, and the deaths in the order they
+// came. storages[STORAGE_DEATHS] stays empty.
 struct Totals {
     std::unordered_map<uint64_t, Source> storages[STORAGE_COUNT];
-    bool Empty() const;
-    void Merge(const Totals &from);
+    std::vector<Source> deaths;
 };
 
+// A session lasts from its start to its last event, and while it is open up
+// to now: 3.80.2's FUN_14298abc0 counts a session that is ending up to its
+// last activity (+0x00).
 struct Session {
     uint32_t id = 0;
     std::string name; // "" until an ally fights an enemy
     int64_t startMs = 0;
-    int64_t endMs = 0;
+    int64_t lastEventMs = 0; // startMs until an event lands in it
     bool open = false;
     Totals totals;
     int64_t DurationMs(int64_t nowMs) const;
+    // The time from its start to its last event.
+    int64_t ActiveMs() const;
 };
 
 // What a C_DamageMeter query reads: totals over a duration. `totals` null is
-// an empty session. `hasDuration` false pushes durationSeconds nil;
-// `timedDeaths` false pushes deathTimeSeconds -1 (retail's Overall: "no
-// timestamps for overall session", DamageMeterEntry.lua), else the seconds
-// from `startMs`.
+// an empty session. A duration of 0 pushes durationSeconds nil.
+// `timedDeaths` false pushes deathTimeSeconds -1 (Overall: "no timestamps
+// for overall session", DamageMeterEntry.lua), else the whole seconds from
+// `startMs`.
 struct View {
     const Totals *totals = nullptr;
-    double seconds = 0;
-    bool hasDuration = false;
+    int64_t durationMs = 0;
     bool timedDeaths = false;
     int64_t startMs = 0;
 };
@@ -199,21 +227,26 @@ struct View {
 class Meter {
 public:
     // Retail keeps 30 sessions, oldest first; the 31st drops the oldest.
+    // Overall keeps what the dropped ones held.
     static constexpr size_t kMaxSessions = 30;
+    // A death lists the last hits its ally took, as the death recap does.
+    static constexpr size_t kDeathHits = 5;
 
-    // Drops every session, Overall and Expired. Session IDs keep counting.
+    // Drops every session and Overall. The next session ID is 1 again, as
+    // 3.80.2's reset (FUN_14298b6c0) sets it.
     void Reset();
 
     // Ends the open session, if any, and opens a new one; returns its ID.
     uint32_t Open(int64_t nowMs, const std::string &name);
     // Ends the open session.
-    void Close(int64_t nowMs);
+    void Close();
     bool IsOpen() const;
 
     // Adds the event to the open session and to Overall. Returns the
     // storages it changed as bits (1 << Storage); 0 while no session is
-    // open, or when the event fills none. Deaths need the hit that killed:
-    // the meter keeps each ally's last damage taken, also between sessions.
+    // open, or when the event fills none. Deaths need the hits before them:
+    // the meter keeps each ally's last kDeathHits hits taken, also between
+    // sessions.
     uint32_t Feed(const MeterEvent &event);
 
     // The sessions kept, oldest first.
@@ -227,26 +260,14 @@ public:
 
 private:
     void Add(int storage, const Actor &subject, const Actor &other, uint32_t spellID,
-             const std::string &creatureName, double amount, double overkill, bool deadly,
-             int64_t timeMs, int deathRecapID);
+             const std::string &creatureName, double amount);
     void Name(const MeterEvent &event);
-
-    struct LastHit {
-        Actor attacker;
-        uint32_t spellID = 0;
-        double amount = 0;
-        double overkill = 0;
-    };
 
     std::deque<Session> sessions_;
     uint32_t nextID_ = 1;
     Totals overall_;
     int64_t overallClosedMs_ = 0; // the ended sessions' time since the reset
-    bool overallAny_ = false;     // a session opened since the reset
-    Totals expired_;              // the sessions dropped since the reset
-    int64_t expiredMs_ = 0;
-    bool expiredAny_ = false;
-    std::unordered_map<uint64_t, LastHit> lastHits_;
+    std::unordered_map<uint64_t, std::deque<DeathHit>> lastHits_;
 };
 
 } // namespace DamageMeter

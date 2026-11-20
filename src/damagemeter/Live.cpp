@@ -166,7 +166,7 @@ void Open(const std::string &name, uint32_t encounter, bool sawFighting) {
 }
 
 void Close() {
-    g_meter.Close(Clock());
+    g_meter.Close();
     g_sessionEncounter = 0;
 }
 

@@ -27,21 +27,11 @@ namespace DamageMeter::Tables {
 // DamageMeterCombatSession: the view's sources for `type`, in rank order.
 void PushCombatSession(void *L, const View &view, int type);
 
-// DamageMeterCombatSessionSource: the spells of the source with `sourceGUID`
+// DamageMeterCombatSessionSource: the lines of the source with `sourceGUID`
 // (null or "" for none), else of the one with `sourceCreatureID` (0 for none).
-// An empty one when no source matches.
+// An empty one when no source matches, or when neither is given.
 void PushCombatSessionSource(void *L, const View &view, int type, const char *sourceGUID,
                              uint32_t sourceCreatureID);
-
-// DamageMeterCombatSource for one source of `type`'s storage.
-void PushCombatSource(void *L, const Source &source, const View &view, int type);
-
-// DamageMeterCombatSpell: the spell, or with `target` its amount against one
-// other unit.
-void PushCombatSpell(void *L, const Spell &spell, const Target *target, const View &view);
-
-// DamageMeterCombatSpellUnitDetails for `unit` (null: no unit).
-void PushSpellUnitDetails(void *L, const MeterUnit *unit, double amount);
 
 // An array of DamageMeterAvailableCombatSession, oldest first.
 void PushAvailableSessions(void *L, const Meter &meter, int64_t nowMs);

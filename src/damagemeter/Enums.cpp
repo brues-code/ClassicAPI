@@ -12,7 +12,8 @@
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
 // The damage meter's enumerations, with retail's values: the C_DamageMeter
-// ones (DamageMeterConstantsDocumentation.lua) and the meter window's Edit
+// ones (DamageMeterConstantsDocumentation.lua; the seven 3.80.2 registers in
+// FUN_140bfd3b0) and the meter window's Edit
 // Mode settings (EditModeManagerConstantsDocumentation.lua), which
 // Blizzard_DamageMeter reads.
 
@@ -51,6 +52,43 @@ const Entry kSourceDisplayType[] = {
     {"Enemy", DISPLAY_ENEMY},
 };
 
+const Entry kStorageType[] = {
+    {"Damage", STORAGE_DAMAGE},
+    {"HealingAndAbsorbs", STORAGE_HEALING_AND_ABSORBS},
+    {"Absorbs", STORAGE_ABSORBS},
+    {"Interrupts", STORAGE_INTERRUPTS},
+    {"Dispels", STORAGE_DISPELS},
+    {"DamageTaken", STORAGE_DAMAGE_TAKEN},
+    {"AvoidableDamageTaken", STORAGE_AVOIDABLE_DAMAGE_TAKEN},
+    {"Deaths", STORAGE_DEATHS},
+    {"EnemyDamageTaken", STORAGE_ENEMY_DAMAGE_TAKEN},
+};
+
+const Entry kSpellDetailsDisplayType[] = {
+    {"SpellCasted", DETAILS_SPELL_CASTED},
+    {"UnitSpecificSpellCasted", DETAILS_UNIT_SPECIFIC_SPELL_CASTED},
+    {"SpellAffected", DETAILS_SPELL_AFFECTED},
+    {"Deaths", DETAILS_DEATHS},
+    {"EnemyDamageTaken", DETAILS_ENEMY_DAMAGE_TAKEN},
+};
+
+// Registered for the shape only: 1.12 has no challenge mode or arena to
+// combine sessions over, and no DamageMeterOverride table.
+const Entry kCombineSessionType[] = {
+    {"None", 0},
+    {"ChallengeMode", 1},
+    {"Arena", 2},
+    {"ArenaMultiRound", 3},
+};
+
+const Entry kOverrideType[] = {
+    {"Ignore", 0},
+    {"AllowFriendlyFire", 1},
+    {"RedirectSourceToOwner", 2},
+    {"RedirectSourceToAuraCaster", 3},
+    {"IgnoreForAbsorbSpell", 4},
+};
+
 const Entry kStyle[] = {
     {"Default", 0},
     {"Thin", 1},
@@ -76,6 +114,14 @@ void RegisterLuaFunctions() {
     Game::Lua::RegisterIntegerEnum("Enum", "DamageMeterSessionType", kSessionType,
                                    "DamageMeterConstants");
     Game::Lua::RegisterIntegerEnum("Enum", "DamageMeterSourceDisplayType", kSourceDisplayType,
+                                   "DamageMeterConstants");
+    Game::Lua::RegisterIntegerEnum("Enum", "DamageMeterStorageType", kStorageType,
+                                   "DamageMeterConstants");
+    Game::Lua::RegisterIntegerEnum("Enum", "DamageMeterSpellDetailsDisplayType",
+                                   kSpellDetailsDisplayType, "DamageMeterConstants");
+    Game::Lua::RegisterIntegerEnum("Enum", "DamageMeterCombineSessionType", kCombineSessionType,
+                                   "DamageMeterConstants");
+    Game::Lua::RegisterIntegerEnum("Enum", "DamageMeterOverrideType", kOverrideType,
                                    "DamageMeterConstants");
     Game::Lua::RegisterIntegerEnum("Enum", "DamageMeterStyle", kStyle, "EditModeManagerConstants");
     Game::Lua::RegisterIntegerEnum("Enum", "DamageMeterVisibility", kVisibility,

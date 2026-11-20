@@ -11,28 +11,38 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// The C_DamageMeter tables. Field names and types are retail's
-// (Blizzard_APIDocumentationGenerated/DamageMeterDocumentation.lua). 1.12 has
+// The C_DamageMeter tables, as the 3.80.2 client builds them: the session
+// (FUN_14191e340), the source (FUN_14191ebe0) and their lines (FUN_142987a80).
+// Field names and types are retail's (DamageMeterDocumentation.lua). 1.12 has
 // no specializations, so specIconID is 0, and no avoidable-spell list, so
-// isAvoidable is false. deathRecapID is the C_DeathRecap ID of the source's
-// last death: only the local player's live deaths have one.
+// isAvoidable is false.
 //
-// How a source's spells are listed follows Blizzard_DamageMeter's use of them
-// (DamageMeterEntry.lua): a spell names its unit (combatSpellDetails.unitName)
-// "when another unit is the subject and the player is the object (e.g. damage
-// taken)". So for the types where the source took something (damage taken,
-// enemy damage taken, deaths) there is one entry for each spell and unit that
-// dealt it; for the others, one entry for each spell with no unit (our
-// choice: retail's C side is not visible).
+// Numbers:
+//   - durations are whole seconds (ms / 1000), nil for 0 ms;
+//   - a source's amountPerSecond is its amount over those whole seconds, 0
+//     under a second; a line's is its amount over the exact seconds; both are
+//     0 for Interrupts, Dispels and Deaths;
+//   - deathTimeSeconds is the whole seconds from the session's start, -1 in
+//     Overall.
+//
+// A source's lines, by the type's SpellDetailsDisplayType:
+//   - SpellCasted: one line a spell; a minion's spells are lines of their own
+//     with its name as creatureName; the details are empty.
+//   - UnitSpecificSpellCasted: one line a spell and attacking unit, the
+//     attacker in the details; isPet tells the source is a pet, isMob the
+//     attacker is a creature.
+//   - SpellAffected: one line a spell stopped or removed, its count.
+//   - Deaths: one line a hit of the death, with its overkill and isDeadly and
+//     the attacker's name.
+//   - EnemyDamageTaken: one line an attacking unit, spellID 0.
 
 #include "damagemeter/Tables.h"
 
 #include "Game.h"
 
 #include <algorithm>
-#include <cstring>
+#include <map>
 #include <string>
-#include <utility>
 #include <vector>
 
 namespace DamageMeter::Tables {
@@ -41,15 +51,35 @@ namespace {
 
 namespace Lua = Game::Lua;
 
-bool ByUnit(int storage) {
-    return storage == STORAGE_DAMAGE_TAKEN || storage == STORAGE_AVOIDABLE_DAMAGE_TAKEN ||
-           storage == STORAGE_ENEMY_DAMAGE_TAKEN || storage == STORAGE_DEATHS;
+// A creature has a creature record; a player or a pet is keyed by its GUID
+// (3.80.2's "player-like" sources, unit details +0x54 clear).
+bool PlayerLike(const MeterUnit &u) { return u.creatureID == 0; }
+
+bool HasPerSecond(int type) {
+    return type != TYPE_INTERRUPTS && type != TYPE_DISPELS && type != TYPE_DEATHS;
 }
 
-// amountPerSecond: the amount over the session's duration (our choice; 0 for
-// a session with no time yet).
-double PerSecond(double amount, const View &view) {
-    return view.seconds > 0 ? amount / view.seconds : 0;
+int64_t WholeSeconds(const View &view) { return view.durationMs / 1000; }
+
+double SourcePerSecond(double amount, const View &view, int type) {
+    const int64_t seconds = WholeSeconds(view);
+    return HasPerSecond(type) && seconds > 0 ? amount / static_cast<double>(seconds) : 0;
+}
+
+double LinePerSecond(double amount, const View &view, int type) {
+    return HasPerSecond(type) && view.durationMs > 0
+               ? amount / (static_cast<double>(view.durationMs) * 0.001)
+               : 0;
+}
+
+void SetDurationField(void *L, const View &view) {
+    if (view.durationMs > 0)
+        Lua::SetFieldNumber(L, "durationSeconds", static_cast<double>(WholeSeconds(view)));
+}
+
+// UnitClassification's word for a creature, "" for a player or a pet.
+const char *ClassificationOf(const MeterUnit &u) {
+    return PlayerLike(u) ? "" : u.classification.c_str();
 }
 
 // Opens `t[key] = {}` on the table at the top: leaves the key and the new
@@ -61,168 +91,262 @@ void OpenField(void *L, const char *key) {
 
 void CloseField(void *L) { Lua::SetTable(L, -3); }
 
-// The sources in rank order: by amount, the most first; deaths by time, the
-// first first (our choice).
-std::vector<const Source *> Ranked(const View &view, int storage) {
+// The sources in rank order: by amount, the most first; deaths in the order
+// they came (3.80.2 walks its death map in key order and does not sort it).
+std::vector<const Source *> Ranked(const View &view, int type) {
     std::vector<const Source *> out;
+    const int storage = StorageOf(type);
     if (view.totals == nullptr || storage < 0)
         return out;
+    if (storage == STORAGE_DEATHS) {
+        for (const Source &death : view.totals->deaths)
+            out.push_back(&death);
+        return out;
+    }
     for (const auto &entry : view.totals->storages[storage])
         out.push_back(&entry.second);
-    const bool deaths = storage == STORAGE_DEATHS;
-    std::sort(out.begin(), out.end(), [deaths](const Source *a, const Source *b) {
-        if (deaths ? a->deathMs != b->deathMs : a->total != b->total)
-            return deaths ? a->deathMs < b->deathMs : a->total > b->total;
+    std::sort(out.begin(), out.end(), [](const Source *a, const Source *b) {
+        if (a->total != b->total)
+            return a->total > b->total;
         return a->unit.name < b->unit.name;
     });
     return out;
 }
 
-using Line = std::pair<const Spell *, const Target *>;
+struct Details {
+    std::string unitName;
+    std::string unitClassFilename;
+    std::string classification;
+    bool isPet = false;
+    bool isMob = false;
+    double amount = 0;
+};
 
-double Amount(const Line &line) {
-    return line.second != nullptr ? line.second->amount : line.first->amount;
+struct Line {
+    uint32_t spellID = 0;
+    double amount = 0;
+    double perSecond = 0;
+    std::string creatureName;
+    double overkill = 0;
+    bool deadly = false;
+    Details details;
+};
+
+Details AttackerDetails(const MeterUnit &attacker, bool sourceIsPet, double amount) {
+    Details d;
+    d.unitName = attacker.name;
+    d.unitClassFilename = attacker.classFilename;
+    d.classification = ClassificationOf(attacker);
+    d.isPet = sourceIsPet;
+    d.isMob = !PlayerLike(attacker);
+    d.amount = amount;
+    return d;
 }
 
-std::vector<Line> Lines(const Source &source, int storage) {
+// `byGuid`: the source was asked for by its GUID. 3.80.2's EnemyDamageTaken
+// lines then carry no amountPerSecond and no class; asked for by creature ID
+// (FUN_14298a680) they carry both.
+std::vector<Line> Lines(const Source &source, const View &view, int type, bool byGuid) {
     std::vector<Line> out;
-    const bool byUnit = ByUnit(storage);
-    for (const auto &entry : source.spells) {
-        const Spell &spell = entry.second;
-        if (!byUnit) {
-            out.emplace_back(&spell, nullptr);
-            continue;
+    switch (DetailsOf(type)) {
+    case DETAILS_SPELL_CASTED:
+        for (const auto &[key, spell] : source.spells) {
+            Line line;
+            line.spellID = key.spellID;
+            line.amount = spell.amount;
+            line.perSecond = LinePerSecond(spell.amount, view, type);
+            line.creatureName = key.creatureName;
+            out.push_back(std::move(line));
         }
-        for (const auto &target : spell.targets)
-            out.emplace_back(&spell, &target.second);
+        break;
+    case DETAILS_UNIT_SPECIFIC_SPELL_CASTED:
+        for (const auto &[key, spell] : source.spells) {
+            for (const auto &[unitKey, target] : spell.targets) {
+                Line line;
+                line.spellID = key.spellID;
+                line.amount = target.amount;
+                line.perSecond = LinePerSecond(target.amount, view, type);
+                line.details = AttackerDetails(target.unit, source.unit.isPet, target.amount);
+                out.push_back(std::move(line));
+            }
+        }
+        break;
+    case DETAILS_SPELL_AFFECTED:
+        for (const auto &[key, spell] : source.spells) {
+            Line line;
+            line.spellID = key.spellID;
+            line.amount = spell.amount;
+            out.push_back(std::move(line));
+        }
+        break;
+    case DETAILS_DEATHS:
+        for (const DeathHit &hit : source.hits) {
+            if (hit.attacker.unit.key == 0)
+                continue;
+            Line line;
+            line.spellID = hit.spellID;
+            line.amount = hit.amount;
+            line.overkill = hit.overkill;
+            line.deadly = hit.deadly;
+            line.details.unitName = hit.attacker.unit.name;
+            out.push_back(std::move(line));
+        }
+        break;
+    case DETAILS_ENEMY_DAMAGE_TAKEN: {
+        std::map<uint64_t, std::pair<const MeterUnit *, double>> attackers;
+        for (const auto &[key, spell] : source.spells) {
+            for (const auto &[unitKey, target] : spell.targets) {
+                auto &a = attackers[unitKey];
+                a.first = &target.unit;
+                a.second += target.amount;
+            }
+        }
+        for (const auto &[unitKey, a] : attackers) {
+            Line line;
+            line.amount = a.second;
+            line.details.unitName = a.first->name;
+            if (!byGuid) {
+                line.perSecond = LinePerSecond(a.second, view, type);
+                line.details.unitClassFilename = a.first->classFilename;
+            }
+            out.push_back(std::move(line));
+        }
+        break;
     }
-    std::sort(out.begin(), out.end(), [](const Line &a, const Line &b) {
-        if (Amount(a) != Amount(b))
-            return Amount(a) > Amount(b);
-        return a.first->key.spellID < b.first->key.spellID;
-    });
+    }
+    std::stable_sort(out.begin(), out.end(),
+                     [](const Line &a, const Line &b) { return a.amount > b.amount; });
     return out;
 }
 
-const Source *FindSource(const View &view, int storage, const char *guid, uint32_t creatureID) {
-    if (view.totals == nullptr || storage < 0)
+bool Matches(const MeterUnit &u, bool byGuid, const char *guid, uint32_t creatureID) {
+    return byGuid ? u.guid == guid : u.creatureID == creatureID;
+}
+
+// The source a SourceFrom* call names: by GUID, else by creature ID, else
+// none. A death: the unit's latest in the view (our choice; 3.80.2's death
+// lookup takes its map's key 0 whatever the GUID).
+const Source *FindSource(const View &view, int storage, bool byGuid, const char *guid,
+                         uint32_t creatureID) {
+    if (view.totals == nullptr || storage < 0 || (!byGuid && creatureID == 0))
         return nullptr;
-    const bool byGuid = guid != nullptr && *guid != '\0';
+    if (storage == STORAGE_DEATHS) {
+        const auto &deaths = view.totals->deaths;
+        for (auto it = deaths.rbegin(); it != deaths.rend(); ++it) {
+            if (Matches(it->unit, byGuid, guid, creatureID))
+                return &*it;
+        }
+        return nullptr;
+    }
     for (const auto &entry : view.totals->storages[storage]) {
-        const MeterUnit &u = entry.second.unit;
-        if (byGuid ? u.guid == guid : (creatureID != 0 && u.creatureID == creatureID))
+        if (Matches(entry.second.unit, byGuid, guid, creatureID))
             return &entry.second;
     }
     return nullptr;
 }
 
-double DeathTimeSeconds(const Source &source, const View &view, int storage) {
-    if (storage != STORAGE_DEATHS)
-        return 0;
+double DeathTimeSeconds(const Source &source, const View &view) {
     if (!view.timedDeaths)
         return -1;
-    return static_cast<double>(source.deathMs - view.startMs) * 0.001;
+    const int64_t ms = source.deathMs > view.startMs ? source.deathMs - view.startMs : 0;
+    return static_cast<double>(ms / 1000);
 }
 
 int DisplayType(const MeterUnit &u) {
+    if (!PlayerLike(u))
+        return DISPLAY_NONE;
     if (u.ally)
         return DISPLAY_ALLY;
     return u.enemy ? DISPLAY_ENEMY : DISPLAY_NONE;
 }
 
-} // namespace
-
-void PushSpellUnitDetails(void *L, const MeterUnit *unit, double amount) {
-    const bool has = unit != nullptr && unit->key != 0;
+void PushDetails(void *L, const Details &d) {
     Lua::NewTable(L);
-    Lua::SetFieldString(L, "unitName", has ? unit->name.c_str() : "");
-    Lua::SetFieldString(L, "unitClassFilename", has ? unit->classFilename.c_str() : "");
-    Lua::SetFieldString(L, "classification", has ? unit->classification.c_str() : "");
-    Lua::SetFieldBool(L, "isPet", has && unit->isPet);
-    Lua::SetFieldBool(L, "isMob", has && !unit->isPlayer && !unit->isPet);
-    Lua::SetFieldNumber(L, "amount", amount);
+    Lua::SetFieldString(L, "unitName", d.unitName.c_str());
+    Lua::SetFieldString(L, "unitClassFilename", d.unitClassFilename.c_str());
+    Lua::SetFieldString(L, "classification", d.classification.c_str());
+    Lua::SetFieldBool(L, "isPet", d.isPet);
+    Lua::SetFieldBool(L, "isMob", d.isMob);
+    Lua::SetFieldNumber(L, "amount", d.amount);
     Lua::SetFieldNumber(L, "specIconID", 0);
 }
 
-void PushCombatSpell(void *L, const Spell &spell, const Target *target, const View &view) {
-    const double amount = target != nullptr ? target->amount : spell.amount;
+void PushLine(void *L, const Line &line) {
     Lua::NewTable(L);
-    Lua::SetFieldNumber(L, "spellID", spell.key.spellID);
-    Lua::SetFieldNumber(L, "totalAmount", amount);
-    Lua::SetFieldNumber(L, "amountPerSecond", PerSecond(amount, view));
-    Lua::SetFieldString(L, "creatureName", spell.key.creatureName.c_str());
-    Lua::SetFieldNumber(L, "overkillAmount", target != nullptr ? target->overkill : spell.overkill);
+    Lua::SetFieldNumber(L, "spellID", line.spellID);
+    Lua::SetFieldNumber(L, "totalAmount", line.amount);
+    Lua::SetFieldNumber(L, "amountPerSecond", line.perSecond);
+    Lua::SetFieldString(L, "creatureName", line.creatureName.c_str());
+    Lua::SetFieldNumber(L, "overkillAmount", line.overkill);
     Lua::SetFieldBool(L, "isAvoidable", false);
-    Lua::SetFieldBool(L, "isDeadly", target != nullptr ? target->deadly : spell.deadly);
+    Lua::SetFieldBool(L, "isDeadly", line.deadly);
     Lua::PushString(L, "combatSpellDetails");
-    PushSpellUnitDetails(L, target != nullptr ? &target->unit : nullptr, amount);
+    PushDetails(L, line.details);
     Lua::SetTable(L, -3);
 }
 
 void PushCombatSource(void *L, const Source &source, const View &view, int type) {
-    const int storage = StorageOf(type);
     const MeterUnit &u = source.unit;
+    const bool playerLike = PlayerLike(u);
+    const bool deaths = type == TYPE_DEATHS;
+    const int display = DisplayType(u);
     Lua::NewTable(L);
-    if (!u.guid.empty())
+    if (playerLike && !u.guid.empty())
         Lua::SetFieldString(L, "sourceGUID", u.guid.c_str());
     if (u.creatureID != 0)
         Lua::SetFieldNumber(L, "sourceCreatureID", u.creatureID);
     Lua::SetFieldString(L, "name", u.name.c_str());
-    Lua::SetFieldString(L, "classFilename", u.classFilename.c_str());
+    Lua::SetFieldString(L, "classFilename", playerLike ? u.classFilename.c_str() : "");
     Lua::SetFieldNumber(L, "specIconID", 0);
     Lua::SetFieldNumber(L, "totalAmount", source.total);
-    Lua::SetFieldNumber(L, "amountPerSecond", PerSecond(source.total, view));
-    Lua::SetFieldBool(L, "isLocalPlayer", u.isLocalPlayer);
-    Lua::SetFieldNumber(L, "deathRecapID", source.deathRecapID);
-    Lua::SetFieldNumber(L, "deathTimeSeconds", DeathTimeSeconds(source, view, storage));
-    Lua::SetFieldString(L, "classification", u.classification.c_str());
-    Lua::SetFieldNumber(L, "sourceDisplayType", DisplayType(u));
-    if (!u.factionGroup.empty())
+    Lua::SetFieldNumber(L, "amountPerSecond", SourcePerSecond(source.total, view, type));
+    Lua::SetFieldBool(L, "isLocalPlayer", playerLike && u.isLocalPlayer);
+    Lua::SetFieldNumber(L, "deathRecapID", deaths ? source.deathRecapID : 0);
+    Lua::SetFieldNumber(L, "deathTimeSeconds", deaths ? DeathTimeSeconds(source, view) : 0);
+    Lua::SetFieldString(L, "classification", ClassificationOf(u));
+    Lua::SetFieldNumber(L, "sourceDisplayType", display);
+    if (display == DISPLAY_ENEMY && !u.factionGroup.empty())
         Lua::SetFieldString(L, "factionGroup", u.factionGroup.c_str());
 }
 
+} // namespace
+
 void PushCombatSession(void *L, const View &view, int type) {
-    const std::vector<const Source *> sources = Ranked(view, StorageOf(type));
-    double max = 0;
+    const std::vector<const Source *> sources = Ranked(view, type);
     double total = 0;
     Lua::NewTable(L);
     OpenField(L, "combatSources");
     int i = 0;
     for (const Source *s : sources) {
-        max = std::max(max, s->total);
         total += s->total;
         PushCombatSource(L, *s, view, type);
         Lua::RawSetI(L, -2, ++i);
     }
     CloseField(L);
-    Lua::SetFieldNumber(L, "maxAmount", max);
+    Lua::SetFieldNumber(L, "maxAmount", sources.empty() ? 0 : sources.front()->total);
     Lua::SetFieldNumber(L, "totalAmount", total);
-    if (view.hasDuration)
-        Lua::SetFieldNumber(L, "durationSeconds", view.seconds);
+    SetDurationField(L, view);
 }
 
 void PushCombatSessionSource(void *L, const View &view, int type, const char *sourceGUID,
                              uint32_t sourceCreatureID) {
-    const int storage = StorageOf(type);
-    const Source *source = FindSource(view, storage, sourceGUID, sourceCreatureID);
-    double max = 0;
+    const bool byGuid = sourceGUID != nullptr && *sourceGUID != '\0';
+    const Source *source =
+        FindSource(view, StorageOf(type), byGuid, sourceGUID, sourceCreatureID);
+    std::vector<Line> lines;
+    if (source != nullptr)
+        lines = Lines(*source, view, type, byGuid);
     double total = 0;
     Lua::NewTable(L);
     OpenField(L, "combatSpells");
-    if (source != nullptr) {
-        int i = 0;
-        for (const Line &line : Lines(*source, storage)) {
-            // Our choice: the source's total is its lines' sum, so a death's
-            // killing hits add up to the window's whole (the source counts
-            // deaths in the session table).
-            max = std::max(max, Amount(line));
-            total += Amount(line);
-            PushCombatSpell(L, *line.first, line.second, view);
-            Lua::RawSetI(L, -2, ++i);
-        }
+    int i = 0;
+    for (const Line &line : lines) {
+        total += line.amount;
+        PushLine(L, line);
+        Lua::RawSetI(L, -2, ++i);
     }
     CloseField(L);
-    Lua::SetFieldNumber(L, "maxAmount", max);
+    Lua::SetFieldNumber(L, "maxAmount", lines.empty() ? 0 : lines.front().amount);
     Lua::SetFieldNumber(L, "totalAmount", total);
 }
 
@@ -233,8 +357,9 @@ void PushAvailableSessions(void *L, const Meter &meter, int64_t nowMs) {
         Lua::NewTable(L);
         Lua::SetFieldNumber(L, "sessionID", s.id);
         Lua::SetFieldString(L, "name", s.name.c_str());
-        Lua::SetFieldNumber(L, "durationSeconds",
-                            static_cast<double>(s.DurationMs(nowMs)) * 0.001);
+        View view;
+        view.durationMs = s.DurationMs(nowMs);
+        SetDurationField(L, view);
         Lua::RawSetI(L, -2, ++i);
     }
 }

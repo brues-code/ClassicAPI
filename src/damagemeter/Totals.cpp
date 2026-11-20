@@ -11,8 +11,10 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// The damage meter's totals. Retail keeps them on the C side and its rules
-// are not visible; where a rule here is not retail's documented contract, its
+// The damage meter's totals. The data model and the readback follow the 3.80.2
+// client (DamageMeter.cpp, around 0x142989000), whose collector is not in its
+// binary, so which event fills which storage is not visible there; where a
+// rule here is neither 3.80.2's code nor retail's documented contract, its
 // comment says "our choice".
 //
 // Which storage an event fills:
@@ -21,7 +23,8 @@
 //     damage taken: damage an enemy took from an ally.
 //   - Healing: effective healing (amount - overhealing) an ally did.
 //   - Interrupts / Dispels: one per interrupt or dispel an ally made.
-//   - Deaths: one per ally death, with the hit that killed it.
+//   - Deaths: one source per ally death, with the hits the ally took before
+//     it (3.80.2 keeps one SourceCombatData per death, its hits in a vector).
 //   - Absorbs and Avoidable damage taken stay empty: 1.12 reports no absorb
 //     by a shield's caster and has no list of avoidable spells.
 
@@ -40,33 +43,14 @@ Source &SourceIn(Totals &totals, int storage, const MeterUnit &unit) {
 }
 
 void AddSpell(Source &source, uint32_t spellID, const std::string &creatureName,
-              const MeterUnit &other, double amount, double overkill, bool deadly) {
+              const MeterUnit &other, double amount) {
     SpellKey key{spellID, creatureName};
     Spell &spell = source.spells[key];
     spell.key = std::move(key);
     spell.amount += amount;
-    spell.overkill += overkill;
-    spell.deadly = spell.deadly || deadly;
     Target &target = spell.targets[other.key];
     target.unit = other;
     target.amount += amount;
-    target.overkill += overkill;
-    target.deadly = target.deadly || deadly;
-}
-
-void MergeSpell(Spell &into, const Spell &from) {
-    into.key = from.key;
-    into.amount += from.amount;
-    into.overkill += from.overkill;
-    into.deadly = into.deadly || from.deadly;
-    for (const auto &[key, t] : from.targets) {
-        Target &target = into.targets[key];
-        if (target.unit.key == 0)
-            target.unit = t.unit;
-        target.amount += t.amount;
-        target.overkill += t.overkill;
-        target.deadly = target.deadly || t.deadly;
-    }
 }
 
 bool Fights(const MeterUnit &a, const MeterUnit &b) { return a.key != 0 && b.key != 0 && a.ally && b.enemy; }
@@ -100,75 +84,61 @@ int StorageOf(int type) {
     }
 }
 
-bool Totals::Empty() const {
-    for (const auto &storage : storages) {
-        if (!storage.empty())
-            return false;
+int DetailsOf(int type) {
+    switch (type) {
+    case TYPE_DAMAGE_TAKEN:
+    case TYPE_AVOIDABLE_DAMAGE_TAKEN:
+        return DETAILS_UNIT_SPECIFIC_SPELL_CASTED;
+    case TYPE_INTERRUPTS:
+    case TYPE_DISPELS:
+        return DETAILS_SPELL_AFFECTED;
+    case TYPE_DEATHS:
+        return DETAILS_DEATHS;
+    case TYPE_ENEMY_DAMAGE_TAKEN:
+        return DETAILS_ENEMY_DAMAGE_TAKEN;
+    default:
+        return DETAILS_SPELL_CASTED;
     }
-    return true;
 }
 
-void Totals::Merge(const Totals &from) {
-    for (int i = 0; i < STORAGE_COUNT; ++i) {
-        for (const auto &[key, s] : from.storages[i]) {
-            Source &into = storages[i][key];
-            if (into.unit.key == 0)
-                into.unit = s.unit;
-            into.total += s.total;
-            if (s.deathMs >= into.deathMs) {
-                into.deathMs = s.deathMs;
-                into.deathRecapID = s.deathRecapID;
-            }
-            for (const auto &[spellKey, spell] : s.spells)
-                MergeSpell(into.spells[spellKey], spell);
-        }
-    }
-}
+int64_t Session::ActiveMs() const { return lastEventMs > startMs ? lastEventMs - startMs : 0; }
 
 int64_t Session::DurationMs(int64_t nowMs) const {
-    const int64_t end = open ? nowMs : endMs;
-    return end > startMs ? end - startMs : 0;
+    if (!open)
+        return ActiveMs();
+    return nowMs > startMs ? nowMs - startMs : 0;
 }
 
 void Meter::Reset() {
     sessions_.clear();
+    nextID_ = 1;
     overall_ = Totals{};
     overallClosedMs_ = 0;
-    overallAny_ = false;
-    expired_ = Totals{};
-    expiredMs_ = 0;
-    expiredAny_ = false;
     lastHits_.clear();
 }
 
 uint32_t Meter::Open(int64_t nowMs, const std::string &name) {
-    Close(nowMs);
+    Close();
     Session s;
     s.id = nextID_++;
     s.name = name;
     s.startMs = nowMs;
+    s.lastEventMs = nowMs;
     s.open = true;
     sessions_.push_back(std::move(s));
-    overallAny_ = true;
-    // Our choice: Expired holds the sessions that fell off the list since the
-    // last reset, so Overall is always the kept sessions plus Expired.
-    while (sessions_.size() > kMaxSessions) {
-        const Session &oldest = sessions_.front();
-        expired_.Merge(oldest.totals);
-        expiredMs_ += oldest.DurationMs(nowMs);
-        expiredAny_ = true;
+    while (sessions_.size() > kMaxSessions)
         sessions_.pop_front();
-    }
     return sessions_.back().id;
 }
 
-void Meter::Close(int64_t nowMs) {
+// The session's time is up to its last event; Overall adds it, as 3.80.2's
+// end of a session (FUN_14298ad50) adds its duration to the manager's +0xa8.
+void Meter::Close() {
     if (!IsOpen())
         return;
     Session &s = sessions_.back();
-    s.endMs = nowMs > s.startMs ? nowMs : s.startMs;
     s.open = false;
-    overallClosedMs_ += s.DurationMs(nowMs);
+    overallClosedMs_ += s.ActiveMs();
 }
 
 bool Meter::IsOpen() const { return !sessions_.empty() && sessions_.back().open; }
@@ -184,20 +154,12 @@ const Session *Meter::Find(uint32_t sessionID) const {
 }
 
 void Meter::Add(int storage, const Actor &subject, const Actor &other, uint32_t spellID,
-                const std::string &creatureName, double amount, double overkill, bool deadly,
-                int64_t timeMs, int deathRecapID) {
+                const std::string &creatureName, double amount) {
     Totals *both[] = {&sessions_.back().totals, &overall_};
     for (Totals *totals : both) {
         Source &source = SourceIn(*totals, storage, subject.unit);
-        if (storage == STORAGE_DEATHS) {
-            // The source counts deaths; its spells are the hits that killed.
-            source.total += 1;
-            source.deathMs = timeMs;
-            source.deathRecapID = deathRecapID;
-        } else {
-            source.total += amount;
-        }
-        AddSpell(source, spellID, creatureName, other.unit, amount, overkill, deadly);
+        source.total += amount;
+        AddSpell(source, spellID, creatureName, other.unit, amount);
     }
 }
 
@@ -216,18 +178,20 @@ void Meter::Name(const MeterEvent &e) {
 uint32_t Meter::Feed(const MeterEvent &e) {
     const MeterUnit &src = e.source.unit;
     const MeterUnit &dst = e.dest.unit;
-    if (e.kind == EventKind::Damage && dst.key != 0 && dst.ally && e.amount > 0)
-        lastHits_[dst.key] = LastHit{e.source, e.spellID, e.amount, e.overkill};
+    if (e.kind == EventKind::Damage && dst.key != 0 && dst.ally && e.amount > 0) {
+        std::deque<DeathHit> &hits = lastHits_[dst.key];
+        hits.push_back(DeathHit{e.source, e.spellID, e.amount, e.overkill, false});
+        if (hits.size() > kDeathHits)
+            hits.pop_front();
+    }
     if (!IsOpen())
         return 0;
     Name(e);
 
     uint32_t changed = 0;
     auto add = [&](int storage, const Actor &subject, const Actor &other, uint32_t spellID,
-                   const std::string &creatureName, double amount, double overkill,
-                   bool deadly) {
-        Add(storage, subject, other, spellID, creatureName, amount, overkill, deadly, e.timeMs,
-            e.deathRecapID);
+                   const std::string &creatureName, double amount) {
+        Add(storage, subject, other, spellID, creatureName, amount);
         changed |= 1u << storage;
     };
     const std::string &minion = e.source.petName;
@@ -236,73 +200,70 @@ uint32_t Meter::Feed(const MeterEvent &e) {
         if (e.amount <= 0)
             break;
         if (src.key != 0 && src.ally && !dst.ally)
-            add(STORAGE_DAMAGE, e.source, e.dest, e.spellID, minion, e.amount, e.overkill,
-                e.overkill > 0);
+            add(STORAGE_DAMAGE, e.source, e.dest, e.spellID, minion, e.amount);
         if (dst.key != 0 && dst.ally)
-            add(STORAGE_DAMAGE_TAKEN, e.dest, e.source, e.spellID, minion, e.amount, e.overkill,
-                e.overkill > 0);
+            add(STORAGE_DAMAGE_TAKEN, e.dest, e.source, e.spellID, minion, e.amount);
         if (dst.key != 0 && dst.enemy && src.key != 0 && src.ally)
-            add(STORAGE_ENEMY_DAMAGE_TAKEN, e.dest, e.source, e.spellID, minion, e.amount,
-                e.overkill, e.overkill > 0);
+            add(STORAGE_ENEMY_DAMAGE_TAKEN, e.dest, e.source, e.spellID, minion, e.amount);
         break;
     case EventKind::Heal: {
         const double effective = e.amount - e.overhealing;
         if (src.key != 0 && src.ally && effective > 0)
-            add(STORAGE_HEALING_AND_ABSORBS, e.source, e.dest, e.spellID, minion, effective, 0,
-                false);
+            add(STORAGE_HEALING_AND_ABSORBS, e.source, e.dest, e.spellID, minion, effective);
         break;
     }
     case EventKind::Interrupt:
         if (src.key != 0 && src.ally)
-            add(STORAGE_INTERRUPTS, e.source, e.dest, e.spellID, minion, 1, 0, false);
+            add(STORAGE_INTERRUPTS, e.source, e.dest, e.spellID, minion, 1);
         break;
     case EventKind::Dispel:
         if (src.key != 0 && src.ally)
-            add(STORAGE_DISPELS, e.source, e.dest, e.spellID, minion, 1, 0, false);
+            add(STORAGE_DISPELS, e.source, e.dest, e.spellID, minion, 1);
         break;
     case EventKind::Death: {
         if (dst.key == 0 || !dst.ally)
             break;
-        // Our choice: a death's spell is the last hit the ally took. Retail
-        // shows the death recap (deathRecapID) instead, which only the local
-        // player's deaths have.
-        const auto hit = lastHits_.find(dst.key);
-        if (hit != lastHits_.end()) {
-            const LastHit h = hit->second;
-            lastHits_.erase(hit);
-            add(STORAGE_DEATHS, e.dest, h.attacker, h.spellID, h.attacker.petName, h.amount,
-                h.overkill, true);
-        } else {
-            add(STORAGE_DEATHS, e.dest, Actor{}, 0, std::string(), 0, 0, true);
+        Source death;
+        death.unit = dst;
+        death.total = 1;
+        death.deathMs = e.timeMs;
+        death.deathRecapID = e.deathRecapID;
+        const auto hits = lastHits_.find(dst.key);
+        if (hits != lastHits_.end()) {
+            death.hits.assign(hits->second.begin(), hits->second.end());
+            lastHits_.erase(hits);
+            // Our choice: the last hit before the death is the deadly one
+            // (the killing blow is logged before the death, CombatLog::Deaths).
+            death.hits.back().deadly = true;
         }
+        sessions_.back().totals.deaths.push_back(death);
+        overall_.deaths.push_back(std::move(death));
+        changed |= 1u << STORAGE_DEATHS;
         break;
     }
     }
+    if (changed != 0)
+        sessions_.back().lastEventMs = std::max(sessions_.back().lastEventMs, e.timeMs);
     return changed;
 }
 
+// Overall: the ended sessions' time and the open one's up to its last event
+// (FUN_14298abc0: manager +0xa8, plus the current session's +0x00 - start).
+// Expired holds nothing: 3.80.2 keeps no Expired session (its FromType
+// builders answer it with the empty table, its duration with nil).
 View Meter::ViewOfType(int sessionType, int64_t nowMs) const {
     View v;
     switch (sessionType) {
     case SESSION_OVERALL: {
         v.totals = &overall_;
         const Session *open = IsOpen() ? Current() : nullptr;
-        // Our choice: Overall's duration is the time in sessions since the
-        // reset, so its per-second amounts leave out the time between fights.
-        v.seconds = static_cast<double>(overallClosedMs_ + (open ? open->DurationMs(nowMs) : 0)) *
-                    0.001;
-        v.hasDuration = overallAny_;
+        v.durationMs = overallClosedMs_ + (open ? open->ActiveMs() : 0);
         return v;
     }
     case SESSION_CURRENT: {
         const Session *s = Current();
         return s != nullptr ? ViewOfSession(s->id, nowMs) : v;
     }
-    case SESSION_EXPIRED:
-        v.totals = &expired_;
-        v.seconds = static_cast<double>(expiredMs_) * 0.001;
-        v.hasDuration = expiredAny_;
-        return v;
     default:
         return v;
     }
@@ -314,8 +275,7 @@ View Meter::ViewOfSession(uint32_t sessionID, int64_t nowMs) const {
     if (s == nullptr)
         return v;
     v.totals = &s->totals;
-    v.seconds = static_cast<double>(s->DurationMs(nowMs)) * 0.001;
-    v.hasDuration = true;
+    v.durationMs = s->DurationMs(nowMs);
     v.timedDeaths = true;
     v.startMs = s->startMs;
     return v;
