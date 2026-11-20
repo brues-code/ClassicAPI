@@ -672,11 +672,17 @@ enum Offsets {
     // Game::PixelToInternal does, parses the flags (FONT_FLAG_*), and on
     // success clears bit 0 of OFF_FONTSTRING_FONT_FLAGS (benilla-re ui/fonttext).
     FUN_SIMPLEFONTSTRING_SET_FONT = 0x007714F0,
-    // CSimpleFontString::SetAlphaGradient - `int __thiscall(fs, int start, int
-    // length)`, ret 8: stores the pair at +0x118 / +0x11C, rebuilding a built
-    // string. The constructor stores start -1 (no gradient) (benilla-re
-    // ui/fonttext; 0x00770D30).
+    // CSimpleFontString::SetAlphaGradient - `bool __thiscall(fs, int start, int
+    // length)`, ret 8: stores the pair at OFF_FONTSTRING_GRADIENT_START /
+    // _LENGTH and, with a built string (OFF_FONTSTRING_TEXT_BLOCK), hands it to
+    // TextBlockSetGradient (0x0044DC40) and answers its result < 2 (start is
+    // inside the text), else 1 (disassembled 0x00772460-0x00772496). What the
+    // stock Lua method (0x0079CC80) calls; RebuildString re-applies the pair
+    // while start >= 0 (0x00772711). The constructor stores start -1 (no
+    // gradient) (0x00770DC9; benilla-re ui/fonttext).
     FUN_FONTSTRING_SET_ALPHA_GRADIENT = 0x00772460,
+    OFF_FONTSTRING_GRADIENT_START = 0x118,
+    OFF_FONTSTRING_GRADIENT_LENGTH = 0x11C,
     OFF_FONTSTRING_FONT_FLAGS = 0xD4,
     FONT_FLAG_OUTLINE = 1, // ParseFontFlags 0x006F1A90: OUTLINE 1, MONOCHROME 2, THICKOUTLINE 4
     FUN_REGION_SET_POINT = 0x00767C70,            // __thiscall(region+OFF_REGION_ANCHOR, point, relAnchor, relPoint, x, y, flag=1)

@@ -71,7 +71,6 @@ using GetScriptMethod_t = int(__fastcall *)(void *self, void *edx, void *L, cons
 using SetText_t = void(__thiscall *)(void *fs, const char *text, int expand);
 using LinkFont_t = void(__thiscall *)(void *holder, void *fontObject);
 using SetFont_t = uint32_t(__thiscall *)(void *fs, const char *path, float height, uint32_t flags, uint8_t force);
-using SetGradient_t = int(__thiscall *)(void *fs, int start, int length);
 
 constexpr uint32_t kFontFollowAll = 0x1F;
 
@@ -292,7 +291,7 @@ void ResetFontString(void *L, void *fs) {
     Method(L, fs, "SetMaxLines", {Num(0)});
     Method(L, fs, "SetRotation", {Num(0)});
     Method(L, fs, "SetDrawLayer", {Str("BACKGROUND")});
-    reinterpret_cast<SetGradient_t>(Offsets::FUN_FONTSTRING_SET_ALPHA_GRADIENT)(fs, -1, 0);
+    Method(L, fs, "ClearAlphaGradient", {});
     reinterpret_cast<SetFont_t>(Offsets::FUN_SIMPLEFONTSTRING_SET_FONT)(fs, nullptr, 0.0f, 0, 1);
     Game::Ref<uint32_t>(fs, Offsets::OFF_FONTSTRING_FONT_FLAGS) = kFontFollowAll;
 }

@@ -560,18 +560,6 @@ void OnTextureNode(void *object, const void *node, void * /*status*/) {
 const Xml::TypeLoad::AutoSubscribe _xmlSub{Xml::TypeLoad::TEXTURE, &OnTextureNode};
 
 
-// The 3.80.2 client's error form (0x1405AC570): "<name>:<fn>(): <message>",
-// or "<fn>(): <message>" without a name, cut at 199 characters.
-void RaiseFor(void *L, void *object, const char *fn, const char *message) {
-    char text[200];
-    const char *name = Game::Lua::ObjectName(object);
-    if (name != nullptr)
-        std::snprintf(text, sizeof text, "%s:%s(): %s", name, fn, message);
-    else
-        std::snprintf(text, sizeof text, "%s(): %s", fn, message);
-    Game::Lua::Error(L, "%s", text);
-}
-
 // The MaskTexture argument at `idx`, or nullptr.
 void *MaskArg(void *L, int idx) {
     void *mask = Game::Lua::ResolveTexture(L, idx, /*raiseError=*/false);
@@ -614,8 +602,8 @@ int __fastcall Script_AddMaskTexture(void *L) {
         return 0;
     }
     if (Add(base, mask) == AddResult::Full)
-        RaiseFor(L, base, "AddMaskTexture",
-                 "Texture already has the maximum number of mask textures (3)");
+        Game::Lua::RaiseClientMethodError(L, Game::Lua::ObjectName(base), "AddMaskTexture",
+                                          "Texture already has the maximum number of mask textures (3)");
     return 0;
 }
 

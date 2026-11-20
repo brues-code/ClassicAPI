@@ -405,6 +405,7 @@ build instructions.
   - [`fontstring:GetFontHeight([calculated])` / `fontstring:SetFontHeight(height)`](#fontstringgetfontheightcalculated--fontstringsetfontheightheight)
   - [`fontstring:IsTruncated()`](#fontstringistruncated)
   - [`fontstring:SetMaxLines(maxLines)` / `fontstring:GetMaxLines()`](#fontstringsetmaxlinesmaxlines--fontstringgetmaxlines)
+  - [`fontstring:SetAlphaGradient(start, length)` / `fontstring:GetAlphaGradient()` / `fontstring:ClearAlphaGradient()`](#fontstringsetalphagradientstart-length--fontstringgetalphagradient--fontstringclearalphagradient)
   - [`fontstring:SetIndentedWordWrap([indent])` / `fontstring:GetIndentedWordWrap()`](#fontstringsetindentedwordwrapindent--fontstringgetindentedwordwrap)
   - [`fontstring:SetWordWrap([wrap])` / `fontstring:CanWordWrap()`](#fontstringsetwordwrapwrap--fontstringcanwordwrap)
   - [`fontstring:GetFieldSize()`](#fontstringgetfieldsize)
@@ -9541,6 +9542,42 @@ f:SetWidth(120)
 f:SetMaxLines(1)                 -- one line, then "..."
 f:SetText("a really long guild or player name that will not fit")
 -- draws "a really long gu..."   ; f:IsTruncated() -> true
+```
+
+### `fontstring:SetAlphaGradient(start, length)` / `fontstring:GetAlphaGradient()` / `fontstring:ClearAlphaGradient()`
+
+Fades the text out from one glyph on. The quest frame uses this to show
+quest text a few letters at a time.
+
+- `start` is the first glyph that fades, counted from `0`. Only the glyphs
+  that draw count: color codes, link markers, inline textures and line breaks
+  do not. The count continues across lines.
+- `length` sets the length of the fade. Each glyph after `start` is less
+  opaque than the one before it, and the text is fully transparent about
+  `length / 2` glyphs after `start`. A `length` larger than the text's alpha
+  (0 to 255) gives no fade.
+
+`SetAlphaGradient` returns `true` while `start` is inside the text and `false`
+when `start` is past the last glyph. Both arguments are required and must be
+whole numbers in the 32-bit range (a fraction rounds toward `0`). A `length`
+below `1` raises `<name>:SetAlphaGradient(): length must be greater than 0`.
+
+`GetAlphaGradient` returns `start, length`. `start` is `-1` when no gradient is
+set. `ClearAlphaGradient` removes the gradient, and `GetAlphaGradient` then
+returns `-1, 0`.
+
+The gradient stays when the text changes.
+
+```lua
+local reveal = 0
+text:SetAlphaGradient(0, 30)
+f:SetScript("OnUpdate", function()
+    reveal = reveal + arg1 * 40          -- 40 glyphs a second
+    if not text:SetAlphaGradient(reveal, 30) then
+        text:ClearAlphaGradient()        -- all of the text shows
+        f:SetScript("OnUpdate", nil)
+    end
+end)
 ```
 
 ### `fontstring:SetIndentedWordWrap([indent])` / `fontstring:GetIndentedWordWrap()`

@@ -18,6 +18,8 @@
 #include "compat/WowTurbo.h"
 #include "debug/Log.h"
 
+#include <cstdio>
+
 namespace Game {
 
 void *ResolveUnitToken(const char *token) {
@@ -181,6 +183,20 @@ const char *FrameObjectType(void *frame) {
     using GetObjectType_t = const char *(__thiscall *)(void *);
     const void *vtable = Game::Read<const void *>(frame, 0);
     return Game::Read<GetObjectType_t>(vtable, Offsets::VTBL_FRAME_GET_OBJECT_TYPE)(frame);
+}
+
+void FormatClientMethodError(char (&out)[kClientErrorSize], const char *name, const char *fn,
+                             const char *message) {
+    if (name != nullptr)
+        std::snprintf(out, sizeof out, "%s:%s(): %s", name, fn, message);
+    else
+        std::snprintf(out, sizeof out, "%s(): %s", fn, message);
+}
+
+void RaiseClientMethodError(void *L, const char *name, const char *fn, const char *message) {
+    char text[kClientErrorSize];
+    FormatClientMethodError(text, name, fn, message);
+    Error(L, "%s", text);
 }
 
 const char *ObjectDisplayName(void *object) {

@@ -283,25 +283,23 @@ bool EraseFilter(const void *frame, const char *eventName) {
 
 // ---- Lua methods --------------------------------------------------------------
 
-constexpr std::size_t kErrorCap = 199; // 0x1405AC990 formats into 200 bytes
-
 // The client's "<name>:RegisterUnitEvent(): <message>" (0x1405AC570), the name
 // being the frame's, else its type.
-void FormatError(char (&out)[kErrorCap + 1], void *frame, const char *fmt, ...) {
-    char message[kErrorCap + 1];
+void FormatError(char (&out)[Game::Lua::kClientErrorSize], void *frame, const char *fmt, ...) {
+    char message[Game::Lua::kClientErrorSize];
     va_list args;
     va_start(args, fmt);
     std::vsnprintf(message, sizeof message, fmt, args);
     va_end(args);
     const char *name = Game::Lua::ObjectName(frame);
-    std::snprintf(out, sizeof out, "%s:RegisterUnitEvent(): %s",
-                  name != nullptr ? name : Game::Lua::FrameObjectType(frame), message);
+    Game::Lua::FormatClientMethodError(out, name != nullptr ? name : Game::Lua::FrameObjectType(frame),
+                                       "RegisterUnitEvent", message);
 }
 
 // The body of RegisterUnitEvent. Pushes the return and gives true, or fills
 // `error` and gives false; the caller raises it once this scope's strings are
 // gone (a Lua error never runs their destructors).
-bool RegisterUnitEvent(void *L, void *frame, char (&error)[kErrorCap + 1]) {
+bool RegisterUnitEvent(void *L, void *frame, char (&error)[Game::Lua::kClientErrorSize]) {
     // The event name stays valid: index 2 survives the reshape below.
     const char *eventName = Game::Lua::ToString(L, 2);
 
@@ -361,7 +359,7 @@ int __fastcall Script_RegisterUnitEvent(void *L) {
     // Self first, as Script_RegisterEvent checks it: ResolveFrame raises the
     // engine's own error strings.
     void *frame = Game::Lua::ResolveFrame(L);
-    char error[kErrorCap + 1];
+    char error[Game::Lua::kClientErrorSize];
     if (!Game::Lua::IsString(L, 2))
         FormatError(error, frame, "Usage: (\"event\", \"unit1\" [,\"unit2\", \"unit3\", \"unit4\"])");
     else if (RegisterUnitEvent(L, frame, error))

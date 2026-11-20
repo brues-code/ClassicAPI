@@ -504,6 +504,15 @@ const char *ObjectDisplayName(void *object);
 // pushes (VTBL_FRAME_GET_OBJECT_TYPE). Frames only.
 const char *FrameObjectType(void *frame);
 
+// A method's own error as the 3.80.2 client words it (0x1405AC570 /
+// 0x1405AC990): "<name>:<fn>(): <message>", or "<fn>(): <message>" when `name`
+// is null, cut at 199 characters. Format writes it for a raise made after the
+// caller's C++ scope ends; Raise formats and raises it now.
+constexpr size_t kClientErrorSize = 200;
+void FormatClientMethodError(char (&out)[kClientErrorSize], const char *name, const char *fn,
+                             const char *message);
+void RaiseClientMethodError(void *L, const char *name, const char *fn, const char *message);
+
 // Same resolve, then the type gate every engine frame method applies to its
 // `self` before touching it: `lua_type == table`, resolve to the object, then
 // the `IsA(typeId)` vmethod at vtable+0x10. `ResolveObject` alone is not
