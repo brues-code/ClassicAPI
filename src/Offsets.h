@@ -10642,6 +10642,7 @@ enum Offsets {
     LUA_GET_INFO = 0x006FBC70,
     SIZEOF_LUA_DEBUG = 0x60,
     OFF_LUA_DEBUG_NAME = 0x04,
+    OFF_LUA_DEBUG_WHAT = 0x0C, // "Lua", "C", "main" or "tail" (getinfo "S")
     OFF_LUA_DEBUG_SOURCE = 0x10,
     OFF_LUA_DEBUG_CURRENTLINE = 0x14,
     OFF_LUA_DEBUG_LINEDEFINED = 0x1C,

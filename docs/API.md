@@ -17258,15 +17258,22 @@ the handler.
 
 - `GetCallstackHeight()` returns the number of call levels on the stack.
   The function that calls `GetCallstackHeight` is level 1. C functions
-  count as levels, the same as in `debugstack`.
-- `GetErrorCallstackHeight()` returns the stack height of the code that
-  caused the error, while the game reports an error to the error handler.
-  If code calls the error handler directly, `GetErrorCallstackHeight`
-  returns the value that `SetErrorCallstackHeight` set, or nil.
-- `SetErrorCallstackHeight(height)` sets the height for an error handler
-  that code calls directly, with no error. `SetErrorCallstackHeight(nil)`
-  removes the value. `CallErrorHandler` and `assertsafe` use this function
-  to report from the code that called them.
+  count as levels. A tail call that Lua does not keep does not count, so
+  the number can be less than the levels of `debugstack`. Inside a
+  coroutine, the function counts the levels of the main thread.
+- `GetErrorCallstackHeight()` returns the stack height of the Lua function
+  that caused the error, while the game reports an error to the error
+  handler. C functions such as `error` and `assert` are skipped, so the
+  height is that of the function that called them. A chunk is skipped too:
+  for an error raised directly in a `/run` line, the height is that of the
+  chat code that ran the line. With no Lua function above the error, the
+  height is `0`. When no error is being reported, the function returns nil.
+- `SetErrorCallstackHeight(height)` sets the height that
+  `GetErrorCallstackHeight` returns. A set height is also used for a raised
+  error, until `SetErrorCallstackHeight(nil)` removes it. `CallErrorHandler`
+  and `assertsafe` use this function to report from the code that called
+  them. `height` must be a number in the 32-bit range, or the call raises
+  an error; a fraction rounds toward `0`.
 
 This function returns the stack from the code that caused the error:
 
