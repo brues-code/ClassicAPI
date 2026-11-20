@@ -25,8 +25,19 @@
 // the free list is FIFO (`FUN_00608A10` appends, `FUN_006087F0` takes the
 // head), so the unit usually comes back on a DIFFERENT frame. That is a new
 // nameplate as far as an addon keyed by frame is concerned: REMOVED for the
-// old binding, then ADDED for the new one. Only a re-acquire that hands back
-// the same frame folds into no event.
+// old binding, then ADDED for the new one.
+//
+// A release that gets the SAME frame back inside one frame leaves the
+// binding in both snapshots, so the diff alone cannot see it. The frame was
+// still hidden and bound again, and 3.80.2 fires REMOVED then ADDED for any
+// release and re-acquire (FUN_1419b59c0 then FUN_1419b51b0, from the unit
+// update FUN_1416274b0), whichever frame comes back. So ReleaseNamePlate
+// (FUN_UNIT_RELEASE_NAMEPLATE) is co-hooked to record each binding it lets
+// go of, and the tick treats a recorded binding as gone: REMOVED, then ADDED
+// when it is shown again. The hook only records; the events still go out
+// from the tick. Its callers release, never re-acquire, and it returns at
+// once for a unit with no plate, so the hook is cheap on the per-unit gate
+// that calls it.
 //
 // Payload shape (matches modern WoW exactly):
 // - `NAME_PLATE_CREATED` — `arg1` is the nameplate **Frame**, the
@@ -118,12 +129,31 @@ std::vector<uint64_t> g_deferredAdds;
 // subsequent shows.
 std::vector<const void *> g_seenPlates;
 
+// The bindings ReleaseNamePlate let go of since the last tick. Cleared at
+// the end of each tick, so it holds one frame's releases.
+std::vector<Plate> g_released;
+
 bool HasBinding(const std::vector<Plate> &plates, const Plate &binding) {
     for (const Plate &p : plates)
         if (p.guid == binding.guid && p.plate == binding.plate)
             return true;
     return false;
 }
+
+using ReleaseNamePlate_t = void(__fastcall *)(void *unit, void *edx);
+ReleaseNamePlate_t g_releaseOriginal = nullptr;
+
+// The plate still holds its GUID here; the original zeroes unit+0xE60.
+void __fastcall ReleaseNamePlate_h(void *unit, void *edx) {
+    const auto *plate = Game::Read<const uint8_t *>(unit, Offsets::OFF_UNIT_NAMEPLATE);
+    if (plate != nullptr)
+        g_released.push_back({Game::Read<uint64_t>(plate, Offsets::OFF_NAMEPLATE_GUID), plate});
+    g_releaseOriginal(unit, edx);
+}
+
+const Game::HookAutoRegister _releaseHook{
+    Offsets::FUN_UNIT_RELEASE_NAMEPLATE, reinterpret_cast<void *>(&ReleaseNamePlate_h),
+    reinterpret_cast<void **>(&g_releaseOriginal)};
 
 bool Seen(const void *plate) {
     return std::find(g_seenPlates.begin(), g_seenPlates.end(), plate) != g_seenPlates.end();
@@ -233,9 +263,10 @@ void OnWorldTick() {
     // plates keep their index (retail-exact — no shift); the next ADD reuses
     // it. Token is computed before freeing so the payload names the slot just
     // vacated. Trailing empties are trimmed so the array tracks the
-    // high-water mark.
+    // high-water mark. A binding released this frame counts as gone even
+    // when the same frame is shown again.
     for (const Plate &last : g_lastTickPlates) {
-        if (!HasBinding(g_currentTickPlates, last)) {
+        if (!HasBinding(g_currentTickPlates, last) || HasBinding(g_released, last)) {
             auto it = std::find(g_slots.begin(), g_slots.end(), last.guid);
             if (it == g_slots.end())
                 continue;
@@ -281,7 +312,7 @@ void OnWorldTick() {
             g_seenPlates.push_back(cur.plate);
             announced = true;
         }
-        if (!HasBinding(g_lastTickPlates, cur)) {
+        if (!HasBinding(g_lastTickPlates, cur) || HasBinding(g_released, cur)) {
             if (!announced || _evtUnitAdded.Slot() < 0) {
                 g_deferredAdds.push_back(cur.guid);
                 continue;
@@ -307,6 +338,7 @@ void OnWorldTick() {
             g_currentTickPlates.end());
 
     g_lastTickPlates.swap(g_currentTickPlates);
+    g_released.clear();
 }
 
 } // namespace
@@ -327,6 +359,7 @@ static const Tick::WorldTick::AutoSubscribe _tickSub{&OnWorldTick};
 void PrepareForReload() {
     g_seenPlates.clear();
     g_lastTickPlates.clear();
+    g_released.clear();
     // Objects survive a /reload, and so does the engine's watch on them; drop
     // it with the tokens. The first post-reload tick re-fires ADDED, which
     // gives the tokens back.

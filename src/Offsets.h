@@ -3031,6 +3031,11 @@ enum Offsets {
     OFF_NAMEPLATE_LINK_NEXT = 0x4E0,
     OFF_NAMEPLATE_GUID = 0x4E8,
     OFF_UNIT_NAMEPLATE = 0xE60,
+    // CGUnit_C::ReleaseNamePlate — `void __thiscall(CGUnit_C *)`, plain RET:
+    // returns at once when unit+0xE60 is 0, else links the plate onto the
+    // free list's tail, hides it and zeroes unit+0xE60 (disassembled; the
+    // callers are listed in the block above).
+    FUN_UNIT_RELEASE_NAMEPLATE = 0x00608A10,
     // unit+0xE64 is the unit's chat bubble (0x608AC0 fills it, 0x608C00
     // releases it; benilla-re objectlayer/unitnames.md "Chat bubbles").
     OFF_UNIT_CHAT_BUBBLE = 0xE64,

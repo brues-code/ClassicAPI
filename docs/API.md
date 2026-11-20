@@ -7260,7 +7260,7 @@ Fire when nameplate state actually changes. Payloads:
 |-------|--------|-------|
 | `NAME_PLATE_CREATED` | nameplate **Frame** | Fires once per nameplate frame — a frame that the game uses again for another unit does NOT refire. |
 | `NAME_PLATE_UNIT_ADDED` | `"nameplateN"` **unit token** | Pass straight to `UnitName` / `UnitGUID` / `UnitClass` / etc., or to [`GetNamePlateForUnit`](#c_nameplategetnameplateforunitunittoken) for the frame. The token is positional — see [Unit tokens](#unit-tokens-nameplaten) for ordering semantics. |
-| `NAME_PLATE_UNIT_REMOVED` | `"nameplateN"` **unit token** | Same as above. Computed from the plate's slot *before* it shifts out of the ordered list, so the token still resolves to the leaving unit during the event handler. |
+| `NAME_PLATE_UNIT_REMOVED` | `"nameplateN"` **unit token** | Same as above. The token still names the leaving unit while the event handlers run. It stops naming the unit after the handlers return. |
 
 ```lua
 local f = CreateFrame("Frame")
@@ -7300,10 +7300,10 @@ end)
 The events fire at most one frame after the change. The cost is
 ~20-50µs/frame even in busy raids — well below noise.
 
-The game sometimes hides a plate and shows it again on the next frame.
-This occurs, for example, when the plate order or anchor changes. These
-short hides do not fire `NAME_PLATE_UNIT_REMOVED` or
-`NAME_PLATE_UNIT_ADDED`.
+The game sometimes rebuilds a unit's plate, for example when the unit's
+name arrives. A rebuild fires `NAME_PLATE_UNIT_REMOVED` and then
+`NAME_PLATE_UNIT_ADDED`, also when the unit gets the same frame back.
+The unit can get a different token number.
 
 ### `PLAYER_FOCUS_CHANGED` event
 
