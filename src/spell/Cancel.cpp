@@ -32,6 +32,8 @@
 #include "unit/Identity.h"
 
 #include <cstdint>
+#include <cstdio>
+#include <cstring>
 
 namespace Spell::Cancel {
 
@@ -54,13 +56,26 @@ int __fastcall Script_CancelSpellByName(void *L) {
     const uint8_t *player = Unit::Identity::PlayerObject();
     if (player == nullptr)
         return 0;
-    // Modern CancelSpellByName matches helpful auras only; debuffs go through
-    // dispel UX, not a Lua-side cancel. The name compares as the engine's
-    // UnitAura-by-name does (SStrCmpI).
-    const Aura::Data::Filter helpful = Aura::Data::Filter::Helpful;
-    const int slot = Aura::Data::FindSlotBySpellName(player, targetName, &helpful);
-    if (slot >= 0)
-        SendCancel(static_cast<int>(Aura::Data::ReadSpellID(player, slot)));
+    // 3.80.2's CancelSpellByName (FUN_1413dca30) name pass: cut the name at
+    // its first '(' — "Name(Rank 3)" names any rank — then cancel the first
+    // aura in slot order, buff or debuff, whose spell name equals it ignoring
+    // case (SStrCmpUTF8I there, SStrCmpI here). Its spellbook pass before that,
+    // which maps a known spell to the aura it applies, finds the same aura for
+    // 1.12 spells and is not ported.
+    char wanted[256];
+    std::snprintf(wanted, sizeof wanted, "%s", targetName);
+    if (char *paren = std::strchr(wanted, '('))
+        *paren = '\0';
+    for (int slot = 0; slot < Offsets::UNIT_AURA_TOTAL; ++slot) {
+        if (!Aura::Data::IsSlotPopulated(player, slot))
+            continue;
+        const uint32_t spellID = Aura::Data::ReadSpellID(player, slot);
+        const char *name = Lookup::Name(Lookup::RecordForID(static_cast<int>(spellID)));
+        if (name != nullptr && Game::StrCmpI(name, wanted) == 0) {
+            SendCancel(static_cast<int>(spellID));
+            return 0;
+        }
+    }
     return 0;
 }
 
@@ -74,11 +89,11 @@ const Game::Doc::Function kCancelSpellByID{
 
 const Game::Doc::Field kByNameArgs[] = {
     Game::Doc::Req("name", "string",
-                   "The buff's name, matched without regard to case; a \"(Rank N)\" "
-                   "suffix is not read."),
+                   "The aura's name, matched without regard to case. The text from the "
+                   "first \"(\" is not read, so \"Name(Rank 3)\" matches any rank."),
 };
 const Game::Doc::Function kCancelSpellByName{
-    "Cancels the first of your own buffs whose name matches.",
+    "Cancels the first of your own auras whose name matches.",
     kByNameArgs, {}, "SpellGlobals"};
 
 } // namespace

@@ -16,6 +16,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "aura/Data.h"
+#include "aura/Instance.h"
 #include "guid/Guid.h"
 #include "object/Resolve.h"
 #include "time/Clock.h"
@@ -71,81 +72,115 @@ static void AddTimeLeft(void *L, const uint8_t *unit, int slot) {
     ::Tooltip::Lines::Show(L);
 }
 
-// `GameTooltip:SetUnitAura(unit, index, [filter])` — modern unified-aura
-// method. 1.12 has `SetUnitBuff` (slot 32) and `SetUnitDebuff` (slot 33), each
-// indexing its own slot RANGE (0..31 / 32..47) under the engine's tooltip
-// gate. `C_UnitAuras` indexes by the aura's polarity nibble instead (see
-// Aura::Data), so the two index spaces diverge once the server has parked a
-// debuff in a buff slot — and an index an addon got from `C_UnitAuras` must
-// still open the right tooltip. So: resolve (index, filter) to the absolute
-// slot in OUR space, then hand the engine the index THAT slot has within its
-// own range under ITS gate, choosing SetUnitBuff or SetUnitDebuff by where the
-// slot lives. The aura tooltip builder only ever receives spellId / level /
-// stacks, so a debuff in a buff slot renders identically through SetUnitBuff.
-//
-// `filter` defaults to "HELPFUL" when omitted, matching modern behavior; only
-// its HELPFUL/HARMFUL half is read (a PLAYER-filtered index is not an index
-// into the plain list — pass an index from the same plain list, as FrameXML
-// does). A unit with no live CGUnit (out-of-range groupmate) passes straight
-// through: the engine reads the group array by range there, exactly as we do.
-static int __fastcall Script_GameTooltipSetUnitAura(void *L) {
-    // Args: self (table), unit (string), index (number), filter (optional string)
-    if (Game::Lua::Type(L, 1) != Game::Lua::TYPE_TABLE) {
-        Game::Lua::Error(L, "Usage: GameTooltip:SetUnitAura(unit, index, [filter])");
-        return 0;
-    }
-    if (!Game::Lua::IsString(L, 2) || !Game::Lua::IsNumber(L, 3)) {
-        Game::Lua::Error(L, "Usage: GameTooltip:SetUnitAura(unit, index, [filter])");
-        return 0;
-    }
-
-    bool isHarmful = false;
-    if (Game::Lua::Type(L, 4) == Game::Lua::TYPE_STRING) {
-        const char *filter = Game::Lua::ToString(L, 4);
-        // Case-insensitive prefix check for "HARM" — covers "HARMFUL"
-        // (the canonical filter) and any reasonable variant. Anything
-        // else, including missing/empty, falls through to the buff path.
-        if (filter != nullptr) {
-            const char a = filter[0], b = filter[1], c = filter[2], d = filter[3];
-            isHarmful = (a == 'H' || a == 'h') && (b == 'A' || b == 'a') &&
-                        (c == 'R' || c == 'r') && (d == 'M' || d == 'm');
-        }
-    }
-
-    int index = static_cast<int>(Game::Lua::ToNumber(L, 3));
-    bool useDebuffMethod = isHarmful;
-    const auto *unit = static_cast<const uint8_t *>(
-        Game::ResolveUnitToken(Game::Lua::ToString(L, 2)));
-    int slot = -1;
-    if (unit != nullptr) {
-        slot = Aura::Data::FindNthSlot(
-            unit, index,
-            isHarmful ? Aura::Data::Filter::Harmful : Aura::Data::Filter::Helpful);
-        if (slot >= 0) {
-            index = EngineIndexForSlot(unit, slot);
-            useDebuffMethod = slot >= Offsets::UNIT_AURA_BUFF_COUNT;
-        }
-        // slot < 0: nothing at that index in our space; the raw index goes
-        // through and the engine's own walk shows nothing either.
-    }
-
-    // Rebuild the args as (self, unit, engineIndex) — the engine methods take
-    // exactly those three; the filter string is consumed here.
+// Builds the aura tooltip for an index through the engine's own method: the
+// stack becomes (self, unit, index) — the three args `SetUnitBuff` (slot 32)
+// and `SetUnitDebuff` (slot 33) take — and `debuffMethod` picks which range
+// (0..31 / 32..47) the index counts in.
+static void CallEngineAuraMethod(void *L, int index, bool debuffMethod) {
     Game::Lua::SetTop(L, 2);
     Game::Lua::PushNumber(L, static_cast<double>(index));
-
     using Script_t = int(__fastcall *)(void *L);
-    auto fn = reinterpret_cast<Script_t>(
-        useDebuffMethod ? Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_UNIT_DEBUFF
-                        : Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_UNIT_BUFF);
-    fn(L);
+    reinterpret_cast<Script_t>(debuffMethod ? Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_UNIT_DEBUFF
+                                            : Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_UNIT_BUFF)(L);
+}
 
-    // The engine built and showed the aura tooltip for `slot` (the index
-    // above lands on it). A slot it never reached, or a groupmate read from
-    // the group array, gets no time line — as in 4.3.4.
+// Shows the aura in absolute descriptor `slot` of `unit`. `C_UnitAuras`
+// indexes by the aura's polarity nibble (see Aura::Data), the engine's methods
+// by slot range under the engine's tooltip gate, so the two index spaces part
+// once the server parks a debuff in a buff slot. So the engine gets the index
+// `slot` has within ITS own range, through the method of the range the slot
+// lives in. The aura tooltip builder only receives spellId / level / stacks,
+// so a debuff in a buff slot renders the same through SetUnitBuff. Then the
+// time-left line, as 3.80.2's builder (FUN_141b44ab0) and 4.3.4 add it.
+static void ShowSlot(void *L, const uint8_t *unit, int slot) {
+    CallEngineAuraMethod(L, EngineIndexForSlot(unit, slot),
+                         slot >= Offsets::UNIT_AURA_BUFF_COUNT);
+    AddTimeLeft(L, unit, slot);
+}
+
+static bool CheckUnitAndNumber(void *L, const char *usage) {
+    if (Game::Lua::Type(L, 1) != Game::Lua::TYPE_TABLE || !Game::Lua::IsString(L, 2) ||
+        !Game::Lua::IsNumber(L, 3)) {
+        Game::Lua::Error(L, usage);
+        return false;
+    }
+    return true;
+}
+
+static Aura::Data::ParsedFilter FilterArg(void *L, int idx) {
+    return Aura::Data::ParseFilter(
+        Game::Lua::Type(L, idx) == Game::Lua::TYPE_STRING ? Game::Lua::ToString(L, idx)
+                                                          : nullptr);
+}
+
+// `GameTooltip:SetUnitAura(unit, index [, filter])` — 3.80.2's FUN_141b45360:
+// the index counts the auras the WHOLE filter selects (FUN_1414c8340, the walk
+// GetAuraDataByIndex makes), so an index from `C_UnitAuras.GetAuraDataByIndex`
+// with the same filter opens the same aura. No filter is HELPFUL. An index
+// that names no aura leaves the tooltip as it was, as in 3.80.2.
+//
+// A unit with no live CGUnit (out-of-range groupmate) has no descriptor to
+// walk: the index goes to the engine, which reads the group array by range,
+// so only the filter's range applies there.
+static int __fastcall Script_GameTooltipSetUnitAura(void *L) {
+    if (!CheckUnitAndNumber(L, "Usage: GameTooltip:SetUnitAura(\"unit\", index [, \"filter\"])"))
+        return 0;
+    const Aura::Data::ParsedFilter pf = FilterArg(L, 4);
+    const int index = static_cast<int>(Game::Lua::ToNumber(L, 3));
+    const auto *unit =
+        static_cast<const uint8_t *>(Game::ResolveUnitToken(Game::Lua::ToString(L, 2)));
+    if (unit == nullptr) {
+        CallEngineAuraMethod(L, index, pf.Range() == Aura::Data::Filter::Harmful);
+        return 0;
+    }
+    const int slot = Aura::Data::FindNthSlot(unit, index, pf.Range(), pf.match);
     if (slot >= 0)
-        AddTimeLeft(L, unit, slot);
+        ShowSlot(L, unit, slot);
     return 0;
+}
+
+// The `ByAuraInstanceID` forms (3.80.2's FUN_141b45400 / 45680 / 45910): the
+// aura with that instance ID, when the filter selects it. `SetUnitAura…`'s
+// filter defaults to both ranges; the Buff / Debuff forms force their range
+// onto the caller's filter and keep the rest of it. Only auras of a unit in
+// view have an ID. An ID the filter rejects leaves the tooltip as it was.
+enum class ForcedRange { None, Helpful, Harmful };
+
+static int SetUnitAuraByInstanceID(void *L, const char *usage, ForcedRange forced) {
+    if (!CheckUnitAndNumber(L, usage))
+        return 0;
+    const Aura::Data::ParsedFilter pf = FilterArg(L, 4);
+    const auto *unit =
+        static_cast<const uint8_t *>(Game::ResolveUnitToken(Game::Lua::ToString(L, 2)));
+    const int slot =
+        Aura::Instance::SlotForID(unit, static_cast<uint32_t>(Game::Lua::ToNumber(L, 3)));
+    if (slot < 0)
+        return 0;
+    const bool harmful = Aura::Data::IsSlotHarmful(unit, slot);
+    const bool inRange = forced == ForcedRange::None ? pf.AcceptsPolarity(harmful)
+                                                     : harmful == (forced == ForcedRange::Harmful);
+    if (inRange && Aura::Data::SlotMatches(unit, slot, pf.match))
+        ShowSlot(L, unit, slot);
+    return 0;
+}
+
+static int __fastcall Script_GameTooltipSetUnitAuraByAuraInstanceID(void *L) {
+    return SetUnitAuraByInstanceID(
+        L, "Usage: GameTooltip:SetUnitAuraByAuraInstanceID(\"unit\", auraInstanceID [, \"filter\"])",
+        ForcedRange::None);
+}
+
+static int __fastcall Script_GameTooltipSetUnitBuffByAuraInstanceID(void *L) {
+    return SetUnitAuraByInstanceID(
+        L, "Usage: GameTooltip:SetUnitBuffByAuraInstanceID(\"unit\", auraInstanceID [, \"filter\"])",
+        ForcedRange::Helpful);
+}
+
+static int __fastcall Script_GameTooltipSetUnitDebuffByAuraInstanceID(void *L) {
+    return SetUnitAuraByInstanceID(
+        L,
+        "Usage: GameTooltip:SetUnitDebuffByAuraInstanceID(\"unit\", auraInstanceID [, \"filter\"])",
+        ForcedRange::Harmful);
 }
 
 // The unit a tooltip shows lives in the engine as a GUID only: the builder
@@ -441,6 +476,9 @@ static int __fastcall Script_GameTooltipIsUnit(void *L) {
 
 static const Game::Lua::FrameMethodEntry g_methods[] = {
     {"SetUnitAura", &Script_GameTooltipSetUnitAura},
+    {"SetUnitAuraByAuraInstanceID", &Script_GameTooltipSetUnitAuraByAuraInstanceID},
+    {"SetUnitBuffByAuraInstanceID", &Script_GameTooltipSetUnitBuffByAuraInstanceID},
+    {"SetUnitDebuffByAuraInstanceID", &Script_GameTooltipSetUnitDebuffByAuraInstanceID},
     {"SetUnit", &Script_GameTooltipSetUnit},
     {"GetUnit", &Script_GameTooltipGetUnit},
     {"GetUnitGUID", &Script_GameTooltipGetUnitGUID},
@@ -460,15 +498,35 @@ static const Game::Doc::Function kIsUnit{"Returns whether the tooltip shows the 
 static const Game::Doc::Field kSetUnitAuraArgs[] = {
     Game::Doc::Req("unit", "UnitToken"),
     Game::Doc::Req("index", "luaIndex",
-                   "The aura's index among the unit's helpful or harmful auras, as "
-                   "C_UnitAuras counts them."),
-    Game::Doc::Opt("filter", "cstring", "\"HELPFUL\"",
-                   "HARMFUL counts harmful auras; anything else counts helpful ones."),
+                   "The aura's index among the auras the filter selects, as "
+                   "C_UnitAuras.GetAuraDataByIndex counts them."),
+    Game::Doc::Opt("filter", "AuraFilters", "\"HELPFUL\""),
 };
 static const Game::Doc::Function kSetUnitAura{
     "Shows the tooltip of an aura on a unit. An aura with a known end time gets a last line "
     "with the time left.",
     kSetUnitAuraArgs, {}};
+
+static const Game::Doc::Field kSetUnitAuraByIDArgs[] = {
+    Game::Doc::Req("unit", "UnitToken"),
+    Game::Doc::Req("auraInstanceID", "number"),
+    Game::Doc::Opt("filter", "AuraFilters", nullptr,
+                   "The aura must pass it; with no HELPFUL or HARMFUL token, both pass."),
+};
+static const Game::Doc::Function kSetUnitAuraByAuraInstanceID{
+    "Shows the tooltip of the aura with an instance ID on a unit.", kSetUnitAuraByIDArgs, {}};
+
+static const Game::Doc::Field kSetUnitRangeByIDArgs[] = {
+    Game::Doc::Req("unit", "UnitToken"),
+    Game::Doc::Req("auraInstanceID", "number"),
+    Game::Doc::Opt("filter", "AuraFilters", nullptr,
+                   "Further tokens the aura must pass, such as PLAYER; the range is fixed."),
+};
+static const Game::Doc::Function kSetUnitBuffByAuraInstanceID{
+    "Shows the tooltip of the buff with an instance ID on a unit.", kSetUnitRangeByIDArgs, {}};
+static const Game::Doc::Function kSetUnitDebuffByAuraInstanceID{
+    "Shows the tooltip of the debuff with an instance ID on a unit.", kSetUnitRangeByIDArgs,
+    {}};
 
 static const Game::Doc::Field kSetUnitArgs[] = {
     Game::Doc::Req("unit", "UnitToken"),
@@ -503,6 +561,9 @@ static const Game::Doc::Function kHasUnit{"Returns whether the tooltip shows a u
 
 static const Game::Doc::Method g_methodDocs[] = {
     {"SetUnitAura", &kSetUnitAura},
+    {"SetUnitAuraByAuraInstanceID", &kSetUnitAuraByAuraInstanceID},
+    {"SetUnitBuffByAuraInstanceID", &kSetUnitBuffByAuraInstanceID},
+    {"SetUnitDebuffByAuraInstanceID", &kSetUnitDebuffByAuraInstanceID},
     {"SetUnit", &kSetUnit},
     {"GetUnit", &kGetUnit},
     {"GetUnitGUID", &kGetUnitGUID},

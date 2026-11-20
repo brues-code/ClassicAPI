@@ -26,12 +26,12 @@
 #include "spell/IsSelfBuff.h"
 #include "spell/Known.h"
 #include "spell/Lookup.h"
-#include "tick/WorldTick.h"
 #include "time/Clock.h"
 #include "turtle/Detect.h"
 #include "unit/Identity.h"
 #include "unit/Relation.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 
@@ -43,14 +43,13 @@ const uint8_t *SpellRecord(uint32_t spellID) {
     return Spell::Lookup::RecordForID(static_cast<int>(spellID));
 }
 
-// True when the spell's locale-resolved name equals `query`, ignoring case:
-// Storm's SStrCmpI, the compare 4.3.4's GetSortedAuraSlot makes for UnitAura's
-// name form.
+// True when the spell's locale-resolved name equals `query` exactly, case
+// included: 3.80.2's by-name aura lookup (FUN_1414c8430) compares bytes.
 bool SpellNameMatches(const uint8_t *spellRecord, const char *query) {
     const char *name = Spell::Lookup::Name(spellRecord);
     if (name == nullptr || query == nullptr)
         return false;
-    return Game::StrCmpI(name, query) == 0;
+    return std::strcmp(name, query) == 0;
 }
 
 // The player-buff-table record the engine built for absolute aura `slot`,
@@ -435,6 +434,51 @@ bool CancelMatches(CancelMode cancel, bool cancelable) {
     }
 }
 
+ParsedFilter ParseFilter(const char *filter) {
+    ParsedFilter out;
+    if (filter == nullptr)
+        return out;
+    Match &m = out.match;
+    for (const char *p = filter; *p != '\0';) {
+        while (*p == '|' || *p == ' ' || *p == '\t')
+            ++p;
+        if (*p == '\0')
+            break;
+        bool negate = false;
+        if (*p == '!') {
+            negate = true;
+            ++p;
+        }
+        char tok[64];
+        size_t n = 0;
+        while (*p != '\0' && *p != '|' && *p != ' ' && *p != '\t') {
+            if (n + 1 < sizeof(tok))
+                tok[n++] = *p;
+            ++p;
+        }
+        tok[n] = '\0';
+
+        // A leading `!` on HELPFUL / HARMFUL means nothing for a range.
+        if (Game::StrCmpI(tok, "HELPFUL") == 0)
+            out.helpful = true;
+        else if (Game::StrCmpI(tok, "HARMFUL") == 0)
+            out.harmful = true;
+        else if (Game::StrCmpI(tok, "PLAYER") == 0)
+            m.caster = negate ? CasterMode::NotPlayer : CasterMode::PlayerOnly;
+        else if (Game::StrCmpI(tok, "RAID") == 0)
+            m.raid = !negate;
+        else if (Game::StrCmpI(tok, "CANCELABLE") == 0)
+            m.cancel = negate ? CancelMode::NotCancelable : CancelMode::CancelableOnly;
+        else if (Game::StrCmpI(tok, "NOT_CANCELABLE") == 0)
+            m.cancel = negate ? CancelMode::CancelableOnly : CancelMode::NotCancelable;
+        else if (Game::StrCmpI(tok, "DISPELLABLE") == 0)
+            m.dispel = negate ? DispelMode::NotDispellable : DispelMode::DispellableOnly;
+        else if (Game::StrCmpI(tok, "CROWD_CONTROL") == 0)
+            m.cc = negate ? CcMode::NotCrowdControl : CcMode::CrowdControlOnly;
+    }
+    return out;
+}
+
 bool MatchesAura(const Match &match, bool isPlayerCast, uint32_t spellID,
                  bool harmful, bool cancelable) {
     return CasterMatches(match.caster, isPlayerCast) &&
@@ -492,11 +536,19 @@ constexpr int kRanks = 3;
 // One unit's cached groups. `spell` is the aura array the groups were built
 // from; `canApply` keeps each slot's `CanApplyAura` answer, which depends only
 // on the spell and on what the player and pet know (`knowledge`), so a rebuild
-// reuses it for every slot whose spell did not change. Caster groups are
-// rebuilt every time: the cache can learn a caster after the aura appears.
+// reuses it for every slot whose spell did not change.
+//
+// The groups are built only when the unit's aura array changes, as 3.80.2
+// re-sorts its aura list only when an aura update marks it dirty (flag 0x4000,
+// FUN_1414c7ab0). Between aura changes the order holds still, so a slot list
+// from GetAuraSlots and a later by-index call (GameTooltip:SetUnitAura) name
+// the same aura. The caster a group reads can change without any aura change —
+// the cache learns a caster late, a totem leaves sight — and re-ranking on that
+// reordered the auras under an addon that had no event to rescan on (pfUI #89).
+// So a caster learned after the aura appeared moves it at the next aura change,
+// as in 3.80.2.
 struct SortedUnit {
     uint64_t guid;
-    uint32_t frame;
     uint64_t knowledge;
     uint32_t spell[Offsets::UNIT_AURA_TOTAL];
     bool canApply[Offsets::UNIT_AURA_TOTAL];
@@ -504,15 +556,10 @@ struct SortedUnit {
 };
 
 // Direct-mapped by GUID: a raid's 40 members plus target, focus and nameplates
-// mostly land in their own entries, and a collision only costs a rebuild.
+// mostly land in their own entries. A collision evicts the other unit, and its
+// next walk re-ranks it with the casters known then.
 constexpr int kSortedUnits = 64;
 SortedUnit g_sorted[kSortedUnits];
-
-// Bumped once per world frame, so groups built in one frame are reused by every
-// walk in that frame (a by-index loop) and rebuilt in the next.
-uint32_t g_frame = 1;
-void OnWorldTick() { ++g_frame; }
-const Tick::WorldTick::AutoSubscribe _tick{&OnWorldTick};
 
 // What the player and pet know, as far as `CanApplyAura` reads it: the
 // spellbook count changes on learn and unlearn, the pet GUID on a new pet.
@@ -530,8 +577,7 @@ const uint8_t *SlotRanks(const uint8_t *unit) {
     for (int s = 0; s < Offsets::UNIT_AURA_TOTAL; ++s)
         spell[s] = ReadSpellID(unit, s);
     const bool sameUnit = su.guid == guid;
-    if (sameUnit && su.frame == g_frame &&
-        std::memcmp(su.spell, spell, sizeof spell) == 0)
+    if (sameUnit && std::memcmp(su.spell, spell, sizeof spell) == 0)
         return su.rank;
 
     const uint64_t knowledge = KnowledgeKey();
@@ -551,7 +597,6 @@ const uint8_t *SlotRanks(const uint8_t *unit) {
                                            : RANK_OTHER;
     }
     su.guid = guid;
-    su.frame = g_frame;
     su.knowledge = knowledge;
     std::memcpy(su.spell, spell, sizeof spell);
     return su.rank;
@@ -588,24 +633,14 @@ int FindNthSlot(const uint8_t *unit, int oneBasedIndex, Filter filter,
     return -1;
 }
 
-int FindSlotBySpellID(const uint8_t *unit, uint32_t spellID,
-                      const Filter *filter, Match match) {
+int FindSlotBySpellID(const uint8_t *unit, uint32_t spellID, const Filter *filter) {
     if (unit == nullptr || spellID == 0)
         return -1;
-    // Own auras first, as 4.3.4's name lookup walks its sorted list; with no
-    // filter, the helpful walk, which visits every slot.
-    int order[Offsets::UNIT_AURA_TOTAL];
-    WalkOrder(unit, filter != nullptr ? *filter : Filter::Helpful, order);
-    for (int i = 0; i < Offsets::UNIT_AURA_TOTAL; ++i) {
-        const int slot = order[i];
-        if (!IsSlotPopulated(unit, slot))
-            continue;
-        if (ReadSpellID(unit, slot) != spellID)
+    for (int slot = 0; slot < Offsets::UNIT_AURA_TOTAL; ++slot) {
+        if (ReadSpellID(unit, slot) != spellID || !IsSlotPopulated(unit, slot))
             continue;
         if (filter != nullptr &&
             IsSlotHarmful(unit, slot) != (*filter == Filter::Harmful))
-            continue;
-        if (!PopulatedSlotMatches(unit, slot, match))
             continue;
         return slot;
     }
@@ -794,6 +829,7 @@ struct Display {
     bool fromPlayerOrPet;
     bool canApplyAura;
     bool isRaid;
+    bool canActivePlayerDispel;
     bool isStealable;
 };
 
@@ -812,7 +848,11 @@ static Display ResolveDisplay(uint32_t spellID, uint64_t casterGuid, bool isHelp
     d.castByPlayer = Guid::IsPlayer(casterGuid);
     d.fromPlayerOrPet = d.castByPlayer || Guid::IsPet(casterGuid);
     d.canApplyAura = CanApplyAura(spellRecord, spellID);
-    d.isRaid = IsRaidAura(spellID, !isHelpful);
+    // 3.80.2's AuraData builder (FUN_140a641b0): canActivePlayerDispel is a
+    // debuff whose dispel type the player removes, and isRaid is that OR a buff
+    // the player can cast — the RAID filter's two halves.
+    d.canActivePlayerDispel = !isHelpful && IsRaidAura(spellID, true);
+    d.isRaid = isHelpful ? IsRaidAura(spellID, false) : d.canActivePlayerDispel;
     d.isStealable = IsStealable(unitGuid, spellRecord, isHelpful);
     return d;
 }
@@ -881,25 +921,22 @@ static void BuildTable(void *L, uint64_t unitGuid, uint32_t spellID, int applica
     else if (fill)
         ClearField(L, "auraInstanceID");
 
-    Game::Lua::SetFieldNumber(L, "charges", 0);
-    Game::Lua::SetFieldNumber(L, "maxCharges", 0);
     Game::Lua::SetFieldNumber(L, "timeMod", 1);
 
     Game::Lua::SetFieldBool(L, "isFromPlayerOrPlayerPet", disp.fromPlayerOrPet);
     Game::Lua::SetFieldBool(L, "canApplyAura", disp.canApplyAura);
     Game::Lua::SetFieldBool(L, "isRaid", disp.isRaid);
+    Game::Lua::SetFieldBool(L, "canActivePlayerDispel", disp.canActivePlayerDispel);
     Game::Lua::SetFieldBool(L, "isStealable", disp.isStealable);
 
-    // Boolean fields whose modern semantics don't apply in vanilla.
+    // 3.80.2 reads these from spell attributes 1.12 spells don't carry.
     Game::Lua::SetFieldBool(L, "isBossAura", false);
     Game::Lua::SetFieldBool(L, "isNameplateOnly", false);
     Game::Lua::SetFieldBool(L, "nameplateShowAll", false);
     Game::Lua::SetFieldBool(L, "nameplateShowPersonal", false);
-    Game::Lua::SetFieldBool(L, "shouldConsolidate", false);
 
-    // `points` is deliberately omitted — modern returns nil when it doesn't
-    // apply, and Lua reading a missing key yields nil, so the table doesn't
-    // need an explicit entry.
+    // `points` is omitted: 3.80.2 fills it with the aura's effect amounts,
+    // which the 1.12 descriptor does not hold.
 }
 
 // Emits the Classic-Era `UnitAura` 15-value tuple onto the Lua stack from the
@@ -1180,7 +1217,7 @@ bool FallbackEligible(const uint8_t *unit, const Aura::Source::CachedAura &c,
                       // the descriptor path drops these via IsSlotPopulated, so
                       // the cache path must apply the same engine predicate or
                       // they leak through as tooltip-less phantom buffs.
-    if (FindSlotBySpellID(unit, c.spellId, &filter, Match{}) >= 0)
+    if (FindSlotBySpellID(unit, c.spellId, &filter) >= 0)
         return false; // still in the descriptor — returned via the slot path
     return true;
 }
@@ -1240,19 +1277,6 @@ bool PushNthCacheFallback(void *L, const uint8_t *unit, int oneBasedIndex,
         }
     }
     return false;
-}
-
-void AppendCacheFallbacks(void *L, const uint8_t *unit, Filter filter,
-                          Match match, int outerIdx, int &nextKey) {
-    Aura::Source::CachedAura buf[kFallbackMax];
-    const int n = EligibleFallbacks(unit, filter, buf);
-    for (int i = 0; i < n; ++i) {
-        if (!CachedMatches(buf[i], match, filter == Filter::Harmful))
-            continue;
-        Game::Lua::PushNumber(L, static_cast<double>(nextKey++));
-        PushFromCache(L, unit, buf[i], filter == Filter::Helpful);
-        Game::Lua::SetTable(L, outerIdx);
-    }
 }
 
 // ── Out-of-range groupmate path ────────────────────────────────────────────
@@ -1380,24 +1404,6 @@ bool PushNthGroupCacheFallback(void *L, uint64_t guid, const uint16_t *arr,
     return false;
 }
 
-// Append every cache-fallback aura of `filter`'s kind into the array table.
-void AppendGroupCacheFallbacks(void *L, uint64_t guid, const uint16_t *arr,
-                               Filter filter, Match match, int outerIdx,
-                               int &nextKey) {
-    Aura::Source::CachedAura buf[kFallbackMax];
-    const int n =
-        EligibleGroupFallbacks(arr, guid, filter == Filter::Harmful, buf);
-    for (int i = 0; i < n; ++i) {
-        if (!CachedMatches(buf[i], match, filter == Filter::Harmful))
-            continue;
-        Game::Lua::PushNumber(L, static_cast<double>(nextKey++));
-        const Attribution a = CachedAttribution(buf[i]);
-        PushEnriched(L, guid, buf[i].spellId, filter == Filter::Helpful, 1,
-                     false, buf[i].slot, &a);
-        Game::Lua::SetTable(L, outerIdx);
-    }
-}
-
 // Single cache-fallback aura matching `spellID` (when nonzero) or `spellName`
 // (when non-null), of the given kind. Backs the by-ID / by-name group queries.
 bool PushGroupCacheFallbackMatch(void *L, uint64_t guid, const uint16_t *arr,
@@ -1451,38 +1457,23 @@ bool PushNthGroupAura(void *L, uint64_t guid, int oneBasedIndex, Filter filter,
                                      emit);
 }
 
-bool PushGroupAuraBySpellID(void *L, uint64_t guid, uint32_t spellID,
-                            const Filter *filter, Match match) {
+bool PushGroupAuraBySpellID(void *L, uint64_t guid, uint32_t spellID) {
     if (guid == 0 || spellID == 0)
         return false;
     const uint16_t *arr = Group::MemberStats::AuraArray(guid);
     if (arr == nullptr)
         return false;
     Aura::Source::ObserveGroupAuras(guid, arr);
-    const int start = (filter != nullptr && *filter == Filter::Harmful)
-                          ? Offsets::UNIT_AURA_BUFF_COUNT
-                          : 0;
-    const int end = (filter != nullptr && *filter == Filter::Helpful)
-                        ? Offsets::UNIT_AURA_BUFF_COUNT
-                        : Offsets::UNIT_AURA_TOTAL;
-    for (int slot = start; slot < end; ++slot) {
-        if (GroupSpellID(arr, slot) != spellID)
-            continue;
-        if (!GroupSlotMatches(guid, arr, slot, match))
+    for (int slot = 0; slot < Offsets::UNIT_AURA_TOTAL; ++slot) {
+        if (GroupSpellID(arr, slot) != spellID || !GroupSlotVisible(arr, slot))
             continue;
         PushEnriched(L, guid, spellID, slot < Offsets::UNIT_AURA_BUFF_COUNT, 1,
                      false, Aura::Source::SLOT_UNBOUND);
         return true;
     }
     // Empty array (server delta-resend gap): supplement from the cache.
-    const bool both = (filter == nullptr);
-    if ((both || *filter == Filter::Helpful) &&
-        PushGroupCacheFallbackMatch(L, guid, arr, false, spellID, nullptr, match))
-        return true;
-    if ((both || *filter == Filter::Harmful) &&
-        PushGroupCacheFallbackMatch(L, guid, arr, true, spellID, nullptr, match))
-        return true;
-    return false;
+    return PushGroupCacheFallbackMatch(L, guid, arr, false, spellID, nullptr, Match{}) ||
+           PushGroupCacheFallbackMatch(L, guid, arr, true, spellID, nullptr, Match{});
 }
 
 bool PushGroupAuraBySpellName(void *L, uint64_t guid, const char *spellName,
@@ -1520,29 +1511,6 @@ bool PushGroupAuraBySpellName(void *L, uint64_t guid, const char *spellName,
         PushGroupCacheFallbackMatch(L, guid, arr, true, 0, spellName, match))
         return true;
     return false;
-}
-
-void AppendGroupAuras(void *L, uint64_t guid, Filter filter, Match match,
-                      int outerIdx, int &nextKey) {
-    if (guid == 0)
-        return;
-    const uint16_t *arr = Group::MemberStats::AuraArray(guid);
-    if (arr == nullptr)
-        return;
-    Aura::Source::ObserveGroupAuras(guid, arr);
-    int start, end;
-    GroupRange(filter, start, end);
-    for (int slot = start; slot < end; ++slot) {
-        if (!GroupSlotMatches(guid, arr, slot, match))
-            continue;
-        Game::Lua::PushNumber(L, static_cast<double>(nextKey++));
-        PushEnriched(L, guid, GroupSpellID(arr, slot),
-                     filter == Filter::Helpful, 1, false,
-                     Aura::Source::SLOT_UNBOUND);
-        Game::Lua::SetTable(L, outerIdx);
-    }
-    // Empty array (server delta-resend gap): supplement from the cache.
-    AppendGroupCacheFallbacks(L, guid, arr, filter, match, outerIdx, nextKey);
 }
 
 // ── Opaque aura slots ──────────────────────────────────────────────────────
@@ -1595,16 +1563,35 @@ int CollectSlots(const uint8_t *unit, uint64_t guid, Filter filter, Match match,
     return n;
 }
 
-bool PushBySlot(void *L, const uint8_t *unit, uint64_t guid, int slot, Emit emit) {
-    if (slot < 0)
+namespace {
+
+// Everything `PushEnriched` needs to emit the aura an opaque id names: the one
+// place the id encoding is decoded.
+struct Resolved {
+    uint64_t owner;       // the aura's unit
+    uint32_t spellID;
+    bool isHelpful;
+    int applications;
+    bool isPlayer;        // the unit is the local player (engine timing)
+    int slot;             // descriptor slot, or the cache entry's slot binding
+    bool hasKnown;        // `known` holds a cache entry's own attribution
+    Attribution known;
+    uint32_t instanceID;
+};
+
+bool ResolveSlotID(const uint8_t *unit, uint64_t guid, int id, Resolved *out) {
+    if (id < 0)
         return false;
-    const int kind = slot / OPAQUE_STRIDE;
-    const int k = slot % OPAQUE_STRIDE;
+    const int kind = id / OPAQUE_STRIDE;
+    const int k = id % OPAQUE_STRIDE;
+    *out = {};
     switch (kind) {
     case 0: // live descriptor slot
         if (unit == nullptr || !IsSlotPopulated(unit, k))
             return false;
-        Push(L, unit, k, emit);
+        *out = {::Object::Guid(unit), ReadSpellID(unit, k), !IsSlotHarmful(unit, k),
+                ReadStacks(unit, k), unit == Unit::Identity::PlayerObject(), k, false,
+                {}, Aura::Instance::IDForSlot(unit, k)};
         return true;
     case 1:   // helpful cache fallback
     case 2: { // harmful cache fallback
@@ -1614,7 +1601,9 @@ bool PushBySlot(void *L, const uint8_t *unit, uint64_t guid, int slot, Emit emit
         Aura::Source::CachedAura buf[kFallbackMax];
         if (k >= EligibleFallbacks(unit, filter, buf))
             return false;
-        PushFromCache(L, unit, buf[k], filter == Filter::Helpful, emit);
+        // Stacks aren't in SMSG_SPELL_GO, so `applications` is 1.
+        *out = {::Object::Guid(unit), buf[k].spellId, filter == Filter::Helpful, 1, false,
+                buf[k].slot, true, CachedAttribution(buf[k]), 0};
         return true;
     }
     case 3: { // out-of-range group-array slot
@@ -1626,9 +1615,8 @@ bool PushBySlot(void *L, const uint8_t *unit, uint64_t guid, int slot, Emit emit
         Aura::Source::ObserveGroupAuras(guid, arr);
         if (!GroupSlotVisible(arr, k))
             return false;
-        PushEnriched(L, guid, GroupSpellID(arr, k),
-                     k < Offsets::UNIT_AURA_BUFF_COUNT, 1,
-                     false, Aura::Source::SLOT_UNBOUND, /*known*/ nullptr, emit);
+        *out = {guid, GroupSpellID(arr, k), k < Offsets::UNIT_AURA_BUFF_COUNT, 1, false,
+                Aura::Source::SLOT_UNBOUND, false, {}, 0};
         return true;
     }
     case 4:   // helpful group cache fallback
@@ -1642,14 +1630,149 @@ bool PushBySlot(void *L, const uint8_t *unit, uint64_t guid, int slot, Emit emit
         Aura::Source::CachedAura buf[kFallbackMax];
         if (k >= EligibleGroupFallbacks(arr, guid, harmful, buf))
             return false;
-        const Attribution a = CachedAttribution(buf[k]);
-        PushEnriched(L, guid, buf[k].spellId, !harmful, 1,
-                     false, buf[k].slot, &a, emit);
+        *out = {guid, buf[k].spellId, !harmful, 1, false, buf[k].slot, true,
+                CachedAttribution(buf[k]), 0};
         return true;
     }
     default:
         return false;
     }
+}
+
+} // namespace
+
+bool PushBySlot(void *L, const uint8_t *unit, uint64_t guid, int slot, Emit emit) {
+    Resolved r;
+    if (!ResolveSlotID(unit, guid, slot, &r))
+        return false;
+    PushEnriched(L, r.owner, r.spellID, r.isHelpful, r.applications, r.isPlayer, r.slot,
+                 r.hasKnown ? &r.known : nullptr, emit, r.instanceID);
+    return true;
+}
+
+uint32_t InstanceIDBySlot(const uint8_t *unit, int slot) {
+    if (unit == nullptr || slot < 0 || slot >= Offsets::UNIT_AURA_TOTAL ||
+        !IsSlotPopulated(unit, slot))
+        return 0;
+    return Aura::Instance::IDForSlot(unit, slot);
+}
+
+namespace {
+
+// One aura's sort keys, read once per `SortSlots` call.
+struct SortKey {
+    bool own;              // caster GUID == the player's
+    bool canApply;
+    uint32_t remainingMs;  // 0 = no end (or not known)
+    bool hasEnd;
+    const char *name;      // nullptr when the spell has no record
+    uint32_t instanceID;   // 0 for auras with none (fallback / out of range)
+};
+
+// 3.80.2's name order (FUN_141a25880 -> Storm's SStrCmpUTF8I): case-folded
+// first, the raw case breaking a folded tie; a spell with a name sorts before
+// one without. 1.12 has no UTF-8 folding compare; SStrCmpI folds ASCII, which
+// is every name on an English client. Returns <0 / 0 / >0.
+int CompareNames(const char *a, const char *b) {
+    if (a == nullptr || b == nullptr)
+        return (a != nullptr) ? -1 : (b != nullptr) ? 1 : 0;
+    if (a == b)
+        return 0;
+    const int folded = Game::StrCmpI(a, b);
+    return folded != 0 ? folded : std::strcmp(a, b);
+}
+
+// The expiration order of the Expiration rules: soonest end first, auras with
+// no end last. 0 = tie.
+int CompareExpiration(const SortKey &a, const SortKey &b) {
+    if (a.hasEnd != b.hasEnd)
+        return a.hasEnd ? -1 : 1;
+    if (!a.hasEnd || a.remainingMs == b.remainingMs)
+        return 0;
+    return a.remainingMs < b.remainingMs ? -1 : 1;
+}
+
+// "own, then canApplyAura" — the lead of Default, Expiration and Name. 0 = tie.
+int CompareOwnership(const SortKey &a, const SortKey &b) {
+    if (a.own != b.own)
+        return a.own ? -1 : 1;
+    if (a.canApply != b.canApply)
+        return a.canApply ? -1 : 1;
+    return 0;
+}
+
+bool Before(SortRule rule, const SortKey &a, const SortKey &b) {
+    int c = 0;
+    switch (rule) {
+    case SortRule::Default:
+        c = CompareOwnership(a, b);
+        break;
+    case SortRule::BigDefensive:
+        // Not-own first; then no end first, then the latest end.
+        if (a.own != b.own)
+            c = a.own ? 1 : -1;
+        else
+            c = -CompareExpiration(a, b);
+        break;
+    case SortRule::Expiration:
+        c = CompareOwnership(a, b);
+        if (c == 0)
+            c = CompareExpiration(a, b);
+        break;
+    case SortRule::ExpirationOnly:
+        c = CompareExpiration(a, b);
+        break;
+    case SortRule::Name:
+        c = CompareOwnership(a, b);
+        if (c == 0)
+            c = CompareNames(a.name, b.name);
+        break;
+    case SortRule::NameOnly:
+        c = CompareNames(a.name, b.name);
+        break;
+    case SortRule::Unsorted:
+        return false;
+    }
+    if (c != 0)
+        return c < 0;
+    return a.instanceID < b.instanceID;
+}
+
+} // namespace
+
+void SortSlots(const uint8_t *unit, uint64_t guid, int *ids, int n, SortRule rule) {
+    if (rule == SortRule::Unsorted || n < 2)
+        return;
+    constexpr int kMax = 2 * OPAQUE_SLOTS_MAX;
+    if (n > kMax)
+        n = kMax;
+    const uint64_t player = Unit::Identity::PlayerGuid();
+    const uint32_t now = Time::Clock::NowMs();
+    SortKey keys[kMax];
+    int order[kMax];
+    for (int i = 0; i < n; ++i) {
+        order[i] = i;
+        Resolved r;
+        if (!ResolveSlotID(unit, guid, ids[i], &r)) {
+            keys[i] = {};
+            continue;
+        }
+        const Timing t =
+            ResolveTiming(r.owner, r.spellID, r.isPlayer, r.slot, r.hasKnown ? &r.known : nullptr);
+        const uint8_t *record = SpellRecord(r.spellID);
+        keys[i].own = t.caster != 0 && t.caster == player;
+        keys[i].canApply = CanApplyAura(record, r.spellID);
+        keys[i].hasEnd = t.expirationMs != 0;
+        keys[i].remainingMs = keys[i].hasEnd ? Time::Clock::Remaining(now, t.expirationMs) : 0;
+        keys[i].name = Spell::Lookup::Name(record);
+        keys[i].instanceID = r.instanceID;
+    }
+    std::stable_sort(order, order + n,
+                     [&](int a, int b) { return Before(rule, keys[a], keys[b]); });
+    int sorted[kMax];
+    for (int i = 0; i < n; ++i)
+        sorted[i] = ids[order[i]];
+    std::memcpy(ids, sorted, n * sizeof(int));
 }
 
 } // namespace Aura::Data

@@ -1334,18 +1334,20 @@ build instructions.
 
 - [UnitAuras](#unitauras)
   - [`C_UnitAuras.GetAuraDataByIndex(unit, index [, filter])`](#c_unitaurasgetauradatabyindexunit-index--filter)
-  - [`C_UnitAuras.GetBuffDataByIndex(unit, index)` / `GetDebuffDataByIndex(unit, index)`](#c_unitaurasgetbuffdatabyindexunit-index--getdebuffdatabyindexunit-index)
+  - [`C_UnitAuras.GetBuffDataByIndex(unit, index [, filter])` / `GetDebuffDataByIndex(unit, index [, filter])`](#c_unitaurasgetbuffdatabyindexunit-index--filter--getdebuffdatabyindexunit-index--filter)
   - [`C_UnitAuras.UnitAura(unit, index [, filter])`](#c_unitaurasunitauraunit-index--filter)
   - [`C_UnitAuras.UnitBuff(unit, index [, filter])` / `UnitDebuff(unit, index [, filter])`](#c_unitaurasunitbuffunit-index--filter--unitdebuffunit-index--filter)
   - [`C_UnitAuras.GetAuraSlots(unit [, filter [, maxSlots [, continuationToken]]])`](#c_unitaurasgetauraslotsunit--filter--maxslots--continuationtoken)
   - [`C_UnitAuras.GetAuraDataBySlot(unit, slot)` / `UnitAuraBySlot(unit, slot)`](#c_unitaurasgetauradatabyslotunit-slot--unitaurabyslotunit-slot)
   - [`C_UnitAuras.GetAuraDataByAuraInstanceID(unit, auraInstanceID [, buf])`](#c_unitaurasgetauradatabyaurainstanceidunit-aurainstanceid--buf)
-  - [`C_UnitAuras.GetUnitAuraBySpellID(unit, spellID [, filter])`](#c_unitaurasgetunitaurabyspellidunit-spellid--filter)
+  - [`C_UnitAuras.GetUnitAuraBySpellID(unit, spellID)`](#c_unitaurasgetunitaurabyspellidunit-spellid)
   - [`C_UnitAuras.GetPlayerAuraBySpellID(spellID)`](#c_unitaurasgetplayeraurabyspellidspellid)
   - [`C_UnitAuras.GetAuraDataBySpellName(unit, spellName [, filter])`](#c_unitaurasgetauradatabyspellnameunit-spellname--filter)
   - [`C_UnitAuras.RegisterComboDuration(spellID, baseSeconds, maxSeconds)`](#c_unitaurasregistercombodurationspellid-baseseconds-maxseconds)
   - [`C_UnitAuras.RegisterAuraDurationModifierByTrigger(triggerFamily, triggerSchool, affectedFamily, affectedFamilyFlags, affectedIcon, op [, valueSeconds])`](#c_unitaurasregisterauradurationmodifierbytriggertriggerfamily-triggerschool-affectedfamily-affectedfamilyflags-affectedicon-op--valueseconds)
-  - [`C_UnitAuras.GetUnitAuras(unit [, filter])`](#c_unitaurasgetunitaurasunit--filter)
+  - [`C_UnitAuras.GetUnitAuras(unit [, filter [, maxCount [, sortRule [, sortDirection]]]])`](#c_unitaurasgetunitaurasunit--filter--maxcount--sortrule--sortdirection)
+  - [`C_UnitAuras.GetUnitAuraInstanceIDs(unit [, filter [, maxCount [, sortRule [, sortDirection]]]])`](#c_unitaurasgetunitaurainstanceidsunit--filter--maxcount--sortrule--sortdirection)
+  - [`C_UnitAuras.IsAuraFilteredOutByInstanceID(unit, auraInstanceID, filter)`](#c_unitaurasisaurafilteredoutbyinstanceidunit-aurainstanceid-filter)
   - [`C_UnitAuras.GetAuraDispelTypeColor(dispelName)`](#c_unitaurasgetauradispeltypecolordispelname)
 
 - [VoiceChat](#voicechat)
@@ -12069,30 +12071,57 @@ gameobject GUID does not match).
 
 ### `GameTooltip:SetUnitAura(unit, index, [filter])`
 
-Unified-aura method. `index` is in the same `HELPFUL` / `HARMFUL` index
-space as `C_UnitAuras.GetAuraDataByIndex`, so an index you got from
-`C_UnitAuras` always opens the matching tooltip. That includes a debuff
-that the server parked in a buff slot. The tooltip is the same as the one
-from `SetUnitBuff` or `SetUnitDebuff`, plus a last line with the time
-left, when the aura has a known end time. That end time is the
-`expirationTime` that `UnitAura` gives. The line does not update by
-itself. To make it count down, call `SetUnitAura` again while the
-tooltip is open. `filter` defaults to helpful when omitted. Only its
-`HELPFUL` or `HARMFUL` token is read, so pass an index from the same
-plain list.
+Unified-aura method. `index` counts the auras that `filter` selects, in the
+same order as `C_UnitAuras.GetAuraDataByIndex`. Thus an index that you got
+from `GetAuraDataByIndex` opens the tooltip of the same aura when you give the
+same filter. `filter` takes all the `C_UnitAuras` tokens, for example
+`"HARMFUL|PLAYER"`. Without a filter, the index counts buffs. If no aura has
+that index, the tooltip does not change.
+
+The tooltip is the same as the one from `SetUnitBuff` or `SetUnitDebuff`. When
+the aura has a known end time, the tooltip also has a last line with the time
+left. That end time is the `expirationTime` that `UnitAura` gives. The line
+does not update by itself. To make it count down, call `SetUnitAura` again
+while the tooltip is open.
 
 ```lua
 GameTooltip:SetOwner(UIParent, "ANCHOR_CURSOR")
-GameTooltip:SetUnitAura("player", 1, "HELPFUL")  -- first buff
-GameTooltip:SetUnitAura("player", 1, "HARMFUL")  -- first debuff
-GameTooltip:SetUnitAura("player", 1)              -- defaults to HELPFUL
+GameTooltip:SetUnitAura("player", 1, "HELPFUL")         -- first buff
+GameTooltip:SetUnitAura("target", 1, "HARMFUL|PLAYER")  -- your first debuff
+GameTooltip:SetUnitAura("player", 1)                    -- defaults to HELPFUL
 GameTooltip:Show()
 ```
 
-`SetUnitBuff` and `SetUnitDebuff` index their own slot ranges, which
-differ from the `C_UnitAuras` index space once a debuff sits in a buff
-slot. This method translates between the two, so you do not need to
-split on the filter yourself.
+`SetUnitBuff` and `SetUnitDebuff` index their own slot ranges. These ranges
+differ from the `C_UnitAuras` order, for example when a debuff sits in a buff
+slot. This method translates between the two.
+
+For a group member that is out of range, only the `HELPFUL` or `HARMFUL` part
+of `filter` applies.
+
+### `GameTooltip:SetUnitAuraByAuraInstanceID(unit, auraInstanceID, [filter])` / `SetUnitBuffByAuraInstanceID` / `SetUnitDebuffByAuraInstanceID`
+
+Shows the tooltip of the aura that has the instance ID `auraInstanceID` on
+`unit`. The tooltip is the same as the one from `SetUnitAura`. If the aura
+does not pass `filter`, or no aura on the unit has the ID, the tooltip does
+not change.
+
+- `SetUnitAuraByAuraInstanceID` accepts buffs and debuffs when `filter` has no
+  `HELPFUL` or `HARMFUL` token.
+- `SetUnitBuffByAuraInstanceID` accepts only buffs, and
+  `SetUnitDebuffByAuraInstanceID` accepts only debuffs. The other tokens of
+  `filter` still apply, for example `PLAYER`.
+
+Only an aura in the unit's aura list has an instance ID. Thus these methods
+show nothing for a group member that is out of range.
+
+```lua
+local d = C_UnitAuras.GetAuraDataByIndex("target", 1, "HARMFUL")
+if d and d.auraInstanceID then
+    GameTooltip:SetOwner(UIParent, "ANCHOR_CURSOR")
+    GameTooltip:SetUnitAuraByAuraInstanceID("target", d.auraInstanceID)
+end
+```
 
 ### `GameTooltip:AddTexture(texture)`
 
@@ -25303,7 +25332,7 @@ CancelSpellByName("Cat Form")       -- Drop shapeshift
 | Function | Arg | Behavior |
 |----------|-----|----------|
 | `C_Spell.CancelSpellByID(spellID)` | spellID (number) | Sends a cancel request for `spellID` to the server. No client-side check that the buff is actually present — server validates and silently no-ops if not. |
-| `CancelSpellByName(name)` | name (string, case-insensitive) | Finds the first buff on the player whose localized name matches, then cancels by its spellID. Buff-only — debuffs are skipped. |
+| `CancelSpellByName(name)` | name (string, case-insensitive) | Finds the first aura on the player whose localized name matches, then cancels by its spellID. The search includes buffs and debuffs. The text from the first `(` is not read, so `"Name(Rank 3)"` matches the aura at any rank. |
 
 Neither function tests on the client whether the aura can be
 cancelled, as `CancelPlayerBuff` does. The server decides. The server
@@ -29279,6 +29308,12 @@ this order, an index is not the same index that the native `UnitBuff` or
 functions and to `GameTooltip:SetUnitAura`. For a party or raid member
 with no live unit object, the auras stay in slot order.
 
+The order changes only when the auras on the unit change, and then
+`UNIT_AURA` fires. Thus an index or a slot list that you got after the last
+`UNIT_AURA` stays correct until the next one. If the caster of an aura
+becomes known after the aura appears, the aura moves to its group at the
+next change.
+
 When a party/raid member has **no live unit object at all** (a
 different map, far out of range), there is no unit to read — but
 the server still sends that member's current aura spell IDs, and
@@ -29300,13 +29335,13 @@ these functions surface them, exactly as the built-in `UnitBuff` /
 | `expirationTime` | number | for `unit == "player"`, the same data `GetPlayerBuffTimeLeft` returns. For any other unit, the cast time + duration of an observed cast (see below). `0` when neither source has it, and `0` for one of your auras that lasts until you cancel it. `expirationTime - GetTime()` gives the true remaining time |
 | `sourceUnit` | string | unit token of the caster (`"player"`, `"raid7"`, `"nameplate1"`, …), from the observed cast. `nil` if the cast wasn't observed or the caster maps to no current token |
 | `sourceGUID` | string | caster's `"0x…"` GUID string from the same observed cast. **A ClassicAPI extension — not a standard `AuraData` field.** Set whenever a caster is known, including when `sourceUnit` is `nil` (caster left token range). Stable for the session, unlike the volatile nameplate token; doubles as a unit token under SuperWoW. `nil` when the cast was not observed |
-| `charges` / `maxCharges` | number | always `0` — there are stacks, not charges |
 | `timeMod` | number | always `1` — there are no haste-affected auras |
 | `isFromPlayerOrPlayerPet` | boolean | true when a player — any player, not only you — or a player's pet applied the aura. Read from the cached caster GUID, so it is `false` when the cast was not seen this session. Totem buffs read `false`: a totem is a creature, not a pet |
 | `canApplyAura` | boolean | true when you or your pet know the aura's spell, and the spell applies an aura |
 | `isRaid` | boolean | true when the aura passes the `RAID` filter: a buff that you can cast on other players, or a debuff that you can dispel |
+| `canActivePlayerDispel` | boolean | true when the aura is a debuff that you can dispel. Always false for a buff |
 | `isStealable` | boolean | true when you can remove the buff from an enemy: you can attack the unit, the aura is a buff that is not passive, not an area aura and not channeled, and you or your pet know a spell that removes its dispel type from an enemy (for example Purge, Dispel Magic, Tranquilizing Shot, Devour Magic) |
-| `isBossAura`, `isNameplateOnly`, `nameplateShowAll`, `nameplateShowPersonal`, `shouldConsolidate` | boolean | always `false` — UI concepts not present here |
+| `isBossAura`, `isNameplateOnly`, `nameplateShowAll`, `nameplateShowPersonal` | boolean | always `false` — the spell data has no value for them |
 | `auraInstanceID` | number | a number that identifies this aura on this unit. It stays the same while the aura stays on the unit. An aura that goes off and comes back gets a new number. `nil` for an aura that is not in the unit's aura list (a group member out of range, or an aura that only the cast cache knows) |
 | `points` | (absent) | omitted from the table — Lua read yields nil for "field doesn't apply" |
 
@@ -29443,11 +29478,16 @@ rest) are accepted and ignored — there is no data for them. Token
 matching is whole-token, so `RAID_PLAYER_DISPELLABLE` is not read as
 `PLAYER`.
 
-### `C_UnitAuras.GetBuffDataByIndex(unit, index)` / `GetDebuffDataByIndex(unit, index)`
+### `C_UnitAuras.GetBuffDataByIndex(unit, index [, filter])` / `GetDebuffDataByIndex(unit, index [, filter])`
 
-Convenience wrappers locking the filter to `HELPFUL` or `HARMFUL`
-respectively. Equivalent to `GetAuraDataByIndex(unit, index,
-"HELPFUL")` / `"HARMFUL"`.
+`GetAuraDataByIndex` with the range locked to `HELPFUL` or `HARMFUL`. The
+`filter` still honors all the other tokens, for example `PLAYER` and
+`RAID`. A range token in `filter` has no effect.
+
+```lua
+-- Your second debuff on the target:
+local d = C_UnitAuras.GetDebuffDataByIndex("target", 2, "PLAYER")
+```
 
 ### `C_UnitAuras.UnitAura(unit, index [, filter])`
 
@@ -29564,12 +29604,12 @@ if d then
 end
 ```
 
-### `C_UnitAuras.GetUnitAuraBySpellID(unit, spellID [, filter])`
+### `C_UnitAuras.GetUnitAuraBySpellID(unit, spellID)`
 
 Searches `unit`'s auras for one whose `spellId` matches and returns
-its `AuraData`, or `nil` if not found. If more than one aura matches,
-your own aura comes first (see [Aura order](#unitauras)). Without a
-filter, searches both ranges (helpful first, then harmful).
+its `AuraData`, or `nil` if not found. The search includes buffs and
+debuffs. If more than one aura matches, the function returns the aura in
+the lowest slot. That aura is not necessarily your own.
 
 ```lua
 -- Is the player blessed with Wisdom right now?
@@ -29584,12 +29624,13 @@ common consumer pattern (WeakAuras-style aura tracking).
 
 ### `C_UnitAuras.GetAuraDataBySpellName(unit, spellName [, filter])`
 
-Searches `unit`'s auras for one whose locale-resolved `name` matches
-`spellName`. If more than one aura matches, your own aura comes first.
-Case is not
-important: `"inner fire"` finds Inner Fire. Returns the `AuraData` for
-that slot or `nil` if not found. Without a filter, searches both
-ranges (helpful first, then harmful).
+Searches `unit`'s auras for one whose locale-resolved `name` is
+`spellName`. The name must match exactly, case included: `"inner fire"`
+does not find Inner Fire. If more than one aura matches, your own aura
+comes first. Returns the `AuraData` for that aura, or `nil` if no aura
+matches.
+Without a range token in the filter, the function searches buffs, then
+debuffs.
 
 ```lua
 local d = C_UnitAuras.GetAuraDataBySpellName("player", "Inner Fire")
@@ -29688,16 +29729,62 @@ slightly.
 C_UnitAuras.RegisterAuraDurationModifierByTrigger(6, 5, 6, tonumber("4000000", 16), 9, "refresh")
 ```
 
-### `C_UnitAuras.GetUnitAuras(unit [, filter])`
+### `C_UnitAuras.GetUnitAuras(unit [, filter [, maxCount [, sortRule [, sortDirection]]]])`
 
-Returns a numerically-indexed array of `AuraData` tables for every
-populated aura on `unit`. Without a filter the array is helpful auras
-followed by harmful; with a filter it's restricted to one range.
-Empty array (`{}`) if the unit has no auras or doesn't resolve.
+Returns an array of `AuraData` tables for the auras on `unit` that match
+`filter`. Returns an empty array (`{}`) if the unit has no auras or does
+not resolve.
+
+- `filter` takes the same tokens as `GetAuraDataByIndex`. `HELPFUL` and
+  `HARMFUL` select those ranges. A filter with neither token selects buffs
+  and debuffs, so `"PLAYER"` gives all the auras that you cast.
+- `sortRule` is an `Enum.UnitAuraSortRule` value. The default is
+  `Unsorted`.
+- `sortDirection` is an `Enum.UnitAuraSortDirection` value: `Normal` (the
+  default) or `Reverse`. `Reverse` reverses the whole sorted list.
+- `maxCount` limits the number of auras. The function applies it after it
+  sorts the list.
+
+| `Enum.UnitAuraSortRule` | Order |
+|---|---|
+| `Unsorted` (0) | Buffs, then debuffs, each in [aura order](#unitauras) |
+| `Default` (1) | Your own auras, then auras you can apply, then the others |
+| `BigDefensive` (2) | Auras that other casters cast, then your own auras. In each group, auras with no end come first, then the aura that ends last |
+| `Expiration` (3) | Your own auras, then auras you can apply, then the others. In each group, the aura that ends first comes first, and auras with no end come last |
+| `ExpirationOnly` (4) | The aura that ends first comes first. Auras with no end come last |
+| `Name` (5) | Your own auras, then auras you can apply, then the others. In each group, by name |
+| `NameOnly` (6) | By name |
+
+"Your own auras" are the auras that you cast. The auras of your pet are not
+included. Names compare without regard to case. If two names are equal in
+that compare, their case decides the order. When two auras are equal under a
+rule, the lower `auraInstanceID` comes first. A wrong `sortRule` or
+`sortDirection` value causes an error.
 
 ```lua
-for _, aura in ipairs(C_UnitAuras.GetUnitAuras("target")) do
-    print(aura.spellId, aura.dispelName, aura.isHarmful)
+for _, aura in ipairs(C_UnitAuras.GetUnitAuras("target", "HARMFUL|PLAYER", 5,
+        Enum.UnitAuraSortRule.Expiration)) do
+    print(aura.spellId, aura.expirationTime)
+end
+```
+
+### `C_UnitAuras.GetUnitAuraInstanceIDs(unit [, filter [, maxCount [, sortRule [, sortDirection]]]])`
+
+Returns an array of the `auraInstanceID` values of the auras that
+`GetUnitAuras` returns with the same arguments, in the same order. Only an
+aura in the unit's aura list has an instance ID. Thus the array is empty
+for a group member that is out of range.
+
+### `C_UnitAuras.IsAuraFilteredOutByInstanceID(unit, auraInstanceID, filter)`
+
+Returns `true` when `filter` does not select the aura with the instance ID
+`auraInstanceID` on `unit`. Also returns `true` when no aura on the unit
+has this ID. The function reads `filter` as `GetUnitAuras` does: a filter
+with no range token selects buffs and debuffs.
+
+```lua
+if not C_UnitAuras.IsAuraFilteredOutByInstanceID("target", id, "HARMFUL|PLAYER") then
+    -- the aura is one of your debuffs
 end
 ```
 

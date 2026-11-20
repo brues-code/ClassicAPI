@@ -17,24 +17,16 @@
 // nameplate flags, etc.) are populated with vanilla-truthful
 // defaults so consumers reading those keys get sensible values.
 //
-// Filter parsing (`ParseFilters`) tokenizes the modern AuraFilters string:
-// tokens separated by `|` and/or whitespace, each optionally negated with a
-// leading `!`, compared ignoring case as 4.3.4's parser does. Whole-token
-// matching, so `RAID_PLAYER_DISPELLABLE` is not mistaken for `PLAYER` and
-// `!PLAYER` is a negation rather than a match.
-// Honored: `HELPFUL` / `HARMFUL` (the aura's real polarity, read however this
-// server encodes it — see `Aura::Data::IsSlotHarmful`), `PLAYER` /
-// `!PLAYER` (caster is / isn't the local player or a unit they own, from the
-// Aura::Source cache), `RAID` (the engine's raid filter — see
-// `Aura::Data::IsRaidAura`), `CANCELABLE` / `NOT_CANCELABLE` (the descriptor's
-// cancelable bit),
-// `DISPELLABLE` / `!DISPELLABLE` (dispel type is / isn't one a
-// dispel/purge/steal can remove — Spell.dbc Dispel ∈ Magic/Curse/Disease/
-// Poison, matching the server's DISPEL_ALL_MASK), and `CROWD_CONTROL` /
-// `!CROWD_CONTROL` (is / isn't a hard control effect, via the shared
-// `Spell::CrowdControl` classifier that also backs C_LossOfControl). Every
-// other modern token (`INCLUDE_NAME_PLATE_ONLY`, `MAW`, …) is accepted and
-// ignored — vanilla has no data for them.
+// Filters are parsed by `Aura::Data::ParseFilter` (see `Data.h` for the token
+// rules and the range model). Honored: `HELPFUL` / `HARMFUL` (the aura's real
+// polarity — see `Aura::Data::IsSlotHarmful`), `PLAYER` / `!PLAYER` (caster
+// is / isn't the local player or a unit they own, from the Aura::Source
+// cache), `RAID` (the engine's raid filter — see `Aura::Data::IsRaidAura`),
+// `CANCELABLE` / `NOT_CANCELABLE` (the descriptor's cancelable bit),
+// `DISPELLABLE` / `!DISPELLABLE` (Spell.dbc Dispel is / isn't one of Magic,
+// Curse, Disease, Poison — the server's DISPEL_ALL_MASK), and `CROWD_CONTROL`
+// / `!CROWD_CONTROL` (via the shared `Spell::CrowdControl` classifier that
+// also backs C_LossOfControl).
 
 #include "Data.h"
 
@@ -46,6 +38,7 @@
 #include "ui/ColorData.h"
 #include "unit/Identity.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 
@@ -67,84 +60,6 @@ uint64_t GuidForOutOfRange(const char *token) {
     if (token == nullptr)
         return 0;
     return Unit::Identity::GuidForToken(token);
-}
-
-// Parsed AuraFilters string. `helpful`/`harmful` record which range tokens
-// were present (neither → both, matching modern's default); `caster` carries
-// the PLAYER / !PLAYER restriction.
-struct ParsedFilter {
-    bool helpful = false;
-    bool harmful = false;
-    Data::CasterMode caster = Data::CasterMode::Any;
-    Data::DispelMode dispel = Data::DispelMode::Any;
-    Data::CcMode cc = Data::CcMode::Any;
-    Data::CancelMode cancel = Data::CancelMode::Any;
-    bool raid = false;
-
-    Data::Match ToMatch() const { return Data::Match{caster, dispel, cc, cancel, raid}; }
-};
-
-// Reduces the parsed range tokens to the single `Data::Filter` the indexed /
-// by-id / by-name getters take: Harmful when HARMFUL was given, else Helpful
-// (the modern default). HELPFUL wins ties are irrelevant here — an indexed
-// getter reads one range.
-Data::Filter RangeFilter(const ParsedFilter &pf) {
-    return pf.harmful && !pf.helpful ? Data::Filter::Harmful
-                                     : Data::Filter::Helpful;
-}
-
-// Tokenizes the filter string, ignoring case (4.3.4's Script_GetAuraInfo
-// compares tokens with SStrCmpI). `HELPFUL`/`HARMFUL` are positive range selectors;
-// negating them is meaningless for our slot-based ranges, so a leading `!` is
-// ignored on those. `PLAYER` honors negation (`!PLAYER` → NotPlayer). Any
-// unrecognized token is accepted and skipped.
-ParsedFilter ParseFilters(const char *filter) {
-    ParsedFilter out;
-    if (filter == nullptr)
-        return out;
-    for (const char *p = filter; *p != '\0';) {
-        while (*p == '|' || *p == ' ' || *p == '\t')
-            ++p;
-        if (*p == '\0')
-            break;
-        bool negate = false;
-        if (*p == '!') {
-            negate = true;
-            ++p;
-        }
-        char tok[64];
-        size_t n = 0;
-        while (*p != '\0' && *p != '|' && *p != ' ' && *p != '\t') {
-            if (n + 1 < sizeof(tok))
-                tok[n++] = *p;
-            ++p;
-        }
-        tok[n] = '\0';
-
-        if (_stricmp(tok, "HELPFUL") == 0)
-            out.helpful = true;
-        else if (_stricmp(tok, "HARMFUL") == 0)
-            out.harmful = true;
-        else if (_stricmp(tok, "PLAYER") == 0)
-            out.caster = negate ? Data::CasterMode::NotPlayer
-                                : Data::CasterMode::PlayerOnly;
-        else if (_stricmp(tok, "RAID") == 0)
-            out.raid = !negate;
-        else if (_stricmp(tok, "CANCELABLE") == 0)
-            out.cancel = negate ? Data::CancelMode::NotCancelable
-                                : Data::CancelMode::CancelableOnly;
-        else if (_stricmp(tok, "NOT_CANCELABLE") == 0)
-            out.cancel = negate ? Data::CancelMode::CancelableOnly
-                                : Data::CancelMode::NotCancelable;
-        else if (_stricmp(tok, "DISPELLABLE") == 0)
-            out.dispel = negate ? Data::DispelMode::NotDispellable
-                                : Data::DispelMode::DispellableOnly;
-        else if (_stricmp(tok, "CROWD_CONTROL") == 0)
-            out.cc = negate ? Data::CcMode::NotCrowdControl
-                            : Data::CcMode::CrowdControlOnly;
-        // else: accepted and ignored (retail-only / unimplemented token).
-    }
-    return out;
 }
 
 const char *ArgUnit(void *L, int idx) {
@@ -227,10 +142,12 @@ int __fastcall Script_GetAuraDataByIndex(void *L) {
         Game::Lua::PushNil(L);
         return 1;
     }
-    const ParsedFilter pf = ParseFilters(filterStr);
-    return PushAuraByIndex(L, unit, index, RangeFilter(pf), pf.ToMatch());
+    const Data::ParsedFilter pf = Data::ParseFilter(filterStr);
+    return PushAuraByIndex(L, unit, index, pf.Range(), pf.match);
 }
 
+// 3.80.2 forces the range (HELPFUL / HARMFUL replaces the other) and keeps the
+// rest of the caller's filter.
 int __fastcall Script_GetBuffDataByIndex(void *L) {
     const char *unit = ArgUnit(L, 1);
     const int index = ArgInt(L, 2);
@@ -238,7 +155,8 @@ int __fastcall Script_GetBuffDataByIndex(void *L) {
         Game::Lua::PushNil(L);
         return 1;
     }
-    return PushAuraByIndex(L, unit, index, Data::Filter::Helpful);
+    const Data::ParsedFilter pf = Data::ParseFilter(ArgOptString(L, 3));
+    return PushAuraByIndex(L, unit, index, Data::Filter::Helpful, pf.match);
 }
 
 int __fastcall Script_GetDebuffDataByIndex(void *L) {
@@ -248,7 +166,8 @@ int __fastcall Script_GetDebuffDataByIndex(void *L) {
         Game::Lua::PushNil(L);
         return 1;
     }
-    return PushAuraByIndex(L, unit, index, Data::Filter::Harmful);
+    const Data::ParsedFilter pf = Data::ParseFilter(ArgOptString(L, 3));
+    return PushAuraByIndex(L, unit, index, Data::Filter::Harmful, pf.match);
 }
 
 // Zero-allocation positional accessors — Classic-Era `UnitAura`/`UnitBuff`/
@@ -265,8 +184,8 @@ int __fastcall Script_UnitAura(void *L) {
         Game::Lua::PushNil(L);
         return 1;
     }
-    const ParsedFilter pf = ParseFilters(filterStr);
-    return PushUnitAuraPositional(L, unit, index, RangeFilter(pf), pf.ToMatch());
+    const Data::ParsedFilter pf = Data::ParseFilter(filterStr);
+    return PushUnitAuraPositional(L, unit, index, pf.Range(), pf.match);
 }
 
 int __fastcall Script_UnitBuff(void *L) {
@@ -277,9 +196,9 @@ int __fastcall Script_UnitBuff(void *L) {
         Game::Lua::PushNil(L);
         return 1;
     }
-    const ParsedFilter pf = ParseFilters(filterStr);
+    const Data::ParsedFilter pf = Data::ParseFilter(filterStr);
     return PushUnitAuraPositional(L, unit, index, Data::Filter::Helpful,
-                                  pf.ToMatch());
+                                  pf.match);
 }
 
 int __fastcall Script_UnitDebuff(void *L) {
@@ -290,33 +209,30 @@ int __fastcall Script_UnitDebuff(void *L) {
         Game::Lua::PushNil(L);
         return 1;
     }
-    const ParsedFilter pf = ParseFilters(filterStr);
+    const Data::ParsedFilter pf = Data::ParseFilter(filterStr);
     return PushUnitAuraPositional(L, unit, index, Data::Filter::Harmful,
-                                  pf.ToMatch());
+                                  pf.match);
 }
 
+// 3.80.2 takes no filter: the first aura with the spell ID in the unit's
+// storage order, either polarity.
 int __fastcall Script_GetUnitAuraBySpellID(void *L) {
     const char *unitToken = ArgUnit(L, 1);
     const int spellID = ArgInt(L, 2);
-    const char *filterStr = ArgOptString(L, 3);
     if (unitToken == nullptr || spellID <= 0) {
         Game::Lua::PushNil(L);
         return 1;
     }
     const uint8_t *unit = ResolveUnit(unitToken);
-    const ParsedFilter pf = ParseFilters(filterStr);
-    Data::Filter f = RangeFilter(pf);
-    const Data::Filter *fp = (pf.helpful || pf.harmful) ? &f : nullptr;
     if (unit != nullptr) {
-        const int slot = Data::FindSlotBySpellID(
-            unit, static_cast<uint32_t>(spellID), fp, pf.ToMatch());
+        const int slot =
+            Data::FindSlotBySpellID(unit, static_cast<uint32_t>(spellID), nullptr);
         if (slot >= 0) {
             Data::Push(L, unit, slot);
             return 1;
         }
     } else if (Data::PushGroupAuraBySpellID(L, GuidForOutOfRange(unitToken),
-                                            static_cast<uint32_t>(spellID), fp,
-                                            pf.ToMatch())) {
+                                            static_cast<uint32_t>(spellID))) {
         // Out-of-range groupmate — read from the group-member aura array.
         return 1;
     }
@@ -333,17 +249,17 @@ int __fastcall Script_GetAuraDataBySpellName(void *L) {
         return 1;
     }
     const uint8_t *unit = ResolveUnit(unitToken);
-    const ParsedFilter pf = ParseFilters(filterStr);
-    Data::Filter f = RangeFilter(pf);
-    const Data::Filter *fp = (pf.helpful || pf.harmful) ? &f : nullptr;
+    const Data::ParsedFilter pf = Data::ParseFilter(filterStr);
+    Data::Filter f = pf.Range();
+    const Data::Filter *fp = pf.NamesRange() ? &f : nullptr;
     if (unit != nullptr) {
-        const int slot = Data::FindSlotBySpellName(unit, spellName, fp, pf.ToMatch());
+        const int slot = Data::FindSlotBySpellName(unit, spellName, fp, pf.match);
         if (slot >= 0) {
             Data::Push(L, unit, slot);
             return 1;
         }
     } else if (Data::PushGroupAuraBySpellName(L, GuidForOutOfRange(unitToken),
-                                              spellName, fp, pf.ToMatch())) {
+                                              spellName, fp, pf.match)) {
         // Out-of-range groupmate — read from the group-member aura array.
         return 1;
     }
@@ -397,8 +313,8 @@ int __fastcall Script_GetAuraSlots(void *L) {
     if (unitToken != nullptr) {
         const uint8_t *unit = ResolveUnit(unitToken);
         const uint64_t guid = (unit == nullptr) ? GuidForOutOfRange(unitToken) : 0;
-        const ParsedFilter pf = ParseFilters(filterStr);
-        total = Data::CollectSlots(unit, guid, RangeFilter(pf), pf.ToMatch(), slots,
+        const Data::ParsedFilter pf = Data::ParseFilter(filterStr);
+        total = Data::CollectSlots(unit, guid, pf.Range(), pf.match, slots,
                                    Data::OPAQUE_SLOTS_MAX);
     }
     int start = (token > 0) ? token - 1 : 0;
@@ -527,56 +443,129 @@ int __fastcall Script_UnitAuraBySlot(void *L) {
     return PushAuraBySlot(L, Data::Emit::Positional);
 }
 
-// Iterates the auras of one polarity (in `WalkOrder`, the same order the
-// by-index getters use) and pushes AuraData tables into `outer` at
-// sequential keys starting from `nextKey`. Updates `nextKey` so a follow-up
-// call can append to the same outer table.
-void AppendRangeToArray(void *L, const uint8_t *unit, int outerIdx,
-                       Data::Filter filter, int &nextKey, Data::Match match) {
-    int order[Offsets::UNIT_AURA_TOTAL];
-    Data::WalkOrder(unit, filter, order);
-    for (int i = 0; i < Offsets::UNIT_AURA_TOTAL; ++i) {
-        const int slot = order[i];
-        if (!Data::SlotMatchesFilter(unit, slot, filter, match))
-            continue;
-        Game::Lua::PushNumber(L, static_cast<double>(nextKey++));
-        Data::Push(L, unit, slot);
-        Game::Lua::SetTable(L, outerIdx);
+constexpr int kListMax = 2 * Data::OPAQUE_SLOTS_MAX;
+
+// The auras GetUnitAuras / GetUnitAuraInstanceIDs list, as opaque slot ids:
+// args `(unit, filter [, maxCount, sortRule, sortDirection])`. 3.80.2's order of
+// operations (FUN_141a25e00): filter, sort by the rule, reverse when the
+// direction is Reverse, then cut to maxCount.
+//
+// The range is ClassicAPI's: HELPFUL and/or HARMFUL select those ranges and a
+// filter naming neither selects both, so `"PLAYER"` alone lists every aura the
+// player cast. (3.80.2 lists nothing for such a filter.) Buffs are collected
+// before debuffs. `CollectListed` returns false after raising a usage error
+// for a sortRule / sortDirection that is not one of the enum's values.
+struct Listed {
+    const uint8_t *unit;
+    uint64_t guid;
+    int n;
+    int ids[kListMax];
+};
+
+bool OptEnumArg(void *L, int idx, int count, int *out) {
+    const int t = Game::Lua::Type(L, idx);
+    if (t == Game::Lua::TYPE_NONE || t == Game::Lua::TYPE_NIL)
+        return true;
+    if (t != Game::Lua::TYPE_NUMBER)
+        return false;
+    const int v = static_cast<int>(Game::Lua::ToNumber(L, idx));
+    if (v < 0 || v >= count)
+        return false;
+    *out = v;
+    return true;
+}
+
+bool CollectListed(void *L, const char *usage, Listed *out) {
+    int rule = static_cast<int>(Data::SortRule::Unsorted);
+    int direction = 0; // Enum.UnitAuraSortDirection.Normal
+    if (!OptEnumArg(L, 4, Data::SORT_RULE_COUNT, &rule) || !OptEnumArg(L, 5, 2, &direction)) {
+        Game::Lua::Error(L, usage);
+        return false;
     }
-    // Append auras the descriptor dropped but Aura::Source still has live.
-    Data::AppendCacheFallbacks(L, unit, filter, match, outerIdx, nextKey);
+    const char *unitToken = ArgUnit(L, 1);
+    out->unit = ResolveUnit(unitToken);
+    out->guid = (out->unit == nullptr) ? GuidForOutOfRange(unitToken) : 0;
+    out->n = 0;
+    if (unitToken != nullptr && (out->unit != nullptr || out->guid != 0)) {
+        const Data::ParsedFilter pf = Data::ParseFilter(ArgOptString(L, 2));
+        if (pf.AcceptsPolarity(false))
+            out->n += Data::CollectSlots(out->unit, out->guid, Data::Filter::Helpful,
+                                         pf.match, out->ids, kListMax);
+        if (pf.AcceptsPolarity(true))
+            out->n += Data::CollectSlots(out->unit, out->guid, Data::Filter::Harmful,
+                                         pf.match, out->ids + out->n, kListMax - out->n);
+    }
+    Data::SortSlots(out->unit, out->guid, out->ids, out->n, static_cast<Data::SortRule>(rule));
+    if (direction == 1)
+        std::reverse(out->ids, out->ids + out->n);
+    if (Game::Lua::IsNumber(L, 3)) {
+        const int maxCount = static_cast<int>(Game::Lua::ToNumber(L, 3));
+        out->n = std::min(out->n, std::max(maxCount, 0));
+    }
+    return true;
 }
 
 int __fastcall Script_GetUnitAuras(void *L) {
-    const char *unitToken = ArgUnit(L, 1);
-    const char *filterStr = ArgOptString(L, 2);
-    const uint8_t *unit = ResolveUnit(unitToken);
-
+    Listed listed;
+    if (!CollectListed(L,
+                       "Usage: local auras = C_UnitAuras.GetUnitAuras(unit, filter [, "
+                       "maxCount, sortRule, sortDirection])",
+                       &listed))
+        return 0;
     Game::Lua::SetTop(L, 0);
     Game::Lua::NewTable(L);
-
-    // Range tokens are independent of PLAYER: an explicit HELPFUL/HARMFUL
-    // selects that range, neither selects both. So `"PLAYER"` alone returns
-    // both ranges restricted to player-cast auras (matching retail).
-    const ParsedFilter pf = ParseFilters(filterStr);
-    const bool both = !pf.helpful && !pf.harmful;
-
-    int nextKey = 1;
-    if (unit != nullptr) {
-        if (pf.helpful || both)
-            AppendRangeToArray(L, unit, 1, Data::Filter::Helpful, nextKey, pf.ToMatch());
-        if (pf.harmful || both)
-            AppendRangeToArray(L, unit, 1, Data::Filter::Harmful, nextKey, pf.ToMatch());
-    } else {
-        // No live CGUnit — out-of-range / cross-map groupmate. Enumerate the
-        // group-member aura array (spell IDs the server still transmits), the
-        // same source the built-in UnitBuff/UnitDebuff read out of range.
-        const uint64_t guid = GuidForOutOfRange(unitToken);
-        if (pf.helpful || both)
-            Data::AppendGroupAuras(L, guid, Data::Filter::Helpful, pf.ToMatch(), 1, nextKey);
-        if (pf.harmful || both)
-            Data::AppendGroupAuras(L, guid, Data::Filter::Harmful, pf.ToMatch(), 1, nextKey);
+    int key = 1;
+    for (int i = 0; i < listed.n; ++i) {
+        Game::Lua::PushNumber(L, static_cast<double>(key));
+        if (!Data::PushBySlot(L, listed.unit, listed.guid, listed.ids[i], Data::Emit::Table)) {
+            Game::Lua::SetTop(L, 1);
+            continue;
+        }
+        Game::Lua::SetTable(L, 1);
+        ++key;
     }
+    return 1;
+}
+
+// Only auras with an instance ID are listed: those of a unit in view.
+int __fastcall Script_GetUnitAuraInstanceIDs(void *L) {
+    Listed listed;
+    if (!CollectListed(L,
+                       "Usage: local auraInstanceIDs = C_UnitAuras.GetUnitAuraInstanceIDs("
+                       "unit, filter [, maxCount, sortRule, sortDirection])",
+                       &listed))
+        return 0;
+    Game::Lua::SetTop(L, 0);
+    Game::Lua::NewTable(L);
+    int key = 1;
+    for (int i = 0; i < listed.n; ++i) {
+        const uint32_t id = Data::InstanceIDBySlot(listed.unit, listed.ids[i]);
+        if (id == 0)
+            continue;
+        Game::Lua::PushNumber(L, static_cast<double>(key++));
+        Game::Lua::PushNumber(L, static_cast<double>(id));
+        Game::Lua::RawSet(L, 1);
+    }
+    return 1;
+}
+
+// True when the aura is NOT one `filter` selects, or no aura on the unit has
+// that ID (3.80.2 answers true then too). The range is read as GetUnitAuras
+// reads it: a filter naming neither HELPFUL nor HARMFUL accepts both.
+int __fastcall Script_IsAuraFilteredOutByInstanceID(void *L) {
+    const char *unitToken = ArgUnit(L, 1);
+    bool filtered = true;
+    if (unitToken != nullptr && Game::Lua::IsNumber(L, 2)) {
+        const uint8_t *unit = ResolveUnit(unitToken);
+        const int slot = Aura::Instance::SlotForID(
+            unit, static_cast<uint32_t>(Game::Lua::ToNumber(L, 2)));
+        if (slot >= 0) {
+            const Data::ParsedFilter pf = Data::ParseFilter(ArgOptString(L, 3));
+            filtered = !(pf.AcceptsPolarity(Data::IsSlotHarmful(unit, slot)) &&
+                         Data::SlotMatches(unit, slot, pf.match));
+        }
+    }
+    Game::Lua::PushBool(L, filtered);
     return 1;
 }
 
@@ -669,9 +658,9 @@ int __fastcall Script_CancelUnitBuff(void *L) {
         Unit::Identity::GuidForToken(Game::Lua::ToString(L, 1)) !=
             Unit::Identity::PlayerGuid())
         return 0;
-    const ParsedFilter pf = ParseFilters(ArgOptString(L, 3));
+    const Data::ParsedFilter pf = Data::ParseFilter(ArgOptString(L, 3));
     const int slot =
-        Data::FindNthSlot(player, ArgInt(L, 2), RangeFilter(pf), pf.ToMatch());
+        Data::FindNthSlot(player, ArgInt(L, 2), pf.Range(), pf.match);
     if (slot < 0)
         return 0;
     const int spellID = static_cast<int>(Data::ReadSpellID(player, slot));
@@ -717,21 +706,20 @@ const Game::Doc::Field kAuraDataFields[] = {
                    "The caster's GUID, a ClassicAPI extension; nil when the cast was not seen."),
     Game::Doc::Opt("auraInstanceID", "number", nullptr,
                    "Nil for an aura that is not in the unit's aura list."),
-    Game::Doc::Req("charges", "number", "Always 0."),
-    Game::Doc::Req("maxCharges", "number", "Always 0."),
     Game::Doc::Req("timeMod", "number", "Always 1."),
     Game::Doc::Req("isFromPlayerOrPlayerPet", "bool",
                    "True when any player or a player's pet applied the aura."),
     Game::Doc::Req("canApplyAura", "bool",
                    "True when the player or the pet knows the spell that applies the aura."),
     Game::Doc::Req("isRaid", "bool", "True when the aura passes the RAID filter."),
+    Game::Doc::Req("canActivePlayerDispel", "bool",
+                   "True for a debuff whose dispel type the player can remove."),
     Game::Doc::Req("isStealable", "bool",
                    "True when the player can remove this buff from an enemy."),
     Game::Doc::Req("isBossAura", "bool", "Always false."),
     Game::Doc::Req("isNameplateOnly", "bool", "Always false."),
     Game::Doc::Req("nameplateShowAll", "bool", "Always false."),
     Game::Doc::Req("nameplateShowPersonal", "bool", "Always false."),
-    Game::Doc::Req("shouldConsolidate", "bool", "Always false."),
 };
 const Game::Doc::Structure kAuraData{"AuraData", "UnitAuras", kAuraDataFields,
                                      "One aura on a unit."};
@@ -776,21 +764,16 @@ const Game::Doc::Function kUnitAura{
     "Returns the aura at an index as positional values, without making a table.",
     kByIndexArgs, kPositionalRets};
 
-const Game::Doc::Field kLockedIndexArgs[] = {
-    Game::Doc::Req("unit", "UnitToken"),
-    Game::Doc::Req("index", "luaIndex"),
-};
-const Game::Doc::Function kGetBuffDataByIndex{
-    "Returns the buff at an index on a unit.", kLockedIndexArgs, kAuraRets};
-const Game::Doc::Function kGetDebuffDataByIndex{
-    "Returns the debuff at an index on a unit.", kLockedIndexArgs, kAuraRets};
-
 const Game::Doc::Field kLockedFilterArgs[] = {
     Game::Doc::Req("unit", "UnitToken"),
     Game::Doc::Req("index", "luaIndex"),
     Game::Doc::Opt("filter", "AuraFilters", nullptr,
                    "Further tokens such as PLAYER or RAID; the range is fixed."),
 };
+const Game::Doc::Function kGetBuffDataByIndex{
+    "Returns the buff at an index on a unit.", kLockedFilterArgs, kAuraRets};
+const Game::Doc::Function kGetDebuffDataByIndex{
+    "Returns the debuff at an index on a unit.", kLockedFilterArgs, kAuraRets};
 const Game::Doc::Function kUnitBuff{
     "Returns the buff at an index as positional values, without making a table.",
     kLockedFilterArgs, kPositionalRets};
@@ -830,11 +813,10 @@ const Game::Doc::Function kUnitAuraBySlot{
 const Game::Doc::Field kBySpellIDArgs[] = {
     Game::Doc::Req("unit", "UnitToken"),
     Game::Doc::Req("spellID", "number"),
-    Game::Doc::Opt("filter", "AuraFilters", nullptr, "Nil searches buffs, then debuffs."),
 };
 const Game::Doc::Function kGetUnitAuraBySpellID{
-    "Returns the first aura on a unit with a spell ID; the player's own aura comes first.",
-    kBySpellIDArgs, kAuraRets};
+    "Returns the first aura on a unit with a spell ID, buff or debuff.", kBySpellIDArgs,
+    kAuraRets};
 
 const Game::Doc::Field kPlayerBySpellIDArgs[] = {
     Game::Doc::Req("spellID", "number"),
@@ -844,7 +826,7 @@ const Game::Doc::Function kGetPlayerAuraBySpellID{
 
 const Game::Doc::Field kBySpellNameArgs[] = {
     Game::Doc::Req("unit", "UnitToken"),
-    Game::Doc::Req("spellName", "cstring", "The localized name; case does not matter."),
+    Game::Doc::Req("spellName", "cstring", "The localized name, matched exactly."),
     Game::Doc::Opt("filter", "AuraFilters", nullptr, "Nil searches buffs, then debuffs."),
 };
 const Game::Doc::Function kGetAuraDataBySpellName{
@@ -855,13 +837,54 @@ const Game::Doc::Field kUnitAurasArgs[] = {
     Game::Doc::Req("unit", "UnitToken"),
     Game::Doc::Opt("filter", "AuraFilters", nullptr,
                    "With no HELPFUL or HARMFUL token, both are returned."),
+    Game::Doc::Opt("maxCount", "number", nullptr,
+                   "Returns at most this many, counted after sorting."),
+    Game::Doc::Opt("sortRule", "UnitAuraSortRule", "Unsorted",
+                   "Unsorted lists buffs, then debuffs."),
+    Game::Doc::Opt("sortDirection", "UnitAuraSortDirection", "Normal",
+                   "Reverse reverses the whole list, after sorting."),
 };
 const Game::Doc::Field kUnitAurasRets[] = {
     Game::Doc::Req("auras", "table", "An array of AuraData; empty when the unit has none."),
 };
 const Game::Doc::Function kGetUnitAuras{
-    "Returns all of a unit's auras that match a filter, buffs first.", kUnitAurasArgs,
+    "Returns all of a unit's auras that match a filter, in a sort order.", kUnitAurasArgs,
     kUnitAurasRets};
+
+const Game::Doc::Field kInstanceIDsRets[] = {
+    Game::Doc::Req("auraInstanceIDs", "table",
+                   "An array of numbers; only auras of a unit in view have an ID."),
+};
+const Game::Doc::Function kGetUnitAuraInstanceIDs{
+    "Returns the instance IDs of a unit's auras that match a filter, in a sort order.",
+    kUnitAurasArgs, kInstanceIDsRets};
+
+const Game::Doc::Field kFilteredOutArgs[] = {
+    Game::Doc::Req("unit", "UnitToken"),
+    Game::Doc::Req("auraInstanceID", "number"),
+    Game::Doc::Req("filter", "AuraFilters", "With no HELPFUL or HARMFUL token, both pass."),
+};
+const Game::Doc::Field kFilteredOutRets[] = {
+    Game::Doc::Req("isFiltered", "bool",
+                   "True when the filter rejects the aura, or no aura on the unit has the ID."),
+};
+const Game::Doc::Function kIsAuraFilteredOutByInstanceID{
+    "Returns whether a filter rejects one of a unit's auras.", kFilteredOutArgs,
+    kFilteredOutRets};
+
+const Game::Lua::EnumIntegerEntry kUnitAuraSortRule[] = {
+    {"Unsorted", static_cast<int>(Data::SortRule::Unsorted)},
+    {"Default", static_cast<int>(Data::SortRule::Default)},
+    {"BigDefensive", static_cast<int>(Data::SortRule::BigDefensive)},
+    {"Expiration", static_cast<int>(Data::SortRule::Expiration)},
+    {"ExpirationOnly", static_cast<int>(Data::SortRule::ExpirationOnly)},
+    {"Name", static_cast<int>(Data::SortRule::Name)},
+    {"NameOnly", static_cast<int>(Data::SortRule::NameOnly)},
+};
+const Game::Lua::EnumIntegerEntry kUnitAuraSortDirection[] = {
+    {"Normal", 0},
+    {"Reverse", 1},
+};
 
 const Game::Doc::Field kDispelColorArgs[] = {
     Game::Doc::Opt("dispelName", "string", nullptr,
@@ -907,6 +930,14 @@ static void RegisterLuaFunctions() {
                                      &Script_GetAuraDataBySpellName, &kGetAuraDataBySpellName);
     Game::Lua::RegisterTableFunction("C_UnitAuras", "GetUnitAuras",
                                      &Script_GetUnitAuras, &kGetUnitAuras);
+    Game::Lua::RegisterTableFunction("C_UnitAuras", "GetUnitAuraInstanceIDs",
+                                     &Script_GetUnitAuraInstanceIDs, &kGetUnitAuraInstanceIDs);
+    Game::Lua::RegisterTableFunction("C_UnitAuras", "IsAuraFilteredOutByInstanceID",
+                                     &Script_IsAuraFilteredOutByInstanceID,
+                                     &kIsAuraFilteredOutByInstanceID);
+    Game::Lua::RegisterIntegerEnum("Enum", "UnitAuraSortRule", kUnitAuraSortRule, "UnitAuras");
+    Game::Lua::RegisterIntegerEnum("Enum", "UnitAuraSortDirection", kUnitAuraSortDirection,
+                                   "UnitAuras");
     Game::Lua::RegisterTableFunction("C_UnitAuras", "GetAuraDispelTypeColor",
                                      &Script_GetAuraDispelTypeColor, &kGetAuraDispelTypeColor);
     Game::Lua::RegisterGlobalFunction("CancelUnitBuff", &Script_CancelUnitBuff,
