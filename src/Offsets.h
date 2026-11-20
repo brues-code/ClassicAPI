@@ -6047,8 +6047,7 @@ enum Offsets {
     // via FUN_OBJECT_RESOLVE_BY_GUID(TYPEMASK_CONTAINER, guid), then call the
     // container's vtable[+OFF_CONTAINER_GET_INVENTORY] to get the inventory
     // object GetItemBySlot indexes. Lets us enumerate bag contents in pure C++
-    // without PackBagSlot's Lua-stack coupling. (Reads GUID arrays at
-    // 0x00BDD060 lo / 0x00BDD064 hi, stride 8.)
+    // without PackBagSlot's Lua-stack coupling. (Reads VAR_BAG_GUID_CACHE.)
     FUN_GET_EQUIPPED_BAG_GUID = 0x004F93E0,
     // CGContainer vtable slot (byte offset into the vtable) whose method
     // returns the container's inventory object — `void* __thiscall(container)`.
@@ -12647,6 +12646,13 @@ enum Offsets {
     FUN_RAISE_BAG_EVENTS = 0x004F91A0,
     FUN_RAISE_BAG_UPDATE = 0x004F9370,
     FUN_ON_BACKPACK_SLOT_CHANGED = 0x004F8DB0,
+    // The cached container GUIDs of bags 1..10 (u64 each, lo/hi): entry n-1
+    // is bag n. RaiseBagEvents compares the bag slots with it and rewrites it
+    // (0x004F91A0, 0x004F92B5); RaiseBagUpdate scans it for its container
+    // (0x004F9392..0x004F93AC); the login setup 0x004F8CC0 zeroes it before
+    // its RaiseBagEvents call. FUN_GET_EQUIPPED_BAG_GUID reads it.
+    VAR_BAG_GUID_CACHE = 0x00BDD060,
+    BAG_GUID_CACHE_COUNT = 10,
     // CWorld::BeginFrame, the world-subsystem per-frame update — runs
     // exactly once per frame from CGWorldFrame::OnRender
     // (`FUN_00482EA0`), its only caller, nowhere near the

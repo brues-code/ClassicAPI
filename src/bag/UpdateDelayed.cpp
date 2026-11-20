@@ -12,41 +12,40 @@
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
 // `BAG_UPDATE_DELAYED` event — fires once per frame in which any
-// `BAG_UPDATE` fired. Polyfills modern WoW's event of the same name
-// (added 5.4.x) with exact same-semantic coalescing: addons listen
-// to DELAYED instead of BAG_UPDATE and rescan once per frame.
+// `BAG_UPDATE` fired, after all of them, as the 3.80.2 client fires it: its
+// three BAG_UPDATE emitters arm a one-entry deferred event right after each
+// BAG_UPDATE they fire (FUN_140EC0440), and the deferred-event flush near the
+// end of the world update (FUN_140E9E460) fires it once and disarms it first,
+// so a BAG_UPDATE raised by a handler arms the next frame's.
 //
-// Architecture: three MinHooks on the engine's three BAG_UPDATE
-// emitters, plus one tick subscription. Names are benilla-re's.
+// Here the engine's three BAG_UPDATE emitters are co-hooked (names are
+// benilla-re's), and each arms only when it fired a BAG_UPDATE:
 //
 //   1. `RaiseBagEvents` (`0x004F91A0`) — compares the ten bag slots
-//      (4 bags, 6 bank bags) with the cached container GUIDs and
-//      fires BAG_CLOSED / BAG_UPDATE per changed slot. Called by the
-//      bag-slot field watcher and once at login.
-//   2. `RaiseBagUpdate` (`0x004F9370`) — fires BAG_UPDATE for the
-//      player or one of the ten cached containers; the most common
-//      path. Its callers are the backpack and container slot
-//      watchers, and the item-field watcher `0x004F9480`, which
-//      passes an item's container — the PLAYER for equipped gear, so
-//      a durability change on worn gear fires BAG_UPDATE(0) and
-//      therefore DELAYED. That is the engine's behaviour, kept.
+//      (4 bags, 6 bank bags) with the cached container GUIDs
+//      (VAR_BAG_GUID_CACHE), rewrites the cache and fires BAG_CLOSED for
+//      a changed slot that held a bag and BAG_UPDATE for one that holds
+//      one now. So it arms when a cache entry changed to a GUID; a bag
+//      taken out with nothing in its place fires BAG_CLOSED alone and
+//      does not arm. Called by the bag-slot field watcher and at login.
+//   2. `RaiseBagUpdate` (`0x004F9370`) — fires BAG_UPDATE for the player
+//      or a cached container, nothing for any other GUID; it arms on the
+//      same test. Its callers are the backpack and container slot
+//      watchers, `Bag::BankUpdate` (the bank's main slots), and the
+//      item-field watcher `0x004F9480`, which passes an item's container
+//      — the PLAYER for equipped gear, so a durability or enchant change
+//      on worn gear fires BAG_UPDATE(0) and therefore DELAYED, in 3.80.2
+//      as well.
 //   3. `OnBackpackSlotChanged` (`0x004F8DB0`) — the field watcher on
-//      backpack slots 23..38 and keyring slots 81..112. Keyring
-//      changes fire BAG_UPDATE directly here; backpack changes go
-//      through `RaiseBagUpdate`. Standard watcher ABI
+//      backpack slots 23..38 and keyring slots 81..112. It fires a
+//      BAG_UPDATE on every call: keyring changes directly here, backpack
+//      changes through `RaiseBagUpdate`. Standard watcher ABI
 //      `__fastcall(offset, unused, guidLo, guidHi, previous*, user)`,
 //      ret 0x10 — the same shape as `OnContainerSlotChanged`.
 //   4. `Tick::WorldTick::AutoSubscribe` — shared per-frame
 //      subscription (the engine's world-subsystem update at
 //      `FUN_0066FD50`, single-hooked in `src/tick/WorldTick.cpp`).
 //      Our callback drains `g_pending` and fires DELAYED if set.
-//
-// The hooks set `g_pending` after every call rather than only when
-// an event fired. The one call that fires nothing is
-// `RaiseBagUpdate` for a container outside the cache, which does not
-// occur in practice; mirroring that check here would be a parallel
-// copy of the engine's test. The bank's main slots 39..62 have no
-// engine watcher, so they never fire BAG_UPDATE or DELAYED.
 //
 // All hook targets are quiet (≤3 callers each, in code regions
 // other DLLs don't touch). The previous attempt at this feature
@@ -69,13 +68,19 @@
 // hooks. Double-fire concern with `FUN_004F8DB0` → `FUN_004F9370`
 // path is moot: `g_pending` is a bool, idempotent until the
 // per-frame drain clears it.
+//
+// Unlike 3.80.2, the drain holds while the player is not in the world (see
+// OnWorldTick): 1.12's sources keep firing behind a loading screen, where
+// 3.80.2 gates them at the source.
 
 #include "Game.h"
 #include "Offsets.h"
 #include "bag/UpdateDelayed.h"
 #include "event/Custom.h"
 #include "tick/WorldTick.h"
+#include "unit/Identity.h"
 
+#include <array>
 #include <cstdint>
 
 namespace Bag::UpdateDelayed {
@@ -95,7 +100,14 @@ const Event::Custom::AutoReserve _reserve{kEventName, &kUpdateDelayedDoc};
 // Single bool, no atomics needed — the engine is single-threaded.
 bool g_pending = false;
 
-// C++ subscribers notified once per bag-change frame (see UpdateDelayed.h).
+using BagGuidCache = std::array<uint64_t, Offsets::BAG_GUID_CACHE_COUNT>;
+
+BagGuidCache ReadBagGuidCache() {
+    BagGuidCache cache;
+    for (size_t i = 0; i < cache.size(); ++i)
+        cache[i] = Game::Read<uint64_t>(Offsets::VAR_BAG_GUID_CACHE + i * sizeof(uint64_t));
+    return cache;
+}
 
 } // namespace
 
@@ -103,8 +115,13 @@ bool g_pending = false;
 using RaiseBagEvents_t = void(__cdecl *)();
 RaiseBagEvents_t RaiseBagEvents_o = nullptr;
 void __cdecl RaiseBagEvents_h() {
+    const BagGuidCache before = ReadBagGuidCache();
     RaiseBagEvents_o();
-    g_pending = true;
+    const BagGuidCache after = ReadBagGuidCache();
+    // A BAG_UPDATE fired for each entry rewritten to a bag (0x004F92CC).
+    for (size_t i = 0; i < after.size(); ++i)
+        if (after[i] != before[i] && after[i] != 0)
+            g_pending = true;
 }
 
 // `RaiseBagUpdate` — `__stdcall void(containerGuidLo, containerGuidHi)`.
@@ -112,7 +129,15 @@ using RaiseBagUpdate_t = void(__stdcall *)(int guidLo, int guidHi);
 RaiseBagUpdate_t RaiseBagUpdate_o = nullptr;
 void __stdcall RaiseBagUpdate_h(int guidLo, int guidHi) {
     RaiseBagUpdate_o(guidLo, guidHi);
-    g_pending = true;
+    // It fired for the player or a cached container (0x004F9386..0x004F93AC).
+    const uint64_t guid = static_cast<uint32_t>(guidLo) | static_cast<uint64_t>(static_cast<uint32_t>(guidHi)) << 32;
+    if (guid == Unit::Identity::PlayerGuid()) {
+        g_pending = true;
+        return;
+    }
+    for (const uint64_t bag : ReadBagGuidCache())
+        if (bag == guid)
+            g_pending = true;
 }
 
 // `OnBackpackSlotChanged` — field-watcher ABI, `__fastcall(offset,

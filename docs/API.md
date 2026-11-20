@@ -6474,9 +6474,10 @@ later.
 
 ### `BAG_UPDATE_DELAYED` event
 
-Fires (with no payload) once per frame in which any `BAG_UPDATE`
-fired. Register for `BAG_UPDATE_DELAYED` instead of `BAG_UPDATE` and
-rescan once per frame regardless of how many updates fired.
+Fires once in each frame in which one or more `BAG_UPDATE` events
+fired, after all of them. The event has no payload. Register for
+`BAG_UPDATE_DELAYED` instead of `BAG_UPDATE` to scan the bags one time
+in each frame.
 
 ```lua
 local f = CreateFrame("Frame")
@@ -6484,16 +6485,17 @@ f:RegisterEvent("BAG_UPDATE_DELAYED")
 f:SetScript("OnEvent", function() RescanMyInventory() end)
 ```
 
-A trade with 6 stacks (12 `BAG_UPDATE`s, all processed in one
-frame) produces exactly 1 `BAG_UPDATE_DELAYED` at the end of the
-frame.
+A trade of 6 stacks fires 12 `BAG_UPDATE` events in one frame. That
+frame then fires 1 `BAG_UPDATE_DELAYED`.
 
-The event fires after all other per-frame world updates. Addon
-callbacks see `BAG_UPDATE_DELAYED` after their normal event handlers.
-
-> **Coverage limitation.** Keyring updates (`BAG_UPDATE(-2)`) do not
-> fire `BAG_UPDATE_DELAYED`. Player bag (0..4) and bank (5..10)
-> updates work normally — the 95% case.
+- If a `BAG_UPDATE_DELAYED` handler causes a `BAG_UPDATE`, the next
+  frame fires `BAG_UPDATE_DELAYED` again.
+- A bag that you remove from a bag slot fires only `BAG_CLOSED`. If no
+  other bag goes into the slot, `BAG_UPDATE_DELAYED` does not fire.
+- A change in the main slots of the bank fires `BAG_UPDATE` with bag
+  `0`. As a result, `BAG_UPDATE_DELAYED` also fires.
+- While a loading screen shows, the event waits. It fires one time when
+  the player is in the world.
 
 ### `PLAYER_EQUIPMENT_CHANGED` event
 
