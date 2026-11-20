@@ -19,6 +19,7 @@
 #include "config/FileSwitch.h"
 #include "debug/Log.h"
 #include "event/Custom.h"
+#include "frame/UnitEvent.h"
 #include "player/NameCache.h"
 
 static Game::FrameScript_Initialize_t FrameScript_Initialize_o = nullptr;
@@ -84,6 +85,7 @@ static void __fastcall FrameRegisterEvent_h(void *frame, void *edx,
                                             const char *eventName) {
     Event::Custom::RetryClaims();
     FrameRegisterEvent_o(frame, edx, eventName);
+    Frame::UnitEvent::OnPlainRegister(frame, eventName);
 }
 
 // ---------------------------------------------------------------------------

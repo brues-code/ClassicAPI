@@ -11120,17 +11120,18 @@ end)
 ### `frame:IsEventRegistered(event)`
 
 Returns `true` if the frame is registered for `event`, else `false` (also
-`false` for an unknown event name). If the registration came from
-`frame:RegisterUnitEvent`, the unit tokens follow as extra returns, in the
-order they were given. Works on any frame.
+`false` for an unknown event name). The second return is `nil` if the
+registration has no units. If the registration came from
+`frame:RegisterUnitEvent`, the unit tokens follow the boolean, in the order
+they were given. Tokens come back in lowercase. Works on any frame.
 
 ```lua
 local f = CreateFrame("Frame")
 f:RegisterEvent("PLAYER_LOGIN")
-f:IsEventRegistered("PLAYER_LOGIN")   -- true
-f:IsEventRegistered("PLAYER_LOGOUT")  -- false
+f:IsEventRegistered("PLAYER_LOGIN")   -- true, nil
+f:IsEventRegistered("PLAYER_LOGOUT")  -- false, nil
 
-f:RegisterUnitEvent("UNIT_HEALTH", "player", "target")
+f:RegisterUnitEvent("UNIT_HEALTH", "Player", "target")
 f:IsEventRegistered("UNIT_HEALTH")    -- true, "player", "target"
 ```
 
@@ -11139,7 +11140,10 @@ f:IsEventRegistered("UNIT_HEALTH")    -- true, "player", "target"
 Registers the frame for `event`, but the frame's `OnEvent` runs only when the
 event's first argument (the unit token) is one of `units`. Use it in place of
 `RegisterEvent` for `UNIT_*` events, so a handler for one unit does not receive
-every other unit's events. Returns whether the frame is now registered.
+every other unit's events.
+
+Returns `true` if the call registered the frame or changed its units. Returns
+`false` if the frame was already registered with the same units.
 
 ```lua
 local f = CreateFrame("Frame")
@@ -11149,13 +11153,21 @@ f:SetScript("OnEvent", function(self, event, unit)
 end)
 ```
 
-Unit tokens compare without regard to case. Every token that names a unit
-works, including `focus`, `nameplateN`, `markN`, and `totemN`. A unit that is several
-tokens at once (your target who is also `party1`) fires the event once for
-each token that matches.
+Unit tokens compare without regard to case. The units are these tokens:
+
+- `player`, `pet`, `target`, `targettarget`, `focus`, `focustarget`,
+  `mouseover`, `npc`, `softenemy`, `softfriend`, `softinteract`, and the
+  other tokens of the same client table.
+- `partyN`, `partypetN`, `raidN`, `raidpetN`, `nameplateN` (1 to 150),
+  `bossN`, `arenaN`, and `arenapetN`.
+- `markN` and `totemN` (ClassicAPI extension).
+
+The call ignores a token that is not in this list, for example
+`party1target`. A unit that is several tokens at once (your target who is
+also `party1`) fires the event once for each token that matches.
 
 Pass as many units as you need. Other clients take at most four, so keep to
-four for code you also run elsewhere — accepting more is a ClassicAPI
+four for code you also run elsewhere. Accepting more is a ClassicAPI
 extension.
 
 ```lua
@@ -11164,19 +11176,21 @@ f:RegisterUnitEvent("UNIT_HEALTH", "player", "party1", "party2", "party3")
 
 Behavior notes:
 
-- A registration keeps its kind until you unregister it. `RegisterEvent` on a
-  unit-filtered registration keeps the filter. `RegisterUnitEvent` on a plain
-  registration keeps it plain. `RegisterUnitEvent` on a unit-filtered
-  registration replaces the units. To switch kinds, call `UnregisterEvent`
-  first.
-- If you give no unit, or no unit argument is a string, the call acts as
-  `RegisterEvent`.
+- Each register replaces the units of the registration. `RegisterEvent` on a
+  unit-filtered registration removes the filter. `RegisterUnitEvent` on a
+  plain registration adds the filter.
+- The call reads units up to the first argument that is not a string or a
+  number.
+- If no unit is valid, the call is the same as `RegisterEvent`.
+- You can give units only for unit events (for example `UNIT_HEALTH`,
+  `UNIT_AURA`, `PLAYER_FLAGS_CHANGED`). With units, other events raise
+  `Attempt to register unknown event "<event>"`. An unknown event name raises
+  the same error.
 - The filter applies only when the event's first argument is a string. For an
   event whose first argument is a number, or that has no arguments, the frame
   receives the event as with `RegisterEvent`.
 - `UnregisterEvent` and `UnregisterAllEvents` remove the filter with the
   registration.
-- `frame:IsEventRegistered(event)` returns the unit tokens after the boolean.
 
 `FrameUtil.RegisterFrameForUnitEvents(frame, events, ...units)` calls
 `RegisterUnitEvent` for each event in the `events` table.

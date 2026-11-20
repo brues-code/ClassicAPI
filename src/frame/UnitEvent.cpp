@@ -13,7 +13,7 @@
 
 // `frame:RegisterUnitEvent(event, ...units)` — register for an event but only
 // receive it for the given unit tokens — plus the unit-aware
-// `frame:IsEventRegistered(event)` (registered [, unit…]).
+// `frame:IsEventRegistered(event)` (registered, unit…).
 //
 // Vanilla owns everything except the filter, so the filter is all this adds:
 //
@@ -27,7 +27,9 @@
 //     engine drops the frame's subscriber node: co-hooks on the C++ helpers
 //     `Frame::UnregisterEvent` (FUN_FRAME_UNREGISTER_EVENT) and
 //     `Frame::UnregisterAllEvents` (FUN_FRAME_UNREGISTER_ALL_EVENTS — also the
-//     CScriptObject destructor's path, so frame destruction is covered).
+//     CScriptObject destructor's path, so frame destruction is covered). A
+//     plain RegisterEvent clears it too (OnPlainRegister, from DllMain's hook
+//     on `Frame::RegisterEvent`).
 //   - The check is one gate on the per-frame OnEvent fire. The dispatcher
 //     FUN_FIRE_EVENT sets `_G.event`, walks the chain, and per frame calls the
 //     runner FUN_FRAME_RUN_SCRIPT_WITH_CONTEXT(frame, frame+OFF_FRAME_ONEVENT_SLOT,
@@ -40,33 +42,36 @@
 //     Event::Custom::FireValues walks the chain itself and never reaches that
 //     runner, so it asks `Accepts` (UnitEvent.h) for each frame instead.
 //
-// Semantics mirror Blizzard's 5.4.8 implementation (Ghidra-verified), where the
-// filter lives ON the subscriber node and the node's kind is fixed when it is
-// created: RegisterEvent on a filtered registration leaves the filter;
-// RegisterUnitEvent on a plain registration stays plain; RegisterUnitEvent on a
-// filtered registration replaces the units; RegisterUnitEvent with no usable
-// unit is a plain RegisterEvent. Switching kinds takes UnregisterEvent first.
+// Semantics follow the 3.80.2 Classic client (Script_RegisterUnitEvent
+// 0x1428CF3D0, listener add 0x1405C4240, IsEventRegistered 0x140A88A80):
 //
-// Two places we deliberately don't mirror 5.4.8, both additive:
+//   - A registration holds one unit list, and every register overwrites it:
+//     RegisterEvent (or RegisterUnitEvent with no valid unit) makes it plain,
+//     RegisterUnitEvent makes it filtered. The return is true when the call
+//     made a registration or changed its units, false when nothing changed.
+//   - Units are read from argument 3 up to the first argument that is not a
+//     string or number. Each is looked up case-insensitively in the client's
+//     unit-token table (0x1427053B0; no compound tokens such as party1target)
+//     and stored as the table's lowercase name; unknown tokens are dropped.
+//   - Units are allowed only on the client's unit events (the hash set in
+//     0x140AD89A0 plus UNIT_SCALING_INFO_UPDATE); any other event with a unit
+//     raises "Attempt to register unknown event", as an unknown event name
+//     does. Errors carry the client's "<name>:RegisterUnitEvent(): " prefix
+//     (0x1405AC570: the frame's name, else its type) and stop at 199 chars.
 //
-//   - UNIT COUNT. 5.4.8 reads exactly two units (a hardcoded two-iteration loop
-//     over Lua indices 3 and 4) and folds each token's table index into a byte
-//     of one dword on the node — `filter = filter * 0x100 + idx`. Retail later
-//     filled that dword and documents "up to four units", which its 5.4.8
-//     reader already anticipated by walking all four bytes generically. We
-//     store strings in our own map, so there is no dword to fill and no reason
-//     to pick a number: every argument past the event name that is a string is
-//     taken as a unit. Retail's four are covered by definition.
-//   - TOKEN VALIDATION. 5.4.8 looks each unit up in a static canonical token
-//     table (case-sensitive) and drops unknowns; we keep the string and compare
-//     case-insensitively, because ClassicAPI's own tokens (`focus`,
-//     `nameplateN`, `markN`) are not in the engine's table.
+// Where we differ, all additive:
+//
+//   - UNIT COUNT. 3.80.2 packs at most four token ids into the listener entry.
+//     We store strings in our own map, so every unit argument counts.
+//   - TOKENS AND EVENTS. ClassicAPI's own tokens (`markN`, `totemN`) join the
+//     token table, and 1.12's own unit events that 3.80.2 replaced (UNIT_RAGE,
+//     UNIT_MAXMANA, …) plus ClassicAPI's (UNIT_AURA_DELTA, UNIT_AREA_CHANGED)
+//     join the event list.
 //
 // Filter rule: the filter applies only when the event's first argument is a
-// string (every UNIT_* event fires as "%s" + token). A first spec that isn't
-// `%s`, or a no-arg event (those go through FUN_FIRE_EVENT_NO_ARGS → a runner
-// we never see), fires as with RegisterEvent — one rule that holds on every
-// dispatch path, whose failure mode is an extra event rather than a lost one.
+// string (every unit event fires as "%s" + token). 3.80.2 fires each unit
+// event once per token the unit has and matches that token; 1.12 also fires
+// once per token with the token as arg1, so matching arg1 is the same test.
 
 #include "UnitEvent.h"
 
@@ -74,8 +79,12 @@
 #include "Offsets.h"
 #include "baselib/Ascii.h"
 #include "frame/RunnerHook.h"
+#include "totem/Tracker.h"
+#include "unit/RaidTarget.h"
 
+#include <cstdarg>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <string>
 #include <unordered_map>
@@ -90,8 +99,111 @@ bool NameIs(const char *a, const char *b) {
     return a != nullptr && b != nullptr && Ascii::EqualCI(a, b);
 }
 
-// One filtered registration — the unit filter 5.4.8 keeps on the event's
-// subscriber node for this frame. `event` is the CANONICAL name copied from the
+// ---- the token table -----------------------------------------------------------
+//
+// 3.80.2's unit tokens (id→name 0x142702EB0, 361 ids), plus ClassicAPI's.
+
+constexpr const char *kSingleTokens[] = {
+    "player",    "pet",        "vehicle",     "mouseover",       "target",
+    "targettarget", "softenemy", "softfriend", "softinteract",   "focus",
+    "focustarget", "anytarget", "anyinteract", "anyleftinteract", "anyenemy",
+    "anyfriend", "npc",        "questnpc",
+};
+
+struct TokenFamily {
+    const char *prefix;
+    int count; // valid suffixes are 1..count
+};
+
+// Longer prefixes need no ordering: the suffix must be all digits, so
+// "raidpet1" never matches "raid".
+constexpr TokenFamily kNumberedTokens[] = {
+    {"raid", 40},         {"raidpet", 40},       {"party", 4},
+    {"partypet", 4},      {"nameplate", 150},    {"boss", 5},
+    {"arena", 5},         {"arenapet", 5},       {"spectateda", 15},
+    {"spectatedb", 15},   {"spectatedpeta", 15}, {"spectatedpetb", 15},
+    {"commentator", 30},
+    // ClassicAPI's
+    {"mark", Unit::RaidTarget::kMarkCount}, {"totem", Totem::Tracker::kSlotCount},
+};
+
+// The table's name for `s` (lowercase), or false when `s` is not a token.
+bool CanonicalToken(const char *s, std::string *out) {
+    for (const char *t : kSingleTokens)
+        if (Ascii::EqualCI(s, t)) {
+            *out = t;
+            return true;
+        }
+    for (const TokenFamily &f : kNumberedTokens) {
+        if (!Ascii::StartsWithCI(s, f.prefix))
+            continue;
+        const char *d = s + std::strlen(f.prefix);
+        if (*d < '1' || *d > '9')
+            continue; // no suffix, or a leading zero
+        int n = 0;
+        for (; *d >= '0' && *d <= '9' && n <= f.count; ++d)
+            n = n * 10 + (*d - '0');
+        if (*d != '\0' || n > f.count)
+            continue;
+        *out = f.prefix;
+        *out += std::to_string(n);
+        return true;
+    }
+    return false;
+}
+
+// ---- the unit-event list --------------------------------------------------------
+
+constexpr const char *kUnitEvents[] = {
+    // 3.80.2's (0x140AD89A0's hash set, plus UNIT_SCALING_INFO_UPDATE)
+    "ARENA_CROWD_CONTROL_SPELL_UPDATE", "HONOR_XP_UPDATE", "INCOMING_RESURRECT_CHANGED",
+    "INCOMING_SUMMON_CHANGED", "KNOWN_TITLES_UPDATE", "LOSS_OF_CONTROL_ADDED",
+    "LOSS_OF_CONTROL_UPDATE", "NAME_PLATE_UNIT_BEHIND_CAMERA_CHANGED", "PARTY_MEMBER_DISABLE",
+    "PARTY_MEMBER_ENABLE", "PLAYER_DAMAGE_DONE_MODS", "PLAYER_FLAGS_CHANGED",
+    "PLAYER_GAINS_VEHICLE_DATA", "PLAYER_GUILD_UPDATE", "PLAYER_LOSES_VEHICLE_DATA",
+    "PLAYER_MAX_LEVEL_UPDATE", "PLAYER_PVP_KILLS_CHANGED", "PLAYER_PVP_RANK_CHANGED",
+    "PLAYER_SPECIALIZATION_CHANGED", "PLAYER_TARGET_SET_ATTACKING", "PLAYER_TRIAL_XP_UPDATE",
+    "PLAYER_XP_UPDATE", "PVP_TIMER_UPDATE", "READY_CHECK_CONFIRM", "UNIT_ABSORB_AMOUNT_CHANGED",
+    "UNIT_ARENA_COOLDOWNS_UPDATE", "UNIT_ATTACK", "UNIT_ATTACK_POWER", "UNIT_ATTACK_SPEED",
+    "UNIT_AURA", "UNIT_AURA_BLOCKED", "UNIT_AURA_BLOCK_LIST_CLEARED",
+    "UNIT_CLASSIFICATION_CHANGED", "UNIT_COMBAT", "UNIT_CONNECTION", "UNIT_CTR_OPTIONS",
+    "UNIT_DAMAGE", "UNIT_DEFENSE", "UNIT_DISPLAYPOWER", "UNIT_DISTANCE_CHECK_UPDATE",
+    "UNIT_ENTERED_VEHICLE", "UNIT_ENTERING_VEHICLE", "UNIT_EXITED_VEHICLE",
+    "UNIT_EXITING_VEHICLE", "UNIT_FACTION", "UNIT_FLAGS", "UNIT_FORM_CHANGED", "UNIT_HAPPINESS",
+    "UNIT_HEALTH", "UNIT_HEALTH_FREQUENT", "UNIT_HEAL_ABSORB_AMOUNT_CHANGED",
+    "UNIT_HEAL_PREDICTION", "UNIT_INVENTORY_CHANGED", "UNIT_IN_RANGE_UPDATE", "UNIT_LEVEL",
+    "UNIT_MANA", "UNIT_MAXHEALTH", "UNIT_MAXPOWER", "UNIT_MAX_HEALTH_MODIFIERS_CHANGED",
+    "UNIT_MODEL_CHANGED", "UNIT_NAME_UPDATE", "UNIT_OTHER_PARTY_CHANGED", "UNIT_PET",
+    "UNIT_PET_EXPERIENCE", "UNIT_PET_TRAINING_POINTS", "UNIT_PHASE", "UNIT_PORTRAIT_UPDATE",
+    "UNIT_POWER_BAR_HIDE", "UNIT_POWER_BAR_SHOW", "UNIT_POWER_BAR_TIMER_UPDATE",
+    "UNIT_POWER_FREQUENT", "UNIT_POWER_UPDATE", "UNIT_QUEST_LOG_CHANGED", "UNIT_RANGEDDAMAGE",
+    "UNIT_RANGED_ATTACK_POWER", "UNIT_RESISTANCES", "UNIT_SCALING_INFO_UPDATE",
+    "UNIT_SPELLCAST_CHANNEL_START", "UNIT_SPELLCAST_CHANNEL_STOP",
+    "UNIT_SPELLCAST_CHANNEL_UPDATE", "UNIT_SPELLCAST_DELAYED", "UNIT_SPELLCAST_EMPOWER_START",
+    "UNIT_SPELLCAST_EMPOWER_STOP", "UNIT_SPELLCAST_EMPOWER_UPDATE", "UNIT_SPELLCAST_FAILED",
+    "UNIT_SPELLCAST_FAILED_QUIET", "UNIT_SPELLCAST_INTERRUPTED",
+    "UNIT_SPELLCAST_INTERRUPTIBLE", "UNIT_SPELLCAST_NOT_INTERRUPTIBLE",
+    "UNIT_SPELLCAST_RETICLE_CLEAR", "UNIT_SPELLCAST_RETICLE_TARGET", "UNIT_SPELLCAST_SENT",
+    "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_STOP", "UNIT_SPELLCAST_SUCCEEDED",
+    "UNIT_SPELL_DIMINISH_CATEGORY_STATE_UPDATED", "UNIT_SPELL_HASTE", "UNIT_STATS",
+    "UNIT_TARGET", "UNIT_TARGETABLE_CHANGED", "UNIT_THREAT_LIST_UPDATE",
+    "UNIT_THREAT_SITUATION_UPDATE",
+    // 1.12's own unit events that 3.80.2 replaced
+    "UNIT_DYNAMIC_FLAGS", "UNIT_ENERGY", "UNIT_FOCUS", "UNIT_LOYALTY", "UNIT_MAXENERGY",
+    "UNIT_MAXFOCUS", "UNIT_MAXHAPPINESS", "UNIT_MAXMANA", "UNIT_MAXRAGE", "UNIT_RAGE",
+    // ClassicAPI's
+    "UNIT_AURA_DELTA", "UNIT_AREA_CHANGED",
+};
+
+bool IsUnitEvent(const char *eventName) {
+    for (const char *e : kUnitEvents)
+        if (Ascii::EqualCI(eventName, e))
+            return true;
+    return false;
+}
+
+// One filtered registration — the unit list 3.80.2 keeps on the event's
+// listener entry for this frame. `event` is the CANONICAL name copied from the
 // event-table entry, so the fire-time compare against the dispatcher-set
 // `_G.event` (which is that same entry name) is a plain strcmp.
 struct Filter {
@@ -100,8 +212,12 @@ struct Filter {
 };
 
 // Keyed by frame. Entries die with the frame's subscriber node (the two
-// unregister co-hooks) and on /reload (PrepareForReload).
+// unregister co-hooks), on a plain register, and on /reload (PrepareForReload).
 std::unordered_map<const void *, std::vector<Filter>> g_filters;
+
+// Set while RegisterUnitEvent runs the engine's RegisterEvent, so the plain
+// register hook leaves the filter to it.
+bool g_inUnitRegister = false;
 
 // ---- the frame's own event list ----------------------------------------------
 //
@@ -124,13 +240,14 @@ const char *EventNameAt(const void *frame, uint32_t i) {
                                     Offsets::OFF_EVENT_ENTRY_NAME);
 }
 
-// Does `frame` listen to `eventName` (case-insensitive, as the engine
-// matches)? Walked from the end, as Frame::UnregisterEvent walks it.
-bool ListensTo(const void *frame, const char *eventName) {
+// The event-table name of the frame's registration for `eventName`
+// (case-insensitive, as the engine matches), or null when it has none.
+// Walked from the end, as Frame::UnregisterEvent walks it.
+const char *RegisteredName(const void *frame, const char *eventName) {
     for (uint32_t i = EventCount(frame); i-- > 0;)
-        if (NameIs(EventNameAt(frame, i), eventName))
-            return true;
-    return false;
+        if (const char *name = EventNameAt(frame, i); NameIs(name, eventName))
+            return name;
+    return nullptr;
 }
 
 // ---- filter map --------------------------------------------------------------
@@ -145,48 +262,63 @@ Filter *FindFilter(const void *frame, const char *eventName) {
     return nullptr;
 }
 
-void EraseFilter(const void *frame, const char *eventName) {
+// True when a filter was removed.
+bool EraseFilter(const void *frame, const char *eventName) {
     auto it = g_filters.find(frame);
     if (it == g_filters.end())
-        return;
+        return false;
     std::vector<Filter> &v = it->second;
+    bool erased = false;
     for (size_t i = 0; i < v.size(); ++i) {
         if (NameIs(v[i].event.c_str(), eventName)) {
             v.erase(v.begin() + static_cast<ptrdiff_t>(i));
+            erased = true;
             break;
         }
     }
     if (v.empty())
         g_filters.erase(it);
+    return erased;
 }
 
 // ---- Lua methods --------------------------------------------------------------
 
-// `frame:RegisterUnitEvent(event, ...units)` → registered.
-int __fastcall Script_RegisterUnitEvent(void *L) {
-    // Self first, as Script_RegisterEvent checks it: ResolveFrame raises the
-    // engine's own error strings.
-    void *frame = Game::Lua::ResolveFrame(L);
-    if (!Game::Lua::IsString(L, 2)) {
-        Game::Lua::Error(L, "Usage: frame:RegisterUnitEvent(\"event\" [, \"unit1\", ...])");
-        return 0;
-    }
+constexpr std::size_t kErrorCap = 199; // 0x1405AC990 formats into 200 bytes
 
-    // Read the units BEFORE reshaping the stack for the delegate. Like 5.4.8
-    // we take only real strings as units (a number is not coerced) and
-    // silently skip anything else. The event name stays valid: index 2
-    // survives the reshape.
+// The client's "<name>:RegisterUnitEvent(): <message>" (0x1405AC570), the name
+// being the frame's, else its type.
+void FormatError(char (&out)[kErrorCap + 1], void *frame, const char *fmt, ...) {
+    char message[kErrorCap + 1];
+    va_list args;
+    va_start(args, fmt);
+    std::vsnprintf(message, sizeof message, fmt, args);
+    va_end(args);
+    const char *name = Game::Lua::ObjectName(frame);
+    std::snprintf(out, sizeof out, "%s:RegisterUnitEvent(): %s",
+                  name != nullptr ? name : Game::Lua::FrameObjectType(frame), message);
+}
+
+// The body of RegisterUnitEvent. Pushes the return and gives true, or fills
+// `error` and gives false; the caller raises it once this scope's strings are
+// gone (a Lua error never runs their destructors).
+bool RegisterUnitEvent(void *L, void *frame, char (&error)[kErrorCap + 1]) {
+    // The event name stays valid: index 2 survives the reshape below.
     const char *eventName = Game::Lua::ToString(L, 2);
+
+    // Units: from index 3 to the first value that is not a string or number;
+    // unknown tokens are dropped, the rest kept as the table's names.
     const int argTop = Game::Lua::GetTop(L);
     std::vector<std::string> units;
-    for (int idx = 3; idx <= argTop; ++idx) {
-        if (Game::Lua::Type(L, idx) != Game::Lua::TYPE_STRING)
-            continue;
-        const char *s = Game::Lua::ToString(L, idx);
-        if (s != nullptr && *s != '\0')
-            units.emplace_back(s);
+    std::string token;
+    for (int idx = 3; idx <= argTop && Game::Lua::IsString(L, idx); ++idx)
+        if (const char *s = Game::Lua::ToString(L, idx); s != nullptr && CanonicalToken(s, &token))
+            units.push_back(token);
+
+    if (!units.empty() && !IsUnitEvent(eventName)) {
+        FormatError(error, frame, "Attempt to register unknown event \"%s\"", eventName);
+        return false;
     }
-    const bool wasRegistered = ListensTo(frame, eventName);
+
     const uint32_t countBefore = EventCount(frame);
 
     // Chain membership is the engine's: (self, event) → Script_RegisterEvent.
@@ -194,57 +326,74 @@ int __fastcall Script_RegisterUnitEvent(void *L) {
     // RegisterEvent hook in DllMain runs Event::Custom::RetryClaims inside it,
     // which can claim this very name into a free slot or move the table.
     Game::Lua::SetTop(L, 2);
+    g_inUnitRegister = true;
     Game::Lua::CallScript(Offsets::FUN_SCRIPT_FRAME_REGISTEREVENT, L);
+    g_inUnitRegister = false;
 
-    // The engine appends to the frame's list exactly when it joins a chain,
-    // so a longer list is a fresh registration and its last index is this
-    // event; an unchanged list on a non-member means an unknown event.
-    const bool appended = EventCount(frame) != countBefore;
+    // Not on the frame's list after the engine's register: an unknown event.
+    const char *canonical = RegisteredName(frame, eventName);
+    if (canonical == nullptr) {
+        FormatError(error, frame, "Attempt to register unknown event \"%s\"", eventName);
+        return false;
+    }
+    // The engine appends to the frame's list exactly when it joins a chain.
+    bool changed = EventCount(frame) != countBefore;
 
-    // 5.4.8 node semantics (see the header). No usable unit → this was a plain
-    // RegisterEvent and an existing filter is left alone; an unknown event has
-    // no node to attach a filter to.
-    if (!units.empty()) {
-        if (appended) {
-            // Canonical name, so the fire-time compare is a plain strcmp.
-            g_filters[frame].push_back(
-                Filter{EventNameAt(frame, EventCount(frame) - 1), std::move(units)});
-        } else if (Filter *f = FindFilter(frame, eventName)) {
-            f->units = std::move(units); // filtered → replace the units
-        }
-        // else: already registered plainly → stays plain
+    Filter *existing = FindFilter(frame, eventName);
+    if (units.empty()) {
+        // A plain register: the registration goes plain.
+        if (existing != nullptr)
+            changed |= EraseFilter(frame, eventName);
+    } else if (existing == nullptr) {
+        g_filters[frame].push_back(Filter{canonical, std::move(units)});
+        changed = true;
+    } else if (existing->units != units) {
+        existing->units = std::move(units);
+        changed = true;
     }
 
-    Game::Lua::PushBool(L, wasRegistered || appended);
-    return 1;
+    Game::Lua::PushBool(L, changed);
+    return true;
 }
 
-// `frame:IsEventRegistered(event)` → registered [, unit…]. Vanilla has
+// `frame:RegisterUnitEvent(event, ...units)` → registered.
+int __fastcall Script_RegisterUnitEvent(void *L) {
+    // Self first, as Script_RegisterEvent checks it: ResolveFrame raises the
+    // engine's own error strings.
+    void *frame = Game::Lua::ResolveFrame(L);
+    char error[kErrorCap + 1];
+    if (!Game::Lua::IsString(L, 2))
+        FormatError(error, frame, "Usage: (\"event\", \"unit1\" [,\"unit2\", \"unit3\", \"unit4\"])");
+    else if (RegisterUnitEvent(L, frame, error))
+        return 1;
+    Game::Lua::Error(L, "%s", error);
+    return 0;
+}
+
+// `frame:IsEventRegistered(event)` → registered, unit…. Vanilla has
 // RegisterEvent / UnregisterEvent but not the query; the membership check
 // reads the frame's own event list, which the engine keeps in step with the
-// subscriber chains. Units come back in registration order.
+// subscriber chains. Like 3.80.2 there is always a second return: the units
+// in their order, or nil.
 int __fastcall Script_IsEventRegistered(void *L) {
     void *frame = Game::Lua::ResolveFrame(L);
     if (!Game::Lua::IsString(L, 2)) {
-        Game::Lua::Error(L, "Usage: frame:IsEventRegistered(\"event\")");
+        Game::Lua::ArgError(L, 2, "Usage: local isRegistered, (units)* = self:IsEventRegistered(eventName)");
         return 0;
     }
     const char *eventName = Game::Lua::ToString(L, 2);
-    const bool registered = ListensTo(frame, eventName);
+    const bool registered = RegisteredName(frame, eventName) != nullptr;
+    const Filter *f = registered ? FindFilter(frame, eventName) : nullptr;
+    const int units = f != nullptr ? static_cast<int>(f->units.size()) : 0;
     Game::Lua::PushBool(L, registered);
-    if (!registered)
-        return 1;
-    const Filter *f = FindFilter(frame, eventName);
-    if (f == nullptr)
-        return 1;
-    if (Game::Lua::CheckStack(L, static_cast<int>(f->units.size()) + 1) == 0)
-        return 1; // can't grow the stack — report registered, drop the units
-    int pushed = 1;
-    for (const std::string &u : f->units) {
-        Game::Lua::PushString(L, u.c_str());
-        ++pushed;
+    if (f == nullptr || Game::Lua::CheckStack(L, units) == 0) {
+        // No units, or no room to push them: the second return is nil.
+        Game::Lua::PushNil(L);
+        return 2;
     }
-    return pushed;
+    for (const std::string &u : f->units)
+        Game::Lua::PushString(L, u.c_str());
+    return 1 + units;
 }
 
 // ---- the gate ------------------------------------------------------------------
@@ -399,6 +548,11 @@ const Game::HookAutoRegister _hookUnregisterAll{
     reinterpret_cast<void **>(&g_origUnregisterAll)};
 
 } // namespace
+
+void OnPlainRegister(const void *frame, const char *eventName) {
+    if (!g_inUnitRegister && frame != nullptr && eventName != nullptr && !g_filters.empty())
+        EraseFilter(frame, eventName);
+}
 
 bool Accepts(const void *frame, const char *eventName, const char *arg1) {
     if (g_filters.empty() || frame == nullptr || eventName == nullptr)

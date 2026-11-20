@@ -500,6 +500,10 @@ const char *ObjectName(void *object);
 // `GetName() ?: "<unnamed>"`.
 const char *ObjectDisplayName(void *object);
 
+// The frame's type name ("Frame", "Button", …), what Script GetObjectType
+// pushes (VTBL_FRAME_GET_OBJECT_TYPE). Frames only.
+const char *FrameObjectType(void *frame);
+
 // Same resolve, then the type gate every engine frame method applies to its
 // `self` before touching it: `lua_type == table`, resolve to the object, then
 // the `IsA(typeId)` vmethod at vtable+0x10. `ResolveObject` alone is not

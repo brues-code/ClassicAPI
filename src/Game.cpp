@@ -177,6 +177,12 @@ const char *ObjectName(void *object) {
     return Game::Read<GetName_t>(vtable, Offsets::VTBL_SCRIPTOBJECT_GET_NAME)(object);
 }
 
+const char *FrameObjectType(void *frame) {
+    using GetObjectType_t = const char *(__thiscall *)(void *);
+    const void *vtable = Game::Read<const void *>(frame, 0);
+    return Game::Read<GetObjectType_t>(vtable, Offsets::VTBL_FRAME_GET_OBJECT_TYPE)(frame);
+}
+
 const char *ObjectDisplayName(void *object) {
     const char *name = ObjectName(object);
     return name != nullptr ? name

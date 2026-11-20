@@ -26,6 +26,11 @@ namespace Frame::UnitEvent {
 // (Event::Custom::FireValues) asks here for each frame.
 bool Accepts(const void *frame, const char *eventName, const char *arg1);
 
+// A plain `Frame::RegisterEvent(frame, eventName)` just ran (DllMain's hook):
+// the registration goes plain, as 3.80.2's listener add overwrites the unit
+// list. RegisterUnitEvent's own call into the engine is ignored.
+void OnPlainRegister(const void *frame, const char *eventName);
+
 // The units `frame` gave RegisterUnitEvent for `eventName` (the event-table
 // entry's own name), or nullptr for a plain registration. Valid until the
 // frame's registrations change.
