@@ -34,11 +34,8 @@
 // The focus survives /reload (ClassicAPI's choice; 4.3.4's CGGameUI::Shutdown
 // clears it) and is dropped on logout.
 //
-// `focustarget` unit events are a ClassicAPI extension (4.3.4 fires none):
-// `Unit::TokenObserver` watches the focus's current target and fires its
-// field events with "focustarget". That GUID changes with no event to signal
-// it (UNIT_FIELD_TARGET has no event-table slot), so the world tick re-reads it
-// and re-points the observer when it changes.
+// `focustarget` unit events come with the other tokens' from
+// Unit::TokenEvents, as the 3.80.2 client fires them.
 
 #include "Focus.h"
 
@@ -50,7 +47,6 @@
 #include "unit/Identity.h"
 #include "unit/Relation.h"
 #include "unit/TokenEvents.h"
-#include "unit/TokenObserver.h"
 
 #include <cstdint>
 
@@ -73,23 +69,6 @@ enum class Watch { Unseen, Seen, Gone };
 Watch g_watch = Watch::Unseen;
 bool g_wasDead = false;
 bool g_wasUnselectable = false;
-
-void FireUnitEvent(int eventId, const char *token) {
-    Event::Custom::Fire(eventId, "%s", token);
-}
-
-// GUID currently watched as `focustarget` (the focus unit's target), or 0.
-uint64_t g_focusTargetGUID = 0;
-
-int __fastcall FocusTargetFieldCb(uint32_t fieldOffset, uint32_t /*size*/, uint32_t guidLo,
-                                  uint32_t guidHi, const uint32_t * /*oldValue*/,
-                                  void * /*userArg*/) {
-    if (guidLo != static_cast<uint32_t>(g_focusTargetGUID) ||
-        guidHi != static_cast<uint32_t>(g_focusTargetGUID >> 32))
-        return 1;
-    FireUnitEvent(static_cast<int>(fieldOffset >> 2), "focustarget");
-    return 1;
-}
 
 
 uint64_t ResolveTokenGUID(const char *token) {
@@ -123,7 +102,6 @@ bool IsFriendlyToPlayer(void *unit) {
 }
 
 void OnWorldTick() {
-    uint64_t desiredFocusTarget = 0;
     if (g_focusGUID != 0) {
         void *unit = ResolveObject(g_focusGUID);
         if (unit == nullptr) {
@@ -157,19 +135,8 @@ void OnWorldTick() {
                 g_watch = Watch::Seen;
                 g_wasDead = dead;
                 g_wasUnselectable = unselectable;
-                desiredFocusTarget = Game::Read<uint64_t>(fields, Offsets::OFF_UNIT_FIELD_TARGET);
             }
         }
-    }
-
-    // Re-point the focustarget observer only when the target identity
-    // changes (focus swapped targets, focus cleared, or focus has no target).
-    if (desiredFocusTarget != g_focusTargetGUID) {
-        if (g_focusTargetGUID != 0)
-            TokenObserver::Unregister(g_focusTargetGUID, &FocusTargetFieldCb);
-        g_focusTargetGUID = desiredFocusTarget;
-        if (g_focusTargetGUID != 0)
-            TokenObserver::Register(g_focusTargetGUID, &FocusTargetFieldCb);
     }
 }
 
@@ -215,7 +182,6 @@ const Tick::WorldTick::AutoSubscribe _tickSub{&OnWorldTick};
 // observers, was torn down with the world.
 void ClearOnLogout() {
     g_focusGUID = 0;
-    g_focusTargetGUID = 0;
     g_watch = Watch::Unseen;
 }
 const Game::GlueModuleAutoRegister _clearOnLogout{&ClearOnLogout};
@@ -227,12 +193,6 @@ uint64_t Get() { return g_focusGUID; }
 void Set(uint64_t guid) {
     if (guid == g_focusGUID)
         return; // same unit → no event (4.3.4 SetFocusTarget)
-    // The old focustarget is stale; the world tick points the observer at the
-    // new focus's target.
-    if (g_focusTargetGUID != 0) {
-        TokenObserver::Unregister(g_focusTargetGUID, &FocusTargetFieldCb);
-        g_focusTargetGUID = 0;
-    }
     const uint64_t old = g_focusGUID;
     g_focusGUID = guid;
     g_watch = Watch::Unseen;

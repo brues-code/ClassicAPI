@@ -25,9 +25,7 @@
 // the 8 bytes of a GUID. Only the name is missing, so naming slot 10 is the
 // whole backport. Every token path then follows on its own: the engine's
 // tokens, nampower's replacement broadcast (it signals any event code it is
-// given), Unit::TokenEvents for focus / nameplateN / markN / softenemy /
-// softfriend, and Unit::TokenObserver for focustarget, which reads the same
-// array.
+// given), and Unit::TokenEvents for the tokens 1.12's token map lacks.
 //
 // Id 10 is in the glue band, so Event::Custom never claims it. The one place
 // that signals 10 by number is the realm-list rebuild (0x0046E73D, glue's

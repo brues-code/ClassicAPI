@@ -2803,7 +2803,7 @@ enum Offsets {
     // The live (new) value is NOT passed — read it from the object (the
     // engine's bag callback reads the invMgr GUID array).
 
-    // ---- Unit-event token observers (Unit::TokenObserver) ---------------
+    // ---- Unit-event field watchers ----------------------------------------
     // The engine makes target/party/raid/pet/mouseover units fire per-token
     // unit events (UNIT_HEALTH, UNIT_MANA, UNIT_AURA, …) by watching bank-UNIT
     // descriptor fields: FUN_0051bbb0 loops event index i in
@@ -2811,12 +2811,9 @@ enum Offsets {
     // registers a bank-3 observer on field i*4 (per-index size below) with
     // callback FUN_0051bd50 → the broadcast FUN_00515e50(guid, i), which fires
     // event i once per token referencing the guid. The FIELD INDEX IS THE EVENT
-    // ID (health field +0x40 → event 16 = UNIT_HEALTH). Unit::TokenObserver
-    // replicates that exact loop with a caller's own callback to make synthetic
-    // tokens (focus, nameplateN) first-class; the registrar always appends a
-    // fresh node (FUN_00467f00, no dedup), so ours coexists with the engine's —
-    // a unit that is also the target fires both "target" and our token. The
-    // broadcast always fires with format "%s" + the token (DAT_0082e280).
+    // ID (health field +0x40 → event 16 = UNIT_HEALTH). The registrar always
+    // appends a fresh node (FUN_00467f00, no dedup). The broadcast always fires
+    // with format "%s" + the token (DAT_0082e280).
     //   Per-index watched size (FUN_0051bbb0's switch): i∈{0,2,4,10}=8,
     //   0x29=0xD8 (UNIT_FIELD_AURA), 0x6B=0x30, 0xA7/0xAE=0x1C, else 4.
     VAR_EVENT_NAME_TABLE_STATIC = 0x00BE1198, // char*[] boot name array; slot i (base+i*4) non-null ⇒ real event i
@@ -3373,7 +3370,7 @@ enum Offsets {
     OFF_UNIT_FIELD_AURA = 0xA4,                // u32 spell ID per slot, 48 slots total
     // UNIT_AURA event id for FUN_UNIT_EVENT_BROADCAST. The per-token unit
     // events use field-index == event-id; the aura field is index 0x29
-    // (OFF_UNIT_FIELD_AURA 0xA4 >> 2), per Unit::TokenObserver's watched set.
+    // (OFF_UNIT_FIELD_AURA 0xA4 >> 2), in FUN_0051bbb0's watched set.
     UNIT_EVENT_UNIT_AURA = 0x29,
     // UNIT_LEVEL: OFF_UNIT_FIELD_LEVEL 0x70 >> 2, and slot 0x1C of the boot
     // event-name array (the store at 0x0051AC7B).

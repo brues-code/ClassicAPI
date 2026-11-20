@@ -113,12 +113,15 @@ const char *TokenFromGUID(uint64_t guid, char *buf, size_t bufSize);
 // first, unlike `TokenFromGUID`). Writes each token string into `out[i]`
 // (each row must hold >= 32 bytes) and returns the count, capped at
 // `maxTokens`. Engine-native tokens (player/pet/target/party/partypet/raid/
-// raidpet/npc/mouseover) come from the engine's reverse map
-// (`FUN_UNIT_TOKENS_FROM_GUID`); ClassicAPI's own tokens
-// (`Unit::TokenEvents::TokensOf`) are appended on top. The result is
-// snapshotted into `out` (safe to fire re-entrant Lua events while
-// iterating). Returns 0 pre-world or when no token maps to `guid`. Used to
-// fire ClassicAPI's own unit events once per token, as the engine fires its.
+// raidpet/npc) come from the engine's reverse map
+// (`FUN_UNIT_TOKENS_FROM_GUID`), less mouseover; ClassicAPI's tokens
+// (`Unit::TokenEvents::TokensOf`) join them, and the list is in the 3.80.2
+// client's unit-event order (its builder 0x141B90E10): player, pet,
+// party/partypet, raid/raidpet, nameplate, target, targettarget, focus,
+// focustarget, npc, softenemy, softfriend, softinteract, then markN, totemN.
+// The result is snapshotted into `out` (safe to fire re-entrant Lua events
+// while iterating). Returns 0 pre-world or when no token maps to `guid`. Used
+// to fire ClassicAPI's own unit events once per token, as 3.80.2 fires them.
 int TokensForGUID(uint64_t guid, char (*out)[32], int maxTokens);
 
 // Room for every token one unit can have at once.

@@ -11,9 +11,11 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// Every unit event the engine fires reaches ClassicAPI's unit tokens —
-// `focus`, `nameplateN`, `markN`, `softenemy`, `softfriend`, `totemN` — as it reaches
-// `target`.
+// Every unit event the engine fires reaches the tokens 1.12's token map
+// lacks — `nameplateN`, `targettarget`, `focus`, `focustarget`,
+// `softenemy`, `softfriend`, `softinteract`, and ClassicAPI's `markN` and
+// `totemN` — as it reaches `target`. The 3.80.2 client fires every unit event
+// for all of these but the last two (its token builder 0x141B90E10).
 //
 // This is how 4.3.4 makes its focus a full unit token (decomp: GameUI.cpp
 // SetFocusTarget, ScriptEvents.cpp token maps), in two steps: the unit gets a
@@ -43,13 +45,12 @@
 // patched only when the counts match Ghidra's xref lists, so a different
 // binary is left alone. The token map itself is SuperWoW's patch site.
 //
-// All of a token's engine unit events come from here, none from
-// Unit::TokenObserver: SuperWoW sets a registration bit on every unit, so
-// every unit's field changes already reach the broadcast, and an observer of
-// our own would fire them a second time. Only `focustarget` (no unit has it
-// in any token map) stays on TokenObserver. ClassicAPI's own unit events reach
-// the same tokens: Unit::Identity::TokensForGUID adds TokensOf's list to the
-// engine's.
+// All of a token's engine unit events come from here, none from a field
+// observer of our own: SuperWoW sets a registration bit on every unit, so
+// every unit's field changes already reach the broadcast, and an observer
+// would fire them a second time. ClassicAPI's own unit events reach
+// the same tokens: Unit::Identity::TokensForGUID merges TokensOf's list with
+// the engine's into 3.80.2's order.
 
 #include "TokenEvents.h"
 
@@ -60,7 +61,10 @@
 #include "event/Custom.h"
 #include "nameplate/Walk.h"
 #include "object/Resolve.h"
+#include "target/Reason.h"
+#include "target/SoftInteract.h"
 #include "target/SoftUnit.h"
+#include "tick/WorldTick.h"
 #include "totem/Tracker.h"
 #include "unit/Focus.h"
 #include "unit/Identity.h"
@@ -81,12 +85,56 @@ using Broadcast_t = void(__fastcall *)(const uint64_t *guid, uint32_t eventId);
 using CombatFeedback_t = void(__fastcall *)(const uint64_t *guid, const char *action, int amount,
                                             int school, uint32_t hitInfo);
 
-// At most one focus, nameplate, mark, softenemy, softfriend and totem per unit.
-constexpr int kMaxTokens = 6;
+// At most one nameplate, targettarget, focus, focustarget, softenemy,
+// softfriend, softinteract, mark and totem per unit.
+constexpr int kMaxTokens = 9;
 using TokenList = char[kMaxTokens][32];
 
-// The ClassicAPI tokens `guid` has right now, in UnitTokenFromGUID's order,
-// at most `max` of them.
+// The unit `guid`'s target, or 0 when the unit is not in view.
+uint64_t TargetOf(uint64_t guid) {
+    const auto *fields = Object::Fields(Object::ByGuid(Offsets::TYPEMASK_UNIT, guid));
+    return fields != nullptr ? Game::Read<uint64_t>(fields, Offsets::OFF_UNIT_FIELD_TARGET) : 0;
+}
+
+// The 3.80.2 token builder's test for a targettarget / focustarget
+// candidate (0x141B9136B): a unit in view, and selectable unless it is a
+// player.
+uint64_t Eligible(uint64_t guid) {
+    if (guid == 0)
+        return 0;
+    const auto *fields = Object::Fields(Object::ByGuid(Offsets::TYPEMASK_UNIT, guid));
+    if (fields == nullptr)
+        return 0;
+    if ((Game::Read<uint32_t>(fields, Offsets::OFF_UNIT_FIELD_FLAGS) &
+         Offsets::UNIT_FLAG_NOT_SELECTABLE) != 0 &&
+        Object::ByGuid(Offsets::TYPEMASK_PLAYER, guid) == nullptr)
+        return 0;
+    return guid;
+}
+
+// The target the `target` token names: none for a hidden Force target.
+uint64_t TargetGuid() {
+    return Target::Reason::Hidden() ? 0 : Target::Reason::Selection();
+}
+
+// `targettarget`: your target's target, or you when you target yourself.
+uint64_t TargetTarget() {
+    const uint64_t target = TargetGuid();
+    if (target == 0)
+        return 0;
+    return Eligible(target == Unit::Identity::PlayerGuid() ? target : TargetOf(target));
+}
+
+// `focustarget`: your focus's target, or your target when you are the focus.
+uint64_t FocusTarget() {
+    const uint64_t focus = Unit::Focus::Get();
+    if (focus == 0)
+        return 0;
+    return Eligible(focus == Unit::Identity::PlayerGuid() ? TargetGuid() : TargetOf(focus));
+}
+
+// The ClassicAPI tokens `guid` has right now, in the 3.80.2 client's unit
+// event order (0x141B90E10), then the ClassicAPI extensions, at most `max`.
 int ListTokens(uint64_t guid, char (*out)[32], int max) {
     if (guid == 0)
         return 0;
@@ -96,14 +144,20 @@ int ListTokens(uint64_t guid, char (*out)[32], int max) {
             std::snprintf(out[n++], sizeof out[0], "nameplate%d", i);
             break;
         }
+    if (n < max && guid == TargetTarget())
+        std::snprintf(out[n++], sizeof out[0], "targettarget");
     if (n < max && guid == Unit::Focus::Get())
         std::snprintf(out[n++], sizeof out[0], "focus");
-    if (const int m = Unit::RaidTarget::MarkOf(guid); n < max && m != 0)
-        std::snprintf(out[n++], sizeof out[0], "mark%d", m);
+    if (n < max && guid == FocusTarget())
+        std::snprintf(out[n++], sizeof out[0], "focustarget");
     if (n < max && guid == Target::SoftUnit::Current(Target::SoftUnit::Side::Enemy))
         std::snprintf(out[n++], sizeof out[0], "softenemy");
     if (n < max && guid == Target::SoftUnit::Current(Target::SoftUnit::Side::Friend))
         std::snprintf(out[n++], sizeof out[0], "softfriend");
+    if (n < max && guid == Target::SoftInteract::Get())
+        std::snprintf(out[n++], sizeof out[0], "softinteract");
+    if (const int m = Unit::RaidTarget::MarkOf(guid); n < max && m != 0)
+        std::snprintf(out[n++], sizeof out[0], "mark%d", m);
     for (int s = 1; n < max && s <= Totem::Tracker::kSlotCount; ++s)
         if (Totem::Tracker::GetGUIDBySlot(s) == guid) {
             std::snprintf(out[n++], sizeof out[0], "totem%d", s);
@@ -111,6 +165,30 @@ int ListTokens(uint64_t guid, char (*out)[32], int max) {
         }
     return n;
 }
+
+// targettarget and focustarget change with no event (UNIT_FIELD_TARGET has
+// no event-table slot), so the world tick re-reads them and moves the
+// registration bit when either changes.
+uint64_t g_targetTarget = 0;
+uint64_t g_focusTarget = 0;
+
+void Follow(uint64_t &last, uint64_t now) {
+    if (now == last)
+        return;
+    const uint64_t old = last;
+    last = now;
+    Refresh(old);
+    Refresh(now);
+}
+
+void OnWorldTick() {
+    if (Unit::Identity::PlayerObject() == nullptr)
+        return;
+    Follow(g_targetTarget, TargetTarget());
+    Follow(g_focusTarget, FocusTarget());
+}
+
+const Tick::WorldTick::AutoSubscribe _tick{&OnWorldTick};
 
 bool HasTokens(uint64_t guid) {
     TokenList t;

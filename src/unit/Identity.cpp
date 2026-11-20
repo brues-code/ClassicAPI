@@ -349,6 +349,32 @@ const char *TokenFromGUID(uint64_t target, char *buf, size_t bufSize) {
     return nullptr;
 }
 
+// A token's place in the 3.80.2 client's unit-event list (0x141B90E10):
+// player, pet, party / partypet, raid / raidpet, nameplate, target,
+// targettarget, focus, focustarget, npc, softenemy, softfriend, softinteract;
+// then ClassicAPI's markN and totemN. Prefixes are tested longest first.
+static int TokenRank(const char *t) {
+    static const struct {
+        const char *name;
+        bool prefix;
+    } kOrder[] = {
+        {"player", false},    {"pet", false},          {"partypet", true},   {"party", true},
+        {"raidpet", true},    {"raid", true},          {"nameplate", true},  {"target", false},
+        {"targettarget", false}, {"focus", false},     {"focustarget", false}, {"npc", false},
+        {"softenemy", false}, {"softfriend", false},   {"softinteract", false}, {"mark", true},
+        {"totem", true},
+    };
+    // party and partypet (raid and raidpet) share a place.
+    static const int kRank[] = {0, 1, 2, 2, 3, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14};
+    for (size_t i = 0; i < sizeof kOrder / sizeof kOrder[0]; ++i) {
+        const size_t len = std::strlen(kOrder[i].name);
+        if (kOrder[i].prefix ? std::strncmp(t, kOrder[i].name, len) == 0
+                             : std::strcmp(t, kOrder[i].name) == 0)
+            return kRank[i];
+    }
+    return 15;
+}
+
 int TokensForGUID(uint64_t guid, char (*out)[32], int maxTokens) {
     if (guid == 0 || out == nullptr || maxTokens <= 0)
         return 0;
@@ -374,6 +400,9 @@ int TokensForGUID(uint64_t guid, char (*out)[32], int maxTokens) {
             // addons expect; echoing the GUID we were handed is noise.
             if (tok[0] == '0' && (tok[1] == 'x' || tok[1] == 'X'))
                 continue;
+            // The 3.80.2 client fires no unit event for mouseover.
+            if (std::strcmp(tok, "mouseover") == 0)
+                continue;
             std::snprintf(out[n], 32, "%s", tok);
             ++n;
         }
@@ -381,7 +410,19 @@ int TokensForGUID(uint64_t guid, char (*out)[32], int maxTokens) {
 
     // ClassicAPI's tokens, which the engine's map can't produce: the same
     // list the engine's unit events reach.
-    return n + Unit::TokenEvents::TokensOf(guid, out + n, maxTokens - n);
+    n += Unit::TokenEvents::TokensOf(guid, out + n, maxTokens - n);
+
+    // Into 3.80.2's order; a stable insertion sort (a unit has few tokens).
+    for (int i = 1; i < n; ++i) {
+        char row[32];
+        std::memcpy(row, out[i], sizeof row);
+        const int rank = TokenRank(row);
+        int j = i;
+        for (; j > 0 && TokenRank(out[j - 1]) > rank; --j)
+            std::memcpy(out[j], out[j - 1], sizeof row);
+        std::memcpy(out[j], row, sizeof row);
+    }
+    return n;
 }
 
 static int __fastcall Script_UnitTokenFromGUID(void *L) {

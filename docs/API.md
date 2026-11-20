@@ -1020,6 +1020,7 @@ build instructions.
   - [`C_NamePlateManager.GetNamePlateHitTestInsets(type)`](#c_nameplatemanagergetnameplatehittestinsetstype)
   - [`C_NamePlate.GetNamePlateForUnit(unitToken)`](#c_nameplategetnameplateforunitunittoken)
   - [`C_NamePlate.GetNamePlateForGUID(guidString)`](#c_nameplategetnameplateforguidguidstring)
+  - [Unit events and tokens](#unit-events-and-tokens)
   - [Unit tokens (`nameplateN`)](#unit-tokens-nameplaten)
   - [Unit tokens (`markN`)](#unit-tokens-markn)
   - [Unit tokens (`totemN`)](#unit-tokens-totemn)
@@ -8915,9 +8916,9 @@ time with `"target"` and one time with `"focus"`. (`OnEvent` handlers read
 the `arg1` global, not a function parameter.)
 
 **Unit events for `"focustarget"`.** The unit that your focus targets also
-fires its unit events, with `arg1 == "focustarget"`. This is a ClassicAPI
-extension. When the focus changes its target, the events follow the new
-target within one frame.
+fires its unit events, with `arg1 == "focustarget"`. When the focus changes
+its target, the events follow the new target within one frame. Refer to
+[Unit events and tokens](#unit-events-and-tokens).
 
 [`UnitTokenFromGUID`](#unittokenfromguidguid) scans `"focus"` right
 after `"target"`, so a focused unit's GUID
@@ -22915,6 +22916,34 @@ A `type` other than `0` or `1` gives the insets of type `0`.
 ```lua
 /dump C_NamePlateManager.GetNamePlateHitTestInsets(1)
 ```
+
+### Unit events and tokens
+
+A unit event fires one time for each token of the unit. For example, a unit
+that is your target and your focus fires each event one time with `"target"`
+and one time with `"focus"`.
+
+The unit events that ClassicAPI adds use these tokens, in this order:
+`player`, `pet`, `partyN` or `partypetN`, `raidN` or `raidpetN`,
+`nameplateN`, `target`, `targettarget`, `focus`, `focustarget`, `npc`,
+`softenemy`, `softfriend`, `softinteract`, `markN`, and `totemN`. Examples
+of these events are `UNIT_POWER_UPDATE`, `UNIT_TARGETABLE_CHANGED`, and
+`UNIT_CONNECTION`. They do not fire for `mouseover`.
+
+The other unit events, for example `UNIT_HEALTH`, `UNIT_AURA`, and
+`UNIT_COMBAT`, fire first for `player`, `pet`, `target`, `partyN`,
+`partypetN`, `raidN`, `raidpetN`, `npc`, and `mouseover`. Then they fire for
+`nameplateN`, `targettarget`, `focus`, `focustarget`, `softenemy`,
+`softfriend`, `softinteract`, `markN`, and `totemN`.
+
+Some tokens have special rules:
+- In a raid, you are also `raidN`.
+- `targettarget` is the target of your target. When you are your own
+  target, it is you.
+- `focustarget` is the target of your focus. When you are your own focus, it
+  is your target.
+- A `targettarget` or `focustarget` unit that is not selectable gets no
+  events, except a player.
 
 ### Unit tokens (`nameplateN`)
 

@@ -55,6 +55,7 @@
 #include "target/SoftTarget.h"
 #include "unit/Identity.h"
 #include "unit/Position.h"
+#include "unit/TokenEvents.h"
 
 #include <cstdint>
 
@@ -197,6 +198,12 @@ void Notify() {
     const uint64_t old = g_told;
     g_told = g_soft;
     g_toldNow = g_now;
+    // A unit `softinteract` gets that token's unit events (the engine watches
+    // a unit that holds a token), so the registration moves before the event.
+    if (old != g_soft) {
+        Unit::TokenEvents::Refresh(old);
+        Unit::TokenEvents::Refresh(g_soft);
+    }
     char oldBuf[Guid::STRING_SIZE];
     char newBuf[Guid::STRING_SIZE];
     Event::Custom::Fire(_changed.Slot(), "%s%s",
