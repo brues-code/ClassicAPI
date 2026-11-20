@@ -2620,12 +2620,15 @@ A player is a known name when one or more of these is true:
   the `AccountCharacter` bit.
 - You whispered the player, or the player whispered you, after you logged
   in. The entry has the `InteractedWith` bit.
+- The player is near you, and the race of the player is in your faction.
+  The entry has the `InAOI` bit. When the player goes out of view, the
+  bit goes away.
 
 A player on two or more of these lists is one entry, with the bit of each
 list. You are never an entry. The `Online` bit comes from your group, your
 guild roster and your friends list. A player that you know only from a
-whisper also has the `Online` bit. Your other characters never have the
-`Online` bit.
+whisper also has the `Online` bit, and so does a player near you. Your
+other characters never have the `Online` bit.
 
 Guild members are known names only after the client has the guild roster.
 `GuildRoster()` requests it.
@@ -2644,11 +2647,12 @@ table:
 The arguments:
 
 - `name`: the text in the edit box.
-- `numResults`: the maximum number of entries. At `0` or less, you get all
-  of them.
+- `numResults`: the maximum number of entries. At `0`, you get no entries.
+  At less than `0`, you get all of them.
 - `cursorPosition`: the position of the cursor in `name`, in characters, as
-  `editBox:GetUTF8CursorPosition()` gives it. A value less than `1` or more
-  than the length of `name` is the end of the text.
+  `editBox:GetUTF8CursorPosition()` gives it. `0` is before the first
+  character. A value less than `0` or more than the length of `name` is
+  the end of the text.
 - `allowFullMatch`: if this is `false`, a name equal to `name` is not an
   entry.
 - `includeFlags`: [`Enum.AutoCompleteEntryFlag`](#enumautocompleteentryflag)
@@ -2662,14 +2666,16 @@ start the name. The text after the cursor must come later in the name. For
 example, if you type `Jhn`, put the cursor after the `J` and type `o`, then
 `Jo|hn` matches `Johnson`.
 
-The order of the entries:
-
-1. The players that you whispered, the most recent first.
-2. All other names, in alphabetical order.
-
 The `priority` of an entry is the first tie on this list that the player
 has: `AccountCharacterSameRealm`, `Friend`, `Guild`, `InGroup`,
 `Interacted`. A player with none of them is `Other`.
+
+The order of the entries:
+
+1. A name that is equal to `name`.
+2. The players that you whispered, the most recent first.
+3. All other names, the highest `priority` first. Names with the same
+   priority are in alphabetical order.
 
 ```lua
 local function ShowNames(editBox)
@@ -2688,7 +2694,8 @@ Three settings change the results. See
 
 Returns `true` if a known name is equal to `name`, and `false` if not.
 Upper case and lower case are the same. `includeFlags` and `excludeFlags`
-have the same function as in `GetAutoCompleteResults`.
+have the same function as in `GetAutoCompleteResults`. They also apply
+when `autoCompleteUseContext` is `0`.
 
 ```lua
 if C_AutoComplete.IsRecognizedName("Johnson", Enum.AutoCompleteEntryFlag.InGuild, 0) then
@@ -2714,7 +2721,7 @@ The bits of a known name, for `includeFlags` and `excludeFlags`.
 | `Bnet` | 8 | `RecentPlayer` | 256 |
 | `InteractedWith` | 16 | | |
 
-No entry has the `Bnet`, `InAOI` or `RecentPlayer` bit.
+No entry has the `Bnet` or `RecentPlayer` bit.
 
 ### `Enum.AutoCompletePriority`
 
@@ -2732,15 +2739,15 @@ are on this realm, so their priority is `AccountCharacterSameRealm`.
 
 ### Name completion settings
 
-Three cvars change the results of `GetAutoCompleteResults` and
-`IsRecognizedName`. Each one is `1` by default. You can also set them on the
+Three cvars change the results of `GetAutoCompleteResults`. Each one is
+`1` by default. You can also set them on the
 Social page of the ClassicAPI options.
 
 | CVar | At `1` | At `0` |
 |---|---|---|
-| `autoCompleteResortNamesOnRecency` | The players that you whispered come first, the most recent first. | All names are in alphabetical order. |
+| `autoCompleteResortNamesOnRecency` | The players that you whispered come first, the most recent first. | All names are in the order of their priority. |
 | `autoCompleteWhenEditingFromCenter` | With the cursor inside the text, the text after the cursor must come later in the name. | The name must start with all of the text. |
-| `autoCompleteUseContext` | `includeFlags` and `excludeFlags` select the entries. | Every known name is an entry. |
+| `autoCompleteUseContext` | `includeFlags` and `excludeFlags` select the entries. | Every known name is an entry of `GetAutoCompleteResults`. |
 
 ```
 /console autoCompleteUseContext 0

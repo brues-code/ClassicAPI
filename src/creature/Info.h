@@ -42,4 +42,9 @@ bool RequestLoad(uint32_t creatureID);
 // player object spawns.
 bool FactionGroupForRace(int raceID, const char **english, const char **localized);
 
+// The race's faction group mask: FactionTemplate[ChrRaces[race] faction
+// template] group mask, the first two links of FactionGroupForRace. 0 for an
+// unknown or non-positive race.
+uint32_t FactionMaskForRace(int raceID);
+
 } // namespace Creature::Info

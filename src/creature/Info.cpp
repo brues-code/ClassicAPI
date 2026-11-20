@@ -454,27 +454,29 @@ const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 
 } // namespace
 
-bool FactionGroupForRace(int raceID, const char **english, const char **localized) {
+uint32_t FactionMaskForRace(int raceID) {
     if (raceID <= 0)
-        return false;
-
+        return 0;
     const uint8_t *crRec = DBC::Record(Offsets::VAR_CHRRACES_RECORDS,
                                        Offsets::VAR_CHRRACES_COUNT,
                                        static_cast<uint32_t>(raceID));
     if (crRec == nullptr)
-        return false; // unknown race
-    const int ftId = Game::Read<int>(
-        crRec, Offsets::OFF_CHRRACES_FACTION_TEMPLATE);
+        return 0; // unknown race
+    const int ftId = Game::Read<int>(crRec, Offsets::OFF_CHRRACES_FACTION_TEMPLATE);
     if (ftId <= 0)
-        return false;
-
+        return 0;
     const uint8_t *ftRec = DBC::Record(Offsets::VAR_FACTIONTEMPLATE_RECORDS,
                                        Offsets::VAR_FACTIONTEMPLATE_COUNT,
                                        static_cast<uint32_t>(ftId));
     if (ftRec == nullptr)
+        return 0;
+    return Game::Read<uint32_t>(ftRec, Offsets::OFF_FACTIONTEMPLATE_GROUP_MASK);
+}
+
+bool FactionGroupForRace(int raceID, const char **english, const char **localized) {
+    const uint32_t mask = FactionMaskForRace(raceID);
+    if (mask == 0)
         return false;
-    const uint32_t mask = Game::Read<uint32_t>(
-        ftRec, Offsets::OFF_FACTIONTEMPLATE_GROUP_MASK);
 
     // FactionGroup is stored contiguously (records-base + i*stride), not as a
     // pointer array — iterate by hand rather than via DBC::Record.

@@ -28,7 +28,12 @@
 //   - the account's other characters: the realm's character list, which the
 //     session keeps from the last SMSG_CHAR_ENUM after the glue roster is
 //     gone - AccountCharacter. Every one is on this realm. None is ever
-//     Online, since the account plays this character.
+//     Online, since the account plays this character;
+//   - players in view: every player object whose race has the player's
+//     faction group (ChrRaces -> FactionTemplate group mask), as 3.80.2 adds
+//     a player of the same group when it comes into view and drops it when
+//     it leaves (FUN_1414517a0 / FUN_14145a470) - InAOI and Online. A player
+//     whose name is not cached yet has no name to match.
 // The one list the engine does not keep is ours: the players this character
 // whispered or was whispered by (Chat::Dispatch reports each line), in the
 // order they were last heard from - InteractedWith. Logging out clears it,
@@ -38,29 +43,36 @@
 // holds the player decides Online; a player known only from a whisper is
 // Online, as 4.3.4 sets Online together with InteractedWith.
 //
-// Matching is 4.3.4's NodeMatchesParams (the same in 3.3.5's binary,
-// 0x0057ACA0), with two differences:
-//   - a cursorPosition outside 1..length means the end of the text. Retail's
-//     tell-target extraction (ChatFrameEditBox.lua) passes 0 and expects a
-//     whole-text match;
-//   - the edit-from-center search also tries the last place. The engine's
-//     loop stops one place early, so it never finds the text after the
-//     cursor at the end of a name.
-// Order is 3.3.5's SortNameNode (0x0057B130): with
-// autoCompleteResortNamesOnRecency on, the most recent whisper first, then by
-// name. Retail's client cannot be read, so each result's priority is the
-// highest Enum.AutoCompletePriority its bits reach, in the enum's own order:
-// AccountCharacterSameRealm, Friend, Guild, InGroup, Interacted, else Other.
+// Matching is the 3.80.2 client's (FUN_1418bd1c0; 4.3.4's NodeMatchesParams,
+// the same in 3.3.5's binary, 0x0057ACA0): a cursorPosition below 0 or past
+// the end means the end of the text, and 0 is the caret before the first
+// character. One difference: the edit-from-center search also tries the last
+// place. The engine's loop stops one place early, so it never finds the text
+// after the cursor at the end of a name.
+//
+// Each result's priority is 3.80.2's (FUN_1418bb820): AccountCharacter gives
+// AccountCharacterSameRealm (every 1.12 alt is on this realm), else Friend,
+// else Guild, else InGroup, else Interacted, else Other. The order is
+// 3.80.2's (FUN_1418bbd30): priority, highest first, then the name; with
+// autoCompleteResortNamesOnRecency on, the most recent whisper comes first
+// and priority and name break ties. 3.80.2's comparator puts the OLDEST
+// first, against its own cvar's help ("people you recently spoke with
+// higher up") and 3.3.5's SortNameNode (0x0057B130); this keeps the newest
+// first. Then a name equal to the typed text moves to the front, keeping
+// the order of the rest (FUN_1418bbdf0), and numResults cuts the list: 0
+// gives none, a negative number every match.
 
 #include "autocomplete/Names.h"
 
 #include "Game.h"
 #include "Offsets.h"
+#include "creature/Info.h"
 #include "cvar/Factory.h"
 #include "friendlist/FriendList.h"
 #include "group/MemberStats.h"
 #include "group/Roster.h"
 #include "guid/Guid.h"
+#include "object/Resolve.h"
 #include "text/Utf8.h"
 #include "unit/Identity.h"
 
@@ -73,8 +85,8 @@ namespace AutoComplete::Names {
 
 namespace {
 
-// Enum.AutoCompleteEntryFlag. 1.12 has nothing to fill Bnet, InAOI or
-// RecentPlayer from.
+// Enum.AutoCompleteEntryFlag. 1.12 has nothing to fill Bnet or RecentPlayer
+// from.
 enum EntryFlag : uint32_t {
     FLAG_IN_GROUP = 0x1,
     FLAG_IN_GUILD = 0x2,
@@ -203,12 +215,27 @@ std::vector<Entry> Collect(Match match) {
     for (const Interaction &i : g_interactions)
         add(i.guid, i.name.c_str(), FLAG_INTERACTED_WITH, false, false, i.order);
 
+    if (const uint8_t *own = Unit::Identity::PlayerDescriptor()) {
+        const uint32_t group = Creature::Info::FactionMaskForRace(Unit::Identity::Race(own));
+        Object::ForEachVisible([&](uint64_t guid) {
+            if (group == 0 || !Guid::IsPlayer(guid))
+                return true;
+            const void *player = Object::ByGuid(Offsets::TYPEMASK_PLAYER, guid);
+            const uint8_t *fields = player != nullptr ? Object::Fields(player) : nullptr;
+            if (fields != nullptr &&
+                Creature::Info::FactionMaskForRace(Unit::Identity::Race(fields)) == group)
+                add(guid, Unit::Identity::NameForGuid(guid), FLAG_IN_AOI, true, true, 0);
+            return true;
+        });
+    }
+
     return found;
 }
 
 // One entry per player, with every list's bits and Online decided; then the
-// include / exclude test, which autoCompleteUseContext turns off.
-std::vector<Entry> Merge(std::vector<Entry> found, uint32_t include, uint32_t exclude) {
+// include / exclude test when `filter` asks for it.
+std::vector<Entry> Merge(std::vector<Entry> found, uint32_t include, uint32_t exclude,
+                         bool filter) {
     std::sort(found.begin(), found.end(),
               [](const Entry &a, const Entry &b) { return a.guid < b.guid; });
     std::vector<Entry> merged;
@@ -224,12 +251,11 @@ std::vector<Entry> Merge(std::vector<Entry> found, uint32_t include, uint32_t ex
         }
     }
 
-    const bool useContext = CVarOn(g_useContext);
     std::vector<Entry> kept;
     for (Entry &e : merged) {
         if (e.listed ? e.online : (e.flags & FLAG_INTERACTED_WITH) != 0)
             e.flags |= FLAG_ONLINE;
-        if (!useContext || ((e.flags & include) != 0 && (e.flags & exclude) == 0))
+        if (!filter || ((e.flags & include) != 0 && (e.flags & exclude) == 0))
             kept.push_back(e);
     }
     return kept;
@@ -301,8 +327,8 @@ uint32_t FlagArg(void *L, int index) {
 
 // C_AutoComplete.GetAutoCompleteResults(name, numResults, cursorPosition,
 //     allowFullMatch, includeFlags, excludeFlags) -> results
-// A numResults of 0 or less returns every match, as the engine's count test
-// (`++count == numReturns`) does.
+// numResults 0 returns nothing and a negative one every match: 3.80.2 caps
+// the list at numResults read as unsigned.
 int __fastcall Script_GetAutoCompleteResults(void *L) {
     if (!Game::Lua::IsString(L, 1) || !Game::Lua::IsNumber(L, 2) || !Game::Lua::IsNumber(L, 3) ||
         !Game::Lua::IsNumber(L, 5) || !Game::Lua::IsNumber(L, 6)) {
@@ -314,7 +340,7 @@ int __fastcall Script_GetAutoCompleteResults(void *L) {
     typed.text = Game::Lua::ToString(L, 1);
     typed.length = Text::Utf8::Length(typed.text);
     const double cursor = Game::Lua::ToNumber(L, 3);
-    typed.cursor = cursor >= 1 && cursor <= static_cast<double>(typed.length)
+    typed.cursor = cursor >= 0 && cursor <= static_cast<double>(typed.length)
                        ? static_cast<size_t>(cursor)
                        : typed.length;
     typed.allowFullMatch = Game::Lua::ToBoolean(L, 4) != 0;
@@ -323,14 +349,20 @@ int __fastcall Script_GetAutoCompleteResults(void *L) {
 
     std::vector<Entry> matches =
         Merge(Collect([&](const char *name) { return Completes(typed, name); }), FlagArg(L, 5),
-              FlagArg(L, 6));
+              FlagArg(L, 6), CVarOn(g_useContext));
     const bool recency = CVarOn(g_resortOnRecency);
     std::sort(matches.begin(), matches.end(), [recency](const Entry &a, const Entry &b) {
         if (recency && a.order != b.order)
             return a.order > b.order;
+        const int pa = PriorityOf(a.flags), pb = PriorityOf(b.flags);
+        if (pa != pb)
+            return pa > pb;
         return Text::Utf8::CompareI(a.name, b.name) < 0;
     });
-    if (numResults > 0 && matches.size() > static_cast<size_t>(numResults))
+    std::stable_partition(matches.begin(), matches.end(), [&typed](const Entry &e) {
+        return Text::Utf8::CompareI(typed.text, e.name) == 0;
+    });
+    if (numResults >= 0 && matches.size() > static_cast<size_t>(numResults))
         matches.resize(numResults);
 
     Game::Lua::NewTable(L);
@@ -346,6 +378,8 @@ int __fastcall Script_GetAutoCompleteResults(void *L) {
 }
 
 // C_AutoComplete.IsRecognizedName(name, includeFlags, excludeFlags) -> bool
+// The masks apply whatever autoCompleteUseContext says (3.80.2's
+// FUN_1418bc3b0).
 int __fastcall Script_IsRecognizedName(void *L) {
     if (!Game::Lua::IsString(L, 1) || !Game::Lua::IsNumber(L, 2) || !Game::Lua::IsNumber(L, 3)) {
         Game::Lua::Error(L,
@@ -355,7 +389,7 @@ int __fastcall Script_IsRecognizedName(void *L) {
     const char *text = Game::Lua::ToString(L, 1);
     const std::vector<Entry> matches =
         Merge(Collect([text](const char *name) { return Text::Utf8::CompareI(text, name) == 0; }),
-              FlagArg(L, 2), FlagArg(L, 3));
+              FlagArg(L, 2), FlagArg(L, 3), true);
     Game::Lua::PushBool(L, !matches.empty());
     return 1;
 }
