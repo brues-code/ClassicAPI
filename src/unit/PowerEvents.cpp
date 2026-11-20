@@ -69,9 +69,9 @@ using Register_t = void(__fastcall *)(int bank, uint32_t fieldOffset, uint32_t s
 using Unregister_t = void(__fastcall *)(int bank, uint32_t fieldOffset, const void *callback,
                                         void *userArg);
 
-// Fires each of `slots` with (token, powerType) once per token of the unit,
+// Fires each of `slots` with (token, powerToken) once per token of the unit,
 // event by event as 4.3.4's handler signals them.
-void Signal(uint64_t guid, int powerType, const int *slots, int count) {
+void Signal(uint64_t guid, const char *type, const int *slots, int count) {
     bool listened = false;
     for (int i = 0; i < count; ++i)
         listened = listened || Event::Custom::HasListeners(slots[i]);
@@ -79,7 +79,6 @@ void Signal(uint64_t guid, int powerType, const int *slots, int count) {
         return;
     char tokens[Unit::Identity::kMaxUnitTokens][32];
     const int n = Unit::Identity::TokensForGUID(guid, tokens, Unit::Identity::kMaxUnitTokens);
-    const char *type = Unit::Power::PowerTypeToken(powerType);
     for (int i = 0; i < count; ++i)
         for (int t = 0; t < n; ++t)
             Event::Custom::Fire(slots[i], "%s%s", tokens[t], type);
@@ -121,14 +120,19 @@ const Game::ModuleAutoRegister _autoreg{&RegisterWatchers};
 
 } // namespace
 
-void SignalPower(uint64_t guid, int powerType) {
+void SignalPower(uint64_t guid, int slot) {
     const int slots[] = {kUpdate.Slot(), kFrequent.Slot()};
-    Signal(guid, powerType, slots, 2);
+    Signal(guid, Unit::Power::TypeToken(Unit::Power::TypeOfSlot(slot)), slots, 2);
 }
 
-void SignalMaxPower(uint64_t guid, int powerType) {
+void SignalMaxPower(uint64_t guid, int slot) {
     const int slots[] = {kMax.Slot()};
-    Signal(guid, powerType, slots, 1);
+    Signal(guid, Unit::Power::TypeToken(Unit::Power::TypeOfSlot(slot)), slots, 1);
+}
+
+void SignalComboPoints(uint64_t guid) {
+    const int slots[] = {kUpdate.Slot(), kFrequent.Slot()};
+    Signal(guid, Unit::Power::TypeToken(Unit::Power::kTypeComboPoints), slots, 2);
 }
 
 } // namespace Unit::PowerEvents

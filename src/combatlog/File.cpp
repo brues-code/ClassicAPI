@@ -124,10 +124,6 @@ constexpr int kLogVersion = 9;
 constexpr int kProjectId = 2; // WOW_PROJECT_CLASSIC, as Era writes it
 constexpr int kSpellEffects = 3;
 constexpr int kPowerTypes = 5;
-// 1.12 stores pet happiness as power type 4; the file writes retail's
-// Enum.PowerType.Happiness, as Era does.
-constexpr int kHappiness = 4;
-constexpr int kHappinessModern = 27;
 
 // Implicit targets that name one unit. A damage effect with a radius is AOE
 // unless it aims at one of these. Checked against the Era log: of the 300
@@ -453,7 +449,6 @@ bool Death(int event) {
            event == SPELL_INSTAKILL;
 }
 
-int PowerType(int type) { return type == kHappiness ? kHappinessModern : type; }
 
 // The stored maximum of a power on the unit, 0 when it is out of view.
 int MaxPower(uint64_t guid, int type) {
@@ -574,7 +569,7 @@ void AdvancedBlock(std::string &line, uint64_t guid) {
     line += ",0,0,0,0,0"; // attack power, spell power, armor, absorb, and the slot after it
     const int powerType = Game::Read<uint8_t>(fields, Offsets::OFF_UNIT_DESCRIPTOR_POWER_TYPE_BYTE);
     if (player && powerType < kPowerTypes) {
-        Number(line, PowerType(powerType));
+        Number(line, Unit::Power::TypeOfSlot(powerType));
         Number(line, static_cast<int>(Unit::Power::Stored(fields, powerType)));
         Number(line, static_cast<int>(Unit::Power::StoredMax(fields, powerType)));
         Number(line, 0);
@@ -641,13 +636,13 @@ std::string Pack(const Entry &e, bool advanced, bool landed) {
         // amount, overEnergize, powerType, maxPower
         Decimal(line, e.v[0]);
         Decimal(line, 0);
-        Number(line, PowerType(e.v[1]));
+        Number(line, Unit::Power::TypeOfSlot(e.v[1]));
         Number(line, MaxPower(e.dest, e.v[1]));
     }
     if (e.info & INFO_DRAIN) {
         // amount, powerType, extraAmount, maxPower
         Number(line, e.v[0]);
-        Number(line, PowerType(e.v[1]));
+        Number(line, Unit::Power::TypeOfSlot(e.v[1]));
         Number(line, e.v[2]);
         Number(line, MaxPower(e.dest, e.v[1]));
     }

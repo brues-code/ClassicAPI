@@ -79,3 +79,9 @@ end
 
 function MarkNewSettingAsSeen(variable)
 end
+
+-- Classic clients before Wrath answer true: combo points stay on the player
+-- in a vehicle. This client has no vehicles.
+function UnitIgnoresVehicleComboPoints(unit)
+    return true
+end

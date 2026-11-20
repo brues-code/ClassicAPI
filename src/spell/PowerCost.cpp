@@ -76,8 +76,9 @@ int __fastcall Script_GetSpellPowerCost(void *L) {
     Game::Lua::NewTable(L);                                  // outer
     Game::Lua::PushNumber(L, 1.0);                           // key 1
     Game::Lua::NewTable(L);                                  // entry (top)
-    Game::Lua::SetFieldNumber(L, "type", static_cast<double>(powerType));
-    Game::Lua::SetFieldString(L, "name", Unit::Power::PowerTypeToken(powerType));
+    const int type = Unit::Power::TypeOfSlot(powerType);
+    Game::Lua::SetFieldNumber(L, "type", static_cast<double>(type));
+    Game::Lua::SetFieldString(L, "name", Unit::Power::TypeToken(type));
     Game::Lua::SetFieldNumber(L, "cost", static_cast<double>(cost));
     Game::Lua::SetFieldNumber(L, "minCost", static_cast<double>(cost));
     Game::Lua::SetFieldNumber(L, "costPercent", static_cast<double>(costPercent));
@@ -92,8 +93,7 @@ int __fastcall Script_GetSpellPowerCost(void *L) {
 
 const Game::Doc::Field kSpellPowerCostInfoFields[] = {
     Game::Doc::Req("type", "number",
-                   "The power the spell spends: 0 mana, 1 rage, 2 focus, 3 energy, "
-                   "4 happiness."),
+                   "The power the spell spends, an Enum.PowerType value."),
     Game::Doc::Req("name", "string", "The power token, such as \"MANA\" or \"RAGE\"."),
     Game::Doc::Req("cost", "number", "What the cast costs the player now."),
     Game::Doc::Req("minCost", "number", "The same value as cost."),

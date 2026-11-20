@@ -18,11 +18,16 @@
 namespace Unit::PowerEvents {
 
 // UNIT_POWER_UPDATE then UNIT_POWER_FREQUENT, `(token, powerType)`, once per
-// token of `guid`. For a power change the type-wide watchers here can't see,
-// such as a group member's party record.
-void SignalPower(uint64_t guid, int powerType);
+// token of `guid`, for a change of its 1.12 power `slot` (the payload carries
+// the slot's modern token). For a power change the type-wide watchers here
+// can't see, such as a group member's party record.
+void SignalPower(uint64_t guid, int slot);
 
-// UNIT_MAXPOWER, `(token, powerType)`, once per token of `guid`.
-void SignalMaxPower(uint64_t guid, int powerType);
+// UNIT_MAXPOWER, `(token, powerType)`, once per token of `guid`, for `slot`.
+void SignalMaxPower(uint64_t guid, int slot);
+
+// UNIT_POWER_UPDATE then UNIT_POWER_FREQUENT with "COMBO_POINTS", once per
+// token of the player `guid`: a change of its combo-point byte.
+void SignalComboPoints(uint64_t guid);
 
 } // namespace Unit::PowerEvents

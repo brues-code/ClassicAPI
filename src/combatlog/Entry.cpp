@@ -384,7 +384,7 @@ int Push(void *L, const Entry &e) {
     }
     if (e.info & INFO_ENERGIZE) {
         PushNumber(L, e.v[0]);
-        PushNumber(L, e.v[1]);
+        PushNumber(L, Unit::Power::TypeOfSlot(e.v[1]));
         if (e.v[2] < 0)
             PushNil(L);
         else
@@ -393,7 +393,7 @@ int Push(void *L, const Entry &e) {
     }
     if (e.info & INFO_DRAIN) {
         PushNumber(L, e.v[0]);
-        PushNumber(L, e.v[1]);
+        PushNumber(L, Unit::Power::TypeOfSlot(e.v[1]));
         PushNumberOrNil(L, e.v[2]);
         if (e.v[3] < 0)
             PushNil(L);
@@ -595,14 +595,14 @@ void PushTable(void *L, const Entry &e) {
     if (e.info & INFO_ENERGIZE) {
         // 3.80.2's overenergizeAmount has no 4.3.4 value.
         SetFieldNumber(L, "amount", e.v[0]);
-        SetFieldNumber(L, "powerType", e.v[1]);
+        SetFieldNumber(L, "powerType", Unit::Power::TypeOfSlot(e.v[1]));
         SetFieldNumber(L, "overenergizeAmount", 0);
         if (e.v[2] >= 0)
             SetFieldNumber(L, "alternatePowerType", e.v[2]);
     }
     if (e.info & INFO_DRAIN) {
         SetFieldNumber(L, "amount", e.v[0]);
-        SetFieldNumber(L, "powerType", e.v[1]);
+        SetFieldNumber(L, "powerType", Unit::Power::TypeOfSlot(e.v[1]));
         if (e.v[2] != 0)
             SetFieldNumber(L, "extraAmount", e.v[2]);
         if (e.v[3] >= 0)

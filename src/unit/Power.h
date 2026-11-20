@@ -15,23 +15,41 @@
 
 #include <cstdint>
 
+// Two numberings meet here. A 1.12 power SLOT (0..4: mana, rage, focus, energy,
+// happiness) is the unit's POWER1..5 field, the byte UnitPowerType reads, and
+// the power type of a spell, energize or drain. A modern power TYPE is
+// Enum.PowerType as the 3.80.2 client numbers it: slots 0..3 keep their
+// numbers, happiness is 27, and 4 is combo points, which 1.12 keeps on the
+// player instead of in a slot. Everything surfaced to Lua is a type.
 namespace Unit::Power {
 
-// Modern power-type token for a PowerType value: 0 MANA, 1 RAGE, 2 FOCUS,
-// 3 ENERGY, 4 HAPPINESS, 5 RUNES, 6 RUNIC_POWER, anything else "UNKNOWN".
-// Used by `UnitPowerType`'s second return and by spell power-cost APIs.
-const char *PowerTypeToken(int type);
+constexpr int kTypeComboPoints = 4;
+constexpr int kTypeHappiness = 27;
+constexpr int kTypeCount = 30; // 3.80.2 accepts types 0..29
+
+// The modern type of a 1.12 slot (4 → 27); other values pass through, so a
+// spell's -2 (health) stays -2.
+int TypeOfSlot(int slot);
+
+// The 1.12 slot of a modern type (27 → 4, 0..3 → themselves), or -1 for a
+// type no slot holds (combo points included).
+int SlotOfType(int type);
+
+// The token of a modern type ("MANA", "COMBO_POINTS", "HAPPINESS", …), as the
+// UNIT_POWER_* events, UnitPowerType and spell power costs carry it; "UNKNOWN"
+// for a type 1.12 never produces.
+const char *TypeToken(int type);
 
 // The engine's divisor from a stored power amount to displayed units
-// (`FUN_POWER_DISPLAY_DIVISOR`): 10 for rage, 1000 for happiness, 1 otherwise.
-// Every power amount surfaced to Lua — unit power, spell costs, combat-log
-// amounts — goes through this.
-unsigned int DisplayDivisor(int type);
+// (`FUN_POWER_DISPLAY_DIVISOR`) for a 1.12 SLOT: 10 for rage, 1000 for
+// happiness, 1 otherwise. Every power amount surfaced to Lua — unit power,
+// spell costs, combat-log amounts — goes through this.
+unsigned int DisplayDivisor(int slot);
 
-// A unit's stored power and max power of `type` (0..4), from its descriptor
-// block (`Object::Fields`): UNIT_FIELD_POWER1 / MAXPOWER1 + type * 4. Stored
+// A unit's stored power and max power of `slot` (0..4), from its descriptor
+// block (`Object::Fields`): UNIT_FIELD_POWER1 / MAXPOWER1 + slot * 4. Stored
 // means before DisplayDivisor: rage in tenths, happiness at 1000x.
-uint32_t Stored(const uint8_t *fields, int type);
-uint32_t StoredMax(const uint8_t *fields, int type);
+uint32_t Stored(const uint8_t *fields, int slot);
+uint32_t StoredMax(const uint8_t *fields, int slot);
 
 } // namespace Unit::Power

@@ -53,6 +53,7 @@
 #include "tick/FrameTick.h"
 #include "unit/Identity.h"
 #include "unit/Position.h"
+#include "unit/Power.h"
 #include "unit/Relation.h"
 #include "unit/SelectionColor.h"
 
@@ -347,7 +348,8 @@ Vitals ReadVitals(const uint8_t *fields) {
 void WriteVitals(uint64_t guid, const Vitals &vitals) {
     std::string line = "UNIT_POWER";
     File::AppendGuid(line, guid);
-    for (const uint32_t v : {vitals.health, vitals.maxHealth, vitals.powerType, vitals.power, vitals.maxPower})
+    const auto type = static_cast<uint32_t>(Unit::Power::TypeOfSlot(static_cast<int>(vitals.powerType)));
+    for (const uint32_t v : {vitals.health, vitals.maxHealth, type, vitals.power, vitals.maxPower})
         AppendUnsigned(line, v);
     Movement::Emit(line);
 }

@@ -30,6 +30,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "player/ActiveWatchers.h"
 #include "event/Custom.h"
 #include "item/Link.h"
 #include "object/Resolve.h"
@@ -130,42 +131,8 @@ int __fastcall SelfResSpellChanged(uint32_t /*fieldOffset*/, uint32_t /*size*/,
     return 1;
 }
 
-using Register_t = void(__fastcall *)(int bank, uint32_t fieldOffset, uint32_t guidLo,
-                                      uint32_t guidHi, int size, const void *callback,
-                                      void *userArg1, void *userArg2);
-using Unregister_t = void(__fastcall *)(int bank, uint32_t fieldOffset, uint32_t guidLo,
-                                        uint32_t guidHi, const void *callback, void *userArg1);
-using Watchers_t = void(__fastcall *)(void *player, void *edx);
-
-Watchers_t g_origAddWatchers = nullptr;
-Watchers_t g_origRemoveWatchers = nullptr;
-
-void __fastcall AddActiveWatchers_h(void *player, void *edx) {
-    g_origAddWatchers(player, edx);
-    const uint64_t guid = ::Object::Guid(player);
-    reinterpret_cast<Register_t>(Offsets::FUN_DESC_OBSERVER_REGISTER)(
-        Offsets::DESC_OBSERVER_BANK_PLAYER, Offsets::OFF_CGPLAYER_INFO_SELF_RES_SPELL,
-        static_cast<uint32_t>(guid), static_cast<uint32_t>(guid >> 32), 4,
-        reinterpret_cast<const void *>(&SelfResSpellChanged), nullptr, nullptr);
-}
-
-// Removed before the original, while the registry is as the engine's own
-// removals find it.
-void __fastcall RemoveActiveWatchers_h(void *player, void *edx) {
-    const uint64_t guid = ::Object::Guid(player);
-    reinterpret_cast<Unregister_t>(Offsets::FUN_DESC_OBSERVER_UNREGISTER)(
-        Offsets::DESC_OBSERVER_BANK_PLAYER, Offsets::OFF_CGPLAYER_INFO_SELF_RES_SPELL,
-        static_cast<uint32_t>(guid), static_cast<uint32_t>(guid >> 32),
-        reinterpret_cast<const void *>(&SelfResSpellChanged), nullptr);
-    g_origRemoveWatchers(player, edx);
-}
-
-const Game::HookAutoRegister _addHook{Offsets::FUN_PLAYER_ADD_ACTIVE_WATCHERS,
-                                      reinterpret_cast<void *>(&AddActiveWatchers_h),
-                                      reinterpret_cast<void **>(&g_origAddWatchers)};
-const Game::HookAutoRegister _removeHook{Offsets::FUN_PLAYER_REMOVE_ACTIVE_WATCHERS,
-                                         reinterpret_cast<void *>(&RemoveActiveWatchers_h),
-                                         reinterpret_cast<void **>(&g_origRemoveWatchers)};
+const Player::ActiveWatchers::AutoWatch _watch{
+    {Offsets::OFF_CGPLAYER_INFO_SELF_RES_SPELL, 4, &SelfResSpellChanged}};
 
 const Game::Lua::EnumIntegerEntry kOptionTypeEntries[] = {
     {"Spell", OPTION_TYPE_SPELL},

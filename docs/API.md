@@ -328,6 +328,7 @@ build instructions.
   - [`UNIT_FACTION` event (fire-coverage fix)](#unit_faction-event-fire-coverage-fix)
   - [`UNIT_IN_RANGE_UPDATE` event](#unit_in_range_update-event)
   - [`UNIT_POWER_UPDATE` / `UNIT_POWER_FREQUENT` / `UNIT_MAXPOWER` events](#unit_power_update--unit_power_frequent--unit_maxpower-events)
+  - [`COMBO_TARGET_CHANGED` event](#combo_target_changed-event)
   - [`UNIT_SPELL_HASTE` event](#unit_spell_haste-event)
   - [`UNIT_TARGET` event](#unit_target-event)
   - [`UNIT_TARGETABLE_CHANGED` event](#unit_targetable_changed-event)
@@ -1332,7 +1333,11 @@ build instructions.
   - [`UnitHealthMissing(unit)`](#unithealthmissingunit)
   - [`UnitPower(unit [, powerType [, unmodified]])` / `UnitPowerMax(unit [, powerType [, unmodified]])`](#unitpowerunit--powertype--unmodified--unitpowermaxunit--powertype--unmodified)
   - [`UnitPowerMissing(unit [, powerType [, unmodified]])`](#unitpowermissingunit--powertype--unmodified)
+  - [`UnitPartialPower(unit [, powerType [, unmodified]])`](#unitpartialpowerunit--powertype--unmodified)
+  - [`UnitHasPowerType(unit, powerType)`](#unithaspowertypeunit-powertype)
+  - [`UnitPowerDisplayMod(powerType)`](#unitpowerdisplaymodpowertype)
   - [`UnitPowerType(unit)`](#unitpowertypeunit)
+  - [`GetComboPoints(unit, target)`](#getcombopointsunit-target)
   - [`UnitSpellHaste(unit)`](#unitspellhasteunit)
   - [`UnitSpellTargetName(unit)`](#unitspelltargetnameunit)
   - [`UnitHasIncomingResurrection(unit)`](#unithasincomingresurrectionunit)
@@ -7967,7 +7972,12 @@ UNIT_MAXPOWER: unitTarget, powerType
   one token (for example `target` and `focus`) gets one event for each
   token.
 - **`powerType`** (string) — the power that changed: `"MANA"`, `"RAGE"`,
-  `"FOCUS"`, `"ENERGY"`, or `"HAPPINESS"`.
+  `"FOCUS"`, `"ENERGY"`, `"COMBO_POINTS"`, or `"HAPPINESS"`.
+
+A change of the player's combo points fires `UNIT_POWER_UPDATE` and
+`UNIT_POWER_FREQUENT` with `"COMBO_POINTS"` for each token of the player.
+`PLAYER_COMBO_POINTS` also fires, as before. The maximum of combo points does
+not change, so `UNIT_MAXPOWER` does not fire for them.
 
 The client gets each power change from the server, so
 `UNIT_POWER_FREQUENT` fires at the same times as `UNIT_POWER_UPDATE`. The
@@ -7985,6 +7995,24 @@ f:SetScript("OnEvent", function()
     if arg2 == "ENERGY" then
         print("Energy:", UnitPower("player", Enum.PowerType.Energy))
     end
+end)
+```
+
+### `COMBO_TARGET_CHANGED` event
+
+Fires when the player's combo points move to another unit, that is, when
+the first combo point lands on a new unit. The event has no arguments.
+
+When a rogue or druid targets a different unit, the server sets the combo
+points to `0` (`PLAYER_COMBO_POINTS` and `UNIT_POWER_UPDATE` fire). The combo
+target stays the old unit until a combo point lands on another unit, so this
+event fires then, not when you change targets.
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterEvent("COMBO_TARGET_CHANGED")
+f:SetScript("OnEvent", function()
+    print("Combo points on target:", GetComboPoints("player", "target"))
 end)
 ```
 
@@ -13238,22 +13266,26 @@ The weapon that a [`PLAYER_SWING`](#player_swing-event) or
 
 ### `Enum.PowerType`
 
-The integer enum `UnitPowerType` returns and `UnitPower` /
-`UnitPowerMax` accept. Only slots 0..4 are defined. Slot 4 is
-`Happiness` (pet happiness).
+The integer enum `UnitPowerType` returns and the `UnitPower` functions take.
 
-| Value | Field        | Notes |
-|------:|--------------|-------|
-| `-2`  | `HealthCost` | Sentinel for "use HEALTH instead of POWER". |
-| `-1`  | `None`       | Sentinel for "unit's primary power" (= omit the arg). |
-| `0`   | `Mana`       | |
-| `1`   | `Rage`       | |
-| `2`   | `Focus`      | |
-| `3`   | `Energy`     | |
-| `4`   | `Happiness`  | Pet happiness. |
+| Value | Field | Notes |
+|------:|-------|-------|
+| `-2` | `HealthCost` | A spell that costs health. |
+| `-1` | `None` | |
+| `0` | `Mana` | |
+| `1` | `Rage` | |
+| `2` | `Focus` | |
+| `3` | `Energy` | |
+| `4` | `ComboPoints` | The player's combo points. |
+| `27` | `Happiness` | Pet happiness. |
+
+The enum also has the other values from `5` to `29` (`Runes`,
+`RunicPower`, `SoulShards`, and so on). No unit has these powers. The
+`UnitPower` functions accept them and return `0`.
 
 ```lua
 local rage = UnitPower("player", Enum.PowerType.Rage)
+local points = UnitPower("player", Enum.PowerType.ComboPoints)
 ```
 
 ### `Enum.SpellBookSpellBank`
@@ -24572,7 +24604,7 @@ C_Spell.GetSpellPowerCost(10187)   -- Blizzard, Mage with 3/3 Frost Channeling
 
 | Field | Meaning |
 |-------|---------|
-| `type` | `Enum.PowerType` — `0` mana, `1` rage, `2` focus, `3` energy, `4` happiness (the spell's `PowerType`) |
+| `type` | `Enum.PowerType` — `0` mana, `1` rage, `2` focus, `3` energy, `27` happiness (the spell's power) |
 | `name` | power token (`"MANA"`, `"RAGE"`, …) |
 | `cost` | **effective** cost for the local player |
 | `minCost` | `== cost` (no optional-cost component) |
@@ -29244,97 +29276,105 @@ the percentage form for non-grouped units (where `UnitHealthMax` is
 
 ### `UnitPower(unit [, powerType [, unmodified]])` / `UnitPowerMax(unit [, powerType [, unmodified]])`
 
-Multi-power-type getters. The stock
-`UnitMana(unit)` / `UnitManaMax(unit)` return whichever
-primary power the unit happens to have (mana for casters, energy
-for rogues, rage for warriors, etc.); these add the explicit
-`powerType` arg so addons can read a specific power slot without
-caring what the unit's primary is.
+Return the current and the maximum power of one type. `UnitMana(unit)` and
+`UnitManaMax(unit)` return only the unit's own power (mana for casters, energy
+for rogues, rage for warriors). These functions take the power type as an
+argument.
 
 ```lua
-local mana    = UnitPower("player", 0)   -- explicit mana
-local energy  = UnitPower("player", 3)   -- explicit energy
-local primary = UnitPower("player")      -- whatever the player's primary is
-local maxMana = UnitPowerMax("target", 0)
+local mana    = UnitPower("player", Enum.PowerType.Mana)
+local energy  = UnitPower("player", Enum.PowerType.Energy)
+local primary = UnitPower("player")    -- the unit's own power
+local points  = UnitPower("player", Enum.PowerType.ComboPoints)
+local maxMana = UnitPowerMax("target", Enum.PowerType.Mana)
 ```
 
-`powerType` values:
+`powerType` is a value of [`Enum.PowerType`](#enumpowertype). If you omit it
+or give `nil`, the functions use the unit's own power (the type that
+`UnitPowerType` returns). Any other value must be an integer from `0` to
+`29`, or the call raises a usage error. `-1` also raises the error.
 
-| value | type |
-|---|---|
-| `0` | MANA |
-| `1` | RAGE |
-| `2` | FOCUS |
-| `3` | ENERGY |
-| `4` | HAPPINESS |
+Behavior notes:
 
-These match the [`Enum.PowerType`](#globals) namespace published
-alongside — `UnitPower("player", Enum.PowerType.Mana)` is the
-idiomatic shape.
+- `UnitPower` returns `0` for a power that is not the unit's own power,
+  unless the unit is the player or your pet. `UnitPowerMax` returns the
+  maximum for every unit.
+- **Combo points** (`4`): the player's combo points, from `0` to `5`, for
+  rogues and druids. The value does not check your target. The server sets
+  the points to `0` when you target a different unit. To get the points on
+  your target, use `GetComboPoints("player", "target")`.
+  `UnitPowerMax("player", 4)` returns `5` for rogues and druids. For other
+  classes and other units, both functions return `0`.
+- **Happiness** (`27`): pet happiness.
+- A group member that the client cannot see returns the value of its own
+  power, from the group data. Other power types return `0`.
+- The functions return `0` for a token that names no unit.
 
-Omitting `powerType` (or passing `-1` / any out-of-range value)
-falls back to the unit's primary power.
-
-Returns `0` for invalid units, unresolvable tokens, or power types
-outside the 0..4 range (Runes / Runic Power do not exist on a unit
-here).
-
-Display-divisor applied. Some power types are stored at a
-scaled value internally and divided before Lua sees them, as
-`UnitMana` does:
+The functions divide some powers by a display divisor, as `UnitMana` does:
 
 | type | divisor |
 |---|---|
-| `0` MANA | 1 |
-| `1` RAGE | **10** (raw `0..1000` → display `0..100`) |
-| `2` FOCUS | 1 |
-| `3` ENERGY | 1 |
-| `4` HAPPINESS | 1000 |
+| `1` RAGE | **10** (internal `0..1000`, shown as `0..100`) |
+| `27` HAPPINESS | 1000 |
+| all others | 1 |
 
-So a fresh warrior reads `UnitPower("player", 1)` = `0..100`, not
-`0..1000`.
-
-Pass a truthy `unmodified` (third arg) to bypass the divisor and get the raw
-internal value — `UnitPower("player", 1, true)` returns rage as `0..1000`.
-The same third argument `UnitPower` / `UnitPowerMax` take.
+So a warrior's `UnitPower("player", 1)` is `0..100`, not `0..1000`. Give a
+true `unmodified` (third argument) to get the internal value:
+`UnitPower("player", 1, true)` returns rage as `0..1000`.
 
 [`UNIT_POWER_UPDATE` and `UNIT_MAXPOWER`](#unit_power_update--unit_power_frequent--unit_maxpower-events)
 fire when these values change.
 
 ### `UnitPowerMissing(unit [, powerType [, unmodified]])`
 
-The power deficit — `UnitPowerMax(...) - UnitPower(...)` for the given type —
-in one call. The power analogue of [`UnitHealthMissing`](#unithealthmissingunit),
-for energy/mana/rage "resource needed" checks. Same `unit` / `powerType`
-handling and invalid-unit-returns-`0` semantics as `UnitPower`.
+Returns `UnitPowerMax(...) - UnitPower(...)` for the type, in one call. It
+takes the same arguments as `UnitPower`.
 
 ```lua
 local energyNeeded = UnitPowerMissing("player", Enum.PowerType.Energy)
-local rageMissing  = UnitPowerMissing("player")   -- primary power
+local rageMissing  = UnitPowerMissing("player")   -- the unit's own power
 ```
 
-`unmodified` (arg 3, any truthy value) skips the display divisor and returns
-the raw internal deficit — the same third argument `UnitPower` takes.
+The result is the difference of the two shown values, so it is the same as
+`UnitPowerMax(...) - UnitPower(...)`. The result is not limited to `0` or
+more: where `UnitPower` returns `0` and `UnitPowerMax` does not, the result
+is the maximum.
 
-Computed as the difference of the two **display** values (each integer-divided
-by the per-type divisor), not by dividing the raw difference, so it equals
-`UnitPowerMax(...) - UnitPower(...)` exactly. Those diverge for rage: raw
-`1000/55` displays as `100/5`, a deficit of `95`, whereas `(1000-55)/10`
-truncates to `94`. Clamped at 0.
+### `UnitPartialPower(unit [, powerType [, unmodified]])`
+
+Returns the part of a power point that a unit has built up between whole
+points. It takes the same arguments as `UnitPower`. The server sends only
+whole points in this client, so the result is always `0`.
+
+### `UnitHasPowerType(unit, powerType)`
+
+Returns `true` if the unit has a power of that type. `powerType` is required.
+
+- The player has the powers of its class: a power with a maximum above `0`,
+  and combo points for rogues and druids.
+- Your pet has its own power and happiness.
+- Another unit has only its own power.
+- A group member that the client cannot see has only its own power, from the
+  group data.
+
+```lua
+UnitHasPowerType("player", Enum.PowerType.ComboPoints)  -- true for a rogue
+```
+
+### `UnitPowerDisplayMod(powerType)`
+
+Returns the number that the `UnitPower` functions divide a power by: `10` for
+rage, `1000` for happiness, and `1` for all other types.
 
 ### `UnitPowerType(unit)`
 
-The stock version returns just the integer power type;
-this implementation extends it to the 2-tuple
-`(powerType, powerToken)`. Strict-superset signature — addons
-that destructure only the first return are unaffected.
+Returns the unit's own power type and its token: `(powerType, powerToken)`.
+Code that reads only the first value works as before.
 
 ```lua
 local pt, token = UnitPowerType("player")
--- e.g. (0, "MANA") for a paladin, (1, "RAGE") for a warrior
+-- (0, "MANA") for a paladin, (1, "RAGE") for a warrior
 ```
-
-Token strings:
 
 | value | token |
 |---|---|
@@ -29342,16 +29382,28 @@ Token strings:
 | `1` | `"RAGE"` |
 | `2` | `"FOCUS"` |
 | `3` | `"ENERGY"` |
-| `4` | `"HAPPINESS"` |
-| `5` | `"RUNES"` |
-| `6` | `"RUNIC_POWER"` |
+| `27` | `"HAPPINESS"` |
 
-5/6 are power types that can't appear on a unit here;
-they're included in the table for symmetry in case a private server
-pushes one through.
+Unit resolution is the same as in the stock `UnitPowerType`, with its pet and
+totem fallbacks.
 
-Unit resolution is the same as in the stock `UnitPowerType`, with its
-pet / totem / vehicle fallbacks.
+### `GetComboPoints(unit, target)`
+
+Returns the combo points that `unit` has on `target`.
+
+```lua
+local points = GetComboPoints("player", "target")
+local onPlate = GetComboPoints("player", "nameplate3")
+```
+
+- `unit` must be a string, or the call raises
+  `Usage: GetComboPoints("unit"[, "target"]`.
+- Only `"player"` (or another token for the player) has combo points, and
+  only for rogues and druids. Other units return `0`.
+- The result is `0` unless `target` names the unit that has the points.
+
+`GetComboPoints()` with no arguments returns the points on your current
+target.
 
 ### `UnitSpellHaste(unit)`
 
