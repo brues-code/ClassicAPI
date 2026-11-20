@@ -148,6 +148,7 @@ local function RegisterInteractKey()
 	-- The object icon is drawn only while the interact icon is on.
 	local gameObjectIcon = AddCVarCheckbox(category, "SoftTargetIconGameObject", CLASSICAPI_GAME_OBJECT_ICON, CLASSICAPI_GAME_OBJECT_ICON_TOOLTIP);
 	gameObjectIcon:SetParentInitializer(interactIconInitializer, function() return interactIcon:GetValue(); end);
+	AddCVarCheckbox(category, "SoftTargetNameplateInteract", CLASSICAPI_ALWAYS_SHOW_NAMEPLATE, CLASSICAPI_INTERACT_NAMEPLATE_TOOLTIP);
 
 	-- Retail's "Show Target Tooltip" (Accessibility): one box for the enemy and interact tooltips.
 	do
@@ -189,6 +190,7 @@ local function RegisterActionTargeting()
 	AddDropdown(category, "SoftTargetFriendArc", CLASSICAPI_FRIEND_DIRECTION, CLASSICAPI_UNIT_DIRECTION_TOOLTIP, ARC_CHOICES);
 	AddNumberBox(category, "SoftTargetFriendRange", CLASSICAPI_FRIEND_RANGE, CLASSICAPI_RANGE_TOOLTIP);
 	AddCVarCheckbox(category, "SoftTargetIconFriend", CLASSICAPI_FRIEND_ICON, CLASSICAPI_FRIEND_ICON_TOOLTIP);
+	AddCVarCheckbox(category, "SoftTargetNameplateFriend", CLASSICAPI_ALWAYS_SHOW_NAMEPLATE, CLASSICAPI_FRIEND_NAMEPLATE_TOOLTIP);
 
 	AddHeader(layout, CLASSICAPI_WHEN_YOU_HAVE_A_TARGET);
 	AddDropdown(category, "SoftTargetWithLocked", CLASSICAPI_KEEP_ACTION_TARGETING, CLASSICAPI_KEEP_ACTION_TARGETING_TOOLTIP, WITH_LOCKED_CHOICES);
@@ -283,7 +285,37 @@ local function RegisterInterface()
 	local cursors = AddCVarCheckbox(category, "expandedCursors", CLASSICAPI_EXPANDED_CURSORS .. " " .. CursorIcon("RepairNPC"), expandedCursorIcons .. "\n" .. CLASSICAPI_EXPANDED_CURSORS_TOOLTIP);
 	cursors:AddSearchTags(CLASSICAPI_EXPANDED_CURSORS);
 
+	-- Retail's nameplate rows (Blizzard_SettingsDefinitions_Frame\Nameplates.lua),
+	-- less "Enemy Units", which 1.12.1 keeps in ShowNameplates() with no cvar.
+	-- Retail shows only the Minions rows; the kinds under them get rows here
+	-- too. The Settings list indents one level, so a kind sits at the Minions
+	-- row's indent and follows the Minions row.
 	AddHeader(layout, CLASSICAPI_NAMEPLATES);
+	do
+		local enemyMinions, enemyMinionsInitializer = Settings.SetupCVarCheckbox(category, "nameplateShowEnemyMinions", CLASSICAPI_ENEMY_MINIONS, OPTION_TOOLTIP_UNIT_NAMEPLATES_SHOW_ENEMY_MINIONS);
+		local function AreEnemyMinionsShown() return enemyMinions:GetValue(); end
+		for _, row in ipairs({
+			{ "nameplateShowEnemyPets", PETS },
+			{ "nameplateShowEnemyGuardians", UNIT_NAMEPLATES_SHOW_ENEMY_GUARDIANS },
+			{ "nameplateShowEnemyTotems", UNIT_NAMEPLATES_SHOW_ENEMY_TOTEMS },
+		}) do
+			AddCVarCheckbox(category, row[1], row[2]):SetParentInitializer(enemyMinionsInitializer, AreEnemyMinionsShown);
+		end
+
+		local friendlyPlayers, friendlyPlayersInitializer = Settings.SetupCVarCheckbox(category, "nameplateShowFriendlyPlayers", UNIT_NAMEPLATES_SHOW_FRIENDS, OPTION_TOOLTIP_UNIT_NAMEPLATES_SHOW_FRIENDS);
+		local friendlyMinions, friendlyMinionsInitializer = Settings.SetupCVarCheckbox(category, "nameplateShowFriendlyPlayerMinions", UNIT_NAMEPLATES_SHOW_FRIENDLY_MINIONS, OPTION_TOOLTIP_UNIT_NAMEPLATES_SHOW_FRIENDLY_MINIONS);
+		friendlyMinionsInitializer:SetParentInitializer(friendlyPlayersInitializer, function() return friendlyPlayers:GetValue(); end);
+		local function AreFriendlyMinionsShown() return friendlyPlayers:GetValue() and friendlyMinions:GetValue(); end
+		for _, row in ipairs({
+			{ "nameplateShowFriendlyPlayerPets", PETS },
+			{ "nameplateShowFriendlyPlayerGuardians", UNIT_NAMEPLATES_SHOW_FRIENDLY_GUARDIANS },
+			{ "nameplateShowFriendlyPlayerTotems", UNIT_NAMEPLATES_SHOW_FRIENDLY_TOTEMS },
+		}) do
+			AddCVarCheckbox(category, row[1], row[2]):SetParentInitializer(friendlyMinionsInitializer, AreFriendlyMinionsShown);
+		end
+
+		AddCVarCheckbox(category, "nameplateShowFriendlyNpcs", UNIT_NAMEPLATES_SHOW_FRIENDLY_NPCS, UNIT_NAMEPLATES_SHOW_FRIENDLY_NPCS_TOOLTIP);
+	end
 	AddSlider(category, "nameplateSelectedAlpha", CLASSICAPI_TARGET_NAMEPLATE_ALPHA, CLASSICAPI_TARGET_NAMEPLATE_ALPHA_TOOLTIP, 0, 1, 0.05, FormatHundredths);
 	AddSlider(category, "nameplateNotSelectedAlpha", CLASSICAPI_OTHER_NAMEPLATE_ALPHA, CLASSICAPI_OTHER_NAMEPLATE_ALPHA_TOOLTIP, 0, 1, 0.05, FormatHundredths);
 
