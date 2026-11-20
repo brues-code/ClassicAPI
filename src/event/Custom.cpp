@@ -469,6 +469,19 @@ void FireValues(int slot, void *L, int firstArgIdx, int nargs) {
     SetTop(L, top);
 }
 
+void FireIdSuccess(int eventID, int id, bool success) {
+    void *L = Game::Lua::State();
+    if (L == nullptr || !HasListeners(eventID)) {
+        Profile::ScriptTime::CountSignal();
+        return;
+    }
+    const int top = Game::Lua::GetTop(L);
+    Game::Lua::PushNumber(L, static_cast<double>(id));
+    Game::Lua::PushBool(L, success);
+    FireValues(eventID, L, top + 1, 2);
+    Game::Lua::SetTop(L, top);
+}
+
 void RetryClaims() {
     // A table rebuilt behind our back (no FrameScript_Initialize in between)
     // leaves every cached slot pointing at whatever engine event now sits at

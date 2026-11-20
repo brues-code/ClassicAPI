@@ -180,21 +180,12 @@ inline void Fire(int eventID, const char *format, Args... args) {
     fn(eventID, format, args...);
 }
 
-// Convenience for the modern WoW `(id: number, success: bool)` event
-// shape (ITEM_DATA_LOAD_RESULT, GET_ITEM_INFO_RECEIVED,
-// QUEST_DATA_LOAD_RESULT, …). The engine's printf-style dispatcher has
-// no `%b`, so a naive `%d%d` with `0` for failure surfaces `arg2 = 0` —
-// truthy in Lua, breaking the canonical `if success then` branch. We
-// push `1` for success and `nil` for failure instead, leaning on the
-// engine's `lua_pushstring(L, NULL) → lua_pushnil` tail-jump so the
-// dispatcher itself emits the nil without any pre-staging. Lua handlers
-// can then use the natural idiom: nil is falsy, `1` is truthy.
-inline void FireIdSuccess(int eventID, int id, bool success) {
-    if (success)
-        Fire(eventID, "%d%d", id, 1);
-    else
-        Fire(eventID, "%d%s", id, static_cast<const char *>(nullptr));
-}
+// The modern `(id: number, success: bool)` event shape
+// (ITEM_DATA_LOAD_RESULT, GET_ITEM_INFO_RECEIVED, QUEST_DATA_LOAD_RESULT,
+// PLAYER_EQUIPMENT_CHANGED, …), with `success` a real true / false as the
+// 3.80.2 client pushes it (ITEM_DATA_LOAD_RESULT's pusher builds a bool). The
+// printf-style `Fire` has no `%b`, so this goes through FireValues.
+void FireIdSuccess(int eventID, int id, bool success);
 
 // Internal: try to claim a slot for every reservation that's still
 // unclaimed (`slot < 0`). Called from the `Frame::RegisterEvent` hook

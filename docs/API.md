@@ -6524,9 +6524,8 @@ PLAYER_EQUIPMENT_CHANGED: equipmentSlot, hasCurrent
 - **`equipmentSlot`** (number) — the 1-based inventory slot that
   changed (`1` = head … `19` = tabard; same numbering as
   `GetInventoryItemLink("player", slot)`).
-- **`hasCurrent`** — `1` when the slot now holds an item, `nil` when
-  it's now empty (write `if hasCurrent then` — the event dispatcher
-  can't push real booleans).
+- **`hasCurrent`** — `true` when the slot now holds an item, `false`
+  when the slot is now empty.
 
 The stock `UNIT_INVENTORY_CHANGED("player")` doesn't say *which* slot
 changed; this event lets gear trackers, stat sheets, and tooltip
@@ -15388,7 +15387,9 @@ item cache, `false` otherwise. The "ByID" variant takes an itemID or
 
 These read the cache without firing a server query — pair with
 `RequestLoadItemData(ByID)` if you need to ensure the data is loaded
-before checking.
+before checking. `IsItemDataCachedByID` raises a usage error when `item`
+is missing or is not a number or a string. `IsItemDataCached` raises a
+usage error when the location is not valid or holds no item.
 
 ```lua
 if not C_Item.IsItemDataCachedByID(itemID) then
@@ -15610,21 +15611,26 @@ C_Item.PickupItem(itemLink)
 
 ### `C_Item.RequestLoadItemDataByID(item)` / `C_Item.RequestLoadItemData(itemLocation)`
 
-Asks the server for the item's data if it is not already cached.
-Returns `true` if the request was initiated (or the input was
-parseable to an itemID). Returns `false` for malformed input, and when
-512 requests already wait for an answer. Fire-and-forget —
-the data lands in the cache when the server responds.
+Asks the server for the data of the item if the data is not cached.
+Returns nothing.
 
-Fires `ITEM_DATA_LOAD_RESULT(itemID, success)` when the data lands in
-the cache. Synchronously fired when the item
-was already cached (so polling code paths still work), asynchronously
-fired when the server answers.
+`item` is an item ID or an item link. If `item` is missing, or is not a
+number or a string, the function raises a usage error.
+`RequestLoadItemData` raises a usage error when the location is not
+valid or holds no item.
 
-> **`success` is `1` or `nil`.** The event gives `1` for success and
-> `nil` for failure. `if success then …` distinguishes them correctly —
-> `nil` is falsy, `1` is truthy. Same encoding as `GET_ITEM_INFO_RECEIVED`
-> and `QUEST_DATA_LOAD_RESULT`.
+Each call fires `ITEM_DATA_LOAD_RESULT(itemID, success)` one time:
+- If the data is cached, the event fires during the call, with `success`
+  `true`.
+- If the item ID is `0` or less, the event fires during the call, with
+  `success` `false`.
+- Otherwise the event fires when the server answers. When you call the
+  function three times before the answer, the event fires three times.
+
+`success` is `true` or `false`.
+
+When `GetItemInfo` or another item function also waits on the same item,
+`GET_ITEM_INFO_RECEIVED` fires too.
 
 ```lua
 local f = CreateFrame("Frame")
@@ -15645,7 +15651,7 @@ C_Item.RequestLoadItemDataByID(2589)
 > inventory), the event fires when that data arrives. For other items
 > (quest rewards, AH browse targets, and more), the request goes to the
 > server after a short delay. If no data arrives in about 20–40 seconds,
-> `ITEM_DATA_LOAD_RESULT(itemID, nil)` fires.
+> `ITEM_DATA_LOAD_RESULT(itemID, false)` fires.
 
 ### `C_Item.UnlockAllItems()`
 
@@ -16144,9 +16150,9 @@ that data is in the cache.
 
 When the load of the item's data ends, `item:ContinueOnItemLoad(callback)`
 calls `callback(itemID, success)`. If the data is already in the cache, the
-call occurs immediately. If the data loaded, `success` is `1`. If the load
+call occurs immediately. If the data loaded, `success` is `true`. If the load
 fails (for example, the server has no item with this ID), the callback also
-occurs, with `success` set to `nil`. If the item is empty (for example, an
+occurs, with `success` set to `false`. If the item is empty (for example, an
 empty bag slot), `ContinueOnItemLoad` raises an error.
 
 `item:ContinueWithCancelOnItemLoad(callback)` does the same, and returns a
@@ -23697,9 +23703,7 @@ cache. Synchronously fired when the data was already cached
 (so polling code paths still work), asynchronously fired after the server
 answers when the data was not cached.
 
-> **`success` is `1` or `nil`.** The value is `1` for success and `nil`
-> for failure. `if success then ...` works as expected
-> (`nil` falsy, `1` truthy). Same encoding as `ITEM_DATA_LOAD_RESULT`
+> **`success` is `true` or `false`,** as for `ITEM_DATA_LOAD_RESULT`
 > and `GET_ITEM_INFO_RECEIVED`.
 
 > **Server limitation:** for *invalid* questIDs (ones the server doesn't
@@ -24378,8 +24382,8 @@ link, or the name of a spell in your spellbook. The function returns no
 values.
 
 The function sends `SPELL_DATA_LOAD_RESULT(spellID, success)` before it
-returns. If the spell exists, `success` is `1`. If no spell has this ID,
-`success` is `nil`. If `spellIdentifier` does not give a spell ID, the event
+returns. If the spell exists, `success` is `true`. If no spell has this ID,
+`success` is `false`. If `spellIdentifier` does not give a spell ID, the event
 does not occur.
 
 ```lua

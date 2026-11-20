@@ -22,7 +22,7 @@ namespace Quest::Data {
 static constexpr const char *kQuestDataLoadResult = "QUEST_DATA_LOAD_RESULT";
 static const Game::Doc::Field kLoadResultPayload[] = {
     Game::Doc::Req("questID", "number"),
-    Game::Doc::Opt("success", "number", nullptr, "1 when the data loaded, else nil."),
+    Game::Doc::Req("success", "bool"),
 };
 static const Game::Doc::Event kQuestDataLoadResultDoc{
     "QuestLog", "Fires when quest data that C_QuestLog.RequestLoadQuestByID asked for loads.",

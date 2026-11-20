@@ -50,8 +50,7 @@ namespace {
 constexpr const char *kGameObjectDataLoadResult = "GAMEOBJECT_DATA_LOAD_RESULT";
 const Game::Doc::Field kLoadResultPayload[] = {
     Game::Doc::Req("gameObjectID", "number"),
-    Game::Doc::Opt("success", "number", nullptr,
-                   "1 when the data loaded, nil when the server did not send it."),
+    Game::Doc::Req("success", "bool", "False when the server did not send the data."),
 };
 const Game::Doc::Event kLoadResultDoc{
     "GameObjectInfo",
@@ -61,7 +60,7 @@ const Game::Doc::Event kLoadResultDoc{
 const Event::Custom::AutoReserve _reserveLoadResult{kGameObjectDataLoadResult,
                                                     &kLoadResultDoc};
 
-void OnLoadDone(uint32_t goID, bool success, bool /*requested*/) {
+void OnLoadDone(uint32_t goID, bool success, int /*requests*/, bool /*implicit*/) {
     Event::Custom::FireIdSuccess(_reserveLoadResult.Slot(), static_cast<int>(goID), success);
 }
 const Cache::QueryLoad::Client _queryClient{Cache::QueryLoad::KIND_GAMEOBJECT, &OnLoadDone};

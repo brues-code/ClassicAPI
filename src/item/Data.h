@@ -35,8 +35,8 @@ namespace Item::Data {
 // ITEM_DATA_LOAD_RESULT), use `C_Item.RequestLoadItemData(ByID)` from
 // Lua.
 //
-// Returns true when the item is cached or its load is queued, false when
-// the queue is full and nothing will report on it.
+// Returns true when the item is cached or its load is queued; false only
+// for itemID 0.
 bool WarmCache(uint32_t itemID);
 
 // WarmCache for an item a model on screen waits to put on (a scene actor's

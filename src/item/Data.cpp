@@ -31,22 +31,21 @@
 namespace Item::Data {
 
 
-// Two events fire on item-data arrival; they are **mutually exclusive**
-// based on what triggered the cache fill:
+// Two events fire on item-data arrival, one per kind of waiter, as the
+// 3.80.2 client does it (both kinds hang callbacks on the same id and the
+// answer runs them all, FUN_14045BE40):
 //
-//   `GET_ITEM_INFO_RECEIVED(itemID, success)` — added in 5.4. Fires for
-//       **implicit / transparent** cache fills: `GetItemInfo` warmup,
-//       hyperlink hover, chat-link resolution, our `SetItemByID` warmup,
-//       etc. This is the event most existing addons listen to.
+//   `GET_ITEM_INFO_RECEIVED(itemID, success)` — for **implicit** loads:
+//       the `GetItemInfo` warmup, our `GetItem*` and `SetItemByID` warmups.
+//       One per load however many readers missed (tag dedup 0x14045BDA0),
+//       and only for a load that went to the server, never a cached hit.
 //
-//   `ITEM_DATA_LOAD_RESULT(itemID, success)`  — added in 8.0. Fires for
-//       **explicit** request paths only: `C_Item.RequestLoadItemData(ByID)`
-//       and friends. The completion event for callers who explicitly
-//       asked the modern Item-data API to load a specific item.
+//   `ITEM_DATA_LOAD_RESULT(itemID, success)` — for each
+//       `C_Item.RequestLoadItemData(ByID)` call (0x141BA17E0): at once
+//       inside the call when the item is cached or the ID is 0 or less,
+//       else when the answer arrives, once per call made while it waited.
 //
-// Behavior verified empirically against 1.15.x: a single cache fill
-// fires exactly one event, never both, depending on what initiated
-// the request. We honor the split with two distinct callbacks.
+// When a request and an implicit reader both wait on an item, both fire.
 //
 // Names are reserved at static-init time via `Event::Custom::AutoReserve`;
 // the `RebuildEventTable` hook appends them to the engine's input array
@@ -56,8 +55,7 @@ static constexpr const char *kItemDataLoadResult = "ITEM_DATA_LOAD_RESULT";
 static constexpr const char *kGetItemInfoReceived = "GET_ITEM_INFO_RECEIVED";
 static const Game::Doc::Field kLoadResultPayload[] = {
     Game::Doc::Req("itemID", "number"),
-    Game::Doc::Opt("success", "number", nullptr,
-                   "1 when the data loaded, nil when the server did not send it."),
+    Game::Doc::Req("success", "bool", "False when the server did not send the data."),
 };
 static const Game::Doc::Event kItemDataLoadResultDoc{
     "Item",
@@ -96,17 +94,38 @@ static bool IsCached(int itemID) {
            Cache::QueryLoad::IsCached(Cache::QueryLoad::KIND_ITEM, static_cast<uint32_t>(itemID));
 }
 
+// The 3.80.2 itemInfo reader (FUN_140B0BDE0) takes a number or a string and
+// raises the usage error for anything else, a missing argument included.
+static bool IsItemInfoArg(void *L, int idx) {
+    const int type = Game::Lua::Type(L, idx);
+    return type == Game::Lua::TYPE_NUMBER || type == Game::Lua::TYPE_STRING;
+}
+
+// The 3.80.2 itemLocation reader (FUN_140B3CEA0) raises the usage error for
+// a malformed location and for one that holds no item. 0 after the error.
+static int LocationItemIDOrError(void *L, const char *usage) {
+    const int itemID =
+        Item::Location::IsLocationArg(L, 1) ? ResolveLocationToItemID(L, 1) : 0;
+    if (itemID <= 0)
+        Game::Lua::Error(L, usage);
+    return itemID;
+}
+
 static int __fastcall Script_IsItemDataCachedByID(void *L) {
+    if (!IsItemInfoArg(L, 1)) {
+        Game::Lua::Error(L, "Usage: local isCached = C_Item.IsItemDataCachedByID(itemInfo)");
+        return 0;
+    }
     Game::Lua::PushBool(L, IsCached(Item::Arg::ResolveItemID(L, 1)));
     return 1;
 }
 
 static int __fastcall Script_IsItemDataCached(void *L) {
-    if (!Item::Location::IsLocationArg(L, 1)) {
-        Game::Lua::Error(L, "Usage: C_Item.IsItemDataCached(itemLocation)");
+    const int itemID =
+        LocationItemIDOrError(L, "Usage: local isCached = C_Item.IsItemDataCached(itemLocation)");
+    if (itemID <= 0)
         return 0;
-    }
-    Game::Lua::PushBool(L, IsCached(ResolveLocationToItemID(L, 1)));
+    Game::Lua::PushBool(L, IsCached(itemID));
     return 1;
 }
 
@@ -140,11 +159,11 @@ static bool g_ownedPrefetched = false;
 // resolves.
 static std::unordered_set<uint32_t> g_shown;
 
-static void OnLoadDone(uint32_t itemID, bool success, bool requested) {
+static void OnLoadDone(uint32_t itemID, bool success, int requests, bool implicit) {
     g_shown.erase(itemID);
-    if (requested)
+    for (int i = 0; i < requests; ++i)
         FireItemDataLoadResult(static_cast<int>(itemID), success);
-    else
+    if (implicit)
         FireGetItemInfoReceived(static_cast<int>(itemID), success);
     for (auto *sub = LoadSubscriber::head; sub != nullptr; sub = sub->next)
         sub->fn(itemID, success);
@@ -273,7 +292,8 @@ static const Tick::WorldTick::AutoSubscribe _tickSub{&OnWorldTick};
 // call through Cache::QueryLoad, whose single rate-limited issue point
 // governs all outgoing queries (issue #25). An already-cached item resolves
 // for free (a pure lookup, no SMSG); only a genuine miss is queued, and its
-// answer fires `GET_ITEM_INFO_RECEIVED`, never `ITEM_DATA_LOAD_RESULT`.
+// answer fires `GET_ITEM_INFO_RECEIVED` (and `ITEM_DATA_LOAD_RESULT` too for
+// each request that waited on it).
 bool WarmCacheShown(uint32_t itemID) {
     if (itemID == 0 || IsCached(itemID))
         return itemID != 0;
@@ -315,30 +335,31 @@ int __fastcall Script_GetItemInfo_h(void *L) {
     return Script_GetItemInfo_o(L);
 }
 
+// Both return nothing (FUN_140CEA0A0 / FUN_140CEA280). An ID of 0 or less is
+// known missing: ITEM_DATA_LOAD_RESULT(id, false) at once (FUN_141382130's
+// synchronous event 1).
+static void RequestLoad(int itemID) {
+    if (itemID <= 0)
+        FireItemDataLoadResult(itemID, false);
+    else
+        Track(static_cast<uint32_t>(itemID), /*requested=*/true);
+}
+
 static int __fastcall Script_RequestLoadItemDataByID(void *L) {
-    const int itemID = Item::Arg::ResolveItemID(L, 1);
-    if (itemID <= 0) {
-        Game::Lua::PushBoolean(L, 0);
-        return 1;
+    if (!IsItemInfoArg(L, 1)) {
+        Game::Lua::Error(L, "Usage: C_Item.RequestLoadItemDataByID(itemInfo)");
+        return 0;
     }
-    const bool accepted = Track(static_cast<uint32_t>(itemID), /*requested=*/true);
-    Game::Lua::PushBoolean(L, accepted ? 1 : 0);
-    return 1;
+    RequestLoad(Item::Arg::ResolveItemID(L, 1));
+    return 0;
 }
 
 static int __fastcall Script_RequestLoadItemData(void *L) {
-    if (!Item::Location::IsLocationArg(L, 1)) {
-        Game::Lua::Error(L, "Usage: C_Item.RequestLoadItemData(itemLocation)");
-        return 0;
-    }
-    const int itemID = ResolveLocationToItemID(L, 1);
-    if (itemID <= 0) {
-        Game::Lua::PushBoolean(L, 0);
-        return 1;
-    }
-    const bool accepted = Track(static_cast<uint32_t>(itemID), /*requested=*/true);
-    Game::Lua::PushBoolean(L, accepted ? 1 : 0);
-    return 1;
+    const int itemID =
+        LocationItemIDOrError(L, "Usage: C_Item.RequestLoadItemData(itemLocation)");
+    if (itemID > 0)
+        RequestLoad(itemID);
+    return 0;
 }
 
 static const Game::Doc::Field kByIDArgs[] = {
@@ -350,10 +371,6 @@ static const Game::Doc::Field kLocationArgs[] = {
 static const Game::Doc::Field kIsCachedRets[] = {
     Game::Doc::Req("isCached", "bool"),
 };
-static const Game::Doc::Field kRequestRets[] = {
-    Game::Doc::Req("accepted", "bool",
-                   "False when the input names no item or too many requests already wait."),
-};
 static const Game::Doc::Function kIsItemDataCachedByID{
     "Returns whether the item's data is loaded, without asking the server for it.", kByIDArgs,
     kIsCachedRets};
@@ -362,11 +379,10 @@ static const Game::Doc::Function kIsItemDataCached{
     "for it.",
     kLocationArgs, kIsCachedRets};
 static const Game::Doc::Function kRequestLoadItemDataByID{
-    "Asks the server for the item's data, then fires ITEM_DATA_LOAD_RESULT.", kByIDArgs,
-    kRequestRets};
+    "Asks the server for the item's data, then fires ITEM_DATA_LOAD_RESULT.", kByIDArgs, {}};
 static const Game::Doc::Function kRequestLoadItemData{
     "Asks the server for the data of the item at a location, then fires ITEM_DATA_LOAD_RESULT.",
-    kLocationArgs, kRequestRets};
+    kLocationArgs, {}};
 
 static void RegisterLuaFunctions() {
     // Re-arm the proactive carried-item prefetch for this enter-world

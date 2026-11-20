@@ -28,9 +28,8 @@
 // the engine owns the observer's registration and lifetime.
 //
 // `equipmentSlot` is the 1-based Lua inventory slot (1 = head … 19 =
-// tabard), matching modern. `hasCurrent` is 1 when the slot now holds an
-// item and nil when it's empty (the engine dispatcher has no `%b`; 1/nil
-// keeps the idiomatic `if hasCurrent then` working — see FireIdSuccess).
+// tabard), matching modern. `hasCurrent` is true when the slot now holds an
+// item and false when it's empty (FireIdSuccess pushes a real bool).
 //
 // Also `UPDATE_INVENTORY_DURABILITY` (no payload), fired after every run
 // of the engine's inventory-alerts recompute
@@ -75,8 +74,7 @@ namespace {
 constexpr const char *kEvtEquipmentChanged = "PLAYER_EQUIPMENT_CHANGED";
 const Game::Doc::Field kEquipmentChangedPayload[] = {
     Game::Doc::Req("equipmentSlot", "number", "The inventory slot, 1 (head) to 19 (tabard)."),
-    Game::Doc::Opt("hasCurrent", "number", nullptr,
-                   "1 when the slot now holds an item, nil when it is empty."),
+    Game::Doc::Req("hasCurrent", "bool", "True when the slot now holds an item."),
 };
 const Game::Doc::Event kEquipmentChangedDoc{
     "PaperDollInfo",

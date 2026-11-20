@@ -198,10 +198,9 @@ const Event::Custom::AutoReserve _evt{"PLAYER_SWING_RANGE_UPDATE", &kRangeUpdate
 
 // The engine's printf-style event dispatcher has no `%b` and a plain `%d`
 // with `0` pushes the NUMBER 0 (truthy in Lua) -- so each bool picks
-// between `%d`+`1` and `%s`+NULL (tail-jumps to `lua_pushnil`), the same
-// 1/nil idiom `Event::Custom::FireIdSuccess` uses. `isInRange` is only ever
-// true when `checksRange` is also true (see `Evaluate`), so three shapes
-// cover every reachable state.
+// between `%d`+`1` and `%s`+NULL (tail-jumps to `lua_pushnil`), a 1/nil
+// pair. `isInRange` is only ever true when `checksRange` is also true (see
+// `Evaluate`), so three shapes cover every reachable state.
 void FireRangeUpdate(int slot, int type, bool isInRange, bool checksRange) {
     if (isInRange)
         Event::Custom::Fire(slot, "%d%d%d", type, 1, 1);

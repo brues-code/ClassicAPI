@@ -41,9 +41,10 @@ namespace Cache::QueryLoad {
 enum Kind { KIND_ITEM, KIND_CREATURE, KIND_GAMEOBJECT, KIND_COUNT };
 
 // A tracked id resolved: `success` when the cache holds its record, else
-// the server refused it or every send went unanswered. `requested` is true
-// when any Track call for it was a request (see Track).
-using DoneFn = void (*)(uint32_t id, bool success, bool requested);
+// the server refused it or every send went unanswered. `requests` is the
+// number of requesting Track calls made while it was pending, and `implicit`
+// is true when a warm-up waited on it too (see Track).
+using DoneFn = void (*)(uint32_t id, bool success, int requests, bool implicit);
 // True for an id that goes out ahead of the background rate floor.
 using PriorityFn = bool (*)(uint32_t id);
 
@@ -55,10 +56,14 @@ struct Client {
 
 // Tracks `id` until it resolves. A `requested` load is one a caller asked for
 // by name (the C_*.RequestLoad* functions): when the record is already
-// cached, `done(id, true, true)` runs before this returns. A warm-up (not
+// cached, `done(id, true, 1, false)` runs before this returns. A warm-up (not
 // requested) of a cached record does nothing, the way the engine's own
-// lookups report a hit to nobody. A request for an id a warm-up already
-// tracks makes it requested. False only when the pending set is full.
+// lookups report a hit to nobody. While the id is pending, each request adds
+// one to its count and a warm-up marks it implicit, so one answer reports
+// every caller: the 3.80.2 client keeps one callback per request and one per
+// id for its implicit readers (0x141382130, tag dedup 0x14045BDA0). The
+// pending set has no cap, as 3.80.2's has none (0x14050E2D0). False only for
+// id 0.
 bool Track(Kind kind, uint32_t id, bool requested);
 
 // True when the cache holds `id`'s record. Never sends a query.

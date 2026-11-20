@@ -21,6 +21,7 @@
 #include "time/Clock.h"
 
 #include <cstdint>
+#include <vector>
 
 namespace Cache::QueryLoad {
 
@@ -30,13 +31,12 @@ struct Pending {
     uint32_t id;
     uint32_t sentMs; // when the last query went out (valid while issued)
     int timeouts;    // sends that went unanswered for kResendMs in the world
+    int requests;    // requesting Track calls (see Track)
+    bool implicit;   // a warm-up waits on it too
     bool issued;     // a query is in flight
     bool sentOnce;   // our callback is on the entry; resend with Cache::Query
-    bool requested;  // see Track
     bool failed;     // the server refused it (Escalated)
 };
-
-constexpr int kMaxPending = 512;
 
 // A query unanswered this long in the world is sent again, up to
 // kMaxTimeouts times, then the id fails. The server answers a query or
@@ -66,8 +66,7 @@ struct Slot {
     uintptr_t getRecord;
     DoneFn done;
     PriorityFn priority;
-    Pending pending[kMaxPending];
-    int count;
+    std::vector<Pending> pending;
 };
 
 Slot g_slots[KIND_COUNT] = {
@@ -91,22 +90,26 @@ bool Loaded(const Slot &s, uint32_t id) {
     return Cache::Record::Peek(s.getRecord, s.cache, id) != nullptr;
 }
 
+int Count(const Slot &s) {
+    return static_cast<int>(s.pending.size());
+}
+
 int Find(const Slot &s, uint32_t id) {
-    for (int i = 0; i < s.count; ++i)
+    for (int i = 0; i < Count(s); ++i)
         if (s.pending[i].id == id)
             return i;
     return -1;
 }
 
 void RemoveAt(Slot &s, int i) {
-    --s.count;
-    if (i != s.count)
-        s.pending[i] = s.pending[s.count];
+    if (i != Count(s) - 1)
+        s.pending[i] = s.pending.back();
+    s.pending.pop_back();
 }
 
 void Report(const Slot &s, const Pending &p, bool success) {
     if (s.done != nullptr)
-        s.done(p.id, success, p.requested);
+        s.done(p.id, success, p.requests, p.implicit);
 }
 
 // Removes and reports the id at `i` if it resolved: loaded, or refused by the
@@ -172,7 +175,7 @@ void OnResponse(void *cache) {
     for (Slot &s : g_slots) {
         if (s.cache != reinterpret_cast<uintptr_t>(cache))
             continue;
-        for (int i = 0; i < s.count;)
+        for (int i = 0; i < Count(s);)
             if (!TryComplete(s, i))
                 ++i;
     }
@@ -225,7 +228,7 @@ void OnWorldTick() {
         g_settled = false;
         g_inWorldSinceMs = 0;
         for (Slot &s : g_slots)
-            for (int i = 0; i < s.count; ++i)
+            for (int i = 0; i < Count(s); ++i)
                 s.pending[i].issued = false;
         return;
     }
@@ -241,7 +244,7 @@ void OnWorldTick() {
         g_settled && Time::Clock::Elapsed(g_lastRequestMs, now) >= kMinRequestSpacingMs;
     for (int kind = 0; kind < KIND_COUNT; ++kind) {
         Slot &s = g_slots[kind];
-        for (int i = 0; i < s.count;) {
+        for (int i = 0; i < Count(s);) {
             Pending &p = s.pending[i];
             if (g_settled && !p.issued) {
                 if (s.priority != nullptr && s.priority(p.id)) {
@@ -288,17 +291,23 @@ bool Track(Kind kind, uint32_t id, bool requested) {
         return false;
     if (Loaded(s, id)) {
         if (requested && s.done != nullptr)
-            s.done(id, true, true);
+            s.done(id, true, 1, false);
         return true;
     }
     const int i = Find(s, id);
     if (i >= 0) {
-        s.pending[i].requested |= requested;
+        Pending &p = s.pending[i];
+        if (requested)
+            ++p.requests;
+        else
+            p.implicit = true;
         return true;
     }
-    if (s.count >= kMaxPending)
-        return false;
-    s.pending[s.count++] = Pending{id, 0, 0, false, false, requested, false};
+    Pending p{};
+    p.id = id;
+    p.requests = requested ? 1 : 0;
+    p.implicit = !requested;
+    s.pending.push_back(p);
     return true;
 }
 
@@ -311,7 +320,7 @@ bool Settled() {
 }
 
 int PendingCount(Kind kind) {
-    return g_slots[kind].count;
+    return Count(g_slots[kind]);
 }
 
 } // namespace Cache::QueryLoad
