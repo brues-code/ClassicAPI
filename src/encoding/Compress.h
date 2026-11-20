@@ -22,10 +22,17 @@ namespace Encoding::Compress {
 // zlib `windowBits` for a Gzip stream.
 constexpr int kGzipWindowBits = 15 + 16;
 
-// Decompress `src` with the engine's zlib into `out`. `windowBits` picks the
-// format, as for zlib's `inflateInit2_`. False on a corrupt or truncated
-// stream.
-bool Inflate(const uint8_t *src, std::size_t srcLen, int windowBits,
-             std::vector<uint8_t> &out);
+// What `Inflate` returns: zlib's own codes, plus the size cap.
+constexpr int kInflateDone = 1;       // Z_STREAM_END
+constexpr int kInflateCorrupt = -3;   // Z_DATA_ERROR, also a truncated stream
+constexpr int kInflateNoMemory = -4;  // Z_MEM_ERROR
+constexpr int kInflateTooLarge = -5;  // the output reached Args::kDecompressSizeLimit
+
+// Decompresses `src` with the engine's zlib into `out`, as the 3.80.2
+// client's helper (0x141B979C0) does: `windowBits` picks the format, as for
+// zlib's `inflateInit2_`; bytes after the end of the stream are ignored.
+// Returns kInflateDone, or why it stopped (zlib's code for a failure it
+// reports itself).
+int Inflate(const uint8_t *src, std::size_t srcLen, int windowBits, std::vector<uint8_t> &out);
 
 } // namespace Encoding::Compress

@@ -11,28 +11,30 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// `C_EncodingUtil.EncodeBase64` / `DecodeBase64`, with `Base64Variant`
-// parity. Modern WoW's enum:
+// `C_EncodingUtil.EncodeBase64` / `DecodeBase64`, as the 3.80.2 client does
+// them (EncodeBase64 0x140C1E490, core 0x142B87970; DecodeBase64 0x140C1D850,
+// core 0x142B876C0).
 //
-//   Enum.Base64Variant = { Standard = 0, StandardUrlSafe = 1 }
-//
-// - Standard (RFC 4648 §4): `+`/`/` alphabet, `=` padding required.
-// - StandardUrlSafe (RFC 4648 §5): `-`/`_` alphabet. Encode pads with `=`
-//   as retail does (retail probe: EncodeBase64("a", StandardUrlSafe) is
-//   "YQ=="); decode accepts the padding or its absence.
+// Encoding pads with `=` in both variants. Decoding never fails and ignores
+// the variant: `+` or `-` is 62 and `/` or `_` is 63, any other character
+// outside the alphabet is skipped, the first `=` ends the decode (writing the
+// one or two bytes its pending group holds), a group left without `=` at the
+// end is dropped, and a source whose first byte is NUL or a line feed
+// decodes to nothing.
 
 #include "Game.h"
+#include "encoding/Args.h"
 
 #include <cstdint>
-#include <vector>
+#include <string>
 
 namespace Encoding::Base64 {
 
 namespace {
 
-enum class Variant : int {
-    Standard = 0,
-    UrlSafe = 1,
+enum Variant : int {
+    VARIANT_STANDARD = 0,
+    VARIANT_URL_SAFE = 1,
 };
 
 constexpr const char kStandardAlphabet[] =
@@ -40,208 +42,136 @@ constexpr const char kStandardAlphabet[] =
 constexpr const char kUrlSafeAlphabet[] =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
-const char *AlphabetFor(Variant v) {
-    return v == Variant::UrlSafe ? kUrlSafeAlphabet : kStandardAlphabet;
+constexpr const char *kEncodeUsage = "Usage: local output = C_EncodingUtil.EncodeBase64(source [, variant])";
+constexpr const char *kDecodeUsage = "Usage: local output = C_EncodingUtil.DecodeBase64(source [, variant])";
+
+std::string Encode(const uint8_t *src, std::size_t len, const char *alphabet) {
+    std::string out;
+    out.reserve((len + 2) / 3 * 4);
+    std::size_t i = 0;
+    for (; i + 3 <= len; i += 3) {
+        const uint32_t v = (src[i] << 16) | (src[i + 1] << 8) | src[i + 2];
+        out += alphabet[(v >> 18) & 0x3F];
+        out += alphabet[(v >> 12) & 0x3F];
+        out += alphabet[(v >> 6) & 0x3F];
+        out += alphabet[v & 0x3F];
+    }
+    if (i < len) {
+        const uint32_t v = (src[i] << 16) | (i + 1 < len ? src[i + 1] << 8 : 0);
+        out += alphabet[(v >> 18) & 0x3F];
+        out += alphabet[(v >> 12) & 0x3F];
+        out += i + 1 < len ? alphabet[(v >> 6) & 0x3F] : '=';
+        out += '=';
+    }
+    return out;
 }
 
-// Decode a single base64 character to its 6-bit value, or -1 if it's
-// not in the requested alphabet (or not in either, when `accept` is
-// nullopt). `strict` toggles whether to require the variant's exact
-// alphabet vs accept both — used to give the no-variant decode form
-// lenient input handling.
-int DecodeChar(char c, Variant v, bool strict) {
-    if (c >= 'A' && c <= 'Z') return c - 'A';
-    if (c >= 'a' && c <= 'z') return 26 + (c - 'a');
-    if (c >= '0' && c <= '9') return 52 + (c - '0');
-    if (c == '+') return (strict && v != Variant::Standard) ? -1 : 62;
-    if (c == '-') return (strict && v != Variant::UrlSafe)  ? -1 : 62;
-    if (c == '/') return (strict && v != Variant::Standard) ? -1 : 63;
-    if (c == '_') return (strict && v != Variant::UrlSafe)  ? -1 : 63;
+// The 6-bit value of a Base64 character in either alphabet, or -1.
+int Sextet(uint8_t c) {
+    if (c >= 'A' && c <= 'Z')
+        return c - 'A';
+    if (c >= 'a' && c <= 'z')
+        return c - 'a' + 26;
+    if (c >= '0' && c <= '9')
+        return c - '0' + 52;
+    if (c == '+' || c == '-')
+        return 62;
+    if (c == '/' || c == '_')
+        return 63;
     return -1;
 }
 
-int OptionalVariantArg(void *L, int idx, Variant def, bool &outProvided) {
-    outProvided = false;
-    if (Game::Lua::Type(L, idx) != Game::Lua::TYPE_NUMBER)
-        return static_cast<int>(def);
-    outProvided = true;
-    return static_cast<int>(Game::Lua::ToNumber(L, idx));
+std::string Decode(const uint8_t *src, std::size_t len) {
+    std::string out;
+    if (len == 0 || src[0] == '\0' || src[0] == '\n')
+        return out;
+    out.reserve(len / 4 * 3);
+    uint8_t group[4];
+    int pending = 0;
+    for (std::size_t i = 0; i < len; ++i) {
+        if (src[i] == '=') {
+            if (pending >= 2)
+                out += static_cast<char>((group[0] << 2) | ((group[1] >> 4) & 3));
+            if (pending == 3)
+                out += static_cast<char>((group[1] << 4) | ((group[2] >> 2) & 0xF));
+            return out;
+        }
+        const int v = Sextet(src[i]);
+        if (v < 0)
+            continue;
+        group[pending++] = static_cast<uint8_t>(v);
+        if (pending == 4) {
+            out += static_cast<char>((group[0] << 2) | ((group[1] >> 4) & 3));
+            out += static_cast<char>((group[1] << 4) | ((group[2] >> 2) & 0xF));
+            out += static_cast<char>((group[2] << 6) | (group[3] & 0x3F));
+            pending = 0;
+        }
+    }
+    return out;
 }
 
 int __fastcall Script_EncodeBase64(void *L) {
-    if (!Game::Lua::IsString(L, 1)) {
-        Game::Lua::Error(L,
-            "Usage: C_EncodingUtil.EncodeBase64(data [, variant])");
+    const uint8_t *src;
+    std::size_t len;
+    int variant = VARIANT_STANDARD;
+    if (!Args::Source(L, 1, kEncodeUsage, &src, &len) ||
+        !Args::Enum(L, 2, VARIANT_URL_SAFE, kEncodeUsage, &variant))
         return 0;
-    }
-    const auto *src = reinterpret_cast<const uint8_t *>(
-        Game::Lua::ToString(L, 1));
-    const unsigned int len = Game::Lua::StrLen(L, 1);
-    if (src == nullptr || len == 0) {
-        Game::Lua::PushString(L, "");
-        return 1;
-    }
-
-    bool _;
-    const int variantInt = OptionalVariantArg(L, 2, Variant::Standard, _);
-    if (variantInt < 0 || variantInt > 1) {
-        Game::Lua::Error(L,
-            "C_EncodingUtil.EncodeBase64: invalid Base64Variant");
-        return 0;
-    }
-    const Variant variant = static_cast<Variant>(variantInt);
-    const char *alphabet = AlphabetFor(variant);
-
-    std::vector<char> out;
-    out.reserve(((len + 2) / 3) * 4);
-    unsigned int i = 0;
-    for (; i + 3 <= len; i += 3) {
-        const uint32_t v = (static_cast<uint32_t>(src[i]) << 16) |
-                           (static_cast<uint32_t>(src[i + 1]) << 8) |
-                           static_cast<uint32_t>(src[i + 2]);
-        out.push_back(alphabet[(v >> 18) & 0x3F]);
-        out.push_back(alphabet[(v >> 12) & 0x3F]);
-        out.push_back(alphabet[(v >> 6) & 0x3F]);
-        out.push_back(alphabet[v & 0x3F]);
-    }
-    const unsigned int rem = len - i;
-    if (rem == 1) {
-        const uint32_t v = static_cast<uint32_t>(src[i]) << 16;
-        out.push_back(alphabet[(v >> 18) & 0x3F]);
-        out.push_back(alphabet[(v >> 12) & 0x3F]);
-        out.push_back('=');
-        out.push_back('=');
-    } else if (rem == 2) {
-        const uint32_t v = (static_cast<uint32_t>(src[i]) << 16) |
-                           (static_cast<uint32_t>(src[i + 1]) << 8);
-        out.push_back(alphabet[(v >> 18) & 0x3F]);
-        out.push_back(alphabet[(v >> 12) & 0x3F]);
-        out.push_back(alphabet[(v >> 6) & 0x3F]);
-        out.push_back('=');
-    }
-
-    Game::Lua::PushLString(L, out.data(),
-                           static_cast<unsigned int>(out.size()));
+    const std::string out =
+        Encode(src, len, variant == VARIANT_URL_SAFE ? kUrlSafeAlphabet : kStandardAlphabet);
+    Game::Lua::PushLString(L, out.data(), static_cast<unsigned int>(out.size()));
     return 1;
 }
 
 int __fastcall Script_DecodeBase64(void *L) {
-    if (!Game::Lua::IsString(L, 1)) {
-        Game::Lua::Error(L,
-            "Usage: C_EncodingUtil.DecodeBase64(data [, variant])");
+    const uint8_t *src;
+    std::size_t len;
+    int variant = VARIANT_STANDARD;
+    if (!Args::Source(L, 1, kDecodeUsage, &src, &len) ||
+        !Args::Enum(L, 2, VARIANT_URL_SAFE, kDecodeUsage, &variant))
         return 0;
-    }
-    const char *src = Game::Lua::ToString(L, 1);
-    const unsigned int len = Game::Lua::StrLen(L, 1);
-    if (src == nullptr || len == 0) {
-        Game::Lua::PushString(L, "");
-        return 1;
-    }
-
-    bool variantProvided;
-    const int variantInt = OptionalVariantArg(L, 2, Variant::Standard,
-                                              variantProvided);
-    if (variantInt < 0 || variantInt > 1) {
-        Game::Lua::Error(L,
-            "C_EncodingUtil.DecodeBase64: invalid Base64Variant");
-        return 0;
-    }
-    const Variant variant = static_cast<Variant>(variantInt);
-
-    // Strict when the caller named a variant; lenient (accept both
-    // alphabets, optional padding) when no variant was passed.
-    const bool strict = variantProvided;
-
-    // Strip a trailing run of `=` to normalize. Standard variant must
-    // have produced length-multiple-of-4 before strip; UrlSafe is
-    // allowed unpadded.
-    unsigned int effective = len;
-    while (effective > 0 && src[effective - 1] == '=')
-        --effective;
-    const unsigned int padCount = len - effective;
-
-    if (strict && variant == Variant::Standard) {
-        if ((len & 3) != 0)
-            return 0; // Standard requires length multiple of 4
-        if (padCount > 2)
-            return 0;
-    } else {
-        if (padCount > 2)
-            return 0;
-    }
-
-    std::vector<char> out;
-    out.reserve((effective / 4) * 3 + 3);
-
-    unsigned int i = 0;
-    for (; i + 4 <= effective; i += 4) {
-        const int v0 = DecodeChar(src[i],     variant, strict);
-        const int v1 = DecodeChar(src[i + 1], variant, strict);
-        const int v2 = DecodeChar(src[i + 2], variant, strict);
-        const int v3 = DecodeChar(src[i + 3], variant, strict);
-        if ((v0 | v1 | v2 | v3) < 0)
-            return 0;
-        out.push_back(static_cast<char>((v0 << 2) | (v1 >> 4)));
-        out.push_back(static_cast<char>((v1 << 4) | (v2 >> 2)));
-        out.push_back(static_cast<char>((v2 << 6) | v3));
-    }
-    // Tail: 0, 2, or 3 unpadded characters.
-    const unsigned int tail = effective - i;
-    if (tail == 1)
-        return 0; // never valid
-    if (tail >= 2) {
-        const int v0 = DecodeChar(src[i],     variant, strict);
-        const int v1 = DecodeChar(src[i + 1], variant, strict);
-        if ((v0 | v1) < 0)
-            return 0;
-        out.push_back(static_cast<char>((v0 << 2) | (v1 >> 4)));
-        if (tail == 3) {
-            const int v2 = DecodeChar(src[i + 2], variant, strict);
-            if (v2 < 0)
-                return 0;
-            out.push_back(static_cast<char>((v1 << 4) | (v2 >> 2)));
-        }
-    }
-
-    Game::Lua::PushLString(L, out.data(),
-                           static_cast<unsigned int>(out.size()));
+    const std::string out = Decode(src, len);
+    Game::Lua::PushLString(L, out.data(), static_cast<unsigned int>(out.size()));
     return 1;
 }
 
 const Game::Doc::Field kEncodeArgs[] = {
-    Game::Doc::Req("source", "string"),
+    Game::Doc::Req("source", "stringView"),
     Game::Doc::Opt("variant", "Base64Variant", "Standard"),
 };
 const Game::Doc::Field kEncodeRets[] = {
-    Game::Doc::Req("output", "string"),
+    Game::Doc::Req("output", "stringView", "Padded with = in both variants."),
 };
 const Game::Doc::Function kEncodeBase64{"Encodes a string as Base64.", kEncodeArgs, kEncodeRets};
 
 const Game::Doc::Field kDecodeArgs[] = {
-    Game::Doc::Req("source", "string"),
-    Game::Doc::Opt("variant", "Base64Variant", nullptr,
-                   "When omitted, both alphabets are accepted and padding is optional."),
+    Game::Doc::Req("source", "stringView",
+                   "Characters of both alphabets are read. Other characters are skipped, and "
+                   "the first = ends the source."),
+    Game::Doc::Opt("variant", "Base64Variant", "Standard"),
 };
 const Game::Doc::Field kDecodeRets[] = {
-    Game::Doc::Opt("output", "string", nullptr, "Nothing when the source is not valid Base64."),
+    Game::Doc::Req("output", "stringView",
+                   "Characters at the end that do not make a full group and have no = are "
+                   "dropped."),
 };
 const Game::Doc::Function kDecodeBase64{"Decodes a Base64 string.", kDecodeArgs, kDecodeRets};
 
 void Register() {
-    Game::Lua::RegisterTableFunction("C_EncodingUtil", "EncodeBase64",
-                                     &Script_EncodeBase64, &kEncodeBase64);
-    Game::Lua::RegisterTableFunction("C_EncodingUtil", "DecodeBase64",
-                                     &Script_DecodeBase64, &kDecodeBase64);
+    Game::Lua::RegisterTableFunction("C_EncodingUtil", "EncodeBase64", &Script_EncodeBase64,
+                                     &kEncodeBase64);
+    Game::Lua::RegisterTableFunction("C_EncodingUtil", "DecodeBase64", &Script_DecodeBase64,
+                                     &kDecodeBase64);
 
     static const Game::Lua::EnumIntegerEntry kBase64Variant[] = {
-        {"Standard", static_cast<int>(Variant::Standard)},
-        {"StandardUrlSafe", static_cast<int>(Variant::UrlSafe)},
+        {"Standard", VARIANT_STANDARD},
+        {"StandardUrlSafe", VARIANT_URL_SAFE},
     };
     Game::Lua::RegisterIntegerEnum("Enum", "Base64Variant", kBase64Variant, "EncodingUtil");
 }
 
-} // namespace
+const Game::ModuleAutoRegister _autoreg{&Register};
 
-static const Game::ModuleAutoRegister _autoreg{&Register};
+} // namespace
 
 } // namespace Encoding::Base64

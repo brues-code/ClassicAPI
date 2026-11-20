@@ -11,277 +11,514 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
+// `C_EncodingUtil.SerializeJSON` / `DeserializeJSON`, as the 3.80.2 client
+// does them, on the library it uses: rapidjson.
+//
+// SerializeJSON (0x141B980D0, value writer 0x141B98340) writes with a compact
+// `Writer<StringBuffer>`, so its number text (shortest round trip) and its
+// escaping (`"`, `\`, control characters as \b \t \n \f \r or uppercase
+// \u00XX; no UTF-8 check) are rapidjson's own.
+//   - nil -> null; booleans; zero, -0 and subnormal numbers -> 0; whole
+//     numbers between -2^63 and 2^63 -> integers; other numbers -> doubles.
+//   - A table whose keys are exactly 1..n is an array (an empty table is
+//     `[]`); any other table is an object written in `next` order.
+//   - Errors, which `options.ignoreSerializationErrors` turns into null (or,
+//     for a key that is not a string, skips the pair): infinity, NaN, a key
+//     that is not a string, a table already on the path (a cycle), more than
+//     100 nested tables, and a function, userdata or thread.
+//
+// DeserializeJSON (value reader 0x141B98900) is rapidjson's
+// LookaheadParser example over an in-situ copy of the source, so the source
+// ends at its first NUL. null -> nil (a hole in an array, no field in an
+// object), the last duplicate key wins, a key ends at its first NUL. A
+// source that does not start with a value, or a single number, string,
+// boolean or null with more text after it, raises "attempted to deserialize
+// an unknown json value"; once an array or object has opened, a later parse
+// error ends the value quietly and returns what was read so far, as 3.80.2
+// does (`[1,2,x` is {1, 2}).
+//
+// Errors are raised with the message alone. A Lua error does not run the
+// destructors of the frames it leaves, so both directions unwind to the
+// script function and raise there.
+
 #include "Game.h"
+#include "encoding/Args.h"
 
-#define PICOJSON_USE_INT64
-#include <picojson/picojson.h>
+#include <rapidjson/reader.h>
+#include <rapidjson/stringbuffer.h>
+#include <rapidjson/writer.h>
 
+#include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
-#include <string>
+#include <vector>
 
 namespace Encoding::JSON {
 
 namespace {
 
-constexpr int kMaxDepth = 64;
+constexpr const char *kSerializeUsage = "Usage: C_EncodingUtil.SerializeJSON(value[, options])";
 
-// `options.ignoreSerializationErrors` of the call in progress: a value that
-// has no JSON form (function, userdata, thread) is written as null
-// instead of failing the whole call. Set by Script_SerializeJSON for the
-// length of one encode; the encoder never re-enters Lua code.
-bool g_ignoreErrors = false;
+// --- serialize ---------------------------------------------------------------
 
-// The Lua type of the value that stopped the encode in progress, or -1.
-// Retail raises "attempted to serialize a function value" for it (probed);
-// the Script_ function raises the same once the encode has unwound.
-int g_badType = -1;
+// The three counts 3.80.2's table test (0x1428DAF50) takes of a table.
+struct KeyCounts {
+    int pairs = 0;
+    int integerKeys = 0; // keys that are whole numbers from 1 to 2^31 - 1
+    int largest = 0;     // the largest of those
+};
 
-bool ReadIgnoreErrors(void *L, int idx) {
-    if (Game::Lua::Type(L, idx) != Game::Lua::TYPE_TABLE)
-        return false;
-    Game::Lua::PushString(L, "ignoreSerializationErrors");
-    Game::Lua::GetTable(L, idx);
-    const bool ignore = Game::Lua::ToBoolean(L, -1) != 0;
-    Game::Lua::SetTop(L, -2);
-    return ignore;
-}
-
-bool LuaToPicojson(void *L, int idx, picojson::value &out, int depth);
-
-// Consecutive 1..N integer keys → JSON array; anything else → object.
-bool IsLuaArray(void *L, int idx, int &outLen) {
-    outLen = 0;
-    int seen = 0, maxIdx = 0;
+KeyCounts CountKeys(void *L, int idx) {
+    KeyCounts c;
     Game::Lua::PushNil(L);
     while (Game::Lua::Next(L, idx) != 0) {
-        ++seen;
-        if (Game::Lua::Type(L, -2) != Game::Lua::TYPE_NUMBER) {
-            Game::Lua::SetTop(L, -3);
-            return false;
+        ++c.pairs;
+        if (Game::Lua::Type(L, -2) == Game::Lua::TYPE_NUMBER) {
+            const double k = Game::Lua::ToNumber(L, -2);
+            if (k >= 1.0 && k <= 2147483647.0 && std::floor(k) == k) {
+                ++c.integerKeys;
+                c.largest = std::max(c.largest, static_cast<int>(k));
+            }
         }
-        const double k = Game::Lua::ToNumber(L, -2);
-        const int ki = static_cast<int>(k);
-        if (ki < 1 || static_cast<double>(ki) != k) {
-            Game::Lua::SetTop(L, -3);
-            return false;
-        }
-        if (ki > maxIdx) maxIdx = ki;
         Game::Lua::SetTop(L, -2);
     }
-    if (seen != maxIdx) return false;
-    outLen = seen;
-    return true;
+    return c;
 }
 
-bool LuaTableToPicojson(void *L, int idx, picojson::value &out, int depth) {
-    if (depth >= kMaxDepth) return false;
-    if (idx < 0) idx = Game::Lua::GetTop(L) + idx + 1;
+struct Serializer {
+    void *L;
+    rapidjson::Writer<rapidjson::StringBuffer> *writer;
+    bool ignoreErrors;
+    std::vector<const void *> path; // the tables being written, sorted
+    char error[128] = {};
 
-    int arrayLen = 0;
-    if (IsLuaArray(L, idx, arrayLen)) {
-        picojson::array arr;
-        arr.reserve(arrayLen);
-        for (int i = 1; i <= arrayLen; ++i) {
-            Game::Lua::PushNumber(L, static_cast<double>(i));
-            Game::Lua::RawGet(L, idx);
-            picojson::value child;
-            if (!LuaToPicojson(L, -1, child, depth + 1)) {
-                Game::Lua::SetTop(L, -2);
-                return false;
-            }
-            arr.push_back(std::move(child));
-            Game::Lua::SetTop(L, -2);
-        }
-        out = picojson::value(arr);
+    bool Fail(const char *message) {
+        std::snprintf(error, sizeof(error), "%s", message);
+        return false;
+    }
+
+    // A value that cannot be written: false with the error, or null when
+    // the options ignore errors.
+    bool Unserializable(const char *message) {
+        if (!ignoreErrors)
+            return Fail(message);
+        writer->Null();
         return true;
     }
 
-    picojson::object obj;
-    Game::Lua::PushNil(L);
-    while (Game::Lua::Next(L, idx) != 0) {
-        const int keyType = Game::Lua::Type(L, -2);
-        std::string key;
-        if (keyType == Game::Lua::TYPE_STRING) {
-            const char *kstr = Game::Lua::ToString(L, -2);
-            const unsigned int klen = Game::Lua::StrLen(L, -2);
-            key.assign(kstr, klen);
-        } else if (keyType == Game::Lua::TYPE_NUMBER) {
-            char buf[32];
-            std::snprintf(buf, sizeof(buf), "%.14g",
-                          Game::Lua::ToNumber(L, -2));
-            key = buf;
-        } else {
-            // Drop unsupported key types.
-            Game::Lua::SetTop(L, -2);
-            continue;
-        }
-
-        picojson::value child;
-        if (!LuaToPicojson(L, -1, child, depth + 1)) {
-            Game::Lua::SetTop(L, -3);
-            return false;
-        }
-        obj[key] = std::move(child);
-        Game::Lua::SetTop(L, -2);
-    }
-    out = picojson::value(obj);
-    return true;
-}
-
-bool LuaToPicojson(void *L, int idx, picojson::value &out, int depth) {
-    switch (Game::Lua::Type(L, idx)) {
-        case Game::Lua::TYPE_NIL:
-            out = picojson::value();
-            return true;
-        case Game::Lua::TYPE_BOOLEAN:
-            out = picojson::value(Game::Lua::ToBoolean(L, idx) != 0);
-            return true;
-        case Game::Lua::TYPE_NUMBER: {
-            const double n = Game::Lua::ToNumber(L, idx);
-            if (std::isnan(n) || std::isinf(n)) {
-                out = picojson::value(); // JSON has no nan/inf → null
+    bool Number(double d) {
+        switch (std::fpclassify(d)) {
+            case FP_ZERO:
+            case FP_SUBNORMAL:
+                writer->Int(0);
                 return true;
-            }
-            out = picojson::value(n);
-            return true;
+            case FP_INFINITE:
+                return Unserializable("attempted to serialize an infinite numeric value");
+            case FP_NAN:
+                return Unserializable("attempted to serialize an invalid numeric value");
+            default:
+                if (std::floor(d) == d && d > -9223372036854775808.0 && d < 9223372036854775808.0)
+                    writer->Int64(static_cast<int64_t>(d));
+                else
+                    writer->Double(d);
+                return true;
         }
-        case Game::Lua::TYPE_STRING: {
-            const char *s = Game::Lua::ToString(L, idx);
-            const unsigned int n = Game::Lua::StrLen(L, idx);
-            out = picojson::value(std::string(s, n));
-            return true;
-        }
-        case Game::Lua::TYPE_TABLE:
-            return LuaTableToPicojson(L, idx, out, depth);
-        default:
-            if (!g_ignoreErrors) {
-                g_badType = Game::Lua::Type(L, idx);
-                return false;
-            }
-            out = picojson::value();
-            return true;
     }
-}
 
-void PicojsonToLua(void *L, const picojson::value &v) {
-    if (v.is<picojson::null>()) {
-        Game::Lua::PushNil(L);
-    } else if (v.is<bool>()) {
-        Game::Lua::PushBool(L, v.get<bool>());
-    } else if (v.is<double>()) {
-        Game::Lua::PushNumber(L, v.get<double>());
-    } else if (v.is<int64_t>()) {
-        Game::Lua::PushNumber(L,
-            static_cast<double>(v.get<int64_t>()));
-    } else if (v.is<std::string>()) {
-        const auto &s = v.get<std::string>();
-        Game::Lua::PushLString(L, s.data(),
-                               static_cast<unsigned int>(s.size()));
-    } else if (v.is<picojson::array>()) {
-        const auto &arr = v.get<picojson::array>();
-        Game::Lua::NewTable(L);
-        int i = 1;
-        for (const auto &child : arr) {
-            Game::Lua::PushNumber(L, static_cast<double>(i++));
-            PicojsonToLua(L, child);
-            Game::Lua::RawSet(L, -3);
+    bool Table(int idx) {
+        if (!Game::Lua::CheckStack(L, 3))
+            return Fail("stack overflow");
+        const void *table = Game::Lua::ToPointer(L, idx);
+        const auto at = std::lower_bound(path.begin(), path.end(), table);
+        if (at != path.end() && *at == table)
+            return Unserializable("attempted to serialize a recursive table structure");
+        if (path.size() >= static_cast<std::size_t>(Args::kStackSizeLimit))
+            return Unserializable(
+                "attempted to serialize a table structure that is too deep (cannot exceed 100 levels)");
+        path.insert(at, table);
+
+        const KeyCounts c = CountKeys(L, idx);
+        bool ok = true;
+        if (c.pairs == c.integerKeys && c.integerKeys == c.largest) {
+            writer->StartArray();
+            for (int i = 1; ok && i <= c.largest; ++i) {
+                Game::Lua::RawGetI(L, idx, i);
+                ok = Value(Game::Lua::GetTop(L));
+                Game::Lua::SetTop(L, -2);
+            }
+            if (ok)
+                writer->EndArray();
+        } else {
+            writer->StartObject();
+            Game::Lua::PushNil(L);
+            while (ok && Game::Lua::Next(L, idx) != 0) {
+                if (Game::Lua::Type(L, -2) == Game::Lua::TYPE_STRING) {
+                    writer->Key(Game::Lua::ToString(L, -2), Game::Lua::StrLen(L, -2));
+                    ok = Value(Game::Lua::GetTop(L));
+                } else if (!ignoreErrors) {
+                    ok = Fail("attempted to serialize a table that cannot be represented as a json "
+                              "array or object");
+                }
+                Game::Lua::SetTop(L, -2);
+            }
+            if (ok)
+                writer->EndObject();
         }
-    } else if (v.is<picojson::object>()) {
-        const auto &obj = v.get<picojson::object>();
-        Game::Lua::NewTable(L);
-        for (const auto &kv : obj) {
-            Game::Lua::PushLString(L, kv.first.data(),
-                                   static_cast<unsigned int>(kv.first.size()));
-            PicojsonToLua(L, kv.second);
-            Game::Lua::RawSet(L, -3);
-        }
-    } else {
-        Game::Lua::PushNil(L);
+        path.erase(std::lower_bound(path.begin(), path.end(), table));
+        return ok;
     }
-}
 
-// Pushes the JSON text of the value at index 1 and returns 1, or returns 0.
-int Encode(void *L) {
-    picojson::value v;
-    if (!LuaToPicojson(L, 1, v, 0))
-        return 0;
-    const std::string out = v.serialize();
-    Game::Lua::PushLString(L, out.data(),
-                           static_cast<unsigned int>(out.size()));
-    return 1;
-}
+    bool Value(int idx) {
+        const int type = Game::Lua::Type(L, idx);
+        switch (type) {
+            case Game::Lua::TYPE_NONE:
+            case Game::Lua::TYPE_NIL:
+                writer->Null();
+                return true;
+            case Game::Lua::TYPE_BOOLEAN:
+                writer->Bool(Game::Lua::ToBoolean(L, idx) != 0);
+                return true;
+            case Game::Lua::TYPE_NUMBER:
+                return Number(Game::Lua::ToNumber(L, idx));
+            case Game::Lua::TYPE_STRING:
+                writer->String(Game::Lua::ToString(L, idx), Game::Lua::StrLen(L, idx));
+                return true;
+            case Game::Lua::TYPE_TABLE:
+                return Table(idx);
+            default: {
+                char message[64];
+                std::snprintf(message, sizeof(message), "attempted to serialize a %s value",
+                              Game::Lua::TypeName(L, type));
+                return Unserializable(message);
+            }
+        }
+    }
+};
 
 int __fastcall Script_SerializeJSON(void *L) {
-    if (Game::Lua::GetTop(L) < 1) {
-        Game::Lua::Error(L, "Usage: C_EncodingUtil.SerializeJSON(value [, options])");
+    if (Game::Lua::Type(L, 1) == Game::Lua::TYPE_NONE) {
+        Game::Lua::ArgError(L, 1, "value expected");
         return 0;
     }
-    g_ignoreErrors = ReadIgnoreErrors(L, 2);
-    g_badType = -1;
-    const int pushed = Encode(L);
-    // Raised here, after Encode's buffers are gone: a Lua error does not
-    // run the destructors of the frame it leaves.
-    if (g_badType >= 0)
-        Game::Lua::Error(L, "attempted to serialize a %s value",
-                         Game::Lua::TypeName(L, g_badType));
-    return pushed;
+    Game::Lua::SetTop(L, 2);
+    bool ignoreErrors = false;
+    if (Game::Lua::Type(L, 2) == Game::Lua::TYPE_TABLE) {
+        Game::Lua::PushString(L, "ignoreSerializationErrors");
+        Game::Lua::GetTable(L, 2);
+        ignoreErrors = Game::Lua::ToBoolean(L, -1) != 0;
+        Game::Lua::SetTop(L, 2);
+    } else if (Game::Lua::Type(L, 2) != Game::Lua::TYPE_NIL) {
+        Game::Lua::Error(L, "%s", kSerializeUsage);
+        return 0;
+    }
+
+    char error[sizeof(Serializer::error)];
+    {
+        rapidjson::StringBuffer buffer;
+        rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+        Serializer s{L, &writer, ignoreErrors};
+        if (s.Value(1)) {
+            Game::Lua::PushLString(L, buffer.GetString(), static_cast<unsigned int>(buffer.GetSize()));
+            return 1;
+        }
+        std::snprintf(error, sizeof(error), "%s", s.error);
+    }
+    Game::Lua::Error(L, "%s", error);
+    return 0;
 }
 
-int __fastcall Script_DeserializeJSON(void *L) {
-    if (!Game::Lua::IsString(L, 1)) {
-        Game::Lua::Error(L, "Usage: C_EncodingUtil.DeserializeJSON(json)");
-        return 0;
+// --- deserialize -------------------------------------------------------------
+
+// rapidjson's LookaheadParser example (example/lookaheadparser) as 3.80.2
+// has it; the current value is held as its type and payload rather than a
+// rapidjson::Value, and GetString also gives the length.
+class LookaheadParser {
+public:
+    explicit LookaheadParser(char *str) : ss_(str) {
+        r_.IterativeParseInit();
+        ParseNext();
     }
-    const char *src = Game::Lua::ToString(L, 1);
-    const unsigned int srcLen = Game::Lua::StrLen(L, 1);
-    if (src == nullptr)
-        return 0;
 
-    picojson::value v;
-    std::string err;
-    const char *endp = picojson::parse(v, src, src + srcLen, &err);
-    if (!err.empty() || endp != src + srcLen)
-        return 0;
+    // Handler callbacks.
+    bool Null() { return Set(kHasNull, rapidjson::kNullType); }
+    bool Bool(bool b) { return Set(kHasBool, b ? rapidjson::kTrueType : rapidjson::kFalseType); }
+    bool Int(int i) { return SetNumber(i); }
+    bool Uint(unsigned u) { return SetNumber(u); }
+    bool Int64(int64_t i) { return SetNumber(static_cast<double>(i)); }
+    bool Uint64(uint64_t u) { return SetNumber(static_cast<double>(u)); }
+    bool Double(double d) { return SetNumber(d); }
+    bool RawNumber(const char *, rapidjson::SizeType, bool) { return false; }
+    bool String(const char *str, rapidjson::SizeType length, bool) {
+        str_ = str;
+        len_ = length;
+        return Set(kHasString, rapidjson::kStringType);
+    }
+    bool StartObject() { st_ = kEnteringObject; return true; }
+    bool Key(const char *str, rapidjson::SizeType length, bool) {
+        str_ = str;
+        len_ = length;
+        return Set(kHasKey, rapidjson::kStringType);
+    }
+    bool EndObject(rapidjson::SizeType) { st_ = kExitingObject; return true; }
+    bool StartArray() { st_ = kEnteringArray; return true; }
+    bool EndArray(rapidjson::SizeType) { st_ = kExitingArray; return true; }
 
-    PicojsonToLua(L, v);
-    return 1;
+    bool EnterObject() { return Enter(kEnteringObject); }
+    bool EnterArray() { return Enter(kEnteringArray); }
+
+    const char *NextObjectKey() {
+        if (st_ == kHasKey) {
+            const char *result = str_;
+            ParseNext();
+            return result;
+        }
+        if (st_ != kExitingObject) {
+            st_ = kError;
+            return nullptr;
+        }
+        ParseNext();
+        return nullptr;
+    }
+
+    bool NextArrayValue() {
+        if (st_ == kExitingArray) {
+            ParseNext();
+            return false;
+        }
+        if (st_ == kError || st_ == kExitingObject || st_ == kHasKey) {
+            st_ = kError;
+            return false;
+        }
+        return true;
+    }
+
+    double GetDouble() {
+        if (st_ != kHasNumber) {
+            st_ = kError;
+            return 0.;
+        }
+        const double result = number_;
+        ParseNext();
+        return result;
+    }
+
+    bool GetBool() {
+        if (st_ != kHasBool) {
+            st_ = kError;
+            return false;
+        }
+        const bool result = type_ == rapidjson::kTrueType;
+        ParseNext();
+        return result;
+    }
+
+    void GetNull() {
+        if (st_ != kHasNull) {
+            st_ = kError;
+            return;
+        }
+        ParseNext();
+    }
+
+    const char *GetString(std::size_t *length) {
+        if (st_ != kHasString) {
+            st_ = kError;
+            return nullptr;
+        }
+        const char *result = str_;
+        *length = len_;
+        ParseNext();
+        return result;
+    }
+
+    // A rapidjson::Type, or -1 for no value.
+    int PeekType() const {
+        if (st_ >= kHasNull && st_ <= kHasKey)
+            return type_;
+        if (st_ == kEnteringArray)
+            return rapidjson::kArrayType;
+        if (st_ == kEnteringObject)
+            return rapidjson::kObjectType;
+        return -1;
+    }
+
+private:
+    enum State {
+        kInit,
+        kError,
+        kHasNull,
+        kHasBool,
+        kHasNumber,
+        kHasString,
+        kHasKey,
+        kEnteringObject,
+        kExitingObject,
+        kEnteringArray,
+        kExitingArray
+    };
+
+    static constexpr unsigned kParseFlags = rapidjson::kParseDefaultFlags | rapidjson::kParseInsituFlag;
+
+    bool Set(State st, rapidjson::Type type) {
+        st_ = st;
+        type_ = type;
+        return true;
+    }
+    bool SetNumber(double d) {
+        number_ = d;
+        return Set(kHasNumber, rapidjson::kNumberType);
+    }
+    bool Enter(State expected) {
+        if (st_ != expected) {
+            st_ = kError;
+            return false;
+        }
+        ParseNext();
+        return true;
+    }
+    // 3.80.2's ParseNext (inlined in each getter, e.g. 0x142B8E050) differs
+    // from the example's: any step that fails, the end of the document
+    // included, puts the parser in the error state, so a root value followed
+    // by more text is an error and a failed step never leaves the last value
+    // to be read again.
+    void ParseNext() {
+        if (!r_.IterativeParseNext<kParseFlags>(ss_, *this))
+            st_ = kError;
+    }
+
+    State st_ = kInit;
+    rapidjson::Type type_ = rapidjson::kNullType;
+    double number_ = 0.;
+    const char *str_ = nullptr;
+    std::size_t len_ = 0;
+    rapidjson::Reader r_;
+    rapidjson::InsituStringStream ss_;
+};
+
+struct Deserializer {
+    void *L;
+    LookaheadParser *parser;
+    int depth = 0;
+    const char *error = nullptr;
+
+    // Pushes the next value; false with `error` set.
+    bool Value() {
+        if (depth > Args::kStackSizeLimit - 1) {
+            error = "attempted to deserialize a value that is too deep (cannot exceed 100 levels)";
+            return false;
+        }
+        if (!Game::Lua::CheckStack(L, 1)) {
+            error = "stack overflow";
+            return false;
+        }
+        switch (parser->PeekType()) {
+            case rapidjson::kNullType:
+                parser->GetNull();
+                Game::Lua::PushNil(L);
+                return true;
+            case rapidjson::kFalseType:
+            case rapidjson::kTrueType:
+                Game::Lua::PushBool(L, parser->GetBool());
+                return true;
+            case rapidjson::kObjectType: {
+                parser->EnterObject();
+                Game::Lua::NewTable(L);
+                const int table = Game::Lua::GetTop(L);
+                ++depth;
+                while (const char *key = parser->NextObjectKey()) {
+                    if (!Value())
+                        return false;
+                    Game::Lua::PushString(L, key);
+                    Game::Lua::Insert(L, -2);
+                    Game::Lua::RawSet(L, table);
+                }
+                --depth;
+                Game::Lua::SetTop(L, table);
+                return true;
+            }
+            case rapidjson::kArrayType: {
+                parser->EnterArray();
+                Game::Lua::NewTable(L);
+                const int table = Game::Lua::GetTop(L);
+                ++depth;
+                for (int i = 1; parser->NextArrayValue(); ++i) {
+                    if (!Value())
+                        return false;
+                    Game::Lua::RawSetI(L, table, i);
+                }
+                --depth;
+                Game::Lua::SetTop(L, table);
+                return true;
+            }
+            case rapidjson::kStringType: {
+                std::size_t length = 0;
+                const char *str = parser->GetString(&length);
+                Game::Lua::PushLString(L, str, static_cast<unsigned int>(length));
+                return true;
+            }
+            case rapidjson::kNumberType:
+                Game::Lua::PushNumber(L, parser->GetDouble());
+                return true;
+            default:
+                error = "attempted to deserialize an unknown json value";
+                return false;
+        }
+    }
+};
+
+int __fastcall Script_DeserializeJSON(void *L) {
+    unsigned int len = 0;
+    const char *src = Game::Lua::CheckLString(L, 1, &len);
+    const char *error;
+    {
+        std::vector<char> text(src, src + len);
+        text.push_back('\0');
+        LookaheadParser parser(text.data());
+        Deserializer d{L, &parser};
+        if (d.Value())
+            return 1;
+        error = d.error;
+    }
+    Game::Lua::Error(L, "%s", error);
+    return 0;
 }
 
 const Game::Doc::Field kSerializeArgs[] = {
-    Game::Doc::Opt("value", "any", nullptr,
-                   "Nil, a boolean, number or string, or a table of these. A table with keys "
-                   "1 to n becomes an array; NaN and infinity become null."),
+    Game::Doc::Req("value", "LuaValueVariant",
+                   "A table with keys 1 to n becomes an array, and any other table an object with "
+                   "string keys. Tables nest at most 100 deep."),
     Game::Doc::Opt("options", "JSONSerializationOptions", nullptr,
-                   "A table. Its ignoreSerializationErrors field, when true, writes a "
-                   "function or userdata as null."),
+                   "A table. When its ignoreSerializationErrors field is true, a value that "
+                   "cannot be written becomes null, and a key that is not a string is skipped."),
 };
 const Game::Doc::Field kSerializeRets[] = {
-    Game::Doc::Opt("output", "string", nullptr,
-                   "Nothing when tables are nested 64 deep. A function or userdata in the "
-                   "value raises an error unless the options ignore it."),
+    Game::Doc::Req("output", "stringView",
+                   "A cycle, deeper nesting, infinity, NaN, a key that is not a string, or a "
+                   "function, userdata or thread is an error unless the options ignore it."),
 };
-const Game::Doc::Function kSerializeJSON{"Encodes a Lua value as JSON.", kSerializeArgs,
-                                         kSerializeRets};
+const Game::Doc::Function kSerializeJSON{"Encodes a Lua value as JSON.", kSerializeArgs, kSerializeRets};
 
 const Game::Doc::Field kDeserializeArgs[] = {
-    Game::Doc::Req("source", "string"),
+    Game::Doc::Req("source", "stringView", "The source ends at its first NUL byte."),
 };
 const Game::Doc::Field kDeserializeRets[] = {
-    Game::Doc::Opt("value", "any", nullptr, "Nothing when the source is not valid JSON."),
+    Game::Doc::Req("value", "LuaValueVariant",
+                   "null becomes nil. A source that does not start with a JSON value is an error. "
+                   "An error after an array or object starts ends the value without an error."),
 };
-const Game::Doc::Function kDeserializeJSON{"Decodes a JSON string into a Lua value.",
-                                           kDeserializeArgs, kDeserializeRets};
+const Game::Doc::Function kDeserializeJSON{"Decodes a JSON string into a Lua value.", kDeserializeArgs,
+                                           kDeserializeRets};
 
 void Register() {
-    Game::Lua::RegisterTableFunction("C_EncodingUtil", "SerializeJSON",
-                                     &Script_SerializeJSON, &kSerializeJSON);
-    Game::Lua::RegisterTableFunction("C_EncodingUtil", "DeserializeJSON",
-                                     &Script_DeserializeJSON, &kDeserializeJSON);
+    Game::Lua::RegisterTableFunction("C_EncodingUtil", "SerializeJSON", &Script_SerializeJSON,
+                                     &kSerializeJSON);
+    Game::Lua::RegisterTableFunction("C_EncodingUtil", "DeserializeJSON", &Script_DeserializeJSON,
+                                     &kDeserializeJSON);
 }
 
-} // namespace
+const Game::ModuleAutoRegister _autoreg{&Register};
 
-static const Game::ModuleAutoRegister _autoreg{&Register};
+} // namespace
 
 } // namespace Encoding::JSON

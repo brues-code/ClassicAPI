@@ -31,15 +31,6 @@ add_subdirectory(external/minhook)
 file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS "src/*.cpp")
 file(GLOB_RECURSE HEADERS CONFIGURE_DEPENDS "src/*.h")
 
-set(TINYCBOR_SOURCES
-    external/tinycbor/src/cborencoder.c
-    external/tinycbor/src/cborencoder_close_container_checked.c
-    external/tinycbor/src/cborencoder_float.c
-    external/tinycbor/src/cborparser.c
-    external/tinycbor/src/cborparser_dup_string.c
-    external/tinycbor/src/cborparser_float.c
-    external/tinycbor/src/cborerrorstrings.c)
-
 # Version derivation. Dev builds use a sentinel "newer than every
 # plausible release" so addon-side `CLASSIC_API_VERSION >= X` gates
 # always pass locally. CI release builds pass `-DCLASSICAPI_TAG=vX.Y.Z`,
@@ -74,7 +65,7 @@ elseif(CLASSICAPI_TAG)
 endif()
 
 add_library(${PROJECT_NAME} SHARED
-    ${SOURCES} ${HEADERS} ${TINYCBOR_SOURCES})
+    ${SOURCES} ${HEADERS})
 
 # Embed the addons under `src/embed/AddOns/`, `src/bindings/Bindings.xml` and
 # the textures under `src/embed/Textures/` as RCDATA resources. The file-read
@@ -128,8 +119,7 @@ target_include_directories(
   ${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src
                           ${CMAKE_BINARY_DIR}/generated
                           external/minhook/include
-                          external
-                          external/tinycbor/src
+                          external/rapidjson/include
                           external/unordered_dense/include)
 
 set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "ClassicAPI")

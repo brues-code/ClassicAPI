@@ -11,35 +11,35 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// `C_EncodingUtil.CompressString` / `DecompressString`, full
-// `CompressionMethod` parity with retail. Modern WoW's enum:
+// `C_EncodingUtil.CompressString` / `DecompressString`, as the 3.80.2 client
+// does them (bodies 0x140C1D660 / 0x140C1DFB0, zlib helpers 0x141B977F0 /
+// 0x141B979C0), on the 1.12 engine's own zlib (1.2.2).
 //
 //   Enum.CompressionMethod = { Deflate = 0, Zlib = 1, Gzip = 2 }
+//     -> windowBits -15 (raw), 15, 31. Decompression uses the method given;
+//        it does not detect the format.
+//   Enum.CompressionLevel = { Default = 0, OptimizeForSpeed = 1, OptimizeForSize = 2 }
+//     -> zlib level -1, 1, 9.
 //
-// — verified by the ordering of the `Deflate.CompressionMethod`,
-// `Zlib`, `Gzip` strings in the 1.15 binary (`Source\UIUtil\
-// EncodingUtil.cpp` data section). `level` is retail's
+// Compression: memLevel 9, default strategy; a gzip header with every field
+// zero but the OS byte, 0xFF (3.80.2 sets it through deflateSetHeader; 1.2.2's
+// header is the same but for that byte, which this patches).
 //
-//   Enum.CompressionLevel = { Default = 0, OptimizeForSpeed = 1,
-//                             OptimizeForSize = 2 }
-//
-// mapped onto zlib's own named levels: Z_DEFAULT_COMPRESSION (-1),
-// Z_BEST_SPEED (1), Z_BEST_COMPRESSION (9). Both functions default to
-// Deflate, as retail's do.
-//
-// Format selection rides on zlib's `windowBits` argument to
-// `deflateInit2_` / `inflateInit2_`:
-//
-//   Zlib        windowBits =  15
-//   Gzip        windowBits =  15 + 16 = 31
-//   Deflate     windowBits = -15           (raw, no header/checksum)
+// Decompression: the output starts at 1 KiB and grows by half while zlib asks
+// for room, up to exactly Args::kDecompressSizeLimit (100 MiB); input that
+// runs out first is corrupt. Failures raise "<function>(): <message>":
+// "internal compression error", "internal decompression error",
+// "internal decompression size limit reached (cannot exceed 104857600
+// bytes)", "internal memory allocation error".
 
 #include "encoding/Compress.h"
 
 #include "Game.h"
 #include "Offsets.h"
+#include "encoding/Args.h"
 
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <vector>
 
@@ -47,319 +47,257 @@ namespace Encoding::Compress {
 
 namespace {
 
-// z_stream (zlib 1.2.2 layout, 56 bytes). We never read these
-// fields by name from Lua; we just pass the same struct between the
-// zlib calls, and read next_out / avail_out from known offsets.
+// z_stream (zlib 1.2.2 layout). We only read and write the buffer fields.
 struct ZStream {
     uint8_t bytes[Offsets::ZLIB_STREAM_SIZE];
 };
 
-constexpr int OFF_NEXT_IN    = 0x00;
-constexpr int OFF_AVAIL_IN   = 0x04;
-constexpr int OFF_TOTAL_IN   = 0x08;
-constexpr int OFF_NEXT_OUT   = 0x0C;
-constexpr int OFF_AVAIL_OUT  = 0x10;
-constexpr int OFF_TOTAL_OUT  = 0x14;
+constexpr int OFF_NEXT_IN = 0x00;
+constexpr int OFF_AVAIL_IN = 0x04;
+constexpr int OFF_NEXT_OUT = 0x0C;
+constexpr int OFF_AVAIL_OUT = 0x10;
+constexpr int OFF_TOTAL_OUT = 0x14;
 
 template <typename T>
 T &Field(ZStream &s, int off) {
     return *reinterpret_cast<T *>(&s.bytes[off]);
 }
 
-using deflateInit2_t = int(__fastcall *)(ZStream *strm, int level,
-                                         int method, int windowBits,
-                                         int memLevel, int strategy,
-                                         const char *version, int streamSize);
+using deflateInit2_t = int(__fastcall *)(ZStream *strm, int level, int method, int windowBits,
+                                         int memLevel, int strategy, const char *version,
+                                         int streamSize);
 using deflate_t = int(__fastcall *)(ZStream *strm, int flush);
 using deflateEnd_t = int(__fastcall *)(ZStream *strm);
-using inflateInit2_t = int(__fastcall *)(ZStream *strm, int windowBits,
-                                         const char *version, int streamSize);
+using inflateInit2_t = int(__fastcall *)(ZStream *strm, int windowBits, const char *version,
+                                         int streamSize);
 using inflate_t = int(__fastcall *)(ZStream *strm, int flush);
 using inflateEnd_t = int(__fastcall *)(ZStream *strm);
 
-constexpr int Z_OK         = 0;
+constexpr int Z_OK = 0;
 constexpr int Z_STREAM_END = 1;
-constexpr int Z_NO_FLUSH   = 0;
-constexpr int Z_FINISH     = 4;
+constexpr int Z_MEM_ERROR = -4;
+constexpr int Z_BUF_ERROR = -5;
+constexpr int Z_FINISH = 4;
 
-// Compression-method enum values surfaced to Lua. Matches the
-// `Enum.CompressionMethod = { Deflate = 0, Zlib = 1, Gzip = 2 }`
-// ordering inferred from the modern client's data section.
-enum class Method : int {
-    Deflate = 0,
-    Zlib = 1,
-    Gzip = 2,
+const char *ZlibVersion() {
+    return reinterpret_cast<const char *>(static_cast<uintptr_t>(Offsets::VAR_ZLIB_VERSION_STRING));
+}
+
+enum Method : int {
+    METHOD_DEFLATE = 0,
+    METHOD_ZLIB = 1,
+    METHOD_GZIP = 2,
 };
 
-// Enum.CompressionLevel (retail values) -> the zlib level it names.
-enum class Level : int {
-    Default = 0,
-    OptimizeForSpeed = 1,
-    OptimizeForSize = 2,
+enum Level : int {
+    LEVEL_DEFAULT = 0,
+    LEVEL_OPTIMIZE_FOR_SPEED = 1,
+    LEVEL_OPTIMIZE_FOR_SIZE = 2,
 };
 
-bool ZlibLevelFor(int level, int &outZlib) {
-    switch (static_cast<Level>(level)) {
-        case Level::Default:          outZlib = -1; return true; // Z_DEFAULT_COMPRESSION
-        case Level::OptimizeForSpeed: outZlib = 1;  return true; // Z_BEST_SPEED
-        case Level::OptimizeForSize:  outZlib = 9;  return true; // Z_BEST_COMPRESSION
-    }
-    return false;
+int WindowBits(int method) {
+    return method == METHOD_ZLIB ? 15 : method == METHOD_GZIP ? kGzipWindowBits : -15;
 }
 
-bool WindowBitsForEncode(Method m, int &outBits) {
-    switch (m) {
-        case Method::Zlib:    outBits = 15;       return true;
-        case Method::Gzip:    outBits = kGzipWindowBits; return true;
-        case Method::Deflate: outBits = -15;      return true;
-    }
-    return false;
+int ZlibLevel(int level) {
+    return level == LEVEL_OPTIMIZE_FOR_SPEED ? 1 : level == LEVEL_OPTIMIZE_FOR_SIZE ? 9 : -1;
 }
 
-bool WindowBitsForDecode(Method m, int &outBits) {
-    switch (m) {
-        case Method::Zlib:    outBits = 15;       return true;
-        case Method::Gzip:    outBits = kGzipWindowBits; return true;
-        case Method::Deflate: outBits = -15;      return true;
-    }
-    return false;
-}
-
-// Run a full deflate stream: init, feed all input with Z_FINISH,
-// collect output, end. Buffer grows as needed.
-bool Deflate(const uint8_t *src, std::size_t srcLen, int level,
-             int windowBits, std::vector<uint8_t> &out) {
-    auto init  = reinterpret_cast<deflateInit2_t>(Offsets::FUN_ZLIB_DEFLATE_INIT2);
-    auto step  = reinterpret_cast<deflate_t>(Offsets::FUN_ZLIB_DEFLATE);
-    auto done  = reinterpret_cast<deflateEnd_t>(Offsets::FUN_ZLIB_DEFLATE_END);
+// A full deflate stream. Returns Z_STREAM_END, or the failing zlib code.
+int Deflate(const uint8_t *src, std::size_t srcLen, int level, int windowBits,
+            std::vector<uint8_t> &out) {
+    auto init = reinterpret_cast<deflateInit2_t>(Offsets::FUN_ZLIB_DEFLATE_INIT2);
+    auto step = reinterpret_cast<deflate_t>(Offsets::FUN_ZLIB_DEFLATE);
+    auto done = reinterpret_cast<deflateEnd_t>(Offsets::FUN_ZLIB_DEFLATE_END);
 
     ZStream strm;
     std::memset(&strm, 0, sizeof(strm));
-    // method = Z_DEFLATED (8), memLevel = DEF_MEM_LEVEL (8),
-    // strategy = Z_DEFAULT_STRATEGY (0).
-    if (init(&strm, level, /*method=*/8, windowBits,
-             /*memLevel=*/8, /*strategy=*/0,
-             reinterpret_cast<const char *>(
-                 static_cast<uintptr_t>(Offsets::VAR_ZLIB_VERSION_STRING)),
-             Offsets::ZLIB_STREAM_SIZE) != Z_OK) {
-        return false;
-    }
+    const int rc = init(&strm, level, /*method=*/8, windowBits, /*memLevel=*/9, /*strategy=*/0,
+                        ZlibVersion(), Offsets::ZLIB_STREAM_SIZE);
+    if (rc != Z_OK)
+        return rc;
 
     Field<const uint8_t *>(strm, OFF_NEXT_IN) = src;
     Field<uint32_t>(strm, OFF_AVAIL_IN) = static_cast<uint32_t>(srcLen);
-
-    // Initial output buffer — slightly above the worst-case overhead.
+    // zlib's own deflateBound for these parameters, plus a gzip header.
     out.resize(srcLen + (srcLen >> 12) + (srcLen >> 14) + (srcLen >> 25) + 64);
     Field<uint8_t *>(strm, OFF_NEXT_OUT) = out.data();
     Field<uint32_t>(strm, OFF_AVAIL_OUT) = static_cast<uint32_t>(out.size());
 
+    int result;
     for (;;) {
-        const int rc = step(&strm, Z_FINISH);
-        if (rc == Z_STREAM_END) break;
-        if (rc == Z_OK) {
-            // Output buffer filled before stream end — grow and retry.
-            const std::size_t produced = out.size() -
-                Field<uint32_t>(strm, OFF_AVAIL_OUT);
-            out.resize(out.size() * 2);
-            Field<uint8_t *>(strm, OFF_NEXT_OUT) = out.data() + produced;
-            Field<uint32_t>(strm, OFF_AVAIL_OUT) =
-                static_cast<uint32_t>(out.size() - produced);
-            continue;
-        }
-        done(&strm);
-        return false;
+        result = step(&strm, Z_FINISH);
+        if (result != Z_OK)
+            break;
+        // The output filled before the end of the stream.
+        const std::size_t produced = Field<uint32_t>(strm, OFF_TOTAL_OUT);
+        out.resize(out.size() * 2);
+        Field<uint8_t *>(strm, OFF_NEXT_OUT) = out.data() + produced;
+        Field<uint32_t>(strm, OFF_AVAIL_OUT) = static_cast<uint32_t>(out.size() - produced);
     }
-    const std::size_t produced = out.size() -
-        Field<uint32_t>(strm, OFF_AVAIL_OUT);
-    out.resize(produced);
+    out.resize(Field<uint32_t>(strm, OFF_TOTAL_OUT));
     done(&strm);
-    return true;
+    if (result == Z_STREAM_END && windowBits > 15 && out.size() > 9)
+        out[9] = 0xFF; // the gzip header's OS byte
+    return result;
 }
+
+constexpr const char *kCompressUsage =
+    "Usage: local output = C_EncodingUtil.CompressString(source [, method, level])";
+constexpr const char *kDecompressUsage =
+    "Usage: local output = C_EncodingUtil.DecompressString(source [, method])";
+
+int __fastcall Script_CompressString(void *L) {
+    const uint8_t *src;
+    std::size_t len;
+    int method = METHOD_DEFLATE;
+    int level = LEVEL_DEFAULT;
+    if (!Args::Source(L, 1, kCompressUsage, &src, &len) ||
+        !Args::Enum(L, 2, METHOD_GZIP, kCompressUsage, &method) ||
+        !Args::Enum(L, 3, LEVEL_OPTIMIZE_FOR_SIZE, kCompressUsage, &level))
+        return 0;
+    int rc;
+    {
+        std::vector<uint8_t> out;
+        rc = Deflate(src, len, ZlibLevel(level), WindowBits(method), out);
+        if (rc == Z_STREAM_END) {
+            Game::Lua::PushLString(L, reinterpret_cast<const char *>(out.data()),
+                                   static_cast<unsigned int>(out.size()));
+            return 1;
+        }
+    }
+    Args::Raise(L, "CompressString",
+                rc == Z_MEM_ERROR ? "internal memory allocation error" : "internal compression error");
+    return 0;
+}
+
+int __fastcall Script_DecompressString(void *L) {
+    const uint8_t *src;
+    std::size_t len;
+    int method = METHOD_DEFLATE;
+    if (!Args::Source(L, 1, kDecompressUsage, &src, &len) ||
+        !Args::Enum(L, 2, METHOD_GZIP, kDecompressUsage, &method))
+        return 0;
+    int rc;
+    {
+        std::vector<uint8_t> out;
+        rc = Inflate(src, len, WindowBits(method), out);
+        if (rc == kInflateDone) {
+            Game::Lua::PushLString(L, reinterpret_cast<const char *>(out.data()),
+                                   static_cast<unsigned int>(out.size()));
+            return 1;
+        }
+    }
+    if (rc == kInflateTooLarge) {
+        char message[96];
+        std::snprintf(message, sizeof(message),
+                      "internal decompression size limit reached (cannot exceed %u bytes)",
+                      static_cast<unsigned>(Args::kDecompressSizeLimit));
+        Args::Raise(L, "DecompressString", message);
+    } else {
+        Args::Raise(L, "DecompressString",
+                    rc == kInflateNoMemory ? "internal memory allocation error" : "internal decompression error");
+    }
+    return 0;
+}
+
+const Game::Doc::Field kCompressArgs[] = {
+    Game::Doc::Req("source", "stringView"),
+    Game::Doc::Opt("method", "CompressionMethod", "Deflate"),
+    Game::Doc::Opt("level", "CompressionLevel", "Default"),
+};
+const Game::Doc::Field kCompressRets[] = {
+    Game::Doc::Req("output", "stringView"),
+};
+const Game::Doc::Function kCompressString{"Compresses a string.", kCompressArgs, kCompressRets};
+
+const Game::Doc::Field kDecompressArgs[] = {
+    Game::Doc::Req("source", "stringView",
+                   "Data that is not valid for the method, or that ends too soon, is an error."),
+    Game::Doc::Opt("method", "CompressionMethod", "Deflate",
+                   "Must be the method the data was compressed with."),
+};
+const Game::Doc::Field kDecompressRets[] = {
+    Game::Doc::Req("output", "stringView",
+                   "Output longer than Constants.EncodingLimits.EncodingDecompressSizeLimit is an "
+                   "error."),
+};
+const Game::Doc::Function kDecompressString{"Decompresses a string.", kDecompressArgs,
+                                            kDecompressRets};
+
+void Register() {
+    Game::Lua::RegisterTableFunction("C_EncodingUtil", "CompressString", &Script_CompressString,
+                                     &kCompressString);
+    Game::Lua::RegisterTableFunction("C_EncodingUtil", "DecompressString",
+                                     &Script_DecompressString, &kDecompressString);
+
+    static const Game::Lua::EnumIntegerEntry kCompressionMethod[] = {
+        {"Deflate", METHOD_DEFLATE},
+        {"Zlib", METHOD_ZLIB},
+        {"Gzip", METHOD_GZIP},
+    };
+    Game::Lua::RegisterIntegerEnum("Enum", "CompressionMethod", kCompressionMethod, "EncodingUtil");
+
+    static const Game::Lua::EnumIntegerEntry kCompressionLevel[] = {
+        {"Default", LEVEL_DEFAULT},
+        {"OptimizeForSpeed", LEVEL_OPTIMIZE_FOR_SPEED},
+        {"OptimizeForSize", LEVEL_OPTIMIZE_FOR_SIZE},
+    };
+    Game::Lua::RegisterIntegerEnum("Enum", "CompressionLevel", kCompressionLevel, "EncodingUtil");
+}
+
+const Game::ModuleAutoRegister _autoreg{&Register};
 
 } // namespace
 
-bool Inflate(const uint8_t *src, std::size_t srcLen, int windowBits,
-             std::vector<uint8_t> &out) {
+int Inflate(const uint8_t *src, std::size_t srcLen, int windowBits, std::vector<uint8_t> &out) {
     auto init = reinterpret_cast<inflateInit2_t>(Offsets::FUN_ZLIB_INFLATE_INIT2);
     auto step = reinterpret_cast<inflate_t>(Offsets::FUN_ZLIB_INFLATE);
     auto done = reinterpret_cast<inflateEnd_t>(Offsets::FUN_ZLIB_INFLATE_END);
 
     ZStream strm;
     std::memset(&strm, 0, sizeof(strm));
-    if (init(&strm, windowBits,
-             reinterpret_cast<const char *>(
-                 static_cast<uintptr_t>(Offsets::VAR_ZLIB_VERSION_STRING)),
-             Offsets::ZLIB_STREAM_SIZE) != Z_OK) {
-        return false;
-    }
+    const int initRc = init(&strm, windowBits, ZlibVersion(), Offsets::ZLIB_STREAM_SIZE);
+    if (initRc != Z_OK)
+        return initRc;
 
     Field<const uint8_t *>(strm, OFF_NEXT_IN) = src;
     Field<uint32_t>(strm, OFF_AVAIL_IN) = static_cast<uint32_t>(srcLen);
-
-    out.resize(srcLen * 4 + 64);
+    out.resize(1024);
     Field<uint8_t *>(strm, OFF_NEXT_OUT) = out.data();
     Field<uint32_t>(strm, OFF_AVAIL_OUT) = static_cast<uint32_t>(out.size());
 
-    constexpr std::size_t kCeiling = 64 * 1024 * 1024;
+    int result;
     for (;;) {
-        const int rc = step(&strm, Z_NO_FLUSH);
-        if (rc == Z_STREAM_END) break;
-        if (rc != Z_OK) {
-            done(&strm);
-            return false;
+        const int rc = step(&strm, Z_FINISH);
+        if (rc == Z_STREAM_END) {
+            result = kInflateDone;
+            break;
         }
-        if (Field<uint32_t>(strm, OFF_AVAIL_OUT) > 0) {
-            // Stream consumed all input without finishing — truncated.
-            done(&strm);
-            return false;
+        if (rc != Z_BUF_ERROR && rc != Z_OK) {
+            result = rc;
+            break;
         }
-        // Output buffer full, decompressor wants more space.
-        const std::size_t produced = out.size();
-        if (out.size() * 2 > kCeiling) {
-            done(&strm);
-            return false;
+        // zlib wants more input or more room.
+        if (Field<uint32_t>(strm, OFF_AVAIL_IN) == 0) {
+            result = kInflateCorrupt;
+            break;
         }
-        out.resize(out.size() * 2);
+        if (out.size() >= Args::kDecompressSizeLimit) {
+            result = kInflateTooLarge;
+            break;
+        }
+        std::size_t size = out.size() + out.size() / 2;
+        if (size > Args::kDecompressSizeLimit)
+            size = Args::kDecompressSizeLimit;
+        const std::size_t produced = Field<uint32_t>(strm, OFF_TOTAL_OUT);
+        out.resize(size);
         Field<uint8_t *>(strm, OFF_NEXT_OUT) = out.data() + produced;
-        Field<uint32_t>(strm, OFF_AVAIL_OUT) =
-            static_cast<uint32_t>(out.size() - produced);
+        Field<uint32_t>(strm, OFF_AVAIL_OUT) = static_cast<uint32_t>(out.size() - produced);
     }
-    const std::size_t produced = out.size() -
-        Field<uint32_t>(strm, OFF_AVAIL_OUT);
-    out.resize(produced);
+    out.resize(Field<uint32_t>(strm, OFF_TOTAL_OUT));
     done(&strm);
-    return true;
+    return result;
 }
-
-namespace {
-
-int OptionalIntArg(void *L, int idx, int defaultValue) {
-    if (Game::Lua::Type(L, idx) == Game::Lua::TYPE_NUMBER)
-        return static_cast<int>(Game::Lua::ToNumber(L, idx));
-    return defaultValue;
-}
-
-int __fastcall Script_CompressString(void *L) {
-    if (!Game::Lua::IsString(L, 1)) {
-        Game::Lua::Error(L,
-            "Usage: C_EncodingUtil.CompressString(source [, method, level])");
-        return 0;
-    }
-    const auto *src = reinterpret_cast<const uint8_t *>(
-        Game::Lua::ToString(L, 1));
-    const unsigned int srcLen = Game::Lua::StrLen(L, 1);
-    if (src == nullptr) {
-        Game::Lua::PushString(L, "");
-        return 1;
-    }
-
-    const int methodInt = OptionalIntArg(L, 2, static_cast<int>(Method::Deflate));
-    if (methodInt < 0 || methodInt > 2) {
-        Game::Lua::Error(L,
-            "C_EncodingUtil.CompressString: invalid CompressionMethod");
-        return 0;
-    }
-    const Method method = static_cast<Method>(methodInt);
-    int level;
-    if (!ZlibLevelFor(OptionalIntArg(L, 3, static_cast<int>(Level::Default)), level)) {
-        Game::Lua::Error(L,
-            "C_EncodingUtil.CompressString: invalid CompressionLevel");
-        return 0;
-    }
-
-    int windowBits;
-    if (!WindowBitsForEncode(method, windowBits))
-        return 0;
-
-    std::vector<uint8_t> out;
-    if (!Deflate(src, srcLen, level, windowBits, out))
-        return 0;
-    Game::Lua::PushLString(L, reinterpret_cast<const char *>(out.data()),
-                           static_cast<unsigned int>(out.size()));
-    return 1;
-}
-
-int __fastcall Script_DecompressString(void *L) {
-    if (!Game::Lua::IsString(L, 1)) {
-        Game::Lua::Error(L,
-            "Usage: C_EncodingUtil.DecompressString(data [, method])");
-        return 0;
-    }
-    const auto *src = reinterpret_cast<const uint8_t *>(
-        Game::Lua::ToString(L, 1));
-    const unsigned int srcLen = Game::Lua::StrLen(L, 1);
-    if (src == nullptr) {
-        Game::Lua::PushString(L, "");
-        return 1;
-    }
-
-    const int methodInt = OptionalIntArg(L, 2, static_cast<int>(Method::Deflate));
-    if (methodInt < 0 || methodInt > 2) {
-        Game::Lua::Error(L,
-            "C_EncodingUtil.DecompressString: invalid CompressionMethod");
-        return 0;
-    }
-    int windowBits;
-    if (!WindowBitsForDecode(static_cast<Method>(methodInt), windowBits))
-        return 0;
-
-    std::vector<uint8_t> out;
-    if (!Inflate(src, srcLen, windowBits, out))
-        return 0;
-    Game::Lua::PushLString(L, reinterpret_cast<const char *>(out.data()),
-                           static_cast<unsigned int>(out.size()));
-    return 1;
-}
-
-const Game::Doc::Field kCompressArgs[] = {
-    Game::Doc::Req("source", "string"),
-    Game::Doc::Opt("method", "CompressionMethod", "Deflate"),
-    Game::Doc::Opt("level", "CompressionLevel", "Default"),
-};
-const Game::Doc::Field kCompressRets[] = {
-    Game::Doc::Opt("output", "string", nullptr, "Nothing when compression fails."),
-};
-const Game::Doc::Function kCompressString{"Compresses a string.", kCompressArgs,
-                                          kCompressRets};
-
-const Game::Doc::Field kDecompressArgs[] = {
-    Game::Doc::Req("source", "string"),
-    Game::Doc::Opt("method", "CompressionMethod", "Deflate",
-                   "Must be the method the data was compressed with."),
-};
-const Game::Doc::Field kDecompressRets[] = {
-    Game::Doc::Opt("output", "string", nullptr,
-                   "Nothing when the source is not valid for the method or would decompress "
-                   "past 64 MB."),
-};
-const Game::Doc::Function kDecompressString{"Decompresses a string.", kDecompressArgs,
-                                            kDecompressRets};
-
-void Register() {
-    Game::Lua::RegisterTableFunction("C_EncodingUtil", "CompressString",
-                                     &Script_CompressString, &kCompressString);
-    Game::Lua::RegisterTableFunction("C_EncodingUtil", "DecompressString",
-                                     &Script_DecompressString, &kDecompressString);
-
-    static const Game::Lua::EnumIntegerEntry kCompressionMethod[] = {
-        {"Deflate", static_cast<int>(Method::Deflate)},
-        {"Zlib",    static_cast<int>(Method::Zlib)},
-        {"Gzip",    static_cast<int>(Method::Gzip)},
-    };
-    Game::Lua::RegisterIntegerEnum("Enum", "CompressionMethod", kCompressionMethod,
-                                   "EncodingUtil");
-
-    static const Game::Lua::EnumIntegerEntry kCompressionLevel[] = {
-        {"Default",          static_cast<int>(Level::Default)},
-        {"OptimizeForSpeed", static_cast<int>(Level::OptimizeForSpeed)},
-        {"OptimizeForSize",  static_cast<int>(Level::OptimizeForSize)},
-    };
-    Game::Lua::RegisterIntegerEnum("Enum", "CompressionLevel", kCompressionLevel,
-                                   "EncodingUtil");
-}
-
-} // namespace
-
-static const Game::ModuleAutoRegister _autoreg{&Register};
 
 } // namespace Encoding::Compress

@@ -74,9 +74,10 @@ Bytes File(int id, size_t index) {
         if (handle == nullptr)
             return {nullptr, 0};
         Pack pack;
-        if (!Encoding::Compress::Inflate(static_cast<const uint8_t *>(LockResource(handle)),
-                                         SizeofResource(self, info),
-                                         Encoding::Compress::kGzipWindowBits, pack.bytes))
+        if (Encoding::Compress::Inflate(static_cast<const uint8_t *>(LockResource(handle)),
+                                        SizeofResource(self, info),
+                                        Encoding::Compress::kGzipWindowBits,
+                                        pack.bytes) != Encoding::Compress::kInflateDone)
             return {nullptr, 0};
         pack.bytes.shrink_to_fit();
         if (!Split(pack))

@@ -77,7 +77,7 @@ In the Frame rows, a name that starts with `:` is a method of the widget that th
 | [Creature](docs/API.md#creature) | `C_CreatureInfo.GetCreatureID`, `C_CreatureInfo.GetCreatureInfoByID`, `C_CreatureInfo.RequestLoadCreatureByID`, `C_CreatureInfo.GetRaceInfo`, `C_CreatureInfo.GetClassInfo`, `C_CreatureInfo.GetCreatureFamilyInfo`, `C_CreatureInfo.GetCreatureFamilyIDs`, `C_CreatureInfo.GetFactionInfo`, `C_CreatureInfo.GetCreatureTypeInfo`, `C_CreatureInfo.GetCreatureTypeIDs` |
 | [DamageMeter](docs/API.md#damagemeter) | `C_DamageMeter.GetAvailableCombatSessions`, `C_DamageMeter.GetCombatSessionFromID`, `C_DamageMeter.GetCombatSessionFromType`, `C_DamageMeter.GetCombatSessionSourceFromID`, `C_DamageMeter.GetCombatSessionSourceFromType`, `C_DamageMeter.GetSessionDurationSeconds`, `C_DamageMeter.IsDamageMeterAvailable`, `C_DamageMeter.ResetAllCombatSessions` |
 | [Currency](docs/API.md#currency) | `GetCoinText`, `C_CurrencyInfo.GetCoinText`, `GetCoinTextureString`, `C_CurrencyInfo.GetCoinTextureString`, `Constants.MoneyFormattingConstants` |
-| EncodingUtil | `C_EncodingUtil.CompressString`, `C_EncodingUtil.DecompressString`, `C_EncodingUtil.EncodeBase64`, `C_EncodingUtil.DecodeBase64`, `C_EncodingUtil.EncodeHex`, `C_EncodingUtil.DecodeHex`, `C_EncodingUtil.SerializeJSON`, `C_EncodingUtil.DeserializeJSON`, `C_EncodingUtil.SerializeCBOR`, `C_EncodingUtil.DeserializeCBOR` |
+| EncodingUtil | `C_EncodingUtil.CompressString`, `C_EncodingUtil.DecompressString`, `C_EncodingUtil.EncodeBase64`, `C_EncodingUtil.DecodeBase64`, `C_EncodingUtil.EncodeHex`, `C_EncodingUtil.DecodeHex`, `C_EncodingUtil.SerializeJSON`, `C_EncodingUtil.DeserializeJSON`, `C_EncodingUtil.SerializeCBOR`, `C_EncodingUtil.DeserializeCBOR`, `Constants.EncodingLimits` |
 | [DeathInfo](docs/API.md#deathinfo) | `C_DeathInfo.GetSelfResurrectOptions`, `C_DeathInfo.UseSelfResurrectOption` |
 | [DurationUtil](docs/API.md#durationutil) | `C_DurationUtil.CreateDuration`, `C_DurationUtil.CreateDurationTextBinding` |
 | [EquipmentSet](docs/API.md#equipmentset) | `C_EquipmentSet.CanUseEquipmentSets`, `C_EquipmentSet.ClearIgnoredSlotsForSave`, `C_EquipmentSet.CreateEquipmentSet`, `C_EquipmentSet.DeleteEquipmentSet`, `C_EquipmentSet.EquipmentSetContainsLockedItems`, `C_EquipmentSet.GetEquipmentSetID`, `C_EquipmentSet.GetEquipmentSetIDs`, `C_EquipmentSet.GetEquipmentSetInfo`, `C_EquipmentSet.GetIgnoredSlots`, `C_EquipmentSet.GetItemIDs`, `C_EquipmentSet.GetItemLocations`, `C_EquipmentSet.GetNumEquipmentSets`, `C_EquipmentSet.IgnoreSlotForSave`, `C_EquipmentSet.IsSlotIgnoredForSave`, `C_EquipmentSet.ModifyEquipmentSet`, `C_EquipmentSet.PickupEquipmentSet`, `C_EquipmentSet.SaveEquipmentSet`, `C_EquipmentSet.UnignoreSlotForSave`, `C_EquipmentSet.UseEquipmentSet` |
@@ -627,7 +627,7 @@ WoW.exe is x86, so the DLL must be built as Win32; an x64 build will not
 load.
 
 ```powershell
-git submodule update --init --recursive   # fetches MinHook, picojson, tinycbor
+git submodule update --init --recursive   # fetches MinHook, unordered_dense, rapidjson
 cmake -B build -A Win32
 cmake --build build --config Release
 ```
