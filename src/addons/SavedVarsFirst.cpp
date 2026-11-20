@@ -47,6 +47,7 @@
 #include "Offsets.h"
 #include "baselib/Ascii.h"
 #include "storm/File.h"
+#include "addons/SavedVarsFiles.h"
 #include "addons/Toc.h"
 #include "script/LoadFile.h"
 #include "storm/Memory.h"
@@ -141,8 +142,10 @@ SvFlags ReadSvFlags(const char *tocPath) {
     return f;
 }
 
-bool FileExists(const char *path) {
-    return Storm::File::Exists(path);
+// The loader's own test (AddOns::SavedVarsFiles): `path` becomes
+// `<path>.bak` when only the backup exists, as the engine's load of it will.
+bool FileExists(char *path, size_t cap) {
+    return AddOns::SavedVarsFiles::ResolveExisting(path, cap);
 }
 
 // Load a SavedVariables file we found, then mark its path so the engine's own
@@ -170,7 +173,7 @@ void LoadSavedVarsEarly(const char *addonName, bool hasAccount, bool hasPerChar)
     if (hasAccount) {
         std::snprintf(path, sizeof path, "WTF\\Account\\%s\\SavedVariables\\%s.lua",
                       account, addonName);
-        if (FileExists(path))
+        if (FileExists(path, sizeof path))
             RunLuaFile(path);
     }
 
@@ -189,14 +192,14 @@ void LoadSavedVarsEarly(const char *addonName, bool hasAccount, bool hasPerChar)
         std::snprintf(path, sizeof path,
                       "WTF\\Account\\%s\\%s\\%s\\SavedVariables\\%s.lua", account,
                       realm, character, addonName);
-        if (FileExists(path)) {
+        if (FileExists(path, sizeof path)) {
             RunLuaFile(path);
             return;
         }
     }
     std::snprintf(path, sizeof path, "WTF\\Account\\%s\\%s\\SavedVariables\\%s.lua",
                   account, character, addonName);
-    if (FileExists(path))
+    if (FileExists(path, sizeof path))
         RunLuaFile(path);
 }
 

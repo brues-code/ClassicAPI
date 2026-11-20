@@ -40,6 +40,7 @@ build instructions.
   - [Conditional and multi-flavor TOC loading](#conditional-and-multi-flavor-toc-loading)
   - [Other TOC metadata keys](#other-toc-metadata-keys)
   - [SavedVariables loaded first](#savedvariables-loaded-first)
+  - [SavedVariables files and backups](#savedvariables-files-and-backups)
   - [`<Script file>` paths in XML files](#script-file-paths-in-xml-files)
 
 - [Animation](#animation)
@@ -2161,6 +2162,27 @@ This covers both `## SavedVariables` and `## SavedVariablesPerCharacter`.
 File-scope reads and writes both work. A SavedVariables file exists only
 after the first save, so the first-ever login still sees `nil` — there is
 nothing on disk to load yet.
+
+### SavedVariables files and backups
+
+The client writes each SavedVariables file in a safe sequence:
+
+1. It writes the new data to `<Name>.lua.tmp`.
+2. It renames the old `<Name>.lua` to `<Name>.lua.bak`. This replaces the
+   older backup.
+3. It renames `<Name>.lua.tmp` to `<Name>.lua`.
+
+Thus a crash or a full disk during the write cannot destroy the old
+file. The client does not write a variable whose name has a character
+other than `A`-`Z`, `a`-`z`, `0`-`9` or `_`.
+
+When `<Name>.lua` is missing, the client loads `<Name>.lua.bak` in its
+place. This applies only when the TOC declares that scope:
+`## SavedVariables:` for the account file, and
+`## SavedVariablesPerCharacter:` for the character file.
+
+> **Note:** To reset the saved variables of an addon, delete both
+> `<Name>.lua` and `<Name>.lua.bak`.
 
 ### `/reload` picks up new addons and new files
 

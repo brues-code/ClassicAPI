@@ -173,6 +173,44 @@ enum Offsets {
     // OsWriteFile — `int __fastcall(HANDLE /*ecx*/, const void *buffer /*edx*/,
     // uint32_t size, uint32_t *written)`, `ret 8`.
     FUN_OS_WRITE_FILE = 0x0042A5D0,
+    // The other OS file wrappers, all UTF-8 paths converted for the W calls:
+    //   CREATE `HANDLE __fastcall(path, access, 4 stack args)`, `ret 0x10`
+    //          (CreateFileW; the SV writer passes GENERIC_WRITE, CREATE_ALWAYS);
+    //   CLOSE  `void __fastcall(HANDLE)`;
+    //   EXISTS `int __fastcall(path)`, the OS test (not the VFS one);
+    //   MOVE   `int __fastcall(from, to)`, MoveFileW's result, which fails
+    //          when `to` exists;
+    //   DELETE `int __fastcall(path)`.
+    FUN_OS_CREATE_FILE = 0x0042A460,
+    FUN_OS_CLOSE_FILE = 0x0042A4D0,
+    FUN_OS_FILE_EXISTS = 0x0042A4E0,
+    FUN_OS_MOVE_FILE = 0x0042A820,
+    FUN_OS_DELETE_FILE = 0x0042A910,
+    // Writes one saved variable, `\r\n<name> = <value>`, from the global of
+    // that name - `void __fastcall(HANDLE, const char *name)`.
+    FUN_SV_WRITE_VARIABLE = 0x007043F0,
+    // The addon SavedVariables writer at UI shutdown (after PLAYER_LOGOUT):
+    // for each loaded entry, the account file (`+0x6C` names) then the
+    // character file (`+0x7C` names); with names it renames an existing file
+    // to `.bak`, creates the file and writes each name and the line end;
+    // without names it deletes the file. Its E8 calls, account / character
+    // (AddOns::SavedVarsFiles):
+    FUN_ADDON_SAVE_VARIABLES = 0x0051F650,
+    CALL_SV_WRITE_ACCOUNT_BACKUP = 0x0051F794,
+    CALL_SV_WRITE_CHAR_BACKUP = 0x0051F8EB,
+    CALL_SV_WRITE_ACCOUNT_CREATE = 0x0051F7BB,
+    CALL_SV_WRITE_CHAR_CREATE = 0x0051F911,
+    CALL_SV_WRITE_ACCOUNT_VARIABLE = 0x0051F7FC,
+    CALL_SV_WRITE_CHAR_VARIABLE = 0x0051F94F,
+    CALL_SV_WRITE_ACCOUNT_CLOSE = 0x0051F81D,
+    CALL_SV_WRITE_CHAR_CLOSE = 0x0051F970,
+    // FUN_ADDON_LOAD_ONE's SavedVariables read tests each file with
+    // FUN_FILE_EXISTS before it runs it from the same 0x104-byte buffer
+    // (FUN_LUA_LOAD_FILE at 0x0051F4B5 / 0x0051F53B): the account file, the
+    // realm character file, then the realm-less one.
+    CALL_SV_READ_ACCOUNT_EXISTS = 0x0051F4A2,
+    CALL_SV_READ_CHAR_EXISTS = 0x0051F4F0,
+    CALL_SV_READ_CHAR_NO_REALM_EXISTS = 0x0051F529,
     // "config-cache.wtf" — the file of account-data sections 0 (account) and
     // 1 (character): the +8 name pointer of records 0x0085DCF0 and 0x0085DD1C
     // in the 44-byte section table (read from the image). 1.12 lists both
@@ -12261,6 +12299,11 @@ enum Offsets {
     // [rec+0x50] at 0x0051E8CF..0x0051E8DE).
     OFF_ADDON_REQDEPS_COUNT = 0x4C,
     OFF_ADDON_REQDEPS_ARRAY = 0x50,
+    // The `## SavedVariables:` and `## SavedVariablesPerCharacter:` name
+    // counts (descs +0x68 / +0x78), as FUN_ADDON_SAVE_VARIABLES reads them
+    // (`[ebx+0x6C]` at 0x0051F73D, `[ebx+0x7C]` at 0x0051F892).
+    OFF_ADDON_SAVEDVARS_COUNT = 0x6C,
+    OFF_ADDON_SAVEDVARS_PERCHAR_COUNT = 0x7C,
 
     // Per-field accessors `Script_GetAddOnInfo` calls internally for
     // returns 5 (loadable), 6 (reason string), 7 (security category).
