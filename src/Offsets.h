@@ -4243,6 +4243,11 @@ enum Offsets {
     OFF_BUTTON_STATE = 0x328,        // 0 disabled, 1 normal, 2 pushed
     OFF_BUTTON_STATE_LOCKED = 0x32C,
     OFF_BUTTON_CLICK_MASK = 0x330,   // press bits low byte, release bits << 8
+    // The two slots themselves, shared by all five button classes' vtables
+    // (benilla-re ui/mouse.md "Who overrides the mouse slots": 0x779210 and
+    // 0x7792D0 in 5 tables).
+    FUN_BUTTON_ON_MOUSE_DOWN = 0x00779210,
+    FUN_BUTTON_ON_MOUSE_UP = 0x007792D0,
     OFF_BUTTON_LAST_CLICK_MS = 0x334,
     BUTTON_STATE_DISABLED = 0,
     BUTTON_STATE_NORMAL = 1,

@@ -67,6 +67,9 @@ using Enter_t = void(__thiscall *)(void *frame);
 using Leave_t = void(__thiscall *)(void *frame, int removal);
 
 std::unordered_set<void *> g_propagates;
+// `propagateMouseInputMask="Motion"`: never propagates motion (3.80.2's
+// +0x123 bit 0x10).
+std::unordered_set<void *> g_suppressed;
 
 // The motion focus, top-first; its first frame is the context's +0x7C.
 std::vector<void *> g_list;
@@ -81,7 +84,7 @@ bool Contains(const std::vector<void *> &list, const void *frame) {
     return std::find(list.begin(), list.end(), frame) != list.end();
 }
 
-bool Propagates(void *frame) { return g_propagates.count(frame) != 0; }
+bool Propagates(void *frame) { return g_propagates.count(frame) != 0 && g_suppressed.count(frame) == 0; }
 
 uint8_t *Context() { return Game::Read<uint8_t *>(Offsets::VAR_UI_CONTEXT_PTR); }
 
@@ -174,6 +177,7 @@ void ContinueWalk(uint8_t *ctx, void *primary, const void *event, std::vector<vo
 }
 
 void __stdcall CommitPass(uint8_t *ctx, void *primary, const void *event) {
+    Frame::MouseInput::ProbePressed(event);
     Sync(ctx);
     std::vector<void *> list;
     if (primary != nullptr) {
@@ -268,6 +272,7 @@ const uint8_t kRemovalFocus[] = {0x3B, 0x78, 0x7C, 0x75, 0x1F, 0x89, 0x70, 0x7C,
 
 void OnFrameDestroyed(void *frame) {
     g_propagates.erase(frame);
+    g_suppressed.erase(frame);
     g_list.erase(std::remove(g_list.begin(), g_list.end(), frame), g_list.end());
     for (std::vector<void *> *pending : g_pending)
         std::replace(pending->begin(), pending->end(), frame, static_cast<void *>(nullptr));
@@ -284,12 +289,16 @@ void SetPropagates(void *frame, bool on) {
         g_propagates.erase(frame);
 }
 
-// `propagateMouseInput="Motion"` or `"Both"`; Frame::MouseInput reads the
-// click half.
+// `propagateMouseInput="Motion"` or `"Both"`, and `propagateMouseInputMask`,
+// which keeps motion from propagating; Frame::MouseInput reads the click
+// half.
 void OnFrameNode(void *object, const void *node, void * /*status*/) {
     const char *value = Xml::Attr(node, "propagateMouseInput");
     if (Ascii::EqualCI(value, "Motion") || Ascii::EqualCI(value, "Both"))
         SetPropagates(object, true);
+    const char *mask = Xml::Attr(node, "propagateMouseInputMask");
+    if (Ascii::EqualCI(mask, "Motion") || Ascii::EqualCI(mask, "Both"))
+        g_suppressed.insert(object);
 }
 
 const Xml::FrameLoad::AutoSubscribe _xmlSub{&OnFrameNode};

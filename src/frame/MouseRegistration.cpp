@@ -11,22 +11,24 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// `button:RegisterForMouse(...buttons)` — which mouse buttons run the
-// button's OnMouseDown / OnMouseUp scripts. The 3.80.2 client's
-// (FUN_140ACB390, mask at button +0x280): AnyUp + AnyDown by default, each
-// call replaces the last, no argument registers nothing, a name that is not
-// a string or not a click name raises the usage error, and OnMouseUp needs
-// its button's down registered too. Only those two scripts are affected
-// here — clicks keep RegisterForClicks, drags RegisterForDrag.
+// `button:RegisterForMouse(...buttons)` — which mouse buttons the button
+// takes at all. The 3.80.2 client's (FUN_140ACB390, mask at button +0x280):
+// AnyUp + AnyDown by default, each call replaces the last, no argument
+// registers nothing, a name that is not a string or not a click name raises
+// the usage error.
 //
-// 1.12 has no such filter: the frame's button-down / button-up slots
-// (0x0076BF70 / 0x0076C040, shared by every frame type and called first by
-// the button's own pair) run OnMouseDown / OnMouseUp for any button, through
-// the variadic forwarder with ("%s", the engine's name literal). That fire is
-// the one place the script — and only the script — can be refused while the
-// drag arming before it and the click logic after it run untouched, and
-// `Frame::ClickEvents` already owns both slots on the shared runner hook, so
-// it asks `Accepts` there. No hook of our own.
+// What it gates is 3.80.2's too (CSimpleButton OnMouseDown FUN_1428B6AC0 /
+// OnMouseUp FUN_1428B6BF0): a press of a button whose down is not registered
+// returns at once from the button's down slot, so there is no OnMouseDown, no
+// drag arming, no click on down and no PUSHED state; a release whose up is
+// not registered returns at once from the up slot, so there is no
+// OnMouseUp, no drag stop, no click and no return to NORMAL. 1.12's button
+// classes share those two slots (0x00779210 / 0x007792D0), which call the
+// base frame's pair first; the co-hooks return before them. OnMouseUp also
+// needs the down registered (3.80.2 fires it only for a frame its press
+// reached): `Frame::ClickEvents` asks `Accepts` when the script fires. A
+// synthetic release (SetMouseFocus's, with no button) goes through, so a
+// pushed button still returns to NORMAL.
 //
 // The mask is the engine's own click-mask encoding (down bits 0x1F, up bits
 // the same << 8; FUN_BUTTON_CLICK's 1/2/4/8/0x10 order); the names are
@@ -58,6 +60,42 @@ constexpr uint32_t kDefault = kAnyDown | kAnyUp;
 
 
 std::unordered_map<const void *, uint32_t> g_masks;
+
+bool Registered(const void *button, uint32_t bits) {
+    if (g_masks.empty())
+        return true;
+    const auto it = g_masks.find(button);
+    return it == g_masks.end() || (it->second & bits) != 0;
+}
+
+// The event's button bit: 1, 2, 4, 8 or 0x10; 0 for a synthetic event.
+uint32_t EventBit(const void *event) {
+    return Game::Read<uint32_t>(event, Offsets::OFF_UI_MOUSE_EVENT_BUTTON) & 0x1F;
+}
+
+using Slot_t = int(__fastcall *)(void *button, void *edx, const void *event);
+Slot_t g_origDown = nullptr;
+Slot_t g_origUp = nullptr;
+
+int __fastcall OnMouseDown_h(void *button, void *edx, const void *event) {
+    const uint32_t bit = EventBit(event);
+    if (bit != 0 && !Registered(button, bit))
+        return 0;
+    return g_origDown(button, edx, event);
+}
+
+int __fastcall OnMouseUp_h(void *button, void *edx, const void *event) {
+    const uint32_t bit = EventBit(event);
+    if (bit != 0 && !Registered(button, bit << 8))
+        return 0;
+    return g_origUp(button, edx, event);
+}
+
+const Game::HookAutoRegister _downHook{Offsets::FUN_BUTTON_ON_MOUSE_DOWN,
+                                       reinterpret_cast<void *>(&OnMouseDown_h),
+                                       reinterpret_cast<void **>(&g_origDown)};
+const Game::HookAutoRegister _upHook{Offsets::FUN_BUTTON_ON_MOUSE_UP, reinterpret_cast<void *>(&OnMouseUp_h),
+                                     reinterpret_cast<void **>(&g_origUp)};
 
 // The down bit of the button a fire names; 0 for "UNKNOWN".
 uint32_t DownBitFor(const char *name) {
@@ -96,7 +134,9 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
 const Game::Doc::Field kArgs[] = {
     Game::Doc::Vararg("string", "The mouse buttons and actions, such as \"LeftButtonDown\" or \"AnyUp\"."),
 };
-const Game::Doc::Function kDoc{"Sets which mouse buttons run the OnMouseDown and OnMouseUp scripts.", kArgs, {}};
+const Game::Doc::Function kDoc{"Sets which mouse buttons the button takes: presses and releases of any other "
+                               "button do nothing.",
+                               kArgs, {}};
 const Game::Doc::Method kDocs[] = {{"RegisterForMouse", &kDoc}};
 
 void RegisterLuaFunctions() {

@@ -10647,7 +10647,9 @@ frame onto a child that passes motion on, the frame does not get `OnLeave`.
 - Clicks do not pass on with motion. For clicks, use
   [`frame:SetPropagateMouseClicks`](#framesetpropagatemouseclickspropagate--framecanpropagatemouseclicks).
 - In XML, `propagateMouseInput="Motion"` or `propagateMouseInput="Both"` on
-  a frame sets the value to `true`.
+  a frame sets the value to `true`. `propagateMouseInputMask="Motion"` or
+  `"Both"` keeps the frame from passing motion on, also after a call to
+  `SetPropagateMouseMotion(true)`.
 
 ```lua
 local row = CreateFrame("Button", nil, UIParent)
@@ -10722,7 +10724,11 @@ next frame can pass the click on too.
 - `OnMouseUp` gets a second argument, `upInside`: `true` when the cursor is
   on the frame when you release the button.
 - In XML, `propagateMouseInput="Clicks"` or `propagateMouseInput="Both"` on
-  a frame sets the value to `true`.
+  a frame sets the value to `true`. `propagateMouseInputMask="Clicks"` or
+  `"Both"` keeps the frame from passing clicks on, also after a call to
+  `SetPropagateMouseClicks(true)`.
+- Each frame that a click goes to can start its own drag, if it is
+  registered for drags with that button.
 
 ### `frame:SetPassThroughButtons(...)`
 
@@ -11722,8 +11728,7 @@ a `RegisterForClicks` call in `OnLoad` replaces the attribute.
 
 ### `button:RegisterForMouse(...)`
 
-Sets which mouse buttons run the `OnMouseDown` and `OnMouseUp` scripts of the
-button. Each argument is a mouse button and an action, for example
+Sets which mouse buttons the button takes. Each argument is a mouse button and an action, for example
 `LeftButtonDown` or `RightButtonUp`. The buttons are `LeftButton` (or
 `Button1`), `RightButton` (or `Button2`), `MiddleButton` (or `Button3`), and
 `Button4` to `Button31`, and the actions are `Down` and `Up`. `AnyDown` and
@@ -11733,10 +11738,14 @@ is not one of these names is an error.
 - A new button responds to `AnyDown` and `AnyUp`.
 - Each call replaces the previous one. A call with no argument removes all
   buttons.
+- A press of a button whose down action is not registered does nothing: no
+  `OnMouseDown`, no click, no pushed state and no drag. A release whose up
+  action is not registered does nothing: no `OnMouseUp`, no click, and the
+  button does not go back to its normal state.
 - `OnMouseUp` runs only when the down action of the same button is also
   registered.
-- This method changes only `OnMouseDown` and `OnMouseUp`. Clicks still follow
-  `RegisterForClicks`, and drags still follow `RegisterForDrag`.
+- For the registered buttons, clicks still follow `RegisterForClicks`, and
+  drags still follow `RegisterForDrag`.
 
 ```lua
 btn:RegisterForMouse("RightButtonDown", "RightButtonUp")

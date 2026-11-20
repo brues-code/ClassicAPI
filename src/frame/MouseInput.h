@@ -23,4 +23,9 @@ bool MotionEnabled(void *frame);
 // disabled, detached): it gets no button-up from a press it shared.
 void OnInputRemoved(void *frame);
 
+// Runs on each hover pass with its event: probes every other frame the press
+// in progress went to (a propagated press), as the engine probes its pressed
+// frame before its sweep, so each one armed for a drag starts it.
+void ProbePressed(const void *event);
+
 } // namespace Frame::MouseInput
