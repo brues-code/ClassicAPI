@@ -17307,16 +17307,26 @@ Returns the local variables and the upvalues of a call level as one string.
 An error handler uses it to show the values in the code that caused the
 error. `level` counts the same as in `debugstack`, and is 1 by default.
 
-Each variable is one `name=value` line. A string value is in quotes. A
-table shows the name of its frame, or `<table>`, then its fields one space in,
-then `}`. Fields of tables inside a table do not show. A function shows the
-file and line where it is defined.
+Each variable is one `name=value` line:
+
+- A number with no fraction shows as a whole number (`12`), any other number
+  with six decimals (`2.500000`), and an infinite number or NaN as
+  `Infinite`.
+- A string shows in quotes, up to its first line break.
+- A table shows its header, then its fields one space in, between `{` and
+  `}`. A table with no field to show is its header alone. The header is the
+  result of the table's `ToDebugString` method when it has one. For a frame,
+  it is the frame's name (or its type, when it has no name) and where it was
+  created: `MyFrame <MyAddon.lua:12>`, or `<MyAddon.xml>` for a frame from
+  XML. Otherwise it is `<table>`. A table inside a table shows its header
+  only.
+- A field key prints as a number in the same way, as text, or as the name of
+  its type.
+- A function shows the file and line where it is defined.
 
 If `skipFunctionsAndUserdata` is `true`, function and userdata values do not
-show. The text stops at 4095 bytes.
-
-`debuglocals` works only while an error handler runs. At other times it
-returns nothing.
+show, also inside tables. The text stops at 4095 bytes. A `level` that does
+not exist returns an empty string.
 
 ```lua
 seterrorhandler(function(message)
