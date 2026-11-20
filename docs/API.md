@@ -289,7 +289,8 @@ build instructions.
   - [`EQUIPMENT_SWAP_FINISHED` event](#equipment_swap_finished-event)
   - [`WEAR_EQUIPMENT_SET` event](#wear_equipment_set-event)
   - [`FACTION_STANDING_CHANGED` event](#faction_standing_changed-event)
-  - [`GROUP_JOINED` / `GROUP_LEFT` events](#group_joined--group_left-events)
+  - [`GROUP_JOINED` / `GROUP_FORMED` / `GROUP_LEFT` events](#group_joined--group_formed--group_left-events)
+  - [`GROUP_ROSTER_UPDATE` event](#group_roster_update-event)
   - [`INCOMING_RESURRECT_CHANGED` event](#incoming_resurrect_changed-event)
   - [`INVENTORY_SEARCH_UPDATE` event](#inventory_search_update-event)
   - [`LOOT_HISTORY_ROLL_CHANGED` / `LOOT_HISTORY_ROLL_COMPLETE` / `LOOT_HISTORY_FULL_UPDATE` events](#loot_history_roll_changed--loot_history_roll_complete--loot_history_full_update-events)
@@ -7047,22 +7048,43 @@ event, [`C_Reputation.GetLastStandingChange`](#c_reputationgetlaststandingchange
 gives `(factionID, newStanding, repGained)`, so addons do not have to
 parse the localized string.
 
-### `GROUP_JOINED` / `GROUP_LEFT` events
+### `GROUP_JOINED` / `GROUP_FORMED` / `GROUP_LEFT` events
 
 ```
 GROUP_JOINED: category, partyGUID
+GROUP_FORMED: category, partyGUID
 GROUP_LEFT: category, partyGUID
 ```
 
-`GROUP_JOINED` fires when you join a party or a raid. `GROUP_LEFT` fires
-when you leave it, or when the group is disbanded. They fire immediately before
-the `PARTY_MEMBERS_CHANGED` or `RAID_ROSTER_UPDATE` that shows the change.
+`GROUP_JOINED` fires when you join a party or a raid. `GROUP_FORMED` fires
+one time for each group, when the group has two players. A group always has
+you and one more player, so `GROUP_FORMED` fires immediately after each
+`GROUP_JOINED`. `GROUP_LEFT` fires when you leave the group, or when the
+group is disbanded.
+
+These events fire immediately before the `PARTY_MEMBERS_CHANGED` or
+`RAID_ROSTER_UPDATE` that shows the change.
 
 - `category` is always `1`, `LE_PARTY_CATEGORY_HOME`. A battleground group
   is an ordinary raid on this client.
 - `partyGUID` is always `nil`. This client does not get an ID for the group.
-- When you log in or reload the UI inside a group, `GROUP_JOINED` does not
-  fire. Use `IsInGroup()` to read the group state at that time.
+- When you log in inside a group, `GROUP_JOINED` and `GROUP_FORMED` fire
+  when the group information arrives.
+- When you reload the UI or go through a loading screen, these events do
+  not fire. Use `IsInGroup()` to read the group state at that time.
+- When you log out, `GROUP_LEFT` does not fire.
+
+### `GROUP_ROSTER_UPDATE` event
+
+Fires one time in each frame in which the members of your group changed.
+The event has no payload. It also fires when you join or leave a group,
+after `GROUP_JOINED` or `GROUP_LEFT`.
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterEvent("GROUP_ROSTER_UPDATE")
+f:SetScript("OnEvent", function() print(GetNumRaidMembers(), GetNumPartyMembers()) end)
+```
 
 ### `INCOMING_RESURRECT_CHANGED` event
 
