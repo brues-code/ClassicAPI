@@ -1008,8 +1008,13 @@ build instructions.
 - [NamePlate](#nameplate)
   - [`nameplateNotSelectedAlpha`](#nameplatenotselectedalpha)
   - [`nameplateSelectedAlpha`](#nameplateselectedalpha)
+  - [Nameplates by kind of unit](#nameplates-by-kind-of-unit)
   - [`C_NamePlate.GetNamePlates()`](#c_nameplategetnameplates)
   - [`C_NamePlate.GetNamePlateGUIDs()`](#c_nameplategetnameplateguids)
+  - [`C_NamePlate.SetNamePlateSize(width, height)`](#c_nameplatesetnameplatesizewidth-height)
+  - [`C_NamePlate.GetNamePlateSize()`](#c_nameplategetnameplatesize)
+  - [`C_NamePlateManager.SetNamePlateHitTestInsets(type, left, right, top, bottom)`](#c_nameplatemanagersetnameplatehittestinsetstype-left-right-top-bottom)
+  - [`C_NamePlateManager.GetNamePlateHitTestInsets(type)`](#c_nameplatemanagergetnameplatehittestinsetstype)
   - [`C_NamePlate.GetNamePlateForUnit(unitToken)`](#c_nameplategetnameplateforunitunittoken)
   - [`C_NamePlate.GetNamePlateForGUID(guidString)`](#c_nameplategetnameplateforguidguidstring)
   - [Unit tokens (`nameplateN`)](#unit-tokens-nameplaten)
@@ -22660,6 +22665,43 @@ their own settings. Each character has its own value.
 /console nameplateSelectedAlpha 0.5
 ```
 
+### Nameplates by kind of unit
+
+These cvars select which kinds of units get a nameplate. They work
+together with the enemy and friendly nameplate switches
+(`ShowNameplates()`, `ShowFriendNameplates()`). A unit that a cvar
+turns off gets no plate, and no `NAME_PLATE_UNIT_ADDED` fires for it.
+
+| cvar | default | the units it covers |
+|---|---|---|
+| `nameplateShowFriendlyPlayers` | `1` | Friendly players, and the pets, guardians and totems of players. |
+| `nameplateShowFriendlyNpcs` | `1` | All other friendly units. |
+| `nameplateShowEnemyPets` | `1` | Enemy pets of players. |
+| `nameplateShowEnemyGuardians` | `1` | Enemy guardians of players. |
+| `nameplateShowEnemyTotems` | `1` | Enemy totems of players. |
+| `nameplateShowEnemyMinions` | `1` | Sets the three enemy cvars above when it changes. |
+| `nameplateShowFriendlyPlayerPets` | `1` | Friendly pets of players. |
+| `nameplateShowFriendlyPlayerGuardians` | `1` | Friendly guardians of players. |
+| `nameplateShowFriendlyPlayerTotems` | `0` | Friendly totems of players. |
+| `nameplateShowFriendlyPlayerMinions` | `1` | Sets the three friendly player cvars above when it changes. |
+| `SoftTargetNameplateFriend` | `0` | `1` keeps the plate of `"softfriend"` when its friendly cvar is off. |
+| `SoftTargetNameplateInteract` | `0` | `1` keeps the plate of `"softinteract"` when its friendly cvar is off. |
+
+A unit that a player owns is a totem, a pet or a guardian:
+
+- A totem is a unit of creature type Totem.
+- A pet is a unit that a player charmed or summoned.
+- A guardian is a unit that a player created, and did not charm or
+  summon.
+
+The pet, guardian and totem cvars apply only to the units of players.
+The units of NPCs follow `nameplateShowFriendlyNpcs`, or the enemy
+switch. A friendly totem of an NPC never gets a plate.
+
+```lua
+/dump SetCVar("nameplateShowEnemyTotems", "0")
+```
+
 ### `C_NamePlate.GetNamePlates()`
 
 Returns a 1-based table of nameplate `Frame` objects — one per
@@ -22772,6 +22814,51 @@ frames.
 
 The list includes a plate no matter which nameplate system draws it.
 The order is not stable across calls.
+
+### `C_NamePlate.SetNamePlateSize(width, height)`
+
+Sets the size of all nameplates, in UI units (the units of
+`Frame:SetSize`). The size is also the area that takes clicks. The
+health bar and the level text of a default plate scale with it. The
+plates that show now change at once.
+
+The size stays until the game closes. A `/reload` does not reset it.
+
+```lua
+/run C_NamePlate.SetNamePlateSize(160, 40)
+```
+
+### `C_NamePlate.GetNamePlateSize()`
+
+Returns `width, height`, the size of all nameplates in UI units. Before
+a call to `SetNamePlateSize`, it returns the default size for your
+screen.
+
+```lua
+/dump C_NamePlate.GetNamePlateSize()
+```
+
+### `C_NamePlateManager.SetNamePlateHitTestInsets(type, left, right, top, bottom)`
+
+Sets how far in from each edge the nameplates of a type stop taking
+clicks. `type` is `0` for the plates of friendly units and `1` for
+the plates of units that you can attack. The insets are UI units. A
+positive inset makes the area that takes clicks smaller. A negative
+inset cannot make it larger than the plate. A `/reload` sets all
+insets back to `0`.
+
+```lua
+/run C_NamePlateManager.SetNamePlateHitTestInsets(1, 10, 10, 5, 5)
+```
+
+### `C_NamePlateManager.GetNamePlateHitTestInsets(type)`
+
+Returns `left, right, top, bottom`, the insets of a nameplate type.
+A `type` other than `0` or `1` gives the insets of type `0`.
+
+```lua
+/dump C_NamePlateManager.GetNamePlateHitTestInsets(1)
+```
 
 ### Unit tokens (`nameplateN`)
 

@@ -28,7 +28,8 @@ bool RedirectCall(uintptr_t site, uintptr_t expected, const void *target);
 // at `site` to `target` when it still reaches `expected`. Same contract.
 bool RedirectJcc(uintptr_t site, uintptr_t expected, const void *target);
 
-// RedirectCall for a function-pointer slot (a vtable entry): points the slot
+// RedirectCall for a 4-byte pointer slot (a vtable entry, or the absolute
+// address operand of an instruction such as `fld [imm32]`): points the slot
 // at `slot` to `target` when it still holds `expected`. Same contract.
 bool RedirectSlot(uintptr_t slot, uintptr_t expected, const void *target);
 

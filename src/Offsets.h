@@ -3036,6 +3036,42 @@ enum Offsets {
     // free list's tail, hides it and zeroes unit+0xE60 (disassembled; the
     // callers are listed in the block above).
     FUN_UNIT_RELEASE_NAMEPLATE = 0x00608A10,
+    // The plate gate (benilla-re objectlayer/unitnames "Nameplates";
+    // disassembled) — `void __thiscall(CGUnit_C *, CSimpleFrame *parent)`,
+    // RET 4, run for each unit every frame. Its only ends are
+    // FUN_UNIT_RELEASE_NAMEPLATE (0x0060F742) and UpdateNamePlate (0x006086E0,
+    // 0x0060F7D9). A friendly unit's creature type is asked at
+    // CALL_NAMEPLATE_GATE_CREATURE_TYPE (`mov ecx,esi; call
+    // FUN_UNIT_CREATURE_TYPE`), and type 11, a totem, takes no plate
+    // (0x0060F757). The gate also skips a unit with UNIT_FIELD_CREATEDBY, no
+    // UNIT_FIELD_SUMMONEDBY and UNIT_FIELD_FLAGS bit 9 (0x0060F70B..2D).
+    FUN_NAMEPLATE_GATE = 0x0060F600,
+    CALL_NAMEPLATE_GATE_CREATURE_TYPE = 0x0060F752,
+    // CGNamePlateFrame::Initialize, the bind — `void __thiscall(plate,
+    // CGUnit_C *)`, RET 4 (called from UpdateNamePlate at 0x00608707). It
+    // sets the plate's size from VAR_NAMEPLATE_WIDTH / VAR_NAMEPLATE_HEIGHT
+    // (0.1 and 0.025 layout units) through the layout's SetWidth /
+    // SetHeight (+0x24 vtable +0x14 / +0x18), then sizes and places the
+    // health bar and the level text from the same two floats. Nothing else
+    // in .text reads them: their only operands are the eight
+    // SITE_NAMEPLATE_BIND_*_OPERAND addresses (a `mov eax,[imm32]` and three
+    // `fld [imm32]` each; scanned).
+    FUN_NAMEPLATE_BIND = 0x007CB6D0,
+    VAR_NAMEPLATE_WIDTH = 0x0087D9CC,
+    VAR_NAMEPLATE_HEIGHT = 0x0087D9D0,
+    SITE_NAMEPLATE_BIND_WIDTH_OPERAND_1 = 0x007CB72A,
+    SITE_NAMEPLATE_BIND_WIDTH_OPERAND_2 = 0x007CB749,
+    SITE_NAMEPLATE_BIND_WIDTH_OPERAND_3 = 0x007CB784,
+    SITE_NAMEPLATE_BIND_WIDTH_OPERAND_4 = 0x007CB7C1,
+    SITE_NAMEPLATE_BIND_HEIGHT_OPERAND_1 = 0x007CB73B,
+    SITE_NAMEPLATE_BIND_HEIGHT_OPERAND_2 = 0x007CB75A,
+    SITE_NAMEPLATE_BIND_HEIGHT_OPERAND_3 = 0x007CB7A8,
+    SITE_NAMEPLATE_BIND_HEIGHT_OPERAND_4 = 0x007CB7D2,
+    // CGNamePlateFrame's hit test — `int __thiscall(plate, const event *)`,
+    // RET 4 (disassembled): 0 while the pending spell wants a location and
+    // not a unit, else the base frame's (0x0076B320), which tests the
+    // event's cursor (OFF_UI_MOUSE_EVENT_X / _Y) against OFF_FRAME_HIT_RECT.
+    FUN_NAMEPLATE_HIT_TEST = 0x007CBA30,
     // unit+0xE64 is the unit's chat bubble (0x608AC0 fills it, 0x608C00
     // releases it; benilla-re objectlayer/unitnames.md "Chat bubbles").
     OFF_UNIT_CHAT_BUBBLE = 0xE64,
