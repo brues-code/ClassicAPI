@@ -24,4 +24,10 @@ void *Notifying();
 // cursor that take motion (GetMouseFoci).
 bool IsFocus(void *frame);
 
+// Takes the frame out of the motion focus at once, as the engine takes out a
+// frame that leaves the mouse lists: it leaves with motion false, and the
+// focus is picked again. Frame::MouseInput calls it when the frame's motion
+// is turned off while its clicks stay on (3.80.2: OnLeave(false) at once).
+void Drop(void *frame);
+
 } // namespace Frame::MotionFocus

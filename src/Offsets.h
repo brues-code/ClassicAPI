@@ -4975,6 +4975,11 @@ enum Offsets {
     // cursor is over no mouse-enabled frame. `Frame::Attributes` polls this to
     // drive the `mouseover` override from the hovered frame's `unit` attribute.
     OFF_UI_CONTEXT_MOUSE_FOCUS = 0x7C,
+    // The frame that holds the press: the release goes to it and to nothing
+    // else, and the engine clears it to null when the frame leaves the mouse
+    // lists (benilla-re ui/mouse.md: 0x0076642B reads it, 0x00764CAD /
+    // 0x00764CB8 clear it).
+    OFF_UI_CONTEXT_PRESSED_FRAME = 0x80,
     // The mouse-focus pass — `int __fastcall(const MouseEvent *event,
     // context)`, an input handler (registered by 0x00765C6C) that also runs
     // from the layout update 0x007657BE when the re-pick flag (+0x1100) is

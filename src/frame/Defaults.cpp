@@ -43,10 +43,17 @@
 //   then applies the whole font, as on a new string.
 // - Its alpha gradient back to (-1, 0) through its member.
 //
-// Values 1.12 has no counterpart for are not touched (fixed strata and level,
-// ignoring the parent's alpha or scale, flattened render layers, collapsing
-// layouts, texture tiling and pixel snapping, text scale). Other frame types
-// reset as a Frame.
+// The lists are the 3.80.2 client's (one virtual per class, chained base
+// first: Region 0x140593FE0, Frame 0x14058E690, Button 0x1428B73F0,
+// CheckButton 0x1428B7FB0, ScrollFrame 0x1428CBC90, StatusBar 0x1428CD5F0,
+// EditBox 0x1428C2C60, Texture 0x140579050, FontString 0x140583FB0). Every
+// other frame type resets as a Frame, as there. A texture keeps its mask
+// textures. Unlike 3.80.2, which writes the shown flag raw, the region is
+// shown through Show(): its scripts are already gone, so nothing runs, and
+// 1.12's visibility follows. Values 1.12 has no counterpart for are not
+// touched (fixed strata and level, ignoring the parent's alpha or scale,
+// flattened render layers, collapsing layouts, frame buffers, pixel
+// snapping, text scale).
 
 #include "Game.h"
 #include "Offsets.h"
@@ -78,13 +85,14 @@ constexpr Arg Bool(bool b) { return {Arg::BOOL, b ? 1.0 : 0.0, nullptr}; }
 constexpr Arg Str(const char *s) { return {Arg::STRING, 0.0, s}; }
 constexpr Arg Nil() { return {Arg::NIL, 0.0, nullptr}; }
 
-// self:name(args...) on the object at stack index 1, through its own method
-// lookup. A method the object's type does not have is skipped.
-void Method(void *L, void *obj, const char *name, std::initializer_list<Arg> args = {}) {
+// self:name(args...) on `obj`, whose Lua object is at stack index `self`,
+// through its own method lookup, leaving `results` values pushed. False, with
+// nothing pushed, when the object's type does not have the method.
+bool Call(void *L, void *obj, int self, const char *name, std::initializer_list<Arg> args, int results) {
     const void *vtable = Game::Read<const void *>(obj, 0);
     if (Game::Read<GetScriptMethod_t>(vtable, Offsets::VTBL_FRAME_GET_SCRIPT_METHOD)(obj, nullptr, L, name) == 0)
-        return;
-    Game::Lua::PushValue(L, 1);
+        return false;
+    Game::Lua::PushValue(L, self);
     for (const Arg &a : args) {
         switch (a.kind) {
         case Arg::NIL:
@@ -101,7 +109,40 @@ void Method(void *L, void *obj, const char *name, std::initializer_list<Arg> arg
             break;
         }
     }
-    Game::Lua::Call(L, static_cast<int>(args.size()) + 1, 0);
+    Game::Lua::Call(L, static_cast<int>(args.size()) + 1, results);
+    return true;
+}
+
+// self:name(args...) on the object at stack index 1; skipped when its type
+// does not have the method.
+void Method(void *L, void *obj, const char *name, std::initializer_list<Arg> args = {}) {
+    Call(L, obj, 1, name, args, 0);
+}
+
+// A boolean getter's answer: false when the type does not have it.
+bool Query(void *L, void *obj, const char *name) {
+    if (!Call(L, obj, 1, name, {}, 1))
+        return false;
+    const bool answer = Game::Lua::ToFlag(L, -1);
+    Game::Lua::SetTop(L, -2);
+    return answer;
+}
+
+// Clears the image of the texture a button getter returns, which stays
+// attached (3.80.2's FUN_1428B6350). The highlight texture also goes back to
+// its layer and blend (FUN_1428B6550).
+void ClearButtonTexture(void *L, void *button, const char *getter, bool highlight) {
+    if (!Call(L, button, 1, getter, {}, 1))
+        return;
+    const int idx = Game::Lua::GetTop(L);
+    if (void *tex = Game::Lua::ResolveRegion(L, idx, false)) {
+        Call(L, tex, idx, "SetTexture", {Nil()}, 0);
+        if (highlight) {
+            Call(L, tex, idx, "SetDrawLayer", {Str("HIGHLIGHT")}, 0);
+            Call(L, tex, idx, "SetBlendMode", {Str("ADD")}, 0);
+        }
+    }
+    Game::Lua::SetTop(L, idx - 1);
 }
 
 void ReleaseSlot(const uint32_t *slot, void * /*ctx*/) {
@@ -110,13 +151,53 @@ void ReleaseSlot(const uint32_t *slot, void * /*ctx*/) {
     s[0] = 0;
 }
 
-// What every region resets: anchors, size, alpha, shown.
+// What every region resets: anchors, size, alpha, pass-through buttons,
+// shown.
 void ResetRegion(void *L, void *obj) {
     Method(L, obj, "ClearAllPoints");
     Method(L, obj, "SetWidth", {Num(0)});
     Method(L, obj, "SetHeight", {Num(0)});
     Method(L, obj, "SetAlpha", {Num(1)});
+    Method(L, obj, "SetPassThroughButtons");
     Method(L, obj, "Show");
+}
+
+void ResetStatusBar(void *L, void *bar) {
+    Method(L, bar, "SetOrientation", {Str("HORIZONTAL")});
+    Method(L, bar, "SetFillStyle", {Str("STANDARD")});
+    Method(L, bar, "SetReverseFill", {Bool(false)});
+    Method(L, bar, "SetMinMaxValues", {Num(0), Num(1)});
+    Method(L, bar, "SetValue", {Num(0)});
+    Method(L, bar, "SetStatusBarColor", {Num(1), Num(1), Num(1), Num(1)});
+    Method(L, bar, "SetStatusBarDesaturation", {Num(0)});
+    Method(L, bar, "SetRotatesTexture", {Bool(false)});
+}
+
+void ResetScrollFrame(void *L, void *scroll) {
+    Method(L, scroll, "SetHorizontalScroll", {Num(0)});
+    Method(L, scroll, "SetVerticalScroll", {Num(0)});
+}
+
+// Auto focus comes back ON, as in 3.80.2's reset (and 1.12's constructor).
+void ResetEditBox(void *L, void *box) {
+    Method(L, box, "SetText", {Str("")});
+    Method(L, box, "SetTextColor", {Num(1), Num(1), Num(1), Num(1)});
+    Method(L, box, "SetShadowColor", {Num(0), Num(0), Num(0), Num(1)});
+    Method(L, box, "SetShadowOffset", {Num(0), Num(0)});
+    Method(L, box, "SetSpacing", {Num(0)});
+    Method(L, box, "SetJustifyH", {Str("LEFT")});
+    Method(L, box, "SetJustifyV", {Str("MIDDLE")});
+    Method(L, box, "SetIndentedWordWrap", {Bool(false)});
+    Method(L, box, "SetAutoFocus", {Bool(true)});
+    Method(L, box, "SetMultiLine", {Bool(false)});
+    Method(L, box, "SetNumeric", {Bool(false)});
+    Method(L, box, "SetPassword", {Bool(false)});
+    Method(L, box, "SetBlinkSpeed", {Num(0.5)});
+    Method(L, box, "SetTextInsets", {Num(0), Num(0), Num(0), Num(0)});
+    Method(L, box, "SetMaxBytes", {Num(0)});
+    Method(L, box, "SetMaxLetters", {Num(0)});
+    Method(L, box, "Enable");
+    Method(L, box, "ClearFocus");
 }
 
 void ResetFrame(void *L, void *frame) {
@@ -134,6 +215,8 @@ void ResetFrame(void *L, void *frame) {
     Method(L, frame, "SetPropagateMouseMotion", {Bool(false)});
     Method(L, frame, "SetPropagateMouseClicks", {Bool(false)});
     Method(L, frame, "SetPropagateKeyboardInput", {Bool(false)});
+    if (Query(L, frame, "IsMovable") || Query(L, frame, "IsResizable"))
+        Method(L, frame, "SetUserPlaced", {Bool(false)});
     Method(L, frame, "SetMovable", {Bool(false)});
     Method(L, frame, "SetResizable", {Bool(false)});
     Method(L, frame, "SetClampedToScreen", {Bool(false)});
@@ -147,7 +230,16 @@ void ResetFrame(void *L, void *frame) {
     Method(L, frame, "SetHyperlinksEnabled", {Bool(false)});
     Method(L, frame, "SetDontSavePosition", {Bool(false)});
     Method(L, frame, "SetID", {Num(0)});
+    for (const char *layer : {"BACKGROUND", "BORDER", "ARTWORK", "OVERLAY"})
+        Method(L, frame, "EnableDrawLayer", {Str(layer)});
+    Method(L, frame, "DisableDrawLayer", {Str("HIGHLIGHT")});
 
+    if (Game::Lua::IsA(frame, Offsets::VAR_STATUSBAR_LUA_TYPE_ID))
+        ResetStatusBar(L, frame);
+    else if (Game::Lua::IsA(frame, Offsets::VAR_SCROLLFRAME_LUA_TYPE_ID))
+        ResetScrollFrame(L, frame);
+    else if (Game::Lua::IsA(frame, Offsets::VAR_EDITBOX_LUA_TYPE_ID))
+        ResetEditBox(L, frame);
     if (!Game::Lua::IsA(frame, Offsets::VAR_BUTTON_LUA_TYPE_ID))
         return;
     if (void *label = Game::Read<void *>(frame, Offsets::OFF_BUTTON_LABEL))
@@ -160,6 +252,13 @@ void ResetFrame(void *L, void *frame) {
     Method(L, frame, "SetButtonState", {Str("NORMAL")});
     Method(L, frame, "SetMotionScriptsWhileDisabled", {Bool(false)});
     Method(L, frame, "SetPushedTextOffset", {Num(0), Num(0)});
+    Method(L, frame, "RegisterForClicks", {Str("LeftButtonUp")});
+    Method(L, frame, "RegisterForMouse", {Str("AnyUp"), Str("AnyDown")});
+    ClearButtonTexture(L, frame, "GetNormalTexture", false);
+    ClearButtonTexture(L, frame, "GetPushedTexture", false);
+    ClearButtonTexture(L, frame, "GetDisabledTexture", false);
+    ClearButtonTexture(L, frame, "GetHighlightTexture", true);
+    Method(L, frame, "SetChecked", {Bool(false)}); // a CheckButton
 }
 
 void ResetTexture(void *L, void *tex) {
@@ -169,6 +268,9 @@ void ResetTexture(void *L, void *tex) {
     Method(L, tex, "SetVertexColor", {Num(1), Num(1), Num(1), Num(1)});
     Method(L, tex, "SetBlendMode", {Str("BLEND")});
     Method(L, tex, "SetDesaturation", {Num(0)});
+    Method(L, tex, "SetRotation", {Num(0), Num(0.5), Num(0.5)});
+    Method(L, tex, "SetHorizTile", {Bool(false)});
+    Method(L, tex, "SetVertTile", {Bool(false)});
     Method(L, tex, "SetDrawLayer", {Str("BACKGROUND")});
 }
 
@@ -187,6 +289,7 @@ void ResetFontString(void *L, void *fs) {
     Method(L, fs, "SetNonSpaceWrap", {Bool(false)});
     Method(L, fs, "SetIndentedWordWrap", {Bool(false)});
     Method(L, fs, "SetMaxLines", {Num(0)});
+    Method(L, fs, "SetRotation", {Num(0)});
     Method(L, fs, "SetDrawLayer", {Str("BACKGROUND")});
     reinterpret_cast<SetGradient_t>(Offsets::FUN_FONTSTRING_SET_ALPHA_GRADIENT)(fs, -1, 0);
     reinterpret_cast<SetFont_t>(Offsets::FUN_SIMPLEFONTSTRING_SET_FONT)(fs, nullptr, 0.0f, 0, 1);

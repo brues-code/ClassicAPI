@@ -275,15 +275,13 @@ void OnFrameDestroyed(void *frame) {
 
 const Frame::Destruction::AutoSubscribe _destructionSub{&OnFrameDestroyed};
 
+// The flag alone: the focus changes at the next pass (3.80.2's setter
+// 0x140A9EA00 asks for no re-pick).
 void SetPropagates(void *frame, bool on) {
-    if (on == Propagates(frame))
-        return;
     if (on)
         g_propagates.insert(frame);
     else
         g_propagates.erase(frame);
-    if (uint8_t *ctx = Context())
-        Game::Ref<int>(ctx, Offsets::OFF_UI_CONTEXT_REPICK) = 1;
 }
 
 // `propagateMouseInput="Motion"` or `"Both"`; Frame::MouseInput reads the
@@ -296,10 +294,15 @@ void OnFrameNode(void *object, const void *node, void * /*status*/) {
 
 const Xml::FrameLoad::AutoSubscribe _xmlSub{&OnFrameNode};
 
+// The argument is required, as in 3.80.2.
 int __fastcall Script_SetPropagateMouseMotion(void *L) {
     void *frame = Game::Lua::ResolveFrame(L);
     if (frame == nullptr)
         return 0;
+    if (Game::Lua::Type(L, 2) <= Game::Lua::TYPE_NIL) {
+        Game::Lua::Error(L, "Usage: self:SetPropagateMouseMotion(propagate)");
+        return 0;
+    }
     SetPropagates(frame, Game::Lua::ToFlag(L, 2));
     return 0;
 }
@@ -391,5 +394,10 @@ const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 void *Notifying() { return g_notifying; }
 
 bool IsFocus(void *frame) { return Contains(g_list, frame); }
+
+void Drop(void *frame) {
+    if (uint8_t *ctx = Context())
+        Remove(ctx, frame);
+}
 
 } // namespace Frame::MotionFocus

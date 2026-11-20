@@ -17,8 +17,13 @@
 
 namespace Frame::MouseRegistration {
 
-// The click-mask bits for one click name ("LeftButtonUp", "AnyDown", ...),
-// matched case-insensitively; 0 for an unknown name. 3.3.5's
+// One click name ("LeftButtonUp", "Button4Down", "AnyDown", ...), matched
+// case-insensitively: a button as Frame::ClickEvents::ParseButtonName reads
+// it, then "Down" or "Up". True for a click name, with `mask` its click-mask
+// bits (0 for a button 1.12 has no bit for).
+bool ParseName(const char *name, uint32_t &mask);
+
+// The click-mask bits for one click name; 0 for an unknown name. 3.3.5's
 // MouseButtonStringToBitmask.
 uint32_t MaskForName(const char *name);
 

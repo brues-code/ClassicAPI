@@ -9049,18 +9049,29 @@ is first made with no template. Use it to reuse a frame from a pool.
 The state that the template, `CreateFontString` or the frame type gave the
 object is also removed:
 
-- A frame loses its anchors, size, scripts, attributes and mouse input. Its
-  alpha and scale become 1, its frame strata becomes `MEDIUM` and its frame
-  level becomes one more than the level of its parent. The frame is shown.
+- A frame loses its anchors, size, scripts, attributes, mouse input and
+  pass-through buttons. Its alpha and scale become 1, its frame strata
+  becomes `MEDIUM` and its frame level becomes one more than the level of its
+  parent. The draw layers `BACKGROUND` to `OVERLAY` are on and `HIGHLIGHT` is
+  off. A movable or resizable frame is no longer user-placed. The frame is
+  shown.
 - A button also loses its text, its font objects and its highlight lock. It
-  is enabled and in the `NORMAL` state. It has no mouse input, but a new
-  button has mouse input.
-- A texture loses its file, texture coordinates and vertex color. Its blend
-  mode becomes `BLEND` and its draw layer becomes `BACKGROUND`.
-- A font string loses its text and its font. `GetFont()` returns `nil`, so
-  set a font or a font object before you set text again. The text color
-  becomes white, the shadow becomes black with no offset, and the justify
-  becomes `CENTER` and `MIDDLE`.
+  is enabled and in the `NORMAL` state. It is registered for `LeftButtonUp`
+  clicks and for `AnyUp` and `AnyDown` with `RegisterForMouse`. Its normal,
+  pushed, disabled and highlight textures stay, but they show no image. It
+  has no mouse input, but a new button has mouse input. A check button is
+  not checked.
+- A status bar becomes horizontal with the `STANDARD` fill style, a range of
+  0 to 1, a value of 0 and a white bar. A scroll frame scrolls back to 0, 0.
+  An edit box loses its text and its limits, takes the focus automatically
+  again, and has no focus.
+- A texture loses its file, texture coordinates, vertex color, rotation and
+  tiling. Its blend mode becomes `BLEND` and its draw layer becomes
+  `BACKGROUND`. It keeps its mask textures.
+- A font string loses its text, its font and its rotation. `GetFont()`
+  returns `nil`, so set a font or a font object before you set text again.
+  The text color becomes white, the shadow becomes black with no offset, and
+  the justify becomes `CENTER` and `MIDDLE`.
 
 These do not change: the parent, keyboard and mouse wheel input, the
 registered events, the child regions of a frame (for example, the textures
@@ -10632,6 +10643,7 @@ frame onto a child that passes motion on, the frame does not get `OnLeave`.
 
 - `CanPropagateMouseMotion` returns `true` or `false`. The default is
   `false`.
+- `propagate` is necessary. A change takes effect when the cursor moves.
 - Clicks do not pass on with motion. For clicks, use
   [`frame:SetPropagateMouseClicks`](#framesetpropagatemouseclickspropagate--framecanpropagatemouseclicks).
 - In XML, `propagateMouseInput="Motion"` or `propagateMouseInput="Both"` on
@@ -10662,8 +10674,10 @@ when it does not. It returns `true` for each frame in
 ### `frame:SetMouseClickEnabled(enabled)` / `frame:SetMouseMotionEnabled(enabled)`
 
 Sets whether the frame takes mouse clicks and whether it takes mouse
-motion. `frame:IsMouseClickEnabled()` and `frame:IsMouseMotionEnabled()`
-return `true` or `false`.
+motion. `frame:EnableMouseMotion(enable)` is the same as
+`frame:SetMouseMotionEnabled(enable)`. With no argument, these methods turn
+the input off. `frame:IsMouseClickEnabled()` and
+`frame:IsMouseMotionEnabled()` return `true` or `false`.
 
 Mouse motion is `OnEnter` and `OnLeave`. Mouse clicks are `OnMouseDown`,
 `OnMouseUp` and the clicks of a button. The two are separate:
@@ -10673,6 +10687,11 @@ Mouse motion is `OnEnter` and `OnLeave`. Mouse clicks are `OnMouseDown`,
 - A frame that takes only clicks never gets `OnEnter` or `OnLeave`. The
   frame under it keeps the mouse motion. A click on the frame goes to the
   frame.
+
+When you turn off the clicks of a frame while you hold a mouse button on
+it, the frame does not get the `OnMouseUp` of that press. When you turn off
+the motion of a frame that is under the cursor, the frame gets `OnLeave`
+immediately.
 
 `frame:EnableMouse(enable)` sets both values. `frame:IsMouseEnabled()`
 returns `1` when the frame takes both clicks and motion, and `nil` when it
@@ -10699,6 +10718,9 @@ next frame can pass the click on too.
 
 - `CanPropagateMouseClicks` returns `true` or `false`. The default is
   `false`.
+- `propagate` is necessary.
+- `OnMouseUp` gets a second argument, `upInside`: `true` when the cursor is
+  on the frame when you release the button.
 - In XML, `propagateMouseInput="Clicks"` or `propagateMouseInput="Both"` on
   a frame sets the value to `true`.
 
@@ -10712,9 +10734,10 @@ next frame under the cursor that takes clicks. If there is no such frame,
 the click goes to the game world. The frame still gets clicks with all
 other buttons, and it still gets `OnEnter` and `OnLeave`.
 
-- The arguments are button names: `LeftButton`, `RightButton`,
-  `MiddleButton`, `Button4` and `Button5`. Case is not important. The
-  function ignores other names.
+- The arguments are button names: `LeftButton` (or `Button1`),
+  `RightButton` (or `Button2`), `MiddleButton` (or `Button3`), and `Button4`
+  to `Button31`. Case is not important. The function ignores other names.
+  An argument that is not a string is an error.
 - Each call replaces the list. Call it with no arguments to clear the
   list.
 - If you press a button while you hold a different button, the click goes
@@ -11700,11 +11723,12 @@ a `RegisterForClicks` call in `OnLoad` replaces the attribute.
 ### `button:RegisterForMouse(...)`
 
 Sets which mouse buttons run the `OnMouseDown` and `OnMouseUp` scripts of the
-button. Each argument is a mouse button and an action: `LeftButtonDown`,
-`LeftButtonUp`, `RightButtonDown`, `RightButtonUp`, `MiddleButtonDown`,
-`MiddleButtonUp`, `Button4Down`, `Button4Up`, `Button5Down`, or `Button5Up`.
-`AnyDown` and `AnyUp` stand for all five buttons. Names are not case-sensitive,
-and a name that is not in this list counts as no button.
+button. Each argument is a mouse button and an action, for example
+`LeftButtonDown` or `RightButtonUp`. The buttons are `LeftButton` (or
+`Button1`), `RightButton` (or `Button2`), `MiddleButton` (or `Button3`), and
+`Button4` to `Button31`, and the actions are `Down` and `Up`. `AnyDown` and
+`AnyUp` stand for all buttons. Names are not case-sensitive. An argument that
+is not one of these names is an error.
 
 - A new button responds to `AnyDown` and `AnyUp`.
 - Each call replaces the previous one. A call with no argument removes all

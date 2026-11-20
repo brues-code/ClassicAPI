@@ -47,6 +47,14 @@
 // lists, so a press with no frame below reaches the world. Hover is
 // untouched. A press while another button is held goes to the frame already
 // pressed, as the engine routes it; the walk does not run for it.
+//
+// Turning a half off while the mouse bit stays on does what 3.80.2 does when
+// it unregisters that half (FUN_14055F5A0): clicks off takes the frame out of
+// the press, so it gets no release; motion off takes it out of the motion
+// focus at once, with OnLeave(false). The setters' rules are 3.80.2's:
+// EnableMouseMotion and SetMouse*Enabled read a missing argument as false,
+// SetPropagateMouseClicks requires its argument, SetPassThroughButtons
+// raises the usage error for an argument that is not a string.
 
 #include "frame/MouseInput.h"
 
@@ -137,8 +145,21 @@ uint32_t MaskForButtonList(const char *list) {
     return mask;
 }
 
+void Forget(void *frame);
+
+// Takes the frame out of the press in progress: it gets no release.
+void CancelPress(void *frame) {
+    Forget(frame);
+    if (uint8_t *ctx = Context()) {
+        void *&pressed = Game::Ref<void *>(ctx, Offsets::OFF_UI_CONTEXT_PRESSED_FRAME);
+        if (pressed == frame)
+            pressed = nullptr;
+    }
+}
+
 void SetHalves(void *frame, bool click, bool motion) {
     const bool wasMotion = MotionEnabled(frame);
+    const bool wasClick = ClickEnabled(frame);
     const bool bit = click || motion;
     if (bit != MouseBit(frame)) {
         if (bit)
@@ -154,7 +175,12 @@ void SetHalves(void *frame, bool click, bool motion) {
         g_motionOff.insert(frame);
     else
         g_motionOff.erase(frame);
-    if (MotionEnabled(frame) != wasMotion)
+    // With the bit off the engine's own removal has done both.
+    if (bit && wasClick && !ClickEnabled(frame))
+        CancelPress(frame);
+    if (bit && wasMotion && !MotionEnabled(frame))
+        Frame::MotionFocus::Drop(frame);
+    else if (MotionEnabled(frame) != wasMotion)
         Repick();
 }
 
@@ -373,6 +399,10 @@ int __fastcall Script_SetPropagateMouseClicks(void *L) {
     void *frame = Game::Lua::ResolveFrame(L);
     if (frame == nullptr)
         return 0;
+    if (Game::Lua::Type(L, 2) <= Game::Lua::TYPE_NIL) {
+        Game::Lua::Error(L, "Usage: self:SetPropagateMouseClicks(propagate)");
+        return 0;
+    }
     if (Game::Lua::ToFlag(L, 2))
         g_propagatesClicks.insert(frame);
     else
@@ -381,16 +411,21 @@ int __fastcall Script_SetPropagateMouseClicks(void *L) {
 }
 
 // `frame:SetPassThroughButtons(...)`: replaces the list; no names clears it.
-// A name that is not a button adds nothing.
+// A name that is not a button adds nothing; an argument that is not a string
+// raises the usage error (3.80.2's 0x140A9E560).
 int __fastcall Script_SetPassThroughButtons(void *L) {
     void *frame = Game::Lua::ResolveFrame(L);
     if (frame == nullptr)
         return 0;
     uint32_t mask = 0;
     const int top = Game::Lua::GetTop(L);
-    for (int i = 2; i <= top; ++i)
-        if (Game::Lua::IsString(L, i))
-            mask |= Frame::ClickEvents::MaskForButtonName(Game::Lua::ToString(L, i));
+    for (int i = 2; i <= top; ++i) {
+        if (Game::Lua::Type(L, i) != Game::Lua::TYPE_STRING) {
+            Game::Lua::Error(L, "Usage: self:SetPassThroughButtons([button1, ...])");
+            return 0;
+        }
+        mask |= Frame::ClickEvents::MaskForButtonName(Game::Lua::ToString(L, i));
+    }
     SetPassThrough(frame, mask);
     return 0;
 }
@@ -408,6 +443,7 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"IsMouseEnabled", &Script_IsMouseEnabled},
     {"SetMouseClickEnabled", &Script_SetMouseClickEnabled},
     {"SetMouseMotionEnabled", &Script_SetMouseMotionEnabled},
+    {"EnableMouseMotion", &Script_SetMouseMotionEnabled},
     {"IsMouseClickEnabled", &Script_IsMouseClickEnabled},
     {"IsMouseMotionEnabled", &Script_IsMouseMotionEnabled},
     {"SetPropagateMouseClicks", &Script_SetPropagateMouseClicks},
@@ -416,10 +452,13 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
 };
 
 const Game::Doc::Field kClickArgs[] = {
-    Game::Doc::Req("enabled", "bool", "When true, the frame takes mouse clicks."),
+    Game::Doc::Opt("enabled", "bool", "false", "When true, the frame takes mouse clicks."),
 };
 const Game::Doc::Field kMotionArgs[] = {
-    Game::Doc::Req("enabled", "bool", "When true, the frame takes mouse motion: OnEnter and OnLeave."),
+    Game::Doc::Opt("enabled", "bool", "false", "When true, the frame takes mouse motion: OnEnter and OnLeave."),
+};
+const Game::Doc::Field kEnableMotionArgs[] = {
+    Game::Doc::Opt("enable", "bool", "false", "When true, the frame takes mouse motion: OnEnter and OnLeave."),
 };
 const Game::Doc::Field kClickRets[] = {
     Game::Doc::Req("enabled", "bool", "True when the frame takes mouse clicks."),
@@ -436,6 +475,7 @@ const Game::Doc::Field kPropagateRets[] = {
 };
 const Game::Doc::Function kSetClick{"Sets whether the frame takes mouse clicks.", kClickArgs, {}};
 const Game::Doc::Function kSetMotion{"Sets whether the frame takes mouse motion.", kMotionArgs, {}};
+const Game::Doc::Function kEnableMotion{"Sets whether the frame takes mouse motion.", kEnableMotionArgs, {}};
 const Game::Doc::Function kIsClick{"Returns whether the frame takes mouse clicks.", {}, kClickRets};
 const Game::Doc::Function kIsMotion{"Returns whether the frame takes mouse motion.", {}, kMotionRets};
 const Game::Doc::Function kSetPropagate{
@@ -443,7 +483,8 @@ const Game::Doc::Function kSetPropagate{
 const Game::Doc::Function kCanPropagate{"Returns whether the frame passes mouse clicks on.", {}, kPropagateRets};
 const Game::Doc::Field kPassThroughArgs[] = {
     Game::Doc::Vararg("string",
-                      "Any number of button names: LeftButton, RightButton, MiddleButton, Button4, Button5."),
+                      "Any number of button names: LeftButton (Button1), RightButton (Button2), MiddleButton "
+                      "(Button3), Button4 to Button31."),
 };
 const Game::Doc::Function kSetPassThrough{
     "Sets the mouse buttons the frame lets through. A click with one of them goes to the frame under it, or to the "
@@ -467,6 +508,7 @@ const Game::Doc::Method g_methodDocs[] = {
     {"IsMouseEnabled", &kIsMouseEnabled},
     {"SetMouseClickEnabled", &kSetClick},
     {"SetMouseMotionEnabled", &kSetMotion},
+    {"EnableMouseMotion", &kEnableMotion},
     {"IsMouseClickEnabled", &kIsClick},
     {"IsMouseMotionEnabled", &kIsMotion},
     {"SetPropagateMouseClicks", &kSetPropagate},

@@ -116,6 +116,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "baselib/Ascii.h"
+#include "frame/Layout.h"
 #include "frame/MouseRegistration.h"
 #include "frame/RunnerHook.h"
 #include "frame/ScriptArgs.h"
@@ -123,6 +124,8 @@
 #include "frame/ScriptSlots.h"
 
 #include <cstdint>
+#include <cstdlib>
+#include <cstring>
 #include <unordered_set>
 
 namespace Frame::ClickEvents {
@@ -270,6 +273,37 @@ bool IsBracketedSlot(void *frame, const uint32_t *slotPtr) {
            slotPtr == at(Offsets::OFF_FRAME_ONMOUSEUP_SLOT);
 }
 
+// The OnMouseUp run in progress, and its `upInside`: the cursor in the
+// frame's hit rect at the release, as 3.80.2's frame OnMouseUp
+// (FUN_14058C2A0) passes it after the button.
+struct MouseUp {
+    void *frame = nullptr;
+    bool inside = false;
+};
+MouseUp g_mouseUp;
+
+using HitTest_t = int(__thiscall *)(void *frame, const float *point);
+
+bool CursorInside(void *frame) {
+    const uint8_t *ctx = Game::Read<uint8_t *>(Offsets::VAR_UI_CONTEXT_PTR);
+    if (ctx == nullptr)
+        return false;
+    const float *mouse = Game::Ptr<float>(ctx, Offsets::OFF_UI_CONTEXT_MOUSE_POSITION);
+    float point[2] = {0.0f, 0.0f};
+    Frame::Layout::NdcToDdc(&point[0], &point[1], mouse[0], mouse[1]);
+    return reinterpret_cast<HitTest_t>(Offsets::FUN_FRAME_HIT_TEST)(frame, point) != 0;
+}
+
+bool UpInside(int handlerRef, void *frame, bool *value) {
+    if (frame == nullptr || frame != g_mouseUp.frame ||
+        Game::Read<int>(frame, Offsets::OFF_FRAME_ONMOUSEUP_SLOT) != handlerRef)
+        return false;
+    *value = g_mouseUp.inside;
+    return true;
+}
+
+static const Frame::ScriptArgs::AutoTrailingBool _upInside{&UpInside};
+
 // Falls through (false) for every fire 3.3.5 doesn't bracket; otherwise runs it
 // inside the clicked-button scope and reports it handled (true). An
 // OnMouseDown / OnMouseUp fire for a button its RegisterForMouse excludes is
@@ -280,16 +314,19 @@ bool OnRun(void *frame, uint32_t *slotPtr, const char *fmt, void *varargs) {
     const char *name = FirstStringArg(fmt, varargs);
     const char *base = reinterpret_cast<const char *>(frame);
     const auto *slot = reinterpret_cast<const char *>(slotPtr);
-    if (slot == base + Offsets::OFF_FRAME_ONMOUSEDOWN_SLOT ||
-        slot == base + Offsets::OFF_FRAME_ONMOUSEUP_SLOT) {
-        const bool down = slot == base + Offsets::OFF_FRAME_ONMOUSEDOWN_SLOT;
-        if (!Frame::MouseRegistration::Accepts(frame, down, name))
+    const bool up = slot == base + Offsets::OFF_FRAME_ONMOUSEUP_SLOT;
+    if (slot == base + Offsets::OFF_FRAME_ONMOUSEDOWN_SLOT || up) {
+        if (!Frame::MouseRegistration::Accepts(frame, !up, name))
             return true;
     }
     const char *saved = g_clickedButton;
+    const MouseUp savedUp = g_mouseUp;
     g_clickedButton = name;
+    if (up)
+        g_mouseUp = MouseUp{frame, CursorInside(frame)};
     Frame::RunnerHook::Original(frame, slotPtr, fmt, varargs);
     g_clickedButton = saved;
+    g_mouseUp = savedUp;
     return true;
 }
 
@@ -380,11 +417,34 @@ const char *ButtonNameForMask(uint32_t mask) {
     return reinterpret_cast<const char *>(va);
 }
 
+bool ParseButtonName(const char *name, size_t len, uint32_t &mask) {
+    const auto is = [name, len](const char *word) { return Ascii::EqualCI(name, len, word); };
+    mask = 0;
+    if (is("LeftButton") || is("Button1"))
+        mask = 0x01;
+    else if (is("RightButton") || is("Button2"))
+        mask = 0x04;
+    else if (is("MiddleButton") || is("Button3"))
+        mask = 0x02;
+    if (mask != 0)
+        return true;
+    if (len < 7 || len > 8 || !Ascii::EqualCI(name, 6, "Button"))
+        return false;
+    int n = 0;
+    for (size_t i = 6; i < len; ++i) {
+        if (name[i] < '0' || name[i] > '9')
+            return false;
+        n = n * 10 + (name[i] - '0');
+    }
+    if (n < 4 || n > 31 || name[6] == '0')
+        return false;
+    mask = n == 4 ? 0x08 : (n == 5 ? 0x10 : 0);
+    return true;
+}
+
 uint32_t MaskForButtonName(const char *name) {
-    for (uint32_t mask = 0x01; mask <= 0x10; mask <<= 1)
-        if (Ascii::EqualCI(name, ButtonNameForMask(mask)))
-            return mask;
-    return 0;
+    uint32_t mask = 0;
+    return ParseButtonName(name, std::strlen(name), mask) ? mask : 0;
 }
 
 } // namespace Frame::ClickEvents
