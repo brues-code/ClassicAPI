@@ -89,6 +89,22 @@ bool BasicFromIDSuffix(uint32_t itemID, int suffixID, char *out, size_t outSize)
     return n > 0 && static_cast<size_t>(n) < outSize;
 }
 
+const char *FromIDSuffixUnique(uint32_t itemID, int suffixID, uint32_t unique) {
+    const uint8_t *record = Item::PeekRecord(itemID);
+    if (record == nullptr)
+        return nullptr;
+    // Script_GetLootRollItemLink (0x004C3279-0x004C32AB): the name from
+    // FUN_ITEM_BUILD_NAME_FROM_ID into a 0x100 buffer, then the formatter.
+    char name[0x100];
+    NameFromIDSuffix(itemID, suffixID, name, sizeof(name));
+    using FormatLink_t = const char *(__fastcall *)(uint32_t itemID, uint32_t quality,
+                                                    uint32_t enchant, int suffix,
+                                                    uint32_t unique, const char *name);
+    auto fn = reinterpret_cast<FormatLink_t>(Offsets::FUN_ITEM_FORMAT_LINK);
+    return fn(itemID, *reinterpret_cast<const uint32_t *>(record + Offsets::OFF_ITEMSTATS_QUALITY),
+              0, suffixID, unique, name);
+}
+
 bool BasicFromItemID(uint32_t itemID, char *out, size_t outSize) {
     return BasicFromIDSuffix(itemID, 0, out, outSize);
 }

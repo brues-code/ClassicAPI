@@ -1411,6 +1411,16 @@ enum Offsets {
     // the item isn't in the player's bag/equipment.
     FUN_GAMETOOLTIP_BUILD_ITEM_LINK = 0x0052AE00,
 
+    // The link formatter behind it, for an item with no CGItem:
+    // `const char *__fastcall(uint32 itemID /*ecx*/, uint32 quality /*edx*/,
+    // uint32 enchant, int suffix, uint32 unique, const char *name)`, RET 0x10.
+    // sprintf's the quality colour + `|Hitem:id:enchant:suffix:unique|h[name]|h|r`
+    // into the same global buffer DAT_00C0CF68 and returns it.
+    // Script_GetLootRollItemLink (0x004C31F0) calls it with enchant 0, the
+    // roll's +0x20 / +0x24 words, and the FUN_ITEM_BUILD_NAME_FROM_ID name
+    // (0x004C3279-0x004C32AB). Disassembled.
+    FUN_ITEM_FORMAT_LINK = 0x0052ADB0,
+
     // CGItem → decorated instance display name. __thiscall(ecx = CGItem *,
     // char *outBuf, uint outSize). Reads the instance's random-suffix ID
     // off the descriptor (+0x98, gated on the broken flag) and writes the
@@ -5652,6 +5662,11 @@ enum Offsets {
 
     // PendingLootRoll message field offsets, derived from the SMSG_LOOT_ROLL
     // deserializer FUN_0061BFA0 (reads GUID/u32/byte fields off the packet).
+    // The roll's client-side id, the rollID START_LOOT_ROLL / CANCEL_LOOT_ROLL
+    // carry: the START_ROLL handler stores the serial 0xC4DDA4 here and
+    // increments it (0x0061B38C-0x0061B394). The list link sits at +0, so the
+    // store head is the record itself.
+    OFF_LOOTROLL_ID = 0x08,          // u32 rollID
     OFF_LOOTROLL_SOURCE_GUID = 0x10, // u64 looted-object GUID (roll identity)
     OFF_LOOTROLL_SLOT = 0x18,        // u32 loot slot
     OFF_LOOTROLL_ITEM_ID = 0x1C,     // u32 itemID

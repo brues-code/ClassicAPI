@@ -52,6 +52,20 @@ function C_AutoComplete.GetAutoCompleteRealms()
     return {}
 end
 
+-- C_LootHistory's store comes from the DLL. This client rolls no master-loot
+-- items, so no history item can be given out by the master looter.
+function C_LootHistory.CanMasterLoot(itemIdx, playerIdx)
+    if not tonumber(itemIdx) or not tonumber(playerIdx) then
+        error("Usage: CanMasterLoot(itemIdx, playerIdx)", 2)
+    end
+end
+
+function C_LootHistory.GiveMasterLoot(itemIdx, playerIdx)
+    if not tonumber(itemIdx) or not tonumber(playerIdx) then
+        error("Usage: GiveMasterLoot(itemIdx, playerIdx)", 2)
+    end
+end
+
 -- C_ModelInfo's getters come from the DLL. Retail's active-scene bookkeeping
 -- "does nothing in public clients" (its own documentation).
 function C_ModelInfo.AddActiveModelScene(modelSceneFrame, modelSceneID)

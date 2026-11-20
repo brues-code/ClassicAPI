@@ -65,4 +65,11 @@ bool NameFromIDSuffix(uint32_t itemID, int suffixID, char *out, size_t outSize);
 // name. `suffixID` 0 reduces exactly to BasicFromItemID.
 bool BasicFromIDSuffix(uint32_t itemID, int suffixID, char *out, size_t outSize);
 
+// The link the engine's GetLootRollItemLink builds for a roll: the quality
+// colour, `item:id:0:suffix:unique`, and the suffix-decorated name, through
+// the engine's own formatter (FUN_ITEM_FORMAT_LINK). Points into the engine's
+// link buffer, valid until the next link is built; nullptr while the item is
+// not cached.
+const char *FromIDSuffixUnique(uint32_t itemID, int suffixID, uint32_t unique);
+
 } // namespace Item::Link

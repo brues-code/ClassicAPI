@@ -293,7 +293,7 @@ build instructions.
   - [`GROUP_ROSTER_UPDATE` event](#group_roster_update-event)
   - [`INCOMING_RESURRECT_CHANGED` event](#incoming_resurrect_changed-event)
   - [`INVENTORY_SEARCH_UPDATE` event](#inventory_search_update-event)
-  - [`LOOT_HISTORY_ROLL_CHANGED` / `LOOT_HISTORY_ROLL_COMPLETE` / `LOOT_HISTORY_FULL_UPDATE` events](#loot_history_roll_changed--loot_history_roll_complete--loot_history_full_update-events)
+  - [`LOOT_HISTORY_ROLL_CHANGED` / `LOOT_HISTORY_ROLL_COMPLETE` / `LOOT_HISTORY_FULL_UPDATE` / `LOOT_HISTORY_AUTO_SHOW` events](#loot_history_roll_changed--loot_history_roll_complete--loot_history_full_update--loot_history_auto_show-events)
   - [`LEARNED_SPELL_IN_SKILL_LINE` event](#learned_spell_in_skill_line-event)
   - [`LOOT_SCAN_COMPLETED` event](#loot_scan_completed-event)
   - [`LOSS_OF_CONTROL_ADDED` / `LOSS_OF_CONTROL_UPDATE` events](#loss_of_control_added--loss_of_control_update-events)
@@ -719,8 +719,11 @@ build instructions.
 
 - [LootHistory](#loothistory)
   - [`C_LootHistory.GetNumItems()`](#c_loothistorygetnumitems)
-  - [`C_LootHistory.GetItem(itemIndex)`](#c_loothistorygetitemitemindex)
-  - [`C_LootHistory.GetPlayerInfo(itemIndex, playerIndex)`](#c_loothistorygetplayerinfoitemindex-playerindex)
+  - [`C_LootHistory.GetItem(itemIdx)`](#c_loothistorygetitemitemidx)
+  - [`C_LootHistory.GetPlayerInfo(itemIdx, playerIdx)`](#c_loothistorygetplayerinfoitemidx-playeridx)
+  - [`C_LootHistory.SetExpiration(numItemsToSave, secondsToSave)`](#c_loothistorysetexpirationnumitemstosave-secondstosave)
+  - [`C_LootHistory.GetExpiration()`](#c_loothistorygetexpiration)
+  - [`C_LootHistory.CanMasterLoot(itemIdx, playerIdx)` / `C_LootHistory.GiveMasterLoot(itemIdx, playerIdx)`](#c_loothistorycanmasterlootitemidx-playeridx--c_loothistorygivemasterlootitemidx-playeridx)
 
 - [LossOfControl](#lossofcontrol)
   - [`C_LossOfControl.GetActiveLossOfControlDataCount()`](#c_lossofcontrolgetactivelossofcontroldatacount)
@@ -7126,19 +7129,20 @@ changes the bag search. When it fires, read `isFiltered` from
 `C_Container.IsContainerFiltered` again. A logout clears the search, but
 it does not fire this event.
 
-### `LOOT_HISTORY_ROLL_CHANGED` / `LOOT_HISTORY_ROLL_COMPLETE` / `LOOT_HISTORY_FULL_UPDATE` events
+### `LOOT_HISTORY_ROLL_CHANGED` / `LOOT_HISTORY_ROLL_COMPLETE` / `LOOT_HISTORY_FULL_UPDATE` / `LOOT_HISTORY_AUTO_SHOW` events
 
-Fire as group-loot rolls progress, so a loot-history UI can update without
-polling. Register like any engine event
-(`frame:RegisterEvent("LOOT_HISTORY_ROLL_COMPLETE")`), then read the item via
-[`C_LootHistory.GetItem`](#c_loothistorygetitemitemindex) /
-[`C_LootHistory.GetPlayerInfo`](#c_loothistorygetplayerinfoitemindex-playerindex).
+These events fire while group-loot rolls change, so a loot-history UI can
+update without polling. Register them like any engine event
+(`frame:RegisterEvent("LOOT_HISTORY_ROLL_COMPLETE")`). Then read the item with
+[`C_LootHistory.GetItem`](#c_loothistorygetitemitemidx) and
+[`C_LootHistory.GetPlayerInfo`](#c_loothistorygetplayerinfoitemidx-playeridx).
 
 | Event | Args | When |
 |---|---|---|
-| `LOOT_HISTORY_ROLL_CHANGED` | `itemIndex`, `playerIndex` (numbers) | A player selected need, greed, or pass, or rolled the dice. `playerIndex` is `0` when the roll names no player or when the player list of the item is full. |
-| `LOOT_HISTORY_ROLL_COMPLETE` | `itemIndex` (number) | The item was decided — won or all-passed. |
-| `LOOT_HISTORY_FULL_UPDATE` | — | The item set changed structurally — a new item appeared (roll opened) or the 128-item ring evicted the oldest (every index shifted). Re-read the whole list. Also fired by `C_LootHistory.Clear()`. |
+| `LOOT_HISTORY_ROLL_CHANGED` | `itemIdx`, `playerIdx` (numbers) | A player in the list of the item selected need, greed, or pass, or rolled the dice. |
+| `LOOT_HISTORY_ROLL_COMPLETE` | `itemIdx` (number) | The item has a winner, or all players passed. The player list of the item is now in its final order. ClassicAPI extension: the `itemIdx` argument. |
+| `LOOT_HISTORY_FULL_UPDATE` | — | A roll started and its item was added, old items were removed, or the data of an item arrived. Every index can be different. Read the whole list again. `C_LootHistory.Clear()` also fires it. |
+| `LOOT_HISTORY_AUTO_SHOW` | `rollID` (number), `isMasterLoot` (always `nil`) | A roll started on an item that binds when picked up. A loot-history UI can open itself for this roll. |
 
 See the [LootHistory](#loothistory) section for the read API.
 
@@ -16834,60 +16838,86 @@ the full link as well as the `item:...` payload.
 The `C_LootHistory` namespace gives the history of group-loot rolls. Each item
 in the history has the vote and roll of each player, and the winner.
 
-The name and class of each player are kept from the time of the roll. They
-stay correct after that player leaves the group.
+The history records rolls only while you are in a party or a raid. When a roll
+starts, its item goes to the front of the history. The item has a player list
+with each member of your group at that time. When the same loot slot starts a
+new roll, the new item replaces the old item.
 
-The history keeps the last 128 rolled items. It stays through `/reload` and
-clears at logout. `C_LootHistory.Clear()` clears it at any time. The
-master-loot functions (`SetExpiration`, `GiveMasterLoot`, `CanMasterLoot`) are
-not available.
+The history keeps 10 items. When a roll starts, items after the first 10 are
+removed if they are older than 600 seconds.
+[`C_LootHistory.SetExpiration`](#c_loothistorysetexpirationnumitemstosave-secondstosave)
+changes these two values. The history stays through `/reload` and is empty
+after a logout. `C_LootHistory.Clear()` makes it empty at any time.
 
-The `LOOT_HISTORY_ROLL_CHANGED`, `LOOT_HISTORY_ROLL_COMPLETE`, and
-`LOOT_HISTORY_FULL_UPDATE` events tell you when the history changes. Refer to
+The `LOOT_HISTORY_ROLL_CHANGED`, `LOOT_HISTORY_ROLL_COMPLETE`,
+`LOOT_HISTORY_FULL_UPDATE`, and `LOOT_HISTORY_AUTO_SHOW` events tell you when
+the history changes. Refer to
 the
-[Events](#loot_history_roll_changed--loot_history_roll_complete--loot_history_full_update-events)
+[Events](#loot_history_roll_changed--loot_history_roll_complete--loot_history_full_update--loot_history_auto_show-events)
 section.
 
 ### `C_LootHistory.GetNumItems()`
 
-Returns the number of rolled items in the history.
+Returns the number of items in the history.
 
-### `C_LootHistory.GetItem(itemIndex)`
+### `C_LootHistory.GetItem(itemIdx)`
 
-`itemIndex` starts at `1`. The oldest item is `1`. Returns
+`itemIdx` starts at `1`. The newest item is `1`. Returns
 `rollID, itemLink, numPlayers, isDone, winnerIdx, isMasterLoot, isCurrency`:
-- `rollID` — a stable ID for the roll. The `itemIndex` of an item changes when
-  the history is full and drops its oldest item. The `rollID` does not change.
-  Use it as the key for data about a row, for example "this row is expanded".
-- `itemLink` — `item:<id>:0:<suffix>:<unique>`. You can give it to
-  `GetItemInfo` and `GameTooltip:SetHyperlink`. It has the random suffix of
-  the item, so an "of the X" item keeps its suffix.
+- `rollID` — the ID of the roll. It is the same `rollID` that
+  `START_LOOT_ROLL` gives. The `itemIdx` of an item changes when items are
+  added or removed. The `rollID` does not change. Use it as the key for data
+  about a row, for example "this row is expanded".
+- `itemLink` — the item link, with the random suffix of the item. `nil` while
+  the data of the item is not loaded. `LOOT_HISTORY_FULL_UPDATE` fires when
+  the data arrives.
 - `numPlayers` — the number of players in the list for this item.
 - `isDone` — `true` when the item has a winner, or when all players passed.
 - `winnerIdx` — the player index of the winner, for
-  `C_LootHistory.GetPlayerInfo(itemIndex, winnerIdx)`. `nil` when the item has
-  no winner yet, or when all players passed. The winner is always in the
-  player list.
+  `C_LootHistory.GetPlayerInfo(itemIdx, winnerIdx)`. `nil` while the roll is
+  open, and when all players passed.
 - `isMasterLoot` — always `false`.
 - `isCurrency` — always `false`.
 
-Returns nothing when `itemIndex` is out of range.
+Returns nothing when `itemIdx` is out of range.
 
-### `C_LootHistory.GetPlayerInfo(itemIndex, playerIndex)`
+### `C_LootHistory.GetPlayerInfo(itemIdx, playerIdx)`
 
-Both indexes start at `1`. Returns `name, class, rollType, roll, isWinner, isMe`:
-- `name` — the name of the player. `nil` when the name was not known at
-  the time of the roll.
+Both indexes start at `1`. While the roll is open, the players are in group
+order. When the roll is complete, the order is: the winner, then need, greed,
+and pass, then the highest roll. Returns
+`name, class, rollType, roll, isWinner, isMe`:
+- `name` — the name of the player, as `Name-Realm` for a player from a
+  different realm. `nil` when the name is not known.
 - `class` — the class token (`"WARRIOR"`, `"MAGE"`, and more) for
-  `RAID_CLASS_COLORS`. `nil` when the class is not known.
-- `rollType` — `0` = pass, `1` = need, `2` = greed.
-- `roll` — the dice roll, `1` to `100`. `nil` when the player has no roll.
-  For example, a player who passed has no roll. A greed voter has no roll when
-  a need voter wins.
+  `RAID_CLASS_COLORS`. `nil` when the name is not known.
+- `rollType` — `0` = pass, `1` = need, `2` = greed. `nil` while the roll is
+  open and the player did not vote. When the roll is complete, a player who
+  did not vote has `0`.
+- `roll` — the dice roll, `1` to `100`. `nil` while the roll is open. Also
+  `nil` when the player has no roll. For example, a player who passed has no
+  roll.
 - `isWinner` — `true` when this player won the item.
 - `isMe` — `true` when this player is you.
 
-Returns nothing when `itemIndex` or `playerIndex` is out of range.
+Returns nothing when `itemIdx` or `playerIdx` is out of range.
+
+### `C_LootHistory.SetExpiration(numItemsToSave, secondsToSave)`
+
+Sets how many items the history keeps, and for how long. When a roll starts,
+items after the first `numItemsToSave` are removed if they are older than
+`secondsToSave`. This function also removes those items immediately. The
+defaults are `10` and `600`.
+
+### `C_LootHistory.GetExpiration()`
+
+Returns `numItemsToSave, secondsToSave`, the values that
+`C_LootHistory.SetExpiration` set.
+
+### `C_LootHistory.CanMasterLoot(itemIdx, playerIdx)` / `C_LootHistory.GiveMasterLoot(itemIdx, playerIdx)`
+
+No item in the history comes from master loot. `CanMasterLoot` always returns
+nothing, and `GiveMasterLoot` does nothing.
 
 ### `C_LootHistory.Clear()`
 
