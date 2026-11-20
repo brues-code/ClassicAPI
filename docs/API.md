@@ -1327,6 +1327,7 @@ build instructions.
   - [`UnitIsDND(unit)`](#unitisdndunit)
   - [`UnitIsFeignDeath(unit)`](#unitisfeigndeathunit)
   - [`UnitIsInMyGuild(unitOrName)`](#unitisinmyguildunitorname)
+  - [`IsUnitUntargetable(unit)`](#isunituntargetableunit)
   - [`UnitIsPossessed(unit)`](#unitispossessedunit)
   - [`UnitIsMinion(unit)`](#unitisminionunit)
   - [`UnitIsPet(unit)`](#unitispetunit)
@@ -8044,7 +8045,9 @@ events fire for each unit token that gets unit events. For a unit that the
 client can see, they fire for every power of the unit, not only for its
 primary power. For a group member that the client cannot see, for example
 a member in another zone, they fire for the primary power of the member
-only. The new values are
+only. For such a member, a change of status (for example online or offline)
+fires them only when the member dies, becomes a ghost, or comes back to life.
+The new values are
 [`UnitPower(unitTarget, type)` and `UnitPowerMax(unitTarget, type)`](#unitpowerunit--powertype--unmodified--unitpowermaxunit--powertype--unmodified).
 
 ```lua
@@ -8130,7 +8133,13 @@ UNIT_TARGETABLE_CHANGED: unitTarget
   token.
 
 The event fires for each unit token that gets unit events, and only for
-units that the client can see.
+units that the client can see. It fires one time per unit at the end of
+the frame. If the unit changes more than one time in a frame, one event
+fires.
+
+When a unit stops being selectable, the game first removes it as your
+target, your focus, and your last target. If it is a soft target, the soft
+targets are selected again. These changes occur before the event fires.
 
 ### `UPDATE_MOUSEOVER_UNIT` event (loss-fire fix)
 
@@ -29133,6 +29142,20 @@ work for `if UnitIsInMyGuild(x) then` checks.
 
 The roster search includes offline guildmates. The "show offline"
 toggle has no effect on it.
+
+### `IsUnitUntargetable(unit)`
+
+Returns `true` when `unit` is a player that no one can target, and `false`
+for all other units. A Game Master can make a player untargetable on
+servers that have this command. A player that is untargetable is also not
+selectable, so
+[`UNIT_TARGETABLE_CHANGED`](#unit_targetable_changed-event) fires when the
+result changes. If `unit` is not a string, the function raises a usage
+error.
+
+```lua
+IsUnitUntargetable("target")   -- false for a creature
+```
 
 ### `UnitIsPossessed(unit)`
 

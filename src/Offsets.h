@@ -10037,6 +10037,10 @@ enum Offsets {
     // online. Both take a pointer to the 64-bit GUID.
     OFF_GROUP_MEMBER_STATUS_FLAGS = 0x08,
     GROUP_MEMBER_STATUS_ONLINE = 0x1,
+    // Dead and ghost bits of the same byte (MEMBER_STATUS_DEAD / _GHOST,
+    // vmangos and tortoise-wow Group.h agree).
+    GROUP_MEMBER_STATUS_DEAD = 0x4,
+    GROUP_MEMBER_STATUS_GHOST = 0x8,
     // The party record's pet: its GUID and power type, whose change bits
     // SignalPartyRecordChanges fires for the pet's GUID (0x005E5720).
     OFF_GROUP_MEMBER_PET_GUID = 0x80,

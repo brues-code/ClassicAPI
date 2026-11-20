@@ -35,9 +35,11 @@
 // Both calls point here instead (Common::RedirectCall): the function calls
 // the raiser, then adds those events for the same change bits, after the
 // engine's own events and with the new record already stored, so
-// UnitIsConnected and UnitPower read the new values. A status change also
-// raises the power event, and the raiser then drops the health and power
-// bits, so the power events follow that order exactly.
+// UnitIsConnected and UnitPower read the new values. The generic power
+// events follow the 3.80.2 client's raiser (0x141449210): a status change
+// raises them only when the dead or ghost bits flip, and only that case
+// drops the power bit. (1.12's raiser fires its per-type power event on any
+// status change and always drops the bit; its own events stay as they are.)
 //
 // A member who logs off is reported only in the group list (SMSG 0x7D):
 // tortoise-wow's Group::UpdatePlayerOnlineStatus sends SendUpdate alone for
@@ -124,13 +126,18 @@ void __fastcall SignalSite(const uint64_t *guid, uint32_t changes, const uint8_t
     const uint64_t member = *guid;
     const int powerType = Game::Read<uint8_t>(newRec, Offsets::OFF_GROUP_MEMBER_STATS_POWER_TYPE);
     if (changes & CHANGE_STATUS) {
-        Unit::PowerEvents::SignalPower(member, powerType);
         const uint8_t status = Game::Read<uint8_t>(newRec, Offsets::OFF_GROUP_MEMBER_STATUS_FLAGS);
         const uint8_t flips =
             status ^ Game::Read<uint8_t>(oldRec, Offsets::OFF_GROUP_MEMBER_STATUS_FLAGS);
+        // 3.80.2's raiser (0x141449210) fires the power events for a status
+        // change only when the dead or ghost bits flip, and only then drops
+        // the health and power bits.
+        if (flips & (Offsets::GROUP_MEMBER_STATUS_DEAD | Offsets::GROUP_MEMBER_STATUS_GHOST)) {
+            Unit::PowerEvents::SignalPower(member, powerType);
+            changes &= ~(CHANGE_HEALTH | CHANGE_POWER);
+        }
         if (flips & Offsets::GROUP_MEMBER_STATUS_ONLINE)
             SignalConnection(member, (status & Offsets::GROUP_MEMBER_STATUS_ONLINE) != 0);
-        changes &= ~(CHANGE_HEALTH | CHANGE_POWER);
     }
     if (changes & CHANGE_POWER)
         Unit::PowerEvents::SignalPower(member, powerType);
