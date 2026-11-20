@@ -7890,6 +7890,11 @@ a member in another zone. When the event fires,
 [`UnitIsConnected(unitTarget)`](https://warcraft.wiki.gg/wiki/API_UnitIsConnected)
 already gives the new state.
 
+The event does not fire for a member that joins the group offline, or for a
+member that leaves. In a party, it fires before `PARTY_MEMBERS_CHANGED`. In
+a raid, it fires after `RAID_ROSTER_UPDATE`, so the `raidN` tokens are the
+new ones.
+
 ```lua
 local f = CreateFrame("Frame")
 f:RegisterEvent("UNIT_CONNECTION")

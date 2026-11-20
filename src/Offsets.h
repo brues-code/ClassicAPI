@@ -10054,6 +10054,13 @@ enum Offsets {
     // DLL references the function or either site.
     FUN_PARTY_RECORD_SIGNAL = 0x005E5720,
     CALL_READ_PARTY_MEMBER_STATS_SIGNAL = 0x005E54FA,
+    // The opcodes ReadPartyMemberStats reads (vmangos Opcodes_1_12_1.h:
+    // 126 / 754), and the group list's (125). The group list's first byte is
+    // the group type: the handler reads it first (0x005E6A67) and rebuilds the
+    // raid roster only when it is nonzero (`test al,al` at 0x005E6E6B).
+    SMSG_GROUP_LIST = 0x7D,
+    SMSG_PARTY_MEMBER_STATS = 0x7E,
+    SMSG_PARTY_MEMBER_STATS_FULL = 0x2F2,
     CALL_COMPARE_PARTY_RECORD_SIGNAL = 0x005F0C42,
     // DiffPartyRecords — the `changes` mask of the fields two party records
     // differ in (bit 1 status, 2 health, 0x10 power, 0x20 max power, …).

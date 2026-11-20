@@ -32,6 +32,16 @@
 // view from another zone. It never runs for the active player
 // (CGPlayer_C::PostInit skips it), so "player" gets no event.
 //
+// UNIT_CONNECTION follows the 3.80.2 client: its partial-stats packet
+// (0x141449FF0) fires it, its full-stats packet (0x141449AE0) and its record
+// refreshes only store the online bit, and its group list (0x1417FDAF0) fires
+// it for members whose bit flipped, once, after the whole roster is stored.
+// So here the full-stats packet (SMSG_PARTY_MEMBER_STATS_FULL; 1.12 reads both
+// in one handler) and ComparePartyRecord fire none, and in a raid the group
+// list's flips wait for RebuildRaidRoster, so their raidN tokens are the new
+// ones. In a party there is no raid rebuild, and the flips fire as each
+// member is stored, before PARTY_MEMBERS_CHANGED.
+//
 // Both calls point here instead (Common::RedirectCall): the function calls
 // the raiser, then adds those events for the same change bits, after the
 // engine's own events and with the new record already stored, so
@@ -56,10 +66,12 @@
 #include "Offsets.h"
 #include "event/Custom.h"
 #include "group/Roster.h"
+#include "net/PacketDispatch.h"
 #include "unit/Identity.h"
 #include "unit/PowerEvents.h"
 
 #include <cstdint>
+#include <vector>
 
 namespace Group::MemberEvents {
 
@@ -113,6 +125,34 @@ void SignalConnection(uint64_t guid, bool connected) {
     });
 }
 
+// Where the record change came from, for UNIT_CONNECTION.
+enum class Source { Stats, Compare, GroupList };
+
+// Set from each packet before its handler runs: the stats packet is the full
+// one, and the group list is a raid's.
+bool g_fullStats = false;
+bool g_groupListRaid = false;
+
+struct Flip {
+    uint64_t guid;
+    bool online;
+};
+// The group list's flips in a raid, fired after RebuildRaidRoster.
+std::vector<Flip> g_deferred;
+
+void OnPacket(uint32_t opcode, Net::CDataStore *packet) {
+    if (opcode == Offsets::SMSG_PARTY_MEMBER_STATS ||
+        opcode == Offsets::SMSG_PARTY_MEMBER_STATS_FULL) {
+        g_fullStats = opcode == Offsets::SMSG_PARTY_MEMBER_STATS_FULL;
+    } else if (opcode == Offsets::SMSG_GROUP_LIST) {
+        const uint8_t groupType = Net::Read<uint8_t>(packet);
+        g_groupListRaid = !Net::Overrun(packet) && groupType != 0;
+        g_deferred.clear();
+    }
+}
+
+const Net::PacketDispatch::AutoSubscribe _packetSub{&OnPacket};
+
 void SignalArea(uint64_t guid) {
     const int slot = kArea.Slot();
     if (!Event::Custom::HasListeners(slot))
@@ -120,8 +160,8 @@ void SignalArea(uint64_t guid) {
     Unit::Identity::ForEachToken(guid, [&](const char *token) { Event::Custom::Fire(slot, "%s", token); });
 }
 
-void __fastcall SignalSite(const uint64_t *guid, uint32_t changes, const uint8_t *oldRec,
-                           const uint8_t *newRec) {
+void SignalChanges(const uint64_t *guid, uint32_t changes, const uint8_t *oldRec,
+                   const uint8_t *newRec, Source source) {
     reinterpret_cast<Signal_t>(Offsets::FUN_PARTY_RECORD_SIGNAL)(guid, changes, oldRec, newRec);
     const uint64_t member = *guid;
     const int powerType = Game::Read<uint8_t>(newRec, Offsets::OFF_GROUP_MEMBER_STATS_POWER_TYPE);
@@ -136,8 +176,15 @@ void __fastcall SignalSite(const uint64_t *guid, uint32_t changes, const uint8_t
             Unit::PowerEvents::SignalPower(member, powerType);
             changes &= ~(CHANGE_HEALTH | CHANGE_POWER);
         }
-        if (flips & Offsets::GROUP_MEMBER_STATUS_ONLINE)
-            SignalConnection(member, (status & Offsets::GROUP_MEMBER_STATUS_ONLINE) != 0);
+        if (flips & Offsets::GROUP_MEMBER_STATUS_ONLINE) {
+            const bool online = (status & Offsets::GROUP_MEMBER_STATUS_ONLINE) != 0;
+            if (source == Source::Stats && !g_fullStats)
+                SignalConnection(member, online);
+            else if (source == Source::GroupList && g_groupListRaid)
+                g_deferred.push_back({member, online});
+            else if (source == Source::GroupList)
+                SignalConnection(member, online);
+        }
     }
     if (changes & CHANGE_POWER)
         Unit::PowerEvents::SignalPower(member, powerType);
@@ -155,6 +202,16 @@ void __fastcall SignalSite(const uint64_t *guid, uint32_t changes, const uint8_t
         Unit::PowerEvents::SignalMaxPower(pet, petPowerType);
 }
 
+void __fastcall StatsSite(const uint64_t *guid, uint32_t changes, const uint8_t *oldRec,
+                          const uint8_t *newRec) {
+    SignalChanges(guid, changes, oldRec, newRec, Source::Stats);
+}
+
+void __fastcall CompareSite(const uint64_t *guid, uint32_t changes, const uint8_t *oldRec,
+                            const uint8_t *newRec) {
+    SignalChanges(guid, changes, oldRec, newRec, Source::Compare);
+}
+
 void __fastcall AddMemberSite(uint32_t online, const uint8_t *oldRecord, uint64_t guid) {
     reinterpret_cast<AddMember_t>(Offsets::FUN_ADD_PARTY_MEMBER)(online, oldRecord, guid);
     if (oldRecord == nullptr)
@@ -166,7 +223,7 @@ void __fastcall AddMemberSite(uint32_t online, const uint8_t *oldRecord, uint64_
     const uint32_t changes =
         reinterpret_cast<Diff_t>(Offsets::FUN_PARTY_RECORD_DIFF)(oldRecord, record);
     if (changes != 0)
-        SignalSite(&guid, changes, oldRecord, record);
+        SignalChanges(&guid, changes, oldRecord, record, Source::GroupList);
 }
 
 struct Presence {
@@ -188,8 +245,12 @@ void __fastcall RaidRosterSite(const uint64_t *guids, const uint32_t *flags,
     Presence before[Offsets::RAID_MAX_SLOTS];
     const int was = RaidPresence(before);
     reinterpret_cast<RebuildRaid_t>(Offsets::FUN_REBUILD_RAID_ROSTER)(guids, flags, online, count);
+    std::vector<Flip> deferred;
+    deferred.swap(g_deferred);
     if (!Event::Custom::HasListeners(kConnection.Slot()))
         return;
+    for (const Flip &f : deferred)
+        SignalConnection(f.guid, f.online);
     Presence after[Offsets::RAID_MAX_SLOTS];
     const int now = RaidPresence(after);
     for (int i = 0; i < now; ++i) {
@@ -206,11 +267,12 @@ void __fastcall RaidRosterSite(const uint64_t *guids, const uint32_t *flags,
 }
 
 void Register() {
-    const auto *site = reinterpret_cast<const void *>(&SignalSite);
     Common::RedirectCall(Offsets::CALL_READ_PARTY_MEMBER_STATS_SIGNAL,
-                         Offsets::FUN_PARTY_RECORD_SIGNAL, site);
+                         Offsets::FUN_PARTY_RECORD_SIGNAL,
+                         reinterpret_cast<const void *>(&StatsSite));
     Common::RedirectCall(Offsets::CALL_COMPARE_PARTY_RECORD_SIGNAL,
-                         Offsets::FUN_PARTY_RECORD_SIGNAL, site);
+                         Offsets::FUN_PARTY_RECORD_SIGNAL,
+                         reinterpret_cast<const void *>(&CompareSite));
     Common::RedirectCall(Offsets::CALL_GROUP_LIST_ADD_PARTY_MEMBER, Offsets::FUN_ADD_PARTY_MEMBER,
                          reinterpret_cast<const void *>(&AddMemberSite));
     Common::RedirectCall(Offsets::CALL_GROUP_LIST_REBUILD_RAID_ROSTER,
