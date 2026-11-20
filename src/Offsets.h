@@ -2841,6 +2841,11 @@ enum Offsets {
     // name is in the name cache (benilla-re ui/raid, ui/party).
     EVENT_PARTY_MEMBERS_CHANGED = 0xDA,
     EVENT_RAID_ROSTER_UPDATE = 0x1F3,
+    // PLAYER_LOGIN, once per UI instance (CALL_ENTER_WORLD_FIRE_PLAYER_LOGIN).
+    EVENT_PLAYER_LOGIN = 0x10E,
+    // DISPLAY_SIZE_CHANGED, no-arg; its one engine fire site is
+    // OnDisplaySizeChanged's 0x00492F5C (benilla-re tables/event_sites).
+    EVENT_DISPLAY_SIZE_CHANGED = 0x1FF,
     // UnitWatchedIndex — the position of unit field `field` (bank-relative
     // index, the unit-field event id) in the unit's watched-field table
     // (0x00839E48, 0xA7 entries), the slot of its 4 bytes in the watch copy

@@ -7709,8 +7709,12 @@ Fires (with no payload) each time the game applies the interface scale to
 - the `useUiScale` setting changes, or
 - the size of the game window changes.
 
-When the event fires, `UIParent` already has the new scale. After a change of
-the window size, the event fires before `DISPLAY_SIZE_CHANGED`.
+The event also fires one time when you log in and after each reload of the
+UI, before `PLAYER_LOGIN`.
+
+`DISPLAY_SIZE_CHANGED` always fires immediately before `UI_SCALE_CHANGED`.
+This is also true for a change of the `uiScale` or `useUiScale` setting.
+When the events fire, `UIParent` already has the new scale.
 
 The event also fires when the new scale is the same as the old scale. A call
 to `UIParent:SetScale()` from Lua does not fire it.
