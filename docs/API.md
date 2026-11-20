@@ -27442,6 +27442,11 @@ an object in the world, that object has the tooltip. **Show Target
 Tooltip** in the Interact Key options turns on the soft interact and the
 soft enemy tooltips together.
 
+The unit name shows in the same reaction color as on the mouseover
+tooltip. For this tooltip, `GameTooltip:GetUnit()` returns the token that
+`UnitTokenFromGUID` gives for the unit, for example `"target"` or
+`"softenemy"`.
+
 | cvar | default | values |
 |---|---|---|
 | `SoftTargetTooltipInteract` | `0` | `1` shows the tooltip of `"softinteract"`. |

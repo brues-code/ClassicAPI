@@ -28,6 +28,18 @@
 // or game object builder.
 // The fade and the hide touch the tooltip only while it still shows the
 // object this set — GameTooltip is shared, and another frame may own it now.
+//
+// A unit's tooltip is bound to the token 3.80.2's GameTooltip:GetUnit gives
+// for its GUID (FUN_141b8f7b0's order, Unit::Identity::TokenFromGUID):
+// "target", else "softenemy" / "softfriend" / "softinteract", not
+// "mouseover", which names nothing here.
+//
+// The name line takes the unit's reaction colour, as on the mouseover
+// tooltip. That one is coloured by FrameXML after the build
+// (UPDATE_MOUSEOVER_UNIT → GameTooltip_UnitColor("mouseover")), so this
+// makes the same call with the bound token, at the same point. A deviation
+// by user decision: 3.80.2 colours only the mouseover tooltip, and leaves
+// this name in NORMAL_FONT_COLOR (FUN_141b08b00).
 
 #include "Game.h"
 #include "Offsets.h"
@@ -38,6 +50,8 @@
 #include "target/SoftUnit.h"
 #include "tick/FrameTick.h"
 #include "time/Clock.h"
+#include "unit/Identity.h"
+#include "unit/Tooltip.h"
 
 #include <cstdint>
 
@@ -75,6 +89,31 @@ bool Floating(void *object) {
                vtable[Offsets::OFF_CGOBJECT_VTBL_FLOATING_TOOLTIP / sizeof(uintptr_t)])(object) != 0;
 }
 
+// GameTooltipTextLeft1:SetTextColor(GameTooltip_UnitColor(token)), the
+// statement FrameXML runs for the mouseover tooltip, under the engine's
+// script error handler.
+void ColorName(const char *token) {
+    void *L = Game::Lua::State();
+    if (L == nullptr)
+        return;
+    const int top = Game::Lua::GetTop(L);
+    const int errIdx = Game::Lua::PushErrorHandler(L);
+    Game::Lua::PushString(L, "GameTooltipTextLeft1");
+    Game::Lua::RawGet(L, Game::Lua::GLOBALS_INDEX);
+    const int line = Game::Lua::GetTop(L);
+    if (Game::Lua::Type(L, line) == Game::Lua::TYPE_TABLE) {
+        Game::Lua::PushString(L, "SetTextColor");
+        Game::Lua::GetTable(L, line);
+        Game::Lua::PushValue(L, line);
+        if (Game::Lua::PushGlobalFunction(L, "GameTooltip_UnitColor")) {
+            Game::Lua::PushString(L, token);
+            if (Game::Lua::PCall(L, 1, 3, errIdx) == 0)
+                Game::Lua::PCall(L, 4, 0, errIdx);
+        }
+    }
+    Game::Lua::SetTop(L, top);
+}
+
 void Show(void *tooltip, uint64_t guid) {
     const bool unit = Object::ByGuid(Offsets::TYPEMASK_UNIT, guid) != nullptr;
     void *gameObject = unit ? nullptr : Object::ByGuid(Offsets::TYPEMASK_GAMEOBJECT, guid);
@@ -92,8 +131,17 @@ void Show(void *tooltip, uint64_t guid) {
             reinterpret_cast<InvokeScript_t>(Offsets::FUN_FRAME_INVOKE_SCRIPT)(anchor, tooltip);
     }
     uint32_t packed[2] = {static_cast<uint32_t>(guid), static_cast<uint32_t>(guid >> 32)};
-    reinterpret_cast<Build_t>(unit ? Offsets::FUN_GAMETOOLTIP_BUILD_UNIT
-                                   : Offsets::FUN_GAMETOOLTIP_BUILD_GAMEOBJECT)(tooltip, packed);
+    if (!unit) {
+        reinterpret_cast<Build_t>(Offsets::FUN_GAMETOOLTIP_BUILD_GAMEOBJECT)(tooltip, packed);
+        return;
+    }
+    char buf[32];
+    const char *token = Unit::Identity::TokenFromGUID(guid, buf, sizeof buf);
+    Unit::Tooltip::StageToken(tooltip, token);
+    reinterpret_cast<Build_t>(Offsets::FUN_GAMETOOLTIP_BUILD_UNIT)(tooltip, packed);
+    Unit::Tooltip::ClearStagedToken();
+    if (token != nullptr)
+        ColorName(token);
 }
 
 void Hide(void *tooltip) {
