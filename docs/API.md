@@ -1900,10 +1900,12 @@ C_AddOns.GetAddOnOptionalDependencies("Atlas")    -- (nothing — no OptionalDep
 
 Returns the `## Interface:` value of the addon TOC as a number.
 
-If the TOC lists more than one value, separated by commas, the
-function returns the largest value that is not more than the client
-interface version. Errors for bad arguments are the same as for
-`GetAddOnOptionalDependencies`. An unknown name returns nil.
+The line can list more than one value, separated by commas or spaces.
+The function returns the client interface version when the line contains
+it. If not, it returns the largest value that is less than the client
+interface version. If there is no such value, it returns 0. Errors for bad
+arguments are the same as for `GetAddOnOptionalDependencies`. An unknown
+name returns nil.
 
 ```lua
 -- ## Interface: 11200
@@ -1912,6 +1914,8 @@ C_AddOns.GetAddOnInterfaceVersion("MyAddon")  -- 11200
 C_AddOns.GetAddOnInterfaceVersion("Multi")    -- 11200
 -- ## Interface: 20504, 11100, 11000
 C_AddOns.GetAddOnInterfaceVersion("Old")      -- 11100
+-- ## Interface: 11300
+C_AddOns.GetAddOnInterfaceVersion("Future")   -- 0
 ```
 
 ### `C_AddOns.GetAddOnLocalTable(name)`
@@ -1948,94 +1952,129 @@ addon refers to another by name, not by load order.
 ### Conditional and multi-flavor TOC loading
 
 Some addons support several game versions from one folder. ClassicAPI
-reads the TOC conventions those addons use, so they load here.
+reads the TOC conventions that those addons use, so they load here.
 
 **Flavor TOC files.** An addon that supports several clients can name its
-TOC after the client it targets. The plain `<Name>.toc` is then optional.
-ClassicAPI reads two of these names:
+TOC after the client that it targets. The plain `<Name>.toc` is then
+optional. ClassicAPI looks for these names, in this order:
 
-- `<Name>_Turtle.toc` — on a Turtle client only.
-- `<Name>_ClassicAPI.toc` — on any client.
+1. `<Name>-Turtle.toc`, on a Turtle client only.
+2. `<Name>_Turtle.toc`, on a Turtle client only.
+3. `<Name>-ClassicAPI.toc`, on all clients.
+4. `<Name>_ClassicAPI.toc`, on all clients.
 
-ClassicAPI looks for `_Turtle` first, so it wins when both exist. Either
-one also wins over a plain `<Name>.toc`. An addon can therefore keep its
-plain TOC for other clients and put its ClassicAPI build in a suffixed
-file.
+The first file that exists wins, also over a plain `<Name>.toc`. Thus an
+addon can keep its plain TOC for other clients and put its ClassicAPI
+build in a flavor file.
 
-ClassicAPI does not read `_Vanilla` or `_Classic`. Those names belong to
-the Classic Era client, which is a separate program with its own engine
-and its own API. An addon's `_Vanilla` files are written for that client.
-Such a file can start the addon and then fail inside it, on a function or
-a template this client does not provide. So an addon that ships only
-`_Vanilla` and `_Mainline` TOCs does not load at all. Add a
+ClassicAPI does not read `_Vanilla`, `_Classic` or the other flavor names
+of Blizzard clients. Those files are for clients with a different engine
+and a different API. Such a file can start the addon and then fail inside
+it, on a function or a template that this client does not have. Thus an
+addon that ships only `_Vanilla` and `_Mainline` TOCs does not load. Add a
 `_ClassicAPI.toc` to support this client.
 
-**Note the word `vanilla`.** The two TOC conventions reuse it for
-different things. As a file suffix, `_Vanilla` names the Classic Era
-client, so ClassicAPI ignores it. As a directive value, `vanilla` names
-this client's game type, so `[AllowLoadGameType vanilla]` loads the line.
+**Note the word `vanilla`.** The two TOC conventions use it for different
+things. As a file suffix, `_Vanilla` names the Classic Era client, so
+ClassicAPI ignores it. As a game type, `vanilla` names this client, so
+`[AllowLoadGameType vanilla]` loads the line.
 
-**Flavor Bindings files.** The same selection applies to an addon's
-keybinding file:
+**Flavor Bindings files.** The same names apply to the keybinding file of
+an addon: `Bindings-Turtle.xml`, `Bindings_Turtle.xml`,
+`Bindings-ClassicAPI.xml`, then `Bindings_ClassicAPI.xml`. The first file
+that exists wins over a plain `Bindings.xml`. An addon that has no plain
+`Bindings.xml` loads its bindings from a flavor file.
 
-- `Bindings_Turtle.xml` — on a Turtle client only.
-- `Bindings_ClassicAPI.xml` — on any client.
-
-The order matches the TOC files: `_Turtle` first, and either one wins
-over a plain `Bindings.xml`. An addon that ships no plain `Bindings.xml`
-still loads its bindings from a flavor file. ClassicAPI does not read
-`_Vanilla` or `_Classic` here either.
-
-**Multi-flavor `## Interface:` version.** A TOC can list several
-interface versions on one line:
+**Multi-flavor `## Interface:` version.** A TOC can list several interface
+versions on one line. Commas, spaces, or both separate the versions:
 
 ```
 ## Interface: 120100, 50504, 38002, 20506, 11200
 ```
 
-The addon loads when the list contains this client's interface version,
-`11200`. The position of that entry in the list does not matter. A list
-without it stays out of date, and the addon does not load.
+The addon loads when the list contains the interface version of this
+client, `11200`. The position of that entry in the list is not important.
+If the list does not contain `11200`, the addon is out of date and does
+not load.
 
-**Per-line directives.** Inside a TOC, gate individual file lines with a
-condition, or expand a path variable:
+**Directives.** A TOC line can have conditions and path variables:
 
 ```
-# Loads on this client (game type is vanilla):
+# Loads on this client (its game types are classic and vanilla):
 Vanilla.lua              [AllowLoadGameType vanilla]
 
-# Dropped on this client:
+# Does not load on this client:
 Mainline.lua             [AllowLoadGameType mainline]
 
-# Loads only under a matching client locale:
+# Loads only when the client locale is deDE:
 Localization\deDE.lua    [AllowLoadTextLocale deDE]
 
-# Path variables expand before the file loads:
+# Path variables change before the file loads:
 [Family]\Init.lua                # -> Classic\Init.lua
 [Game]\Init.lua                  # -> Vanilla\Init.lua
 Localization\[TextLocale].lua    # -> Localization\enUS.lua  (your locale)
+
+# Metadata lines take directives too:
+## SavedVariables: MyAddonDB_[Game]       # -> MyAddonDB_Vanilla
+## Title: My Addon (Mainline) [AllowLoadGameType mainline]
 ```
 
-How each token resolves on this client:
+Directives also apply to the `file` value of `<Include>` and `<Script>`
+in an XML file:
+
+```xml
+<Script file="Classic.lua [AllowLoadGameType classic]"/>
+<Include file="[Family]\Frames.xml"/>
+```
+
+The result of each directive on this client:
 
 | Directive | Result |
 |---|---|
-| `[AllowLoadGameType ...]` | Loads the line when the list contains `vanilla`. |
+| `[AllowLoadGameType ...]` | Loads the line when the list contains `classic` or `vanilla`. |
+| `[ExcludeLoadGameType ...]` | Loads the line when the list contains neither `classic` nor `vanilla`. |
 | `[AllowLoadTextLocale ...]` | Loads the line when the list contains your client locale (the `GetLocale()` code). |
-| `[AllowLoad ...]` | Loads on `game`, drops on `glue`. |
+| `[AllowLoad ...]` | One word. `game` and `both` load the line. `glue` and all other values drop it. |
+| `[AllowLoadEnvironment ...]` | Loads the line when the list contains `Global` and the line is a file line of an addon. Drops a metadata line. |
+| `[LoadIntoEnvironment ...]` | Loads the line. |
 | `[Family]` | `Classic` |
 | `[Game]` | `Vanilla` |
 | `[TextLocale]` | Your client locale code, for example `enUS`. |
 
-A line loads only when every condition on it passes. An unknown condition
-drops the line. A file gated by a rule this client does not know stays
-unloaded.
+These rules apply to directives:
 
-**Limits.**
+- Commas, spaces, or both separate the items of a list. The names in a
+  list are not case-sensitive.
+- The game-type names are `mainline`, `standard`, `plunderstorm`,
+  `classic`, `vanilla`, `tbc`, `wrath`, `cata`, `mists` and `wowhack`.
+  A game-type list ignores other names. A list that contains no known name
+  loads the line, for both `AllowLoadGameType` and `ExcludeLoadGameType`.
+- A line loads only when all of its conditions pass. A line that does not
+  load sets no metadata value and loads no file.
+- Directive names are case-sensitive. An unknown directive stays in the
+  line as text. In a file line, the path then has no match, so that file
+  does not load.
 
-- Conditions on `## metadata` lines are not supported. Only file-reference
-  lines are gated.
-- `[AllowLoad glue]` never loads. Addon files load in-game only.
+**The `turtle` game type.** ClassicAPI also knows the game type `turtle`,
+which matches a Turtle client only. `[ExcludeLoadGameType turtle]` loads a
+line on all clients except Turtle.
+
+> **Caution:** Do not use `[AllowLoadGameType turtle]` for files that must
+> load only on Turtle. Blizzard clients do not know the name `turtle`, so
+> they load that line. Put Turtle-only files in `<Name>_Turtle.toc`.
+
+**Whole-addon conditions.** Two metadata keys gate the full addon:
+
+- `## AllowLoadGameType: <list>` - the addon loads only when the list
+  contains `classic` or `vanilla`. Several lines add their names
+  together. A list with no known name has no effect.
+- `## AllowLoad: <word>` - `game` (the default) and `both` let the addon
+  load. `glue` and all other values stop it.
+
+An addon that these keys stop does not load. `LoadAddOn` returns the
+reason `WRONG_GAME_TYPE` or `WRONG_ACTIVE_INTERFACE`, and an addon that
+depends on it gets `DEP_WRONG_GAME_TYPE` or `DEP_WRONG_ACTIVE_INTERFACE`.
+`GetAddOnInfo` and `IsAddOnLoadable` do not report these reasons.
 
 ### SavedVariables loaded first
 

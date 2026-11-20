@@ -74,4 +74,6 @@ bool IsLoading(const char *name) {
     return false;
 }
 
+bool AnyLoading() { return g_depth > 0; }
+
 } // namespace AddOns::LoadState

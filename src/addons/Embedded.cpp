@@ -346,9 +346,8 @@ int __stdcall FileRead_h(int unused, const char *path, void **outBuf,
     const int addon = MatchAddonPath(path, &relPath);
     if (addon < 0) {
         // Not an embedded addon. If this is a base-TOC read for a multi-flavor
-        // addon that ships only `<Name>_Turtle.toc` / `_ClassicAPI.toc`, serve
-        // that in place of the missing `<Name>.toc` so it registers and loads
-        // (see addons/FlavorToc.h).
+        // addon that ships a flavor TOC (`<Name>_ClassicAPI.toc`, ...), serve
+        // that in place of `<Name>.toc` (see addons/FlavorToc.h).
         int result;
         if (AddOns::FlavorToc::TryHandle(unused, path, outBuf, outSize,
                                          extraBytes, flag1, flag2, FileRead_o)) {
@@ -356,8 +355,8 @@ int __stdcall FileRead_h(int unused, const char *path, void **outBuf,
         } else if (AddOns::FlavorBindings::TryHandle(unused, path, outBuf, outSize,
                                                      extraBytes, flag1, flag2,
                                                      FileRead_o)) {
-            // Flavor-specific addon keybindings: serve `Bindings_Turtle.xml` /
-            // `Bindings_ClassicAPI.xml` for a `…\AddOns\<Name>\Bindings.xml`
+            // Flavor-specific addon keybindings: serve `Bindings_ClassicAPI.xml`
+            // (...) for a `…\AddOns\<Name>\Bindings.xml`
             // read (see addons/FlavorBindings.h). The paired exists-check
             // co-hook lives in that module.
             result = 1;
@@ -365,10 +364,10 @@ int __stdcall FileRead_h(int unused, const char *path, void **outBuf,
             result = FileRead_o(unused, path, outBuf, outSize, extraBytes,
                                 flag1, flag2);
         }
-        // Per-line TOC directives: evaluate `[Condition]` and expand
-        // `[Variable]` tokens on this addon TOC's file lines so the load
-        // pass sees clean paths (see addons/TocRewrite.h). No-op unless
-        // `path` is an addon `.toc` that actually contains directives.
+        // TOC directives: evaluate `[Condition]` and expand `[Variable]`
+        // tokens on this addon TOC's lines, and reduce `## Interface:` to one
+        // value, so the engine's parsers see processed lines (see
+        // addons/TocRewrite.h). No-op unless `path` is an addon `.toc`.
         if (result != 0)
             AddOns::TocRewrite::Transform(path, outBuf, outSize);
         return result;

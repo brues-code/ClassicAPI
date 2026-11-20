@@ -341,9 +341,10 @@ int __fastcall Script_GetAddOnOptionalDependencies(void *L) {
 
 // `C_AddOns.GetAddOnInterfaceVersion(indexOrName)` — the `## Interface:`
 // number the engine parsed into `record+0x1C`, the same value its
-// loadability check compares against the client version. A comma-list
-// is already reduced to retail's pick (closest value at or below the
-// client version) by `AddOns::TocRewrite` before the parser sees it.
+// loadability check compares against the client version. The line is
+// already reduced to 3.80.2's pick (the client version when listed, else the
+// largest value below it, else 0) by `AddOns::TocRewrite` before the parser
+// sees it.
 // nil for an unknown name.
 int __fastcall Script_GetAddOnInterfaceVersion(void *L) {
     const uint8_t *record = Addons::ResolveRecord(

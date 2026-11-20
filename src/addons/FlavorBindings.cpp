@@ -14,9 +14,8 @@
 #include "baselib/Ascii.h"
 #include "storm/File.h"
 #include "addons/FlavorBindings.h"
+#include "addons/FlavorToc.h"
 #include "addons/Toc.h"
-
-#include "turtle/Detect.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -48,25 +47,22 @@ size_t AddonBindingsPrefix(const char *path) {
     return NPOS;
 }
 
-// Write `<prefix><flavorFile>` (e.g. `…\AddOns\Foo\Bindings_Turtle.xml`) into
-// `out`. Returns false if it would not fit.
-bool BuildFlavorPath(const char *path, size_t prefixLen, const char *flavorFile,
+// Write `<prefix>Bindings<suffix>.xml` (e.g. `...\AddOns\Foo\Bindings-Turtle.xml`)
+// into `out`. Returns false if it would not fit.
+bool BuildFlavorPath(const char *path, size_t prefixLen, const char *suffix,
                      char *out, size_t outSize) {
-    const size_t flen = std::strlen(flavorFile);
-    if (prefixLen + flen + 1 > outSize) return false;
-    std::memcpy(out, path, prefixLen);
-    std::memcpy(out + prefixLen, flavorFile, flen + 1); // incl. NUL
+    const size_t slen = std::strlen(suffix);
+    if (prefixLen + (sizeof "Bindings" - 1) + slen + sizeof ".xml" > outSize)
+        return false;
+    char *p = out;
+    std::memcpy(p, path, prefixLen);
+    p += prefixLen;
+    std::memcpy(p, "Bindings", sizeof "Bindings" - 1);
+    p += sizeof "Bindings" - 1;
+    std::memcpy(p, suffix, slen);
+    p += slen;
+    std::memcpy(p, ".xml", sizeof ".xml"); // incl. NUL
     return true;
-}
-
-// Fills `order` with the flavor filenames to probe, most specific first, and
-// returns the count. `Bindings_Turtle.xml` only on a Turtle client.
-int FlavorOrder(const char *(&order)[2]) {
-    int count = 0;
-    if (Turtle::Detected())
-        order[count++] = "Bindings_Turtle.xml";
-    order[count++] = "Bindings_ClassicAPI.xml";
-    return count;
 }
 
 } // namespace
@@ -76,8 +72,8 @@ bool TryExists(const char *path, int mode, FileExistsFn orig) {
     if (prefixLen == NPOS)
         return false;
 
-    const char *order[2];
-    const int count = FlavorOrder(order);
+    const char *order[FlavorToc::kMaxSuffixes];
+    const int count = FlavorToc::Suffixes(order);
     char cand[512];
     for (int i = 0; i < count; ++i) {
         if (BuildFlavorPath(path, prefixLen, order[i], cand, sizeof cand) &&
@@ -93,8 +89,8 @@ bool TryHandle(int unused, const char *path, void **outBuf, size_t *outSize,
     if (prefixLen == NPOS)
         return false;
 
-    const char *order[2];
-    const int count = FlavorOrder(order);
+    const char *order[FlavorToc::kMaxSuffixes];
+    const int count = FlavorToc::Suffixes(order);
     char cand[512];
     for (int i = 0; i < count; ++i) {
         if (!BuildFlavorPath(path, prefixLen, order[i], cand, sizeof cand))

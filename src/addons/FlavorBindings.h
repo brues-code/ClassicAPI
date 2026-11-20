@@ -26,7 +26,7 @@ using FileReadFn = Storm::File::ReadFn;
 // AddOns::FlavorToc.
 //
 // A modern addon can ship a flavor-specific keybinding file
-// (`Bindings_Turtle.xml` / `Bindings_ClassicAPI.xml`) instead of / alongside a
+// (`Bindings-Turtle.xml`, `Bindings_ClassicAPI.xml`, ...) instead of / alongside a
 // plain `Bindings.xml`. The per-addon loader `FUN_0051f240` only ever builds
 // `Interface\AddOns\<Name>\Bindings.xml`, gates it on an exists-check
 // (`FUN_00648a30`), and — when that passes — loads it via `FUN_004b6f70`, which
@@ -35,14 +35,16 @@ using FileReadFn = Storm::File::ReadFn;
 //   1. This TryHandle, called from the FUN_FILE_READ hook: when `path` is an
 //      addon `…\AddOns\<Name>\Bindings.xml` read, serve a flavor variant in its
 //      place if one exists (a selected flavor wins over a plain `Bindings.xml`,
-//      matching FlavorToc). Probe order `Bindings_Turtle.xml` (only when
-//      Turtle::Detected) then `Bindings_ClassicAPI.xml`.
+//      matching FlavorToc). Probe order `Bindings<suffix>.xml` over
+//      FlavorToc::Suffixes, as the 3.80.2 client probes its Bindings file over
+//      its TOC suffix list (FUN_141af7a00): `-Turtle`, `_Turtle` (Turtle
+//      only), `-ClassicAPI`, `_ClassicAPI`.
 //   2. TryExists, called from the exists-check `FUN_FILE_EXISTS` hook: report
 //      `Bindings.xml` as existing when the base is absent but a flavor variant
 //      is present — otherwise the loader is never called for a flavor-only
 //      addon.
 //
-// Only `_Turtle` / `_ClassicAPI` are selected — never `_Vanilla` / `_Classic`
+// Only `Turtle` / `ClassicAPI` are selected — never `Vanilla` / `Classic`
 // (which target the 1.15 Classic Era build; its bindings reference handlers
 // that build defines and this client does not load, so they would bind to
 // missing functions). Both suffixes are ClassicAPI conventions, opt-in by the

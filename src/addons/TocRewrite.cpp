@@ -11,10 +11,11 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-#include "baselib/Ascii.h"
-#include "storm/File.h"
 #include "addons/TocRewrite.h"
-#include "addons/Toc.h"
+
+#include "addons/FlavorToc.h"
+#include "addons/LoadGate.h"
+#include "baselib/Ascii.h"
 #include "localization/Locale.h"
 
 #include "Offsets.h"
@@ -30,189 +31,217 @@ namespace AddOns::TocRewrite {
 
 namespace {
 
-
 using Localization::Locale::Client;
 
-// True iff the comma-separated `list` (spaces allowed) contains `token` (CI).
-bool ListContains(const char *list, size_t listLen, const char *token) {
+// 3.80.2's game-type names (FUN_141728630), matched case-insensitively.
+struct GameTypeName {
+    const char *name;
+    uint32_t bit;
+};
+constexpr uint32_t GAME_TYPE_CLASSIC = 0x8;
+constexpr uint32_t GAME_TYPE_VANILLA = 0x10;
+// Not a Blizzard game type: ClassicAPI's name for a Turtle client.
+constexpr uint32_t GAME_TYPE_TURTLE = 0x10000;
+constexpr GameTypeName kGameTypes[] = {
+    {"mainline", 0x1}, {"standard", 0x2}, {"plunderstorm", 0x4},
+    {"classic", GAME_TYPE_CLASSIC}, {"vanilla", GAME_TYPE_VANILLA},
+    {"tbc", 0x20}, {"wrath", 0x40}, {"cata", 0x80}, {"mists", 0x100},
+    {"wowhack", 0x200}, {"turtle", GAME_TYPE_TURTLE},
+};
+
+// 3.80.2's AllowLoad words (FUN_141728530): one word, case-insensitive.
+constexpr uint32_t ALLOW_LOAD_GLUE = 1;
+constexpr uint32_t ALLOW_LOAD_GAME = 2;
+
+bool IsListSeparator(char c) { return c == ' ' || c == ','; }
+
+// Calls `fn(item, itemLen)` for every item of a space- or comma-separated
+// list (FUN_141bc0300); stops early when `fn` returns true. Returns whether
+// it stopped early.
+template <class Fn> bool AnyItem(const char *list, size_t len, Fn &&fn) {
     size_t i = 0;
-    while (i < listLen) {
-        while (i < listLen && (Ascii::IsBlank(list[i]) || list[i] == ',')) ++i;
+    while (i < len) {
+        while (i < len && IsListSeparator(list[i])) ++i;
         const size_t start = i;
-        while (i < listLen && list[i] != ',') ++i;
-        size_t end = i; // [start, end) is one item, maybe with trailing space
-        while (end > start && Ascii::IsBlank(list[end - 1])) --end;
-        if (end > start && Ascii::EqualCI(list + start, end - start, token)) return true;
+        while (i < len && !IsListSeparator(list[i])) ++i;
+        if (i > start && fn(list + start, i - start)) return true;
     }
     return false;
 }
 
-// A single-word `[Token]` variable expansion, or nullptr if `head` is not
-// a known variable. This 1.12 + ClassicAPI client is the Classic family,
-// the Vanilla game type, and whatever the client text locale is.
-const char *VariableValue(const char *head, size_t headLen) {
-    if (Ascii::EqualCI(head, headLen, "Family")) return "Classic";
-    if (Ascii::EqualCI(head, headLen, "Game")) return "Vanilla";
-    if (Ascii::EqualCI(head, headLen, "TextLocale")) return Client();
-    return nullptr;
+bool ListContains(const char *list, size_t len, const char *token) {
+    return AnyItem(list, len, [token](const char *item, size_t n) {
+        return Ascii::EqualCI(item, n, token);
+    });
+}
+
+uint32_t AllowLoadValue(const char *word, size_t len) {
+    if (Ascii::EqualCI(word, len, "glue")) return ALLOW_LOAD_GLUE;
+    if (Ascii::EqualCI(word, len, "game")) return ALLOW_LOAD_GAME;
+    if (Ascii::EqualCI(word, len, "both")) return ALLOW_LOAD_GLUE | ALLOW_LOAD_GAME;
+    return 0;
+}
+
+bool IsSpace(char c) { return c == ' ' || (c >= '\t' && c <= '\r'); }
+
+void Trim(const char *&s, size_t &len) {
+    while (len > 0 && IsSpace(*s)) { ++s; --len; }
+    while (len > 0 && IsSpace(s[len - 1])) --len;
+}
+
+enum class Token { Unknown, AllowLoadGameType, ExcludeLoadGameType, AllowLoadTextLocale,
+                   AllowLoad, AllowLoadEnvironment, LoadIntoEnvironment, Family, Game,
+                   TextLocale };
+
+// 3.80.2's token table (0x1444fab60): names compare with memcmp, so case
+// matters.
+Token Lookup(const char *name, size_t len) {
+    struct Entry {
+        const char *name;
+        Token token;
+    };
+    static constexpr Entry kTokens[] = {
+        {"ExcludeLoadGameType", Token::ExcludeLoadGameType},
+        {"AllowLoadGameType", Token::AllowLoadGameType},
+        {"AllowLoadEnvironment", Token::AllowLoadEnvironment},
+        {"AllowLoadTextLocale", Token::AllowLoadTextLocale},
+        {"AllowLoad", Token::AllowLoad},
+        {"LoadIntoEnvironment", Token::LoadIntoEnvironment},
+        {"Family", Token::Family},
+        {"Game", Token::Game},
+        {"TextLocale", Token::TextLocale},
+    };
+    for (const Entry &e : kTokens)
+        if (std::strlen(e.name) == len && std::memcmp(e.name, name, len) == 0)
+            return e.token;
+    return Token::Unknown;
+}
+
+// 3.80.2's `## Interface:` value (FUN_141af3980): entries split on space or
+// comma; each is an optional sign and the digits up to the first non-digit
+// (none reads 0, overflow saturates). The client version when an entry
+// equals it, else the largest entry below it (an unsigned compare, so a
+// negative entry never counts), else 0.
+uint32_t PickInterface(const char *v, size_t len, uint32_t client) {
+    uint32_t best = 0;
+    bool found = false;
+    const bool exact = AnyItem(v, len, [&](const char *item, size_t n) {
+        size_t i = 0;
+        while (i < n && IsSpace(item[i])) ++i;
+        bool negative = false;
+        if (i < n && (item[i] == '+' || item[i] == '-')) negative = item[i++] == '-';
+        uint64_t value = 0;
+        for (; i < n && item[i] >= '0' && item[i] <= '9'; ++i) {
+            value = value * 10 + static_cast<uint64_t>(item[i] - '0');
+            if (value > 0xFFFFFFFFull) value = 0xFFFFFFFFull;
+        }
+        uint32_t entry = static_cast<uint32_t>(value);
+        if (negative) entry = 0u - entry;
+        if (entry == client) return true;
+        if (entry < client && (!found || entry > best)) {
+            best = entry;
+            found = true;
+        }
+        return false;
+    });
+    return exact ? client : best;
 }
 
 // The client interface version the loadability check compares against
 // (FUN_0051d7d0 -> 0x2BC0 = 11200). Read live so we mirror the engine's own
 // value rather than hardcoding it.
-using ClientIfaceVer_t = uint32_t(__cdecl *)();
 uint32_t ClientInterfaceVersion() {
+    using ClientIfaceVer_t = uint32_t(__cdecl *)();
     return reinterpret_cast<ClientIfaceVer_t>(
         static_cast<uintptr_t>(Offsets::FUN_ADDON_CLIENT_INTERFACE_VERSION))();
 }
 
-// If `line` is a `## Interface:` directive whose value is a comma-list, pick
-// the retail value — the closest entry at or below the client version — and,
-// when that is not already the first entry, append a normalized
-// `<prefix>: <value>` line to `out` and return true. Vanilla's parser reads
-// only the first number, so without this a later 11200 is never seen and the
-// addon is marked out of date. Loadability stays an exact match on the client
-// version, and the pick equals it iff it is in the list, so this only changes
-// the stored value (what GetAddOnInterfaceVersion reads) for lists that were
-// out of date anyway. Returns false for any other line, and for an interface
-// line that needs no change (single value, nothing at or below the client
-// version, or the pick already first) — the caller then copies the line
-// verbatim.
-bool TryRewriteInterfaceLine(const char *line, size_t len, std::string &out) {
-    size_t s = 0;
-    while (s < len && Ascii::IsBlank(line[s])) ++s;
-    if (s + 1 >= len || line[s] != '#' || line[s + 1] != '#') return false;
-    size_t p = s + 2;
-    while (p < len && Ascii::IsBlank(line[p])) ++p;
-    static const char kKey[] = "interface"; // matched case-insensitively
-    const size_t klen = 9;
-    if (p + klen > len) return false;
-    for (size_t i = 0; i < klen; ++i)
-        if (Ascii::ToLower(line[p + i]) != kKey[i]) return false;
-    p += klen;
-    while (p < len && Ascii::IsBlank(line[p])) ++p;
-    if (p >= len || line[p] != ':') return false;
-    ++p;                       // past ':'
-    const size_t prefixEnd = p; // "## Interface:" (author spacing preserved)
-
-    const uint32_t client = ClientInterfaceVersion();
-    long first = -1, best = -1;
-    bool hasComma = false;
-    size_t q = p;
-    while (q < len) {
-        while (q < len && (Ascii::IsBlank(line[q]) || line[q] == ',')) {
-            if (line[q] == ',') hasComma = true;
-            ++q;
-        }
-        long v = 0;
-        bool digit = false;
-        while (q < len && line[q] >= '0' && line[q] <= '9') {
-            v = v * 10 + (line[q] - '0');
-            ++q;
-            digit = true;
-        }
-        if (digit) {
-            if (first < 0) first = v;
-            if (static_cast<uint32_t>(v) <= client && v > best) best = v;
-        } else if (q < len) {
-            ++q; // skip a stray non-digit so the scan always advances
-        }
+bool EvalCondition(Token token, const char *args, size_t argsLen, bool inAddonLoad) {
+    switch (token) {
+    case Token::AllowLoadGameType: {
+        const uint32_t mask = GameTypeMask(args, argsLen);
+        return mask == 0 || (mask & ClientGameTypes()) != 0;
     }
-    if (!hasComma || best < 0 || first == best)
-        return false; // single value / nothing at or below client / already first
+    case Token::ExcludeLoadGameType: {
+        const uint32_t mask = GameTypeMask(args, argsLen);
+        return mask == 0 || (mask & ClientGameTypes()) == 0;
+    }
+    case Token::AllowLoadTextLocale:
+        return ListContains(args, argsLen, Client());
+    case Token::AllowLoad:
+        return (AllowLoadValue(args, argsLen) & ALLOW_LOAD_GAME) != 0;
+    case Token::AllowLoadEnvironment:
+        return inAddonLoad && ListContains(args, argsLen, "Global");
+    case Token::LoadIntoEnvironment:
+        return true;
+    default:
+        return true;
+    }
+}
 
-    out.append(line, prefixEnd);
-    out.push_back(' ');
-    out += std::to_string(best);
+const char *VariableValue(Token token) {
+    switch (token) {
+    case Token::Family: return "Classic";
+    case Token::Game: return "Vanilla";
+    case Token::TextLocale: return Client();
+    default: return nullptr;
+    }
+}
+
+// `## <key>:` at the start of a processed metadata line: returns the value
+// (trimmed) via out-params. Keys compare case-insensitively, as 3.80.2's
+// `_strnicmp` key matches do.
+bool MetadataValue(const std::string &line, const char *key, const char **value,
+                   size_t *valueLen, size_t *prefixLen) {
+    size_t p = 2; // past "##"
+    while (p < line.size() && Ascii::IsBlank(line[p])) ++p;
+    const size_t klen = std::strlen(key);
+    if (line.size() - p < klen + 1 || !Ascii::EqualCI(line.data() + p, klen, key) ||
+        line[p + klen] != ':')
+        return false;
+    p += klen + 1;
+    *prefixLen = p;
+    const char *v = line.data() + p;
+    size_t n = line.size() - p;
+    Trim(v, n);
+    *value = v;
+    *valueLen = n;
     return true;
 }
 
-// True iff the game-type list names a game type this client is: always
-// `vanilla`, and `turtle` (a ClassicAPI extension, like the `_Turtle.toc`
-// flavor) on a Turtle client.
-bool ListContainsGameType(const char *list, size_t listLen) {
-    return ListContains(list, listLen, "vanilla") ||
-           (Turtle::Detected() && ListContains(list, listLen, "turtle"));
-}
+// What a TOC's metadata says about where the addon may load.
+struct Gates {
+    uint32_t gameTypes = 0;                // `## AllowLoadGameType:` lines, OR'ed
+    uint32_t allowLoad = ALLOW_LOAD_GAME;  // the last `## AllowLoad:` line
+};
 
-// Evaluate a `[keyword args]` condition — the return is whether the line should
-// load. An unrecognized keyword returns false so the caller drops the line (a
-// condition we cannot confirm must not load — fail safe).
-bool EvalCondition(const char *head, size_t headLen, const char *args,
-                   size_t argsLen) {
-    if (Ascii::EqualCI(head, headLen, "AllowLoadGameType"))
-        return ListContainsGameType(args, argsLen);
-    if (Ascii::EqualCI(head, headLen, "ExcludeLoadGameType"))
-        return !ListContainsGameType(args, argsLen);
-    if (Ascii::EqualCI(head, headLen, "AllowLoadTextLocale"))
-        return ListContains(args, argsLen, Client());
-    if (Ascii::EqualCI(head, headLen, "AllowLoad"))
-        return ListContains(args, argsLen, "game"); // addon files: in-game only
-    return false;
-}
-
-// Rewrite one file-reference line into `out`: expand `[Variable]` tokens,
-// evaluate and strip `[Condition]` directives. Returns true to KEEP the
-// line (all conditions passed); on true `out` holds the cleaned,
-// right-trimmed path.
-bool ProcessFileLine(const char *line, size_t len, std::string &out) {
-    out.clear();
-    bool keep = true;
-    size_t i = 0;
-    while (i < len) {
-        const char c = line[i];
-        if (c != '[') {
-            out.push_back(c);
-            ++i;
-            continue;
+// One processed `##` line: rewrites `## Interface:` to its single value and
+// collects the load gates.
+void ProcessMetadata(std::string &line, Gates &gates) {
+    const char *v = nullptr;
+    size_t n = 0, prefix = 0;
+    if (MetadataValue(line, "Interface", &v, &n, &prefix)) {
+        const std::string value =
+            std::to_string(PickInterface(v, n, ClientInterfaceVersion()));
+        if (std::string(v, n) != value) {
+            line.resize(prefix);
+            line.push_back(' ');
+            line += value;
         }
-        size_t close = i + 1;
-        while (close < len && line[close] != ']') ++close;
-        if (close >= len) { // unterminated '[' — copy the rest verbatim
-            out.append(line + i, len - i);
-            break;
-        }
-        const char *inner = line + i + 1;
-        const size_t innerLen = close - (i + 1);
-        size_t h = 0;
-        while (h < innerLen && !Ascii::IsBlank(inner[h])) ++h; // [0,h) = head word
-        size_t a = h;
-        while (a < innerLen && Ascii::IsBlank(inner[a])) ++a;  // skip separating ws
-        const char *head = inner;
-        const size_t headLen = h;
-        const char *args = inner + a;
-        const size_t argsLen = innerLen - a;
-
-        if (argsLen == 0) {
-            // Single word: a variable to expand, else leave verbatim (an
-            // unknown token becomes a path the engine cannot open — the
-            // file just does not load).
-            const char *val = VariableValue(head, headLen);
-            if (val != nullptr) out.append(val);
-            else out.append(line + i, (close + 1) - i);
-        } else {
-            // Keyword + args: a condition. Strip it from the path (drop a
-            // space we already emitted before it so nothing dangles).
-            keep = keep && EvalCondition(head, headLen, args, argsLen);
-            if (!out.empty() && out.back() == ' ') out.pop_back();
-        }
-        i = close + 1;
+    } else if (MetadataValue(line, "AllowLoadGameType", &v, &n, &prefix)) {
+        gates.gameTypes |= GameTypeMask(v, n);
+    } else if (MetadataValue(line, "AllowLoad", &v, &n, &prefix)) {
+        gates.allowLoad = AllowLoadValue(v, n);
     }
-    while (!out.empty() && Ascii::IsBlank(out.back())) out.pop_back();
-    return keep;
 }
 
-// Walk the whole TOC, preserving line terminators and any UTF-8 BOM.
-// `#` comment and `##` metadata lines pass through verbatim; only file
-// reference lines are rewritten. A gated-out line becomes a `#` comment
-// so the load loop skips it (and a dumped TOC shows why it was dropped).
-void RebuildToc(const char *src, size_t srcLen, std::string &out) {
+// Walk the whole TOC, keeping line terminators and any UTF-8 BOM.
+void RebuildToc(const char *src, size_t srcLen, std::string &out, Gates &gates) {
     out.clear();
     out.reserve(srcLen + 32);
     size_t i = 0;
     if (srcLen >= 3 && static_cast<uint8_t>(src[0]) == 0xEF &&
-        static_cast<uint8_t>(src[1]) == 0xBB &&
-        static_cast<uint8_t>(src[2]) == 0xBF) {
+        static_cast<uint8_t>(src[1]) == 0xBB && static_cast<uint8_t>(src[2]) == 0xBF) {
         out.append(src, 3);
         i = 3;
     }
@@ -228,25 +257,22 @@ void RebuildToc(const char *src, size_t srcLen, std::string &out) {
         if (i < srcLen && src[i] == '\n') ++i;
 
         size_t s = 0;
-        while (s < len && Ascii::IsBlank(line[s])) ++s;
-        if (s >= len) {
-            out.append(line, len); // blank
-        } else if (line[s] == '#') {
-            // Comment / `##` metadata — verbatim, except a multi-flavor
-            // `## Interface:` list that hides the client version.
-            if (!TryRewriteInterfaceLine(line, len, out))
-                out.append(line, len);
-        } else if (ProcessFileLine(line, len, lineOut)) {
-            out.append(lineOut);
-        } else {
-            out.push_back('#'); // gated out — comment it so the loader skips it
+        while (s < len && IsSpace(line[s])) ++s;
+        const bool metadata = len >= 2 && line[0] == '#' && line[1] == '#';
+        if (!metadata && (s >= len || line[s] == '#')) {
+            out.append(line, len); // blank or comment
+        } else if (!ProcessLine(line, len, /*inAddonLoad=*/!metadata, lineOut)) {
+            out.append("# ");      // dropped: a comment sets no key and loads no file
             out.append(line, len);
+        } else {
+            if (metadata) ProcessMetadata(lineOut, gates);
+            out.append(lineOut);
         }
         out.append(src + termStart, i - termStart);
     }
 }
 
-// True iff `path` is an addon `.toc` read (…\AddOns\…\*.toc). Gates the
+// True iff `path` is an addon `.toc` read (...\AddOns\...\*.toc). Gates the
 // rewrite off every non-TOC read (a `.lua` with a `t[1]` subscript would
 // otherwise be mangled) and off non-addon TOCs (FrameXML.toc, etc.).
 bool IsAddonToc(const char *path) {
@@ -262,31 +288,89 @@ bool IsAddonToc(const char *path) {
 
 } // namespace
 
+bool ProcessLine(const char *line, size_t len, bool inAddonLoad, std::string &out) {
+    out.clear();
+    Trim(line, len);
+    size_t i = 0;
+    while (i < len) {
+        if (line[i] != '[') {
+            out.push_back(line[i++]);
+            continue;
+        }
+        size_t close = i + 1;
+        while (close < len && line[close] != ']') ++close;
+        if (close >= len) { // unclosed '[': the rest is text
+            out.append(line + i, len - i);
+            break;
+        }
+        const char *inner = line + i + 1;
+        const size_t innerLen = close - (i + 1);
+        size_t h = 0;
+        while (h < innerLen && !Ascii::IsBlank(inner[h])) ++h;
+        const char *args = inner + h;
+        size_t argsLen = innerLen - h;
+        Trim(args, argsLen);
+
+        const Token token = Lookup(inner, h);
+        const char *value = VariableValue(token);
+        if (value != nullptr && argsLen == 0) {
+            out.append(value);
+        } else if (token != Token::Unknown && value == nullptr) {
+            if (!EvalCondition(token, args, argsLen, inAddonLoad)) return false;
+        } else {
+            out.append(line + i, (close + 1) - i); // unknown: stays as text
+        }
+        i = close + 1;
+    }
+    const char *s = out.data();
+    size_t n = out.size();
+    Trim(s, n);
+    out = std::string(s, n);
+    return true;
+}
+
+uint32_t GameTypeMask(const char *list, size_t len) {
+    uint32_t mask = 0;
+    AnyItem(list, len, [&mask](const char *item, size_t n) {
+        for (const GameTypeName &g : kGameTypes)
+            if (Ascii::EqualCI(item, n, g.name)) mask |= g.bit;
+        return false;
+    });
+    return mask;
+}
+
+uint32_t ClientGameTypes() {
+    return GAME_TYPE_CLASSIC | GAME_TYPE_VANILLA |
+           (Turtle::Detected() ? GAME_TYPE_TURTLE : 0);
+}
+
 void Transform(const char *path, void **outBuf, size_t *outSize) {
     if (path == nullptr || outBuf == nullptr || *outBuf == nullptr) return;
     if (!IsAddonToc(path)) return;
 
     const char *content = static_cast<const char *>(*outBuf);
-    const size_t size = (outSize != nullptr && *outSize != 0)
-                            ? *outSize
-                            : std::strlen(content);
-    if (size == 0) return;
-
-    // Fast path: no '[' (directives) and no ',' (a possible `## Interface:`
-    // list) means nothing to do — leave the engine buffer alone.
-    if (std::memchr(content, '[', size) == nullptr &&
-        std::memchr(content, ',', size) == nullptr)
-        return;
+    const size_t size =
+        (outSize != nullptr && *outSize != 0) ? *outSize : std::strlen(content);
 
     std::string rebuilt;
-    RebuildToc(content, size, rebuilt);
-    if (rebuilt.size() == size &&
-        std::memcmp(rebuilt.data(), content, size) == 0)
-        return; // brackets/commas were only in unaffected lines — nothing changed
+    Gates gates;
+    RebuildToc(content, size, rebuilt, gates);
+
+    size_t prefixLen = 0;
+    if (FlavorToc::BaseTocPrefix(path, &prefixLen)) {
+        size_t nameStart = prefixLen;
+        while (nameStart > 0 && path[nameStart - 1] != '\\' && path[nameStart - 1] != '/')
+            --nameStart;
+        LoadGate::Record(path + nameStart, prefixLen - nameStart, gates.gameTypes,
+                         gates.allowLoad);
+    }
+
+    if (rebuilt.size() == size && std::memcmp(rebuilt.data(), content, size) == 0)
+        return; // nothing changed: keep the engine's buffer
 
     const size_t newLen = rebuilt.size();
     void *buf = Storm::Alloc(newLen + 1, __FILE__, __LINE__); // +1 NUL (extraBytes=1)
-    if (buf == nullptr) return;                               // OOM — keep the original
+    if (buf == nullptr) return;                               // OOM: keep the original
     std::memcpy(buf, rebuilt.data(), newLen);
     static_cast<char *>(buf)[newLen] = '\0';
 

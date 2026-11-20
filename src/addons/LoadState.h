@@ -30,4 +30,7 @@ namespace AddOns::LoadState {
 // is case-insensitive, as addon-name matching is everywhere else.
 bool IsLoading(const char *name);
 
+// True while any addon is inside the engine's per-addon load call.
+bool AnyLoading();
+
 } // namespace AddOns::LoadState

@@ -11852,6 +11852,15 @@ enum Offsets {
     FUN_XML_LOAD_FILE = 0x006EDE10,
     // Return address of that <Script file> call into FUN_LUA_LOAD_FILE.
     RET_XML_SCRIPT_FILE_LOAD = 0x006EE0D9,
+    // FUN_XML_LOAD_FILE's E8 calls around a `file` attribute (Xml::FileDirectives):
+    // <Include>'s FUN_XML_NODE_GET_ATTRIBUTE(node, "file") (0x006EDFAF; a null
+    // value logs "Element 'Include' without file attribute" at 0x006EE017), its
+    // recursive FUN_XML_LOAD_FILE on the joined path (0x006EE00D, result
+    // unused), and <Script>'s getter (0x006EE051; null skips the file and still
+    // compiles the inline text at 0x006EE0D9).
+    CALL_XML_INCLUDE_GET_FILE = 0x006EDFAF,
+    CALL_XML_INCLUDE_LOAD = 0x006EE00D,
+    CALL_XML_SCRIPT_GET_FILE = 0x006EE051,
 
     // File-exists probe — `__stdcall(const char *path, int mode)` (RET 8);
     // nonzero when the file exists. `mode = 1` on the addon / SavedVariables
@@ -12306,6 +12315,23 @@ enum Offsets {
     // Standard Lua C ABI, so it re-registers under a namespace table as-is.
     FUN_SCRIPT_LOAD_ADDON = 0x0048E980,
     FUN_ADDON_CAN_LOAD = 0x0051E780,
+    // The load check's E8 calls that mean a real load (AddOns::LoadGate): the
+    // per-addon loader FUN_ADDON_LOAD_ONE's own check (0x0051F2FA), and
+    // Script_LoadAddOn's re-check for the failure reason after the loader
+    // fails (0x0048EAFE). Its required-dependency recursion (0x0051E8D5)
+    // passes the parent's dependency slot as both out pointers. The other
+    // callers are queries: GetAddOnInfo (0x0048E4A5, glue 0x0046D542) and the
+    // load pass's progress sum (0x0051F215, fullCheck 0).
+    CALL_ADDON_LOAD_ONE_CAN_LOAD = 0x0051F2FA,
+    CALL_LOAD_ADDON_CAN_LOAD = 0x0048EAFE,
+    CALL_ADDON_CAN_LOAD_DEPENDENCY = 0x0051E8D5,
+    // `char *__fastcall(int code, int depCode, char *buf, uint cap)`, RET 8:
+    // copies LOADABLE_REASON_TABLE[code] into `buf`, or formats "DEP_%s"
+    // (0x00853900) with the table name of `depCode` when `code` is 0. The
+    // only reader of the table. Called by GetAddOnInfo (0x0048E4E6, glue
+    // 0x0046D583) and Script_LoadAddOn (0x0048EB21).
+    FUN_ADDON_FORMAT_REASON = 0x0051E930,
+    CALL_LOAD_ADDON_FORMAT_REASON = 0x0048EB21,
     FUN_ADDON_GET_SECURITY_INDEX = 0x0051E990,
 
     // Per-character enable-state resolver — the inner check

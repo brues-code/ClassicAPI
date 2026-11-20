@@ -1,5 +1,7 @@
 if GetLocale() ~= "koKR" then return end
 
+ADDON_WRONG_ACTIVE_INTERFACE = "잘못 활성화된 사용자 인터페이스";
+ADDON_WRONG_GAME_TYPE = "잘못된 게임 유형";
 ADVANCED_COMBAT_LOGGING = "고급 전투 메시지 기록";
 LARGE_NUMBER_SEPERATOR = ",";
 DECIMAL_SEPERATOR = ".";
