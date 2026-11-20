@@ -4131,12 +4131,16 @@ enum Offsets {
     // targetFlags(u16), <target per flags>`.
     OP_CMSG_CAST_SPELL = 0x12E,
 
-    // Outgoing opcode: CMSG_SPLIT_ITEM, built by FUN_INVENTORY_SPLIT (body
-    // documented there): u8 srcBag, u8 srcSlot, u8 dstBag, u8 dstSlot,
-    // u8 count. The server answers a successful split with a NEW item
-    // object for the split-off half (tortoise-wow `Player::SplitItem` →
-    // `CloneItem`), or SMSG_INVENTORY_CHANGE_FAILURE.
-    OP_CMSG_SPLIT_ITEM = 0x10E,
+    // An item the server gave the player (loot, craft, purchase, reward).
+    // Routed to the shared handler `FUN_005E38C0`, which reads: u64 player,
+    // u32 received, u32 created, u32 show-in-chat, u8 bag (the
+    // INVENTORY_SLOT_BAG_0 form below), u32 slot (0xFFFFFFFF when the items
+    // went onto existing stacks), u32 item ID, u32 suffix factor, u32 random
+    // property, u32 count, and passes them to `0x491A60` (benilla-re
+    // objectlayer/playermessages "Item push"; tortoise-wow
+    // `Player::SendNewItem` writes the same). Loot is sent to the whole
+    // group. `Item::NewItems` flags the pushed item.
+    SMSG_ITEM_PUSH_RESULT = 0x166,
 
     // The bag byte the item packets use for the player's own inventory
     // (paperdoll, backpack, bank main slots); any other bag byte is the

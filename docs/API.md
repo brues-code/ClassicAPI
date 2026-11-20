@@ -1017,8 +1017,8 @@ build instructions.
   - [`IsUnitToken(value)`](#isunittokenvalue)
 
 - [NewItems](#newitems)
-  - [`C_NewItems.IsNewItem(bagID, slotIndex)`](#c_newitemsisnewitembagid-slotindex)
-  - [`C_NewItems.RemoveNewItem(bagID, slotIndex)`](#c_newitemsremovenewitembagid-slotindex)
+  - [`C_NewItems.IsNewItem(containerIndex, slotIndex)`](#c_newitemsisnewitemcontainerindex-slotindex)
+  - [`C_NewItems.RemoveNewItem(containerIndex, slotIndex)`](#c_newitemsremovenewitemcontainerindex-slotindex)
   - [`C_NewItems.ClearAll()`](#c_newitemsclearall)
 
 - [PaperDollInfo](#paperdollinfo)
@@ -22769,27 +22769,35 @@ function directly to reach a player named `Target`.
 
 Bag interfaces use these functions to show a glow on items that are new.
 
-An item is new when you get it after login. Items that you loot, create,
-buy, get as a quest reward, take from mail, or get in a trade are new.
-These items do not become new:
+An item becomes new when the server gives it to you. Items that you loot,
+create, buy, or get as a reward become new. Loot that goes onto a stack
+that you already have makes that stack new. These items do not become new:
 
-- Items that you had at login.
+- Items that you take from mail or get in a trade.
 - Items that you move between bags, the bank, and your equipment.
-- Loot that goes onto a stack that you already have.
 - The new stack that you make when you split a stack.
 
-The flag stays with the item when it moves to a different slot. Only items
-in your bags (bags 0 to 4) can be new.
+The flag stays with the item when it moves to a different slot. The flag
+stays until `C_NewItems.RemoveNewItem` or `C_NewItems.ClearAll` clears it,
+or until you exit the game. It stays when you log out and log in again. A
+maximum of 50 items get the flag.
+Items that you sold or destroyed and that still have the flag count in this
+number.
 
-`BAG_NEW_ITEMS_UPDATED` fires when an item gets or loses the flag. The
-event has no arguments.
+`BAG_NEW_ITEMS_UPDATED` fires each time an item gets the flag, also when the
+item has the flag already. The event has no arguments. It does not fire when
+a flag is cleared.
 
-### `C_NewItems.IsNewItem(bagID, slotIndex)`
+### `C_NewItems.IsNewItem(containerIndex, slotIndex)`
 
-Returns `true` if the item currently in bag `bagID` slot `slotIndex` is
-flagged new, `false` otherwise (empty slot, unflagged item, or non-numeric
-args). `bagID` 0 is the backpack; 1–4 are the equipped bags. Slot indices
-are 1-based, matching `GetContainerItemInfo`.
+Returns `true` if the item in bag `containerIndex` slot `slotIndex` has the
+new flag. Otherwise it returns `false`. `containerIndex` 0 is the backpack,
+1 to 4 are the bags, -1 is the bank, 5 to 10 are the bank bags, and -2 is
+the keyring. The bank and the bank bags are available only when the bank
+window is open. Slot indices start at 1, as in `GetContainerItemInfo`.
+
+Both arguments are necessary and must be numbers. A negative slot is an
+error. A slot that is not in the bag returns `false`.
 
 ```lua
 if C_NewItems.IsNewItem(0, 3) then
@@ -22797,18 +22805,16 @@ if C_NewItems.IsNewItem(0, 3) then
 end
 ```
 
-### `C_NewItems.RemoveNewItem(bagID, slotIndex)`
+### `C_NewItems.RemoveNewItem(containerIndex, slotIndex)`
 
-Clears the new flag for the item in that slot, for example after the
-player sees the item. No-op if the slot is empty or the item wasn't flagged. Fires
-`BAG_NEW_ITEMS_UPDATED` when it actually removes a flag. Because the flag is
-GUID-keyed, the item stays un-flagged even if it's later moved to another
-slot.
+Clears the new flag of the item in that slot. The arguments are the same as
+for `C_NewItems.IsNewItem`. An empty slot or an item without the flag
+changes nothing. The item does not get the flag again when it moves to a
+different slot.
 
 ### `C_NewItems.ClearAll()`
 
-Clears every new flag at once. Fires `BAG_NEW_ITEMS_UPDATED` if anything was
-flagged.
+Clears every new flag.
 
 ## PaperDollInfo
 
