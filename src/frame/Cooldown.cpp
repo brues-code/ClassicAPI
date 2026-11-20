@@ -1261,14 +1261,16 @@ int __fastcall Script_SetCountdownFormatter(void *L) {
     return 0;
 }
 
-// A new Lua object for the formatter each call, as retail's (probe:
-// rawequal(GetCountdownFormatter(), formatter) is false).
+// A new Lua object for the formatter each call, of the base class
+// NumericFormatter (3.80.2's 0x140C45FA0 -> 0x140C13520): FormatNumber only.
+// rawequal(GetCountdownFormatter(), formatter) is false; == is true through
+// __eq only between objects of one class.
 int __fastcall Script_GetCountdownFormatter(void *L) {
     void *frame = ResolveCooldown(L);
     if (frame == nullptr)
         return 0;
     if (Text::NumericFormatter::Formatter *formatter = F(frame).countdownFormatter)
-        Text::NumericFormatter::Push(L, formatter);
+        Text::NumericFormatter::PushBase(L, formatter);
     else
         Game::Lua::PushNil(L);
     return 1;

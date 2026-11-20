@@ -9195,7 +9195,7 @@ cd:GetDrawEdge()                -- true
 | `cooldown:SetCountdownAbbrevThreshold(seconds)` / `cooldown:GetCountdownAbbrevThreshold()` | Sets and returns the time left in seconds below which the numbers show as `m:ss`, for example `1:56`. Above it, they show whole minutes, for example `3m`. The threshold applies from one minute to one hour. The default is `120`. |
 | `cooldown:SetCountdownMillisecondsThreshold(seconds)` / `cooldown:GetCountdownMillisecondsThreshold()` | Sets and returns the time left in seconds below which the numbers show tenths of a second, for example `3.3`. The default is `0`, so the numbers show whole seconds. |
 | `cooldown:SetMinimumCountdownDuration(milliseconds)` / `cooldown:GetMinimumCountdownDuration()` | Sets and returns the duration that a cooldown must be longer than to show numbers. The value applies to the full duration divided by `modRate`, not to the time left. The default is `2000`. |
-| `cooldown:SetCountdownFormatter([formatter])` / `cooldown:GetCountdownFormatter()` | Sets and returns the formatter that makes the countdown text. Give a formatter from [`C_StringUtil.CreateNumericRuleFormatter`](#c_stringutilcreatenumericruleformatter), or `nil` to use the default numbers again. `GetCountdownFormatter` returns `nil` if there is no formatter. |
+| `cooldown:SetCountdownFormatter([formatter])` / `cooldown:GetCountdownFormatter()` | Sets and returns the formatter that makes the countdown text. Give a formatter from [`C_StringUtil.CreateNumericRuleFormatter`](#c_stringutilcreatenumericruleformatter), or `nil` to use the default numbers again. `GetCountdownFormatter` returns `nil` if there is no formatter. It returns a `NumericFormatter` object for the formatter, which has only `FormatNumber`. |
 
 For the three texture methods, `texture` is a file path. An empty string
 gives a solid color. If you do not give `r`, `g`, and `b`, the color does
@@ -16347,19 +16347,25 @@ formatter:FormatNumber(-1)     -- "-1"
 | `formatter:Copy()` | Returns a new formatter with the same breakpoints. A change to one formatter does not change the other. |
 
 If two breakpoints have the same `threshold`, the first one that you added
-applies. A formatter has only these methods. You cannot store other values
-in it.
+applies. When `SetBreakpoints` gets more than 32 breakpoints, the order of
+breakpoints with the same `threshold` is not known.
+
+You can store other values in a formatter, for example
+`formatter.name = "cast"`. All objects of the same formatter share these
+values, and `Copy` does not copy them. A method name cannot be replaced: an
+assignment to it is an error. Two objects of the same formatter are equal
+(`==`).
 
 `NumericRuleFormatBreakpoint`:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `threshold` | number | The smallest number that the breakpoint applies to. It must be a finite number. |
+| `threshold` | number | The smallest number that the breakpoint applies to. |
 | `step` | number, optional | Rounds the number to a multiple of `step`. A `step` of `0` or less does not round. |
 | `rounding` | `Enum.NumericRuleFormatRounding`, optional | How `step` rounds. The default is `Nearest`. |
 | `min` | number, optional | After the rounding, a smaller number changes to `min`. |
 | `max` | number, optional | After the rounding, a larger number changes to `max`. |
-| `format` | string | A format string, as for `string.format`. Without `components`, the format gets the number as its one value. The format can contain color codes, for example `"\|cffff3333%d\|r"`. |
+| `format` | string | A format string, similar to `string.format`. Without `components`, the format gets the number as its one value. The format can contain color codes, for example `"\|cffff3333%d\|r"`. See the notes on the format below. |
 | `components` | table, optional | A list of `NumericRuleFormatComponent` tables. Each component gives one value to `format`, in order. |
 
 `NumericRuleFormatComponent`:
@@ -16371,16 +16377,19 @@ in it.
 | `step` | number, optional | After `div` and `mod`, rounds the result to a multiple of `step`. |
 | `rounding` | `Enum.NumericRuleFormatRounding`, optional | How `step` rounds. The default is `Nearest`. |
 
-A `div` or `mod` of `0` has no effect. Each component starts from the number
-after the `step`, `min`, and `max` of its breakpoint.
+A `div` or `mod` of `0` or less has no effect. Each component starts from
+the number after the `step`, `min`, and `max` of its breakpoint.
+
+Each number field must be a finite number. `rounding` cuts a fraction to a
+whole number, so `1.7` is `Up`.
 
 `Enum.NumericRuleFormatRounding`:
 
 | Name | Value | Description |
 |------|-------|-------------|
-| `Nearest` | `0` | To the nearest multiple. A number halfway between two multiples goes up: `2.5` gives `3`, and `-2.5` gives `-2`. |
+| `Nearest` | `0` | To the nearest multiple. A positive number halfway between two multiples goes up: `2.5` gives `3`. A negative number goes to the multiple nearer to zero: `-2.5` and `-2.6` give `-2`. |
 | `Up` | `1` | To the next larger multiple. |
-| `Down` | `2` | To the next smaller multiple. |
+| `Down` | `2` | To the next multiple nearer to zero: `2.5` gives `2`, and `-2.5` gives `-2`. |
 
 The formatter selects the breakpoint before it rounds. For example, with
 breakpoints at `0` (`step = 1`, `Up`) and at `60`, the number `59.5` uses
@@ -16392,8 +16401,19 @@ components `{ div = 60, step = 1, rounding = Down }` and
 gives `"1:60"`. If you also set `step = 1` and `rounding = Up` on the
 breakpoint, `119.5` changes to `120` first and gives `"2:00"`.
 
-If `format` asks for more values than the breakpoint gives, `FormatNumber`
-gives an error that starts with `NumericFormatter:FormatNumber():`.
+Notes on the format:
+
+- It takes `%d`, `%i`, `%o`, `%u`, `%x`, `%X`, `%c`, `%e`, `%E`, `%f`, `%g`,
+  `%G`, `%s` and `%%`. `%t`, `%F` and `%T` are the same as `%f`. `%q` is an
+  error.
+- `%1$` to `%9$` select a value by its position, for example `"%2$d %1$d"`.
+- `%d` cuts a fraction: `4.7` gives `"4"`. `%s` writes a number as `tostring`
+  does.
+- The text stops at 1023 characters, and at a zero byte from `%c`.
+
+If `format` asks for more values than the breakpoint gives, or has an option
+that is not in the list, `FormatNumber` gives an error that starts with
+`NumericFormatter:FormatNumber():`.
 
 ### `breakUpLargeNumbers` (CVar)
 

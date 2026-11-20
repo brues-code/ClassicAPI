@@ -32,11 +32,15 @@ void Release(Formatter *f);
 // value is not one.
 Formatter *ToFormatter(void *L, int idx);
 
-// Pushes a new Lua object for `f`.
+// Pushes a new NumericRuleFormatter object for `f`.
 void Push(void *L, Formatter *f);
 
+// Pushes a new object of the base class, NumericFormatter: FormatNumber only,
+// what 3.80.2's cooldown getter returns (0x140C13520).
+void PushBase(void *L, Formatter *f);
+
 // Pushes `f`'s text for `value` and returns it. On a format error, pushes
-// str_format's message and returns null. Either way one value is pushed.
+// the formatter's message and returns null. Either way one value is pushed.
 const char *Format(void *L, Formatter *f, double value);
 
 } // namespace Text::NumericFormatter
