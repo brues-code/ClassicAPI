@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <cstring>
 #include <string>
+#include <vector>
 
 namespace AddOns::SavedVarsFiles {
 
@@ -78,6 +79,8 @@ using OsClose_t = void(__fastcall *)(void *handle);
 using OsPath_t = int(__fastcall *)(const char *path);
 using OsMove_t = int(__fastcall *)(const char *from, const char *to);
 using WriteVariable_t = void(__fastcall *)(void *handle, const char *name);
+using OsWrite_t = int(__fastcall *)(void *handle, const void *data, uint32_t size,
+                                    uint32_t *written);
 
 int OsExists(const char *path) {
     return reinterpret_cast<OsPath_t>(Offsets::FUN_OS_FILE_EXISTS)(path);
@@ -94,6 +97,45 @@ int OsMove(const char *from, const char *to) {
 std::string g_target;
 void *g_handle = nullptr;
 
+// 3.80.2's writer streams through a 0x1000-byte buffer. 1.12 writes each
+// variable as several WriteFile calls of a few bytes (CR LF, the name, " =
+// ", then the value in pieces), straight to the file.
+constexpr size_t kBufferSize = 0x1000;
+std::vector<char> g_buffer;
+bool g_writeFailed = false;
+
+bool OsWriteAll(const void *data, uint32_t size) {
+    uint32_t written = 0;
+    return reinterpret_cast<OsWrite_t>(Offsets::FUN_OS_WRITE_FILE)(g_handle, data, size,
+                                                                  &written) != 0 &&
+           written == size;
+}
+
+void Flush() {
+    if (g_buffer.empty()) return;
+    if (!OsWriteAll(g_buffer.data(), static_cast<uint32_t>(g_buffer.size())))
+        g_writeFailed = true;
+    g_buffer.clear();
+}
+
+// The serializer's and the writer's WriteFile calls. Only the file being saved
+// is buffered; the same serializer also writes the flat SavedVariables.lua.
+int __fastcall BufferedWrite(void *handle, const void *data, uint32_t size,
+                             uint32_t *written) {
+    if (handle == nullptr || handle != g_handle)
+        return reinterpret_cast<OsWrite_t>(Offsets::FUN_OS_WRITE_FILE)(handle, data, size,
+                                                                      written);
+    if (g_buffer.size() + size > kBufferSize) Flush();
+    if (size >= kBufferSize) {
+        if (!OsWriteAll(data, size)) g_writeFailed = true;
+    } else {
+        const char *bytes = static_cast<const char *>(data);
+        g_buffer.insert(g_buffer.end(), bytes, bytes + size);
+    }
+    if (written != nullptr) *written = size;
+    return 1;
+}
+
 // The writer's "old file to .bak" rename, before it writes: the backup is
 // made after the write instead.
 int __fastcall SkipBackup(const char *, const char *) { return 1; }
@@ -105,6 +147,9 @@ void *__fastcall CreateTemp(const char *path, uint32_t access, uint32_t share,
     void *handle = reinterpret_cast<OsCreate_t>(Offsets::FUN_OS_CREATE_FILE)(
         temp.c_str(), access, share, disposition, attributes, extra);
     g_handle = (handle == reinterpret_cast<void *>(-1)) ? nullptr : handle;
+    g_buffer.clear();
+    g_buffer.reserve(kBufferSize);
+    g_writeFailed = false;
     return handle;
 }
 
@@ -125,10 +170,17 @@ void __fastcall WriteVariable(void *handle, const char *name) {
 }
 
 void __fastcall CloseAndReplace(void *handle) {
+    const bool ours = handle != nullptr && handle == g_handle && !g_target.empty();
+    if (ours) Flush();
     reinterpret_cast<OsClose_t>(Offsets::FUN_OS_CLOSE_FILE)(handle);
-    if (handle != g_handle || g_target.empty()) return;
+    if (!ours) return;
     g_handle = nullptr;
     const std::string temp = g_target + kTmp;
+    if (g_writeFailed) { // as 3.80.2: an incomplete file never replaces the old one
+        OsDelete(temp.c_str());
+        g_target.clear();
+        return;
+    }
     if (OsExists(g_target.c_str())) {
         const std::string backup = g_target + kBak;
         OsDelete(backup.c_str());
@@ -157,6 +209,14 @@ void Register() {
         redirect(site, Offsets::FUN_SV_WRITE_VARIABLE, reinterpret_cast<const void *>(&WriteVariable));
     for (uintptr_t site : {Offsets::CALL_SV_WRITE_ACCOUNT_CLOSE, Offsets::CALL_SV_WRITE_CHAR_CLOSE})
         redirect(site, Offsets::FUN_OS_CLOSE_FILE, reinterpret_cast<const void *>(&CloseAndReplace));
+    for (uintptr_t site :
+         {Offsets::CALL_SV_WRITE_ACCOUNT_LINE_END, Offsets::CALL_SV_WRITE_CHAR_LINE_END,
+          Offsets::CALL_SV_SERIALIZE_WRITE_1, Offsets::CALL_SV_SERIALIZE_WRITE_2,
+          Offsets::CALL_SV_SERIALIZE_WRITE_3, Offsets::CALL_SV_SERIALIZE_WRITE_4,
+          Offsets::CALL_SV_SERIALIZE_WRITE_5, Offsets::CALL_SV_SERIALIZE_WRITE_6,
+          Offsets::CALL_SV_SERIALIZE_WRITE_7, Offsets::CALL_SV_SERIALIZE_WRITE_8,
+          Offsets::CALL_SV_SERIALIZE_WRITE_9, Offsets::CALL_SV_SERIALIZE_WRITE_10})
+        redirect(site, Offsets::FUN_OS_WRITE_FILE, reinterpret_cast<const void *>(&BufferedWrite));
 }
 
 const Game::ModuleAutoRegister _autoreg{&Register};

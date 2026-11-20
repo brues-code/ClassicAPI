@@ -204,6 +204,24 @@ enum Offsets {
     CALL_SV_WRITE_CHAR_VARIABLE = 0x0051F94F,
     CALL_SV_WRITE_ACCOUNT_CLOSE = 0x0051F81D,
     CALL_SV_WRITE_CHAR_CLOSE = 0x0051F970,
+    // The writer's line-end writes (FUN_OS_WRITE_FILE of 0x0082EDFC, 2 / 1
+    // bytes) before each close, and the ten FUN_OS_WRITE_FILE calls of the
+    // variable serializer FUN_SV_WRITE_VARIABLE and its value writer
+    // (0x00704480 and the table / other-type writers under it), the only
+    // writes that reach a SavedVariables file. The flat SavedVariables.lua
+    // writer (0x00491730) uses the same serializer on its own handle.
+    CALL_SV_WRITE_ACCOUNT_LINE_END = 0x0051F816,
+    CALL_SV_WRITE_CHAR_LINE_END = 0x0051F969,
+    CALL_SV_SERIALIZE_WRITE_1 = 0x00704422,
+    CALL_SV_SERIALIZE_WRITE_2 = 0x00704436,
+    CALL_SV_SERIALIZE_WRITE_3 = 0x00704448,
+    CALL_SV_SERIALIZE_WRITE_4 = 0x007045B1,
+    CALL_SV_SERIALIZE_WRITE_5 = 0x00704714,
+    CALL_SV_SERIALIZE_WRITE_6 = 0x0070481D,
+    CALL_SV_SERIALIZE_WRITE_7 = 0x00704861,
+    CALL_SV_SERIALIZE_WRITE_8 = 0x007048EB,
+    CALL_SV_SERIALIZE_WRITE_9 = 0x00704955,
+    CALL_SV_SERIALIZE_WRITE_10 = 0x00704A30,
     // FUN_ADDON_LOAD_ONE's SavedVariables read tests each file with
     // FUN_FILE_EXISTS before it runs it from the same 0x104-byte buffer
     // (FUN_LUA_LOAD_FILE at 0x0051F4B5 / 0x0051F53B): the account file, the

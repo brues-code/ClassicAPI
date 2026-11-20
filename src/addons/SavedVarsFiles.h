@@ -37,6 +37,14 @@ namespace AddOns::SavedVarsFiles {
 // exists, so the file is then overwritten in place) and writes the file
 // directly. Its backup rename, create, per-name write and close calls, for the
 // account and the character file, are redirected.
+//
+// Buffering: 3.80.2 streams each file through a 0x1000-byte buffer; 1.12's
+// serializer (FUN_SV_WRITE_VARIABLE and the value writer under it) calls
+// FUN_OS_WRITE_FILE for every piece: CR LF, the name, " = ", then the value
+// text in parts. Those ten calls and the writer's two line-end writes are
+// redirected; for the file being saved they fill a 0x1000-byte buffer that
+// goes out when full and at the close. A failed write keeps the old file and
+// deletes the `.tmp`, as in 3.80.2.
 
 // When the file at `path` exists, returns true. When only `<path>.bak`
 // exists, appends `.bak` to `path` (when it fits in `cap` bytes) and returns
