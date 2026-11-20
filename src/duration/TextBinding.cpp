@@ -14,46 +14,43 @@
 // `C_DurationUtil.CreateDurationTextBinding()` and
 // `Enum.DurationTextBindingProperty` (DurationTextBindingObjectAPIDocumentation.lua,
 // DurationTextBindingSharedDocumentation.lua). A binding keeps a font string's
-// text set from a duration object. Retail's behavior, probed in a 12.1.5
-// client (2026-11-01; the log is in docs/notes/duration-timer.md):
+// text set from a duration object, as the 3.80.2 client's DurationTextBinding
+// does (method table FUN_140c115f0, text FUN_141b96d30, tick FUN_141b969f0):
 //
 //   - The object is a userdata, tostring "DurationTextBinding: <address>". A
-//     new binding is disabled, updates every tick (interval 0), and has no
-//     expired or zero text; CanFormatText and CanUpdateFontString are false.
-//   - Without a formatter it writes nothing, even enabled: the text stays as
-//     it was and GetFormattedText returns "".
-//   - With SetFormatter, the text is the formatter's text for the remaining
-//     seconds, unrounded (2.949 with "%.1f" -> "2.9"), written at once on
-//     enable and then every tick.
+//     new binding is disabled, updates every tick (interval 0) in real time,
+//     and has no expired or zero text.
+//   - Its text is a format string whose "{}" placeholders each take one
+//     component {property, formatter}; SetFormatter(f) is the format "{}"
+//     with {RemainingDuration, f}. SetTextFormat raises an error, and keeps
+//     the old format, when the counts differ.
+//   - The text: with no duration, or a zero one, the zero text (or ""); once
+//     the duration has expired, the expired text (or ""); else the format,
+//     each value in seconds, the percents 0 to 100.
+//   - It writes only with a font string, a duration and a format
+//     (CanUpdateFontString), and only a text that differs. Every setter
+//     writes at once, also while disabled; enabled, it writes at each tick,
+//     or once `interval` seconds of frame time have added up.
 //   - The binding keeps the duration object, not a copy: a change to it shows
 //     at the next tick. GetDuration returns a new Lua object for it.
-//   - Once the duration has expired, the expired text shows; the binding
-//     stays enabled.
+//   - Enabling takes no reference: a binding Lua no longer holds stops when
+//     it is collected.
 //
-// Not probed, and decided here: a zero (or missing) duration shows the zero
-// text when one is set, before the expired text; Assign copies everything
-// but the enabled state; Copy starts disabled; a "{}" in SetTextFormat with
-// no component writes nothing.
-//
-// An enabled binding updates with no Lua reference to it (retail's aura
-// button keeps one binding because a replaced, still-enabled one would go on
-// writing), so enabling takes a reference and disabling drops it. Updates
-// run at the head of each UI frame (Tick::FrameTick::AutoSubscribeBefore),
-// before its OnUpdate pass and draw, so the text shows in the same frame as a
-// timer bar's fill from that pass; at the tail it would show a frame late.
-// They set the text only when it differs from the font string's own. Destroyed font strings are
-// dropped through Frame::RegionDestruction. Not ported: the color curves
-// (SetTextColorCurve, GetTextColorCurve, ClearTextColorCurve,
-// GetFormattedTextColor).
+// Updates run at the head of each UI frame (Tick::FrameTick::AutoSubscribeBefore),
+// before its OnUpdate pass and draw, as 3.80.2's CSimpleTop update calls its
+// binding tick first (FUN_1405602e0). Destroyed font strings are dropped
+// through Frame::RegionDestruction. Assign and Copy are retail's (3.80.2 has
+// neither). Not ported: the color curves (SetTextColorCurve,
+// GetTextColorCurve, ClearTextColorCurve, GetFormattedTextColor).
 
 #include "Game.h"
 #include "lua/Boxed.h"
+#include "lua/EnumArg.h"
 #include "Offsets.h"
 #include "duration/Object.h"
 #include "frame/RegionDestruction.h"
 #include "text/NumericFormatter.h"
 #include "tick/FrameTick.h"
-#include "time/Clock.h"
 
 #include <algorithm>
 #include <cmath>
@@ -70,6 +67,8 @@ namespace Lua = Game::Lua;
 namespace Fmt = Text::NumericFormatter;
 using Duration::Object::Span;
 
+constexpr const char *kPlaceholder = "{}";
+
 struct Component {
     int property = Duration::Object::PROPERTY_REMAINING_DURATION;
     Fmt::Formatter *formatter = nullptr; // one reference
@@ -77,11 +76,10 @@ struct Component {
 
 struct Binding {
     int refs = 0;
-    bool enabled = false;           // and so held by g_active
+    bool enabled = false; // and so in g_active
+    bool dead = false;    // freed at the end of the tick that collected it
     void *fontString = nullptr;
-    Span *duration = nullptr;       // one reference
-    Fmt::Formatter *formatter = nullptr; // SetFormatter; one reference
-    bool hasTextFormat = false;     // SetTextFormat
+    Span *duration = nullptr; // one reference
     std::string textFormat;
     std::vector<Component> components;
     bool hasExpiredText = false;
@@ -90,13 +88,15 @@ struct Binding {
     std::string zeroText;
     int modifier = 0;
     double interval = 0.0;
-    double lastUpdate = -INFINITY;
+    double accumulated = 0.0;
 };
 
-// Every live binding, for Frame::RegionDestruction; and the enabled ones,
-// each holding a reference.
+// Every live binding, for Frame::RegionDestruction; and the enabled ones.
 std::vector<Binding *> g_all;
 std::vector<Binding *> g_active;
+// While a tick runs, bindings collected in it wait here to be freed.
+bool g_ticking = false;
+std::vector<Binding *> g_dead;
 
 void Retain(Binding *b) { ++b->refs; }
 
@@ -110,10 +110,7 @@ void ClearComponents(Binding &b) {
 void Clear(Binding &b) {
     Duration::Object::Release(b.duration);
     b.duration = nullptr;
-    Fmt::Release(b.formatter);
-    b.formatter = nullptr;
     ClearComponents(b);
-    b.hasTextFormat = false;
     b.textFormat.clear();
     b.fontString = nullptr;
     b.hasExpiredText = b.hasZeroText = false;
@@ -121,15 +118,32 @@ void Clear(Binding &b) {
     b.zeroText.clear();
     b.modifier = 0;
     b.interval = 0.0;
-    b.lastUpdate = -INFINITY;
+    b.accumulated = 0.0;
+}
+
+void Unlink(Binding *b) {
+    b->enabled = false;
+    const auto it = std::find(g_active.begin(), g_active.end(), b);
+    if (it != g_active.end())
+        g_active.erase(it);
+}
+
+void Free(Binding *b) {
+    Clear(*b);
+    g_all.erase(std::find(g_all.begin(), g_all.end(), b));
+    delete b;
 }
 
 void Release(Binding *b) {
     if (b == nullptr || --b->refs != 0)
         return;
-    Clear(*b);
-    g_all.erase(std::find(g_all.begin(), g_all.end(), b));
-    delete b;
+    Unlink(b);
+    if (g_ticking) {
+        b->dead = true;
+        g_dead.push_back(b);
+    } else {
+        Free(b);
+    }
 }
 
 Binding *New() {
@@ -138,12 +152,18 @@ Binding *New() {
     return b;
 }
 
-bool CanFormat(const Binding &b) { return b.formatter != nullptr || b.hasTextFormat; }
+bool CanFormat(const Binding &b) { return b.duration != nullptr && !b.textFormat.empty(); }
 
 bool CanUpdate(const Binding &b) { return CanFormat(b) && b.fontString != nullptr; }
 
+bool IsPercent(int property) {
+    return property == Duration::Object::PROPERTY_REMAINING_PERCENT ||
+           property == Duration::Object::PROPERTY_ELAPSED_PERCENT;
+}
+
 double Sample(const Binding &b, int property) {
-    return b.duration != nullptr ? Duration::Object::Sample(b.duration, property, b.modifier) : 0.0;
+    const double value = Duration::Object::Sample(b.duration, property, b.modifier);
+    return IsPercent(property) ? value * 100.0 : value;
 }
 
 // Appends the formatter's text for `value`; false on a format error, whose
@@ -160,28 +180,22 @@ bool AppendFormatted(void *L, Fmt::Formatter *f, double value, std::string &out)
 // The binding's text. False on a format error, whose message is then pushed.
 bool Formatted(void *L, const Binding &b, std::string &out) {
     out.clear();
-    if (!CanFormat(b))
-        return true;
-    const bool zero = b.duration == nullptr || Duration::Object::IsZero(b.duration);
-    if (zero && b.hasZeroText) {
-        out = b.zeroText;
+    if (b.duration == nullptr || Duration::Object::IsZero(b.duration)) {
+        if (b.hasZeroText)
+            out = b.zeroText;
         return true;
     }
-    if (b.hasExpiredText && (b.duration == nullptr || Duration::Object::HasExpired(b.duration, b.modifier))) {
-        out = b.expiredText;
+    if (Duration::Object::HasExpired(b.duration, b.modifier)) {
+        if (b.hasExpiredText)
+            out = b.expiredText;
         return true;
     }
-    if (b.formatter != nullptr)
-        return AppendFormatted(L, b.formatter, Sample(b, Duration::Object::PROPERTY_REMAINING_DURATION), out);
     size_t next = 0;
     for (size_t i = 0; i < b.textFormat.size(); ++i) {
-        if (b.textFormat[i] == '{' && i + 1 < b.textFormat.size() && b.textFormat[i + 1] == '}') {
-            if (next < b.components.size()) {
-                const Component &c = b.components[next];
-                if (!AppendFormatted(L, c.formatter, Sample(b, c.property), out))
-                    return false;
-            }
-            ++next;
+        if (b.textFormat.compare(i, 2, kPlaceholder) == 0 && next < b.components.size()) {
+            const Component &c = b.components[next++];
+            if (!AppendFormatted(L, c.formatter, Sample(b, c.property), out))
+                return false;
             ++i;
         } else {
             out += b.textFormat[i];
@@ -195,7 +209,6 @@ bool Formatted(void *L, const Binding &b, std::string &out) {
 void Update(void *L, Binding &b) {
     if (!CanUpdate(b))
         return;
-    b.lastUpdate = Time::Clock::NowSeconds();
     const int top = Lua::GetTop(L);
     std::string text;
     const bool ok = Formatted(L, b, text);
@@ -209,33 +222,25 @@ void Update(void *L, Binding &b) {
     reinterpret_cast<SetText_t>(Offsets::FUN_FONTSTRING_SET_TEXT)(b.fontString, nullptr, text.c_str(), 1);
 }
 
-void Disable(Binding *b) {
-    if (!b->enabled)
-        return;
-    b->enabled = false;
-    g_active.erase(std::find(g_active.begin(), g_active.end(), b));
-    Release(b);
-}
-
+// Enable, Disable and SetEnabled each start the interval over.
 void SetEnabled(void *L, Binding *b, bool enabled) {
+    b->accumulated = 0.0;
     if (!enabled) {
-        Disable(b);
+        Unlink(b);
         return;
     }
     if (b->enabled)
         return;
     b->enabled = true;
-    Retain(b);
     g_active.push_back(b);
     Update(L, *b);
 }
 
-// An enabled binding's own reference outlives the Lua state; drop it before
-// the state goes. Copy first: each Disable edits g_active.
+// The Lua state's bindings go with it.
 void PrepareForReload() {
-    const std::vector<Binding *> active = g_active;
-    for (Binding *b : active)
-        Disable(b);
+    for (Binding *b : g_active)
+        b->enabled = false;
+    g_active.clear();
 }
 
 const Game::ReloadAutoRegister _reload{&PrepareForReload};
@@ -246,15 +251,26 @@ void OnTick() {
     void *L = Lua::State();
     if (L == nullptr)
         return;
-    const double now = Time::Clock::NowSeconds();
-    // By index: a format allocation can run the GC, whose finalizers may
-    // release (never free) an active binding.
-    for (size_t i = 0; i < g_active.size(); ++i) {
-        Binding &b = *g_active[i];
-        if (b.interval > 0.0 && now - b.lastUpdate < b.interval)
+    const double elapsed = Tick::FrameTick::Elapsed();
+    // A format allocation can run the GC, whose finalizers may collect a
+    // binding: it is unlinked at once and freed after the loop.
+    g_ticking = true;
+    const std::vector<Binding *> active = g_active;
+    for (Binding *b : active) {
+        if (b->dead || !b->enabled)
             continue;
-        Update(L, b);
+        if (b->interval > 0.0) {
+            b->accumulated += elapsed;
+            if (b->accumulated < b->interval)
+                continue;
+            b->accumulated = 0.0;
+        }
+        Update(L, *b);
     }
+    g_ticking = false;
+    for (Binding *b : g_dead)
+        Free(b);
+    g_dead.clear();
 }
 
 const Tick::FrameTick::AutoSubscribeBefore _tickSub{&OnTick};
@@ -291,10 +307,11 @@ Binding *Self(void *L, const char *usage) {
 
 // An optional string at `idx`: `has` false for nil.
 bool OptionalText(void *L, int idx, const char *usage, bool &has, std::string &out) {
-    has = false;
-    out.clear();
-    if (Lua::Type(L, idx) <= Lua::TYPE_NIL)
+    if (Lua::Type(L, idx) <= Lua::TYPE_NIL) {
+        has = false;
+        out.clear();
         return true;
+    }
     if (!Lua::IsString(L, idx)) {
         Usage(L, idx, usage);
         return false;
@@ -316,19 +333,14 @@ void CopySettings(Binding &to, const Binding &from) {
     if (&to == &from)
         return;
     Span *duration = from.duration;
-    Fmt::Formatter *formatter = from.formatter;
     std::vector<Component> components = from.components;
     if (duration != nullptr)
         Duration::Object::Retain(duration);
-    if (formatter != nullptr)
-        Fmt::Retain(formatter);
     for (Component &c : components)
         Fmt::Retain(c.formatter);
     Clear(to);
     to.fontString = from.fontString;
     to.duration = duration;
-    to.formatter = formatter;
-    to.hasTextFormat = from.hasTextFormat;
     to.textFormat = from.textFormat;
     to.components = std::move(components);
     to.hasExpiredText = from.hasExpiredText;
@@ -352,6 +364,7 @@ int __fastcall Script_Assign(void *L) {
         return 0;
     }
     CopySettings(*b, *other);
+    Update(L, *b);
     return 0;
 }
 
@@ -420,6 +433,7 @@ int __fastcall Script_SetDuration(void *L) {
     Duration::Object::Retain(duration);
     Duration::Object::Release(b->duration);
     b->duration = duration;
+    Update(L, *b);
     return 0;
 }
 
@@ -445,6 +459,7 @@ int __fastcall Script_SetFontString(void *L) {
         return 0;
     }
     b->fontString = fontString;
+    Update(L, *b);
     return 0;
 }
 
@@ -459,6 +474,7 @@ int __fastcall Script_GetFontString(void *L) {
     return 1;
 }
 
+// The format "{}" with the remaining duration (FUN_141b96bc0).
 int __fastcall Script_SetFormatter(void *L) {
     constexpr const char *kUsage = "self:SetFormatter(formatter)";
     Binding *b = Self(L, kUsage);
@@ -470,11 +486,10 @@ int __fastcall Script_SetFormatter(void *L) {
         return 0;
     }
     Fmt::Retain(f);
-    Fmt::Release(b->formatter);
-    b->formatter = f;
     ClearComponents(*b);
-    b->hasTextFormat = false;
-    b->textFormat.clear();
+    b->textFormat = kPlaceholder;
+    b->components.push_back(Component{Duration::Object::PROPERTY_REMAINING_DURATION, f});
+    Update(L, *b);
     return 0;
 }
 
@@ -486,49 +501,29 @@ bool ReadComponent(void *L, int entry, Component &c) {
         return false;
     Lua::PushString(L, "property");
     Lua::RawGet(L, entry);
-    const double p = Lua::Type(L, -1) == Lua::TYPE_NUMBER ? Lua::ToNumber(L, -1) : NAN;
+    int property = -1;
+    const bool hasProperty = Lua::Type(L, -1) == Lua::TYPE_NUMBER &&
+                             Lua::ToEnumByte(L, -1, Duration::Object::PROPERTY_END_TIME, property);
     Lua::PushString(L, "formatter");
     Lua::RawGet(L, entry);
     c.formatter = Fmt::ToFormatter(L, -1);
     Lua::SetTop(L, entry);
-    if (!(p >= Duration::Object::PROPERTY_REMAINING_DURATION && p <= Duration::Object::PROPERTY_END_TIME) ||
-        p != static_cast<int>(p) || c.formatter == nullptr)
+    if (!hasProperty || c.formatter == nullptr)
         return false;
-    c.property = static_cast<int>(p);
+    c.property = property;
     return true;
 }
 
-// Replaces the binding's text format with `formatString` and the component
-// list at stack index `t`, all or nothing.
-bool ApplyTextFormat(void *L, Binding &b, int formatString, int t) {
-    std::vector<Component> components;
-    for (int i = 1;; ++i) {
-        Lua::RawGetI(L, t, i);
-        const int entry = Lua::GetTop(L);
-        Component c;
-        const bool end = Lua::Type(L, entry) == Lua::TYPE_NIL;
-        const bool ok = !end && ReadComponent(L, entry, c);
-        Lua::SetTop(L, entry - 1);
-        if (end)
-            break;
-        if (!ok) {
-            for (Component &read : components)
-                Fmt::Release(read.formatter);
-            return false;
-        }
-        Fmt::Retain(c.formatter);
-        components.push_back(c);
-    }
-    Fmt::Release(b.formatter);
-    b.formatter = nullptr;
-    ClearComponents(b);
-    b.components = std::move(components);
-    b.textFormat.assign(Lua::ToString(L, formatString), Lua::StrLen(L, formatString));
-    b.hasTextFormat = true;
-    return true;
+size_t CountPlaceholders(const std::string &format) {
+    size_t n = 0;
+    for (size_t i = format.find(kPlaceholder); i != std::string::npos; i = format.find(kPlaceholder, i + 2))
+        ++n;
+    return n;
 }
 
-// `components` holds one entry for each "{}" in order.
+// `components` holds one entry for each "{}" in order. A count that differs
+// keeps the old format and raises 3.80.2's error, its numbers in the order it
+// passes them (FUN_140c12970).
 int __fastcall Script_SetTextFormat(void *L) {
     constexpr const char *kUsage = "self:SetTextFormat(formatString, components)";
     Binding *b = Self(L, kUsage);
@@ -538,15 +533,50 @@ int __fastcall Script_SetTextFormat(void *L) {
         Usage(L, 2, kUsage);
         return 0;
     }
-    if (Lua::Type(L, 3) != Lua::TYPE_TABLE || !ApplyTextFormat(L, *b, 2, 3))
+    if (Lua::Type(L, 3) != Lua::TYPE_TABLE) {
         Usage(L, 3, kUsage);
+        return 0;
+    }
+    std::vector<Component> components;
+    bool ok = true;
+    for (int i = 1;; ++i) {
+        Lua::RawGetI(L, 3, i);
+        const int entry = Lua::GetTop(L);
+        const bool end = Lua::Type(L, entry) == Lua::TYPE_NIL;
+        Component c;
+        ok = end || ReadComponent(L, entry, c);
+        Lua::SetTop(L, entry - 1);
+        if (end || !ok)
+            break;
+        Fmt::Retain(c.formatter);
+        components.push_back(c);
+    }
+    std::string format(Lua::ToString(L, 2), Lua::StrLen(L, 2));
+    const size_t placeholders = CountPlaceholders(format);
+    const size_t count = components.size();
+    if (!ok || placeholders != count) {
+        for (Component &c : components)
+            Fmt::Release(c.formatter);
+        if (!ok)
+            Usage(L, 3, kUsage);
+        else
+            Lua::Error(L, "DurationTextBinding:SetTextFormat(): expected %u format components for %u placeholders",
+                       static_cast<unsigned>(placeholders), static_cast<unsigned>(count));
+        return 0;
+    }
+    ClearComponents(*b);
+    b->components = std::move(components);
+    b->textFormat = std::move(format);
+    Update(L, *b);
     return 0;
 }
 
 int __fastcall Script_SetExpiredText(void *L) {
     constexpr const char *kUsage = "self:SetExpiredText([text])";
-    if (Binding *b = Self(L, kUsage))
-        OptionalText(L, 2, kUsage, b->hasExpiredText, b->expiredText);
+    if (Binding *b = Self(L, kUsage)) {
+        if (OptionalText(L, 2, kUsage, b->hasExpiredText, b->expiredText))
+            Update(L, *b);
+    }
     return 0;
 }
 
@@ -560,8 +590,10 @@ int __fastcall Script_GetExpiredText(void *L) {
 
 int __fastcall Script_SetZeroDurationText(void *L) {
     constexpr const char *kUsage = "self:SetZeroDurationText([text])";
-    if (Binding *b = Self(L, kUsage))
-        OptionalText(L, 2, kUsage, b->hasZeroText, b->zeroText);
+    if (Binding *b = Self(L, kUsage)) {
+        if (OptionalText(L, 2, kUsage, b->hasZeroText, b->zeroText))
+            Update(L, *b);
+    }
     return 0;
 }
 
@@ -584,6 +616,7 @@ int __fastcall Script_SetTimeModifier(void *L) {
         return 0;
     }
     b->modifier = m;
+    Update(L, *b);
     return 0;
 }
 
@@ -595,17 +628,19 @@ int __fastcall Script_GetTimeModifier(void *L) {
     return 1;
 }
 
+// A negative interval is 0 (FUN_141b969f0's setter clamps, with no error).
 int __fastcall Script_SetUpdateInterval(void *L) {
     constexpr const char *kUsage = "self:SetUpdateInterval(updateInterval)";
     Binding *b = Self(L, kUsage);
     if (b == nullptr)
         return 0;
     const double n = Lua::Type(L, 2) == Lua::TYPE_NUMBER ? Lua::ToNumber(L, 2) : NAN;
-    if (!(n >= 0.0) || !std::isfinite(n)) {
+    if (!std::isfinite(n)) {
         Usage(L, 2, kUsage);
         return 0;
     }
-    b->interval = n;
+    b->interval = n > 0.0 ? n : 0.0;
+    b->accumulated = 0.0;
     return 0;
 }
 
@@ -645,10 +680,8 @@ int __fastcall Script_UpdateFontString(void *L) {
 // Clears everything and disables the binding.
 int __fastcall Script_SetToDefaults(void *L) {
     if (Binding *b = Self(L, "self:SetToDefaults()")) {
-        Retain(b); // SetEnabled(false) may drop the last reference but ours
         SetEnabled(L, b, false);
         Clear(*b);
-        Release(b);
     }
     return 0;
 }

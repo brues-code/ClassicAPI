@@ -28,6 +28,15 @@
 // range as it is goes straight to the original. Each class's XML range goes
 // through the same setter after its <Scripts>, as in 4.3.4, so the script
 // runs on load too.
+//
+// A bar leaving a timer (StatusBar::Display) takes the 3.80.2 client's path
+// (FUN_1428cc920): the range is always new, so OnMinMaxChanged runs, and the
+// bar is left with no value, so nothing re-applies one and the fill keeps
+// its last drawing until a SetValue. Every other bar keeps 1.12's re-apply,
+// which runs OnValueChanged on every range change: stock 1.12 code needs it
+// (TextStatusBar refreshes its "value / max" text only on OnValueChanged,
+// and UnitFrameHealthBar_Update sets the range, then a value that may not
+// have moved).
 
 #include "Game.h"
 #include "Offsets.h"
@@ -90,8 +99,19 @@ void __fastcall SliderSetMinMax_h(void *slider, void *edx, float min, float max)
 }
 
 void __fastcall StatusBarSetMinMax_h(void *bar, void *edx, float min, float max) {
-    StatusBar::Display::ClearTimer(bar);
     const float storedMin = min > max ? max : min;
+    if (StatusBar::Display::ClearTimer(bar)) {
+        Flags(bar) &= ~kValueSet;
+        StoreAndRun(g_origStatusBar, g_onStatusBarMinMaxChanged, bar, edx, min, max, storedMin, max);
+        if ((Flags(bar) & kValueSet) != 0) // set by the script
+            reinterpret_cast<SetValue_t>(Game::Read<uintptr_t>(*static_cast<void **>(bar),
+                                                               Offsets::OFF_VMT_STATUSBAR_SET_VALUE))(
+                bar, edx, Game::Read<float>(bar, Offsets::OFF_VALUE_VALUE));
+        else // GetValue reads the minimum of a bar with no value
+            *reinterpret_cast<float *>(static_cast<char *>(bar) + Offsets::OFF_VALUE_VALUE) =
+                Game::Read<float>(bar, Offsets::OFF_VALUE_MIN);
+        return;
+    }
     if ((Flags(bar) & Offsets::VALUE_FLAG_RANGE_SET) != 0 &&
         Game::Read<float>(bar, Offsets::OFF_VALUE_MIN) == storedMin &&
         Game::Read<float>(bar, Offsets::OFF_STATUSBAR_MAX) == max) {

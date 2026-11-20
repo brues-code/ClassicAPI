@@ -5922,8 +5922,8 @@ end
 ### `C_DurationUtil.CreateDuration()`
 
 Returns a new duration object. A duration object holds a time span: a start
-time and a total duration. All times are `GetTime()` seconds. A new duration
-object holds a zero time span that starts at 0.
+time and a total duration. All times are `GetTime()` seconds, kept in whole
+milliseconds. A new duration object holds a zero time span that starts at 0.
 
 ```lua
 local duration = C_DurationUtil.CreateDuration()
@@ -5947,7 +5947,7 @@ argument (see below):
 | Method | Returns |
 |---|---|
 | `GetStartTime()` | The start time. |
-| `GetEndTime()` | The start time plus the total duration. |
+| `GetEndTime()` | The end time. |
 | `GetTotalDuration()` | The total duration, in seconds. |
 | `GetElapsedDuration()` | The seconds from the start time to now, from 0 to the total duration. Before the start time, it is 0. |
 | `GetRemainingDuration()` | The total duration minus the elapsed duration. Before the start time, it is the total duration. |
@@ -5968,13 +5968,18 @@ These methods take no arguments:
 | `HasSecretValues()` | Always `false`. |
 
 - A new or reset duration object has started and has expired.
-- `modRate` must be more than 0. It changes only the results for
-  `Enum.DurationTimeModifier.BaseTime`.
+- `modRate` changes only the results for
+  `Enum.DurationTimeModifier.BaseTime`. A mod rate of 0 works as 1.
 - `modifier` is a value of `Enum.DurationTimeModifier`. `RealTime` (0) is
-  the default. With `BaseTime` (1), the total duration is the total duration
-  divided by the mod rate, from the same start time. For example, 1 second
-  into a 4-second time span with a mod rate of 2, the remaining duration is
-  1 second of a 2-second total.
+  the default. With `BaseTime` (1), the total duration is the duration
+  divided by the mod rate. A time span from `SetTimeFromStart` keeps its
+  start time, and a time span from `SetTimeFromEnd` keeps its end time. For
+  example, 1 second into a 4-second time span from `SetTimeFromStart` with a
+  mod rate of 2, the remaining duration is 1 second of a 2-second total.
+  `SetTimeSpan` has no mod rate.
+- Use a start time and a duration that are not negative. A negative value is
+  not an error, but it gives a very large time span.
+- Two Lua objects for the same time span are equal (`==`).
 - A function that returns a duration object returns a new Lua object on each
   call. Two of these Lua objects can hold the same time span. For example,
   `statusBar:GetTimerDuration` returns a new Lua object for the time span
@@ -6006,18 +6011,20 @@ binding:SetFormatter(formatter)
 binding:SetEnabled(true)
 ```
 
-A new text binding is disabled. It writes text only when it is enabled and
-it has a font string and a format. These methods configure it:
+A new text binding is disabled. It writes text only when it has a font
+string, a duration object and a format. Each `Set...` method writes the text
+at once, also when the binding is disabled. When the binding is enabled, it
+also writes the text on each frame. These methods configure it:
 
 | Method | Result |
 |---|---|
 | `SetFontString(fontString)` / `GetFontString()` | The font string that gets the text. |
 | `SetDuration(duration)` / `GetDuration()` | The duration object. The binding keeps the object, not a copy. |
 | `SetFormatter(formatter)` | The text is the text of `formatter` for the remaining seconds. |
-| `SetTextFormat(formatString, components)` | The text is `formatString`, with each `{}` replaced by the text of one component, in order. |
+| `SetTextFormat(formatString, components)` | The text is `formatString`, with each `{}` replaced by the text of one component, in order. The number of `{}` must be the same as the number of components. If it is not, the call is an error and the binding keeps its old format. |
 | `SetExpiredText([text])` / `GetExpiredText()` | The text after the end time. `nil` removes it. |
 | `SetZeroDurationText([text])` / `GetZeroDurationText()` | The text for a zero time span, or when the binding has no duration object. `nil` removes it. |
-| `SetUpdateInterval(seconds)` / `GetUpdateInterval()` | The minimum time between two updates. 0, the default, updates on each frame. |
+| `SetUpdateInterval(seconds)` / `GetUpdateInterval()` | The time between two updates, counted in frame time. 0, the default, updates on each frame. A negative value is 0. |
 | `SetTimeModifier(modifier)` / `GetTimeModifier()` | The `Enum.DurationTimeModifier` that the binding reads the time span with. The default is `RealTime`. |
 | `SetEnabled(enabled)`, `Enable()`, `Disable()` / `IsEnabled()` | Starts or stops the updates. |
 
@@ -6026,7 +6033,8 @@ Each component of `SetTextFormat` is a table
 `Enum.DurationTextBindingProperty`: `RemainingDuration` (0),
 `RemainingPercent` (1), `ElapsedDuration` (2), `ElapsedPercent` (3),
 `TotalDuration` (4), `StartTime` (5) or `EndTime` (6). `formatter` is a
-`NumericRuleFormatter`.
+`NumericRuleFormatter`. The durations and times are in seconds.
+`RemainingPercent` and `ElapsedPercent` go from 0 to 100.
 
 ```lua
 binding:SetTextFormat("{} / {}", {
@@ -6039,25 +6047,25 @@ Other methods:
 
 | Method | Result |
 |---|---|
-| `GetFormattedText()` | The text that the binding writes now, or `""` when it has no format. |
+| `GetFormattedText()` | The text that the binding writes now. |
 | `UpdateFontString()` | Writes the text now. |
-| `CanFormatText()` | `true` when the binding has a format. |
-| `CanUpdateFontString()` | `true` when the binding has a format and a font string. |
+| `CanFormatText()` | `true` when the binding has a duration object and a format that is not empty. |
+| `CanUpdateFontString()` | `true` when `CanFormatText()` is `true` and the binding has a font string. |
 | `Copy()` | A new binding with the same configuration. The copy is disabled. |
 | `Assign(other)` | Copies the configuration of the binding `other`. The enabled state does not change. |
 | `SetToDefaults()` | Removes the configuration and disables the binding. |
 | `HasSecretValues()` | Always `false`. |
 
-- An enabled binding continues to update when your code has no reference
-  to it. To stop it, disable it.
+- Keep a reference to an enabled binding. When Lua collects a binding that
+  your code has no reference to, the binding stops.
 - When you enable a binding, it writes the text immediately.
 - The binding writes the text only when the text changes.
-- After the end time, the binding shows the expired text, if it has one.
-  The binding stays enabled.
-- A zero time span shows the zero duration text before the expired text.
+- A zero time span, or no duration object, shows the zero duration text. If
+  the binding has no zero duration text, it shows no text.
+- After the end time, the binding shows the expired text. If the binding has
+  no expired text, it shows no text. The binding stays enabled.
 - When the font string goes away with its frame, the binding has no font
   string. It then writes nothing.
-- A `{}` with no component writes nothing.
 - The color curve methods are not available.
 
 ## EquipmentSet
@@ -10370,9 +10378,14 @@ end
   span of the object later, the bar shows the change on the next frame.
 - After the end time, the bar stays full (`ElapsedTime`) or empty
   (`RemainingTime`). The timer stays on the bar.
+- A zero time span shows an empty bar. With the `StandardNoRangeFill` fill
+  style, it shows a full bar.
 - While the bar has a timer, `GetValue()` returns 0 and `GetMinMaxValues()`
   returns 0, 0. The timer does not run the `OnValueChanged` script.
-- `SetValue` does not remove the timer. `SetMinMaxValues` removes it.
+- `SetValue` does nothing on a bar with a timer. `SetMinMaxValues` removes
+  the timer and runs `OnMinMaxChanged`. The bar then has no value:
+  `GetValue()` returns the minimum, and the fill does not change until the
+  next `SetValue`.
 - A hidden bar does not move. When it shows again, its fill is correct on
   its first frame.
 - The bar keeps its fill style, from `SetFillStyle`, `SetReverseFill` and
@@ -10405,14 +10418,16 @@ healthBar:SetValue(UnitHealth("target"), Enum.StatusBarInterpolation.Exponential
   with `elapsed` in seconds. The speed does not change with the frame rate.
 - The ease works on the fill as a part of the bar. Thus, a full-bar jump
   takes the same time on each range: approximately 0.4 seconds.
-- When the gap is less than 0.1% of the bar, the next frame shows the new
-  value and the ease stops.
+- When the gap is less than 0.1% of the bar at the start of a frame, that
+  frame shows the new value and the ease stops.
 - `GetValue()` returns the new value at once. `OnValueChanged` runs one
   time, at the call, with the new value.
 - A new eased value continues from the fill that the bar shows. An
-  `Immediate` value stops the ease.
-- With `SetMinMaxValues`, the fill keeps its part of the bar and eases to
-  the part that the value has in the new range.
+  `Immediate` value stops the ease. This is also true when the value does
+  not change.
+- `SetMinMaxValues` uses `interpolation` only when the range changes and the
+  bar has a value. Then the fill keeps its part of the bar and eases to the
+  part that the value has in the new range.
 - A hidden bar does not ease. It continues when it shows again.
 - Any `interpolation` value other than `ExponentialEaseOut` works as
   `Immediate`. It does not cause an error.
@@ -10423,7 +10438,7 @@ healthBar:SetValue(UnitHealth("target"), Enum.StatusBarInterpolation.Exponential
 now. While the bar eases, it is between the old value and the new value.
 Else it is the same as `GetValue()`. `statusBar:IsInterpolating()` returns
 `true` while the bar eases. `statusBar:SetToTargetValue()` stops the ease
-and shows the value at once.
+and shows the value at once. When the bar does not ease, it does nothing.
 
 ### `statusBar:SetColorFill(colorR, colorG, colorB [, a])`
 
@@ -28031,21 +28046,22 @@ the same as for [`GetTotemInfo`](#gettoteminfoslot).
 
 Returns a [duration object](#c_durationutilcreateduration) for the active
 totem in the slot. Its time span starts when the totem appears and lasts
-the full duration of the totem. When the slot has no active totem, the
-duration object holds a zero time span. Each call returns a new duration
-object.
+the full duration of the totem. When the slot has no active totem, it
+returns nothing. Each call returns a new duration object.
 
 ```lua
 local duration = GetTotemDuration(1)
-print(duration:GetTotalDuration())      -- e.g. 60
-bar:SetTimerDuration(duration, Enum.StatusBarInterpolation.Immediate,
-    Enum.StatusBarTimerDirection.RemainingTime)
+if duration then
+    print(duration:GetTotalDuration())  -- e.g. 60
+    bar:SetTimerDuration(duration, Enum.StatusBarInterpolation.Immediate,
+        Enum.StatusBarTimerDirection.RemainingTime)
+end
 ```
 
 - The times are exact. `GetTotemInfo` gives the start time and the
   duration in whole seconds.
-
-The slot errors are the same as for [`GetTotemInfo`](#gettoteminfoslot).
+- A slot that is not a number is an error. A slot that is out of range
+  returns nothing.
 
 ### `TargetTotem(slot)`
 

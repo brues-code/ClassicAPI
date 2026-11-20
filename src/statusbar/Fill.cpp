@@ -63,6 +63,7 @@
 #include "xml/FrameLoad.h"
 #include "xml/TypeLoad.h"
 
+#include <cmath>
 #include <cstdint>
 #include <unordered_map>
 
@@ -120,13 +121,21 @@ void BarSize(void *bar, float &width, float &height) {
 }
 
 // The bar's own GetFillFraction (4.3.4's GetAnimValue, which a timer or an
-// ease answers), with StandardNoRangeFill's full bar for an empty range. A
-// timed bar's range is 0..0, so the style never overrides a timer.
+// ease answers), with StandardNoRangeFill's full bar for a range under 0.001
+// or a zero timer (3.80.2's FUN_1428ccd90).
 float FillFraction(void *bar, int fillStyle) {
-    const float min = Game::Read<float>(bar, Offsets::OFF_VALUE_MIN);
-    const float max = Game::Read<float>(bar, Offsets::OFF_STATUSBAR_MAX);
-    if (fillStyle == kStandardNoRangeFill && !(max - min > 0.0f) && (min != 0.0f || max != 0.0f))
-        return 1.0f;
+    if (fillStyle == kStandardNoRangeFill) {
+        bool zero = false;
+        if (StatusBar::Display::HasTimer(bar, zero)) {
+            if (zero)
+                return 1.0f;
+        } else {
+            const float min = Game::Read<float>(bar, Offsets::OFF_VALUE_MIN);
+            const float max = Game::Read<float>(bar, Offsets::OFF_STATUSBAR_MAX);
+            if (std::fabs(max - min) < 0.001f)
+                return 1.0f;
+        }
+    }
     return reinterpret_cast<GetFillFraction_t>(Game::Read<uintptr_t>(
         *static_cast<void **>(bar), Offsets::OFF_VMT_STATUSBAR_GET_FILL_FRACTION))(bar, nullptr);
 }

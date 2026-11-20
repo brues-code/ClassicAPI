@@ -1034,10 +1034,10 @@ static int __fastcall Script_UnitCastingInfo(void *L) {
     return PushCastInfo(L, c.spell, c.guid, c.unit);
 }
 
-// Pushes a duration object for [startMs, endMs] in GetTime() seconds.
+// Pushes a duration object from startMs to endMs, a span by start and end
+// with no mod rate, as 3.80.2's UnitCastingDuration builds it.
 static int PushDuration(void *L, int startMs, int endMs) {
-    Duration::Object::PushFromStart(L, static_cast<double>(static_cast<uint32_t>(startMs)) * 0.001,
-                                    static_cast<double>(endMs - startMs) * 0.001);
+    Duration::Object::PushSpan(L, static_cast<uint32_t>(startMs), static_cast<uint32_t>(endMs));
     return 1;
 }
 

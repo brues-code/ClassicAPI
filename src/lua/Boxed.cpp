@@ -26,7 +26,7 @@ void SetFunction(void *L, const char *name, CFunction fn) {
 } // namespace
 
 void CreateMetatable(void *L, const char *key, const Method *methods, size_t count, CFunction gc,
-                     CFunction tostring) {
+                     CFunction tostring, CFunction eq) {
     PushMetatable(L, key);
     const bool exists = Type(L, -1) == TYPE_TABLE;
     SetTop(L, -2);
@@ -41,6 +41,8 @@ void CreateMetatable(void *L, const char *key, const Method *methods, size_t cou
     SetTable(L, -3);
     SetFunction(L, "__gc", gc);
     SetFunction(L, "__tostring", tostring);
+    if (eq != nullptr)
+        SetFunction(L, "__eq", eq);
     PushString(L, "__metatable");
     PushBool(L, false);
     SetTable(L, -3);

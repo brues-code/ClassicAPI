@@ -11,41 +11,47 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// `C_DurationUtil.CreateDuration()` and `Enum.DurationTimeModifier`
-// (DurationUtilDocumentation.lua, LuaDurationObjectAPIDocumentation.lua). The
-// object is C in retail, so what follows is retail's behavior as probed in a
-// 12.1.5 client (2026-11-01; the log is in docs/notes/duration-timer.md):
+// `C_DurationUtil.CreateDuration()` and `Enum.DurationTimeModifier`, as the
+// 3.80.2 client's LuaDurationObject keeps them (method table FUN_140d322e0;
+// the span helpers around 0x141ba4000):
 //
 //   - The object is a userdata, tostring "LuaDurationObject: <address>",
-//     getmetatable false. A span is a start time, a total and a mod rate.
-//   - Elapsed is now - start clamped to [0, total]; remaining is total -
-//     elapsed, so before the start it is the whole total. The percents are
-//     0 to 1; a zero span is 100% elapsed, 0% remaining.
-//   - HasStarted is now >= start, HasExpired now >= end, IsActive between
-//     them. A fresh or Reset object (start 0, total 0) has started and
-//     expired.
-//   - SetTimeSpan with the end before the start keeps the start and a zero
-//     total. SetTimeFromEnd sets the start to end - duration.
-//   - modRate leaves every real-time answer alone. In base time the total is
-//     total / modRate from the same start: 1 s into a 4 s span at mod rate 2
-//     has 1 s left of a 2 s total.
+//     getmetatable false; two Lua values on one object compare equal (__eq
+//     0x140d34e80).
+//   - Times are whole milliseconds in 32 bits: an argument becomes
+//     (int)(x * 1000), truncated and wrapping past 2^32 (FUN_140c2e220), and
+//     a value comes back as ms * 0.001 (FUN_140c2e110). Compares are
+//     unsigned, as GetTime()'s clock is.
+//   - A span is one of four forms: empty (new, Reset), from a start
+//     (SetTimeFromStart), from an end (SetTimeFromEnd), or a start and an
+//     end (SetTimeSpan). The first two keep a duration and a float mod rate,
+//     stored as given: no clamp, no check of the rate.
+//   - Real time ignores the mod rate. Base time divides the duration by it
+//     (a rate of 0 counts as 1), keeping the start of a span from a start
+//     and the end of a span from an end; a span by start and end has no
+//     rate.
+//   - Elapsed and remaining are 0 before / after the span as 3.80.2's
+//     FUN_141ba4280 / FUN_141ba40f0 compute them; the percents are floats,
+//     elapsed 1 and remaining 0 for a zero total.
+//   - HasStarted is start <= now, HasExpired end <= now, IsActive between.
+//     IsZero is a zero real-time total.
 //   - Copy is independent of the original; Reset does not reach a copy.
 //
-// Times are GetTime() seconds and the clock is GetTime()'s, so a span
-// straddling the 2^32 ms tick wrap jumps exactly as GetTime() does.
-//
-// The Format* methods hand the value to a Text::NumericFormatter. Not ported:
-// the Evaluate* methods (retail curve objects) and SetClock /
-// C_DurationUtil.CreateManualClock. 1.12 has no secret values, so
-// HasSecretValues is always false.
+// The Format* methods hand the value (ms * 0.001) to a Text::NumericFormatter.
+// Not ported: the Evaluate* methods (curve objects), SetClock /
+// C_DurationUtil.CreateManualClock, and per-object fields (3.80.2 stores
+// assigned keys in a table of the object's own). 1.12 has no secret values,
+// so HasSecretValues is always false.
 
 #include "duration/Object.h"
 
 #include "Game.h"
 #include "lua/Boxed.h"
+#include "lua/EnumArg.h"
 #include "text/NumericFormatter.h"
 #include "time/Clock.h"
 
+#include <cfloat>
 #include <cmath>
 #include <cstdio>
 
@@ -53,11 +59,21 @@ namespace Duration::Object {
 
 namespace Lua = Game::Lua;
 
+enum Form : int {
+    FORM_EMPTY = 0,
+    FORM_FROM_START = 1,
+    FORM_FROM_END = 2,
+    FORM_SPAN = 3,
+};
+
+// `a`: the start (FromStart, Span) or the end (FromEnd); `b`: the duration
+// (FromStart, FromEnd) or the end (Span), every one in ms.
 struct Span {
     int refs = 0;
-    double start = 0.0;
-    double total = 0.0;
-    double modRate = 1.0;
+    Form form = FORM_EMPTY;
+    uint32_t a = 0;
+    uint32_t b = 0;
+    float modRate = 1.0f;
 };
 
 void Retain(Span *s) { ++s->refs; }
@@ -77,33 +93,97 @@ enum Modifier : int {
 
 constexpr const char *kMetatableKey = "ClassicAPI.LuaDurationObject";
 
-double Total(const Span &s, int m) { return m == MODIFIER_BASE_TIME ? s.total / s.modRate : s.total; }
-
-double Elapsed(const Span &s, int m, double now) {
-    const double e = now - s.start;
-    const double total = Total(s, m);
-    return e < 0.0 ? 0.0 : (e > total ? total : e);
+// The duration in base time: (int)(ms * 0.001 / rate * 1000), a rate of 0
+// read as 1 (0x141ba4b90).
+uint32_t Scaled(const Span &s) {
+    const double rate = s.modRate == 0.0f ? 1.0 : static_cast<double>(s.modRate);
+    const double ms = static_cast<double>(s.b) * 0.001 / rate * 1000.0;
+    return static_cast<uint32_t>(static_cast<int32_t>(static_cast<int64_t>(ms)));
 }
 
-double ElapsedPct(const Span &s, int m, double now) {
-    const double total = Total(s, m);
-    return total > 0.0 ? Elapsed(s, m, now) / total : 1.0;
+uint32_t Duration(const Span &s, int m) { return m == MODIFIER_BASE_TIME ? Scaled(s) : s.b; }
+
+uint32_t Start(const Span &s, int m) {
+    switch (s.form) {
+    case FORM_FROM_START:
+    case FORM_SPAN:
+        return s.a;
+    case FORM_FROM_END:
+        return s.a - Duration(s, m);
+    default:
+        return 0;
+    }
 }
 
-double RemainingPct(const Span &s, int m, double now) {
-    const double total = Total(s, m);
-    return total > 0.0 ? (total - Elapsed(s, m, now)) / total : 0.0;
+uint32_t End(const Span &s, int m) {
+    switch (s.form) {
+    case FORM_FROM_START:
+        return s.a + Duration(s, m);
+    case FORM_FROM_END:
+        return s.a;
+    case FORM_SPAN:
+        return s.b;
+    default:
+        return 0;
+    }
 }
 
-void Set(Span &s, double start, double total, double modRate) {
-    s.start = start;
-    s.total = total > 0.0 ? total : 0.0;
+uint32_t Total(const Span &s, int m) {
+    switch (s.form) {
+    case FORM_FROM_START:
+    case FORM_FROM_END:
+        return Duration(s, m);
+    case FORM_SPAN:
+        return s.b - s.a;
+    default:
+        return 0;
+    }
+}
+
+uint32_t Remaining(const Span &s, int m, uint32_t now) {
+    const uint32_t start = Start(s, m);
+    const uint32_t end = End(s, m);
+    if (start < end && now < end)
+        return start < now ? end - now : Total(s, m);
+    return 0;
+}
+
+uint32_t Elapsed(const Span &s, int m, uint32_t now) {
+    const uint32_t start = Start(s, m);
+    const uint32_t end = End(s, m);
+    if (start < end && start < now)
+        return now < end ? now - start : Total(s, m);
+    return 0;
+}
+
+float RemainingPct(const Span &s, int m, uint32_t now) {
+    const uint32_t total = Total(s, m);
+    if (total == 0)
+        return 0.0f;
+    return static_cast<float>(Remaining(s, m, now) * 0.001 / (total * 0.001));
+}
+
+float ElapsedPct(const Span &s, int m, uint32_t now) {
+    const uint32_t total = Total(s, m);
+    if (total == 0)
+        return 1.0f;
+    return static_cast<float>(Elapsed(s, m, now) * 0.001 / (total * 0.001));
+}
+
+double Seconds(uint32_t ms) { return static_cast<double>(ms) * 0.001; }
+
+void Set(Span &s, Form form, uint32_t a, uint32_t b, float modRate) {
+    s.form = form;
+    s.a = a;
+    s.b = b;
     s.modRate = modRate;
 }
 
 // ---- arguments ------------------------------------------------------------------
 
-void Usage(void *L, int arg, const char *usage) { Lua::Error(L, "bad argument #%d to '?' (Usage: %s)", arg, usage); }
+void Usage(void *L, int arg, const char *usage) {
+    Lua::Error(L, "bad argument #%d to '?' (Usage: %s)", arg, usage);
+}
 
 Span *Self(void *L, const char *usage) {
     Span *s = ToSpan(L, 1);
@@ -112,24 +192,42 @@ Span *Self(void *L, const char *usage) {
     return s;
 }
 
-// A finite number at `idx`; raises the usage error otherwise.
-bool Number(void *L, int idx, const char *usage, double &out) {
-    out = Lua::Type(L, idx) == Lua::TYPE_NUMBER ? Lua::ToNumber(L, idx) : NAN;
-    if (std::isfinite(out))
-        return true;
-    Usage(L, idx, usage);
-    return false;
+// A finite number of seconds at `idx` as ms: truncated, wrapping past 2^32.
+bool Time(void *L, int idx, const char *usage, uint32_t &out) {
+    const double x = Lua::Type(L, idx) == Lua::TYPE_NUMBER ? Lua::ToNumber(L, idx) : NAN;
+    if (!std::isfinite(x)) {
+        Usage(L, idx, usage);
+        return false;
+    }
+    double ms = std::fmod(std::trunc(x * 1000.0), 4294967296.0);
+    if (ms < 0.0)
+        ms += 4294967296.0;
+    out = static_cast<uint32_t>(ms);
+    return true;
 }
 
-// The optional mod rate at `idx`: 1 when nil, else a positive number.
-bool ModRate(void *L, int idx, const char *usage, double &out) {
-    out = 1.0;
+// The optional mod rate at `idx`: 1 when nil, else any finite float, zero
+// and negative ones too (FUN_140a6df60).
+bool ModRate(void *L, int idx, const char *usage, float &out) {
+    out = 1.0f;
     if (Lua::Type(L, idx) <= Lua::TYPE_NIL)
         return true;
-    if (Number(L, idx, usage, out) && out > 0.0)
-        return true;
-    Usage(L, idx, usage);
-    return false;
+    if (Lua::Type(L, idx) != Lua::TYPE_NUMBER) {
+        Usage(L, idx, usage);
+        return false;
+    }
+    const double rate = Lua::ToNumber(L, idx);
+    if (!std::isfinite(rate)) {
+        Lua::Error(L, "bad argument #%d to '?' (must be a finite number - Usage: %s)", idx, usage);
+        return false;
+    }
+    if (rate < -FLT_MAX || rate > FLT_MAX) {
+        Lua::Error(L, "bad argument #%d to '?' (outside of expected range %e to %e - Usage: %s)",
+                   idx, static_cast<double>(-FLT_MAX), static_cast<double>(FLT_MAX), usage);
+        return false;
+    }
+    out = static_cast<float>(rate);
+    return true;
 }
 
 // The optional DurationTimeModifier at `idx`: RealTime when nil.
@@ -148,58 +246,62 @@ template <typename Answer> int Query(void *L, const char *usage, Answer answer) 
     int m;
     if (s == nullptr || !ModifierArg(L, 2, usage, m))
         return 0;
-    answer(*s, m, Time::Clock::NowSeconds());
+    answer(*s, m, Time::Clock::NowMs());
     return 1;
 }
 
 int __fastcall Script_GetStartTime(void *L) {
     return Query(L, "local startTime = self:GetStartTime([modifier])",
-                 [L](const Span &s, int, double) { Lua::PushNumber(L, s.start); });
+                 [L](const Span &s, int m, uint32_t) { Lua::PushNumber(L, Seconds(Start(s, m))); });
 }
 
 int __fastcall Script_GetEndTime(void *L) {
     return Query(L, "local endTime = self:GetEndTime([modifier])",
-                 [L](const Span &s, int m, double) { Lua::PushNumber(L, s.start + Total(s, m)); });
+                 [L](const Span &s, int m, uint32_t) { Lua::PushNumber(L, Seconds(End(s, m))); });
 }
 
 int __fastcall Script_GetTotalDuration(void *L) {
     return Query(L, "local totalDuration = self:GetTotalDuration([modifier])",
-                 [L](const Span &s, int m, double) { Lua::PushNumber(L, Total(s, m)); });
+                 [L](const Span &s, int m, uint32_t) { Lua::PushNumber(L, Seconds(Total(s, m))); });
 }
 
 int __fastcall Script_GetElapsedDuration(void *L) {
     return Query(L, "local elapsedDuration = self:GetElapsedDuration([modifier])",
-                 [L](const Span &s, int m, double now) { Lua::PushNumber(L, Elapsed(s, m, now)); });
+                 [L](const Span &s, int m, uint32_t now) {
+                     Lua::PushNumber(L, Seconds(Elapsed(s, m, now)));
+                 });
 }
 
 int __fastcall Script_GetRemainingDuration(void *L) {
     return Query(L, "local remainingDuration = self:GetRemainingDuration([modifier])",
-                 [L](const Span &s, int m, double now) { Lua::PushNumber(L, Total(s, m) - Elapsed(s, m, now)); });
+                 [L](const Span &s, int m, uint32_t now) {
+                     Lua::PushNumber(L, Seconds(Remaining(s, m, now)));
+                 });
 }
 
 int __fastcall Script_GetElapsedPercent(void *L) {
     return Query(L, "local elapsedPercent = self:GetElapsedPercent([modifier])",
-                 [L](const Span &s, int m, double now) { Lua::PushNumber(L, ElapsedPct(s, m, now)); });
+                 [L](const Span &s, int m, uint32_t now) { Lua::PushNumber(L, ElapsedPct(s, m, now)); });
 }
 
 int __fastcall Script_GetRemainingPercent(void *L) {
     return Query(L, "local remainingPercent = self:GetRemainingPercent([modifier])",
-                 [L](const Span &s, int m, double now) { Lua::PushNumber(L, RemainingPct(s, m, now)); });
+                 [L](const Span &s, int m, uint32_t now) { Lua::PushNumber(L, RemainingPct(s, m, now)); });
 }
 
 int __fastcall Script_HasStarted(void *L) {
     return Query(L, "local hasStarted = self:HasStarted([modifier])",
-                 [L](const Span &s, int, double now) { Lua::PushBool(L, now >= s.start); });
+                 [L](const Span &s, int m, uint32_t now) { Lua::PushBool(L, Start(s, m) <= now); });
 }
 
 int __fastcall Script_HasExpired(void *L) {
     return Query(L, "local hasExpired = self:HasExpired([modifier])",
-                 [L](const Span &s, int m, double now) { Lua::PushBool(L, now >= s.start + Total(s, m)); });
+                 [L](const Span &s, int m, uint32_t now) { Lua::PushBool(L, End(s, m) <= now); });
 }
 
 int __fastcall Script_IsActive(void *L) {
-    return Query(L, "local isActive = self:IsActive([modifier])", [L](const Span &s, int m, double now) {
-        Lua::PushBool(L, now >= s.start && now < s.start + Total(s, m));
+    return Query(L, "local isActive = self:IsActive([modifier])", [L](const Span &s, int m, uint32_t now) {
+        Lua::PushBool(L, Start(s, m) <= now && now < End(s, m));
     });
 }
 
@@ -243,15 +345,18 @@ int __fastcall Script_IsZero(void *L) {
     Span *s = Self(L, "local isZero = self:IsZero()");
     if (s == nullptr)
         return 0;
-    Lua::PushBool(L, s->total == 0.0);
+    Lua::PushBool(L, IsZero(s));
     return 1;
 }
 
+// The stored rate of a span with a duration, else 1 (0x141ba4b80 /
+// 0x140549dc0).
 int __fastcall Script_GetModRate(void *L) {
     Span *s = Self(L, "local modRate = self:GetModRate()");
     if (s == nullptr)
         return 0;
-    Lua::PushNumber(L, s->modRate);
+    const bool rated = s->form == FORM_FROM_START || s->form == FORM_FROM_END;
+    Lua::PushNumber(L, rated ? s->modRate : 1.0f);
     return 1;
 }
 
@@ -266,7 +371,7 @@ int __fastcall Script_GetClock(void *L) {
 int __fastcall Script_GetClockTime(void *L) {
     if (Self(L, "local clockTime = self:GetClockTime()") == nullptr)
         return 0;
-    Lua::PushNumber(L, Time::Clock::NowSeconds());
+    Lua::PushNumber(L, Seconds(Time::Clock::NowMs()));
     return 1;
 }
 
@@ -280,48 +385,48 @@ int __fastcall Script_HasSecretValues(void *L) {
 int __fastcall Script_SetTimeFromStart(void *L) {
     constexpr const char *kUsage = "self:SetTimeFromStart(startTime, duration [, modRate])";
     Span *s = Self(L, kUsage);
-    double start, duration, modRate;
-    if (s == nullptr || !Number(L, 2, kUsage, start) || !Number(L, 3, kUsage, duration) ||
+    uint32_t start, duration;
+    float modRate;
+    if (s == nullptr || !Time(L, 2, kUsage, start) || !Time(L, 3, kUsage, duration) ||
         !ModRate(L, 4, kUsage, modRate))
         return 0;
-    Set(*s, start, duration, modRate);
+    Set(*s, FORM_FROM_START, start, duration, modRate);
     return 0;
 }
 
 int __fastcall Script_SetTimeFromEnd(void *L) {
     constexpr const char *kUsage = "self:SetTimeFromEnd(endTime, duration [, modRate])";
     Span *s = Self(L, kUsage);
-    double end, duration, modRate;
-    if (s == nullptr || !Number(L, 2, kUsage, end) || !Number(L, 3, kUsage, duration) ||
+    uint32_t end, duration;
+    float modRate;
+    if (s == nullptr || !Time(L, 2, kUsage, end) || !Time(L, 3, kUsage, duration) ||
         !ModRate(L, 4, kUsage, modRate))
         return 0;
-    if (duration < 0.0)
-        duration = 0.0;
-    Set(*s, end - duration, duration, modRate);
+    Set(*s, FORM_FROM_END, end, duration, modRate);
     return 0;
 }
 
-// Takes no mod rate, so the span has none (not probed).
+// An end before the start is the start (0x140d31ee0).
 int __fastcall Script_SetTimeSpan(void *L) {
     constexpr const char *kUsage = "self:SetTimeSpan(startTime, endTime)";
     Span *s = Self(L, kUsage);
-    double start, end;
-    if (s == nullptr || !Number(L, 2, kUsage, start) || !Number(L, 3, kUsage, end))
+    uint32_t start, end;
+    if (s == nullptr || !Time(L, 2, kUsage, start) || !Time(L, 3, kUsage, end))
         return 0;
-    Set(*s, start, end - start, 1.0);
+    Set(*s, FORM_SPAN, start, end < start ? start : end, 1.0f);
     return 0;
 }
 
 int __fastcall Script_Reset(void *L) {
     if (Span *s = Self(L, "self:Reset()"))
-        Set(*s, 0.0, 0.0, 1.0);
+        Set(*s, FORM_EMPTY, 0, 0, 1.0f);
     return 0;
 }
 
 // Reset plus the secret flag and the clock, neither of which 1.12 has.
 int __fastcall Script_SetToDefaults(void *L) {
     if (Span *s = Self(L, "self:SetToDefaults()"))
-        Set(*s, 0.0, 0.0, 1.0);
+        Set(*s, FORM_EMPTY, 0, 0, 1.0f);
     return 0;
 }
 
@@ -335,7 +440,7 @@ int __fastcall Script_Assign(void *L) {
         Usage(L, 2, kUsage);
         return 0;
     }
-    Set(*s, other->start, other->total, other->modRate);
+    Set(*s, other->form, other->a, other->b, other->modRate);
     return 0;
 }
 
@@ -344,7 +449,7 @@ int __fastcall Script_Copy(void *L) {
     if (s == nullptr)
         return 0;
     Span *copy = new Span;
-    Set(*copy, s->start, s->total, s->modRate);
+    Set(*copy, s->form, s->a, s->b, s->modRate);
     Push(L, copy);
     return 1;
 }
@@ -362,6 +467,12 @@ int __fastcall Meta_tostring(void *L) {
     char text[48];
     std::snprintf(text, sizeof(text), "LuaDurationObject: %p", static_cast<void *>(ToSpan(L, 1)));
     Lua::PushString(L, text);
+    return 1;
+}
+
+int __fastcall Meta_eq(void *L) {
+    const Span *a = ToSpan(L, 1);
+    Lua::PushBool(L, a != nullptr && a == ToSpan(L, 2));
     return 1;
 }
 
@@ -399,9 +510,9 @@ const Method kMethods[] = {
     {"SetToDefaults", &Script_SetToDefaults},
 };
 
-// registry[kMetatableKey] = {__index = methods, __gc, __tostring, __metatable = false}
+// registry[kMetatableKey] = {__index = methods, __gc, __tostring, __eq, __metatable = false}
 void CreateMetatable(void *L) {
-    Lua::Boxed::CreateMetatable(L, kMetatableKey, kMethods, &Meta_gc, &Meta_tostring);
+    Lua::Boxed::CreateMetatable(L, kMetatableKey, kMethods, &Meta_gc, &Meta_tostring, &Meta_eq);
 }
 
 const Lua::EnumIntegerEntry kModifiers[] = {
@@ -424,6 +535,12 @@ void RegisterLuaFunctions() {
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 const Game::GlueModuleAutoRegister _autoregGlue{&RegisterLuaFunctions};
 
+void PushNew(void *L, Form form, uint32_t a, uint32_t b, float modRate) {
+    Span *s = new Span;
+    Set(*s, form, a, b, modRate);
+    Push(L, s);
+}
+
 } // namespace
 
 Span *ToSpan(void *L, int idx) {
@@ -435,51 +552,45 @@ void Push(void *L, Span *s) {
     Lua::Boxed::Push(L, kMetatableKey, s);
 }
 
-void PushFromStart(void *L, double startSec, double totalSec) {
-    Span *s = new Span;
-    Set(*s, startSec, totalSec, 1.0);
-    Push(L, s);
+void PushFromStart(void *L, uint32_t startMs, uint32_t durationMs) {
+    PushNew(L, FORM_FROM_START, startMs, durationMs, 1.0f);
 }
 
-double ElapsedPercent(const Span *s) { return ElapsedPct(*s, MODIFIER_REAL_TIME, Time::Clock::NowSeconds()); }
+void PushSpan(void *L, uint32_t startMs, uint32_t endMs) {
+    PushNew(L, FORM_SPAN, startMs, endMs < startMs ? startMs : endMs, 1.0f);
+}
 
-double RemainingPercent(const Span *s) { return RemainingPct(*s, MODIFIER_REAL_TIME, Time::Clock::NowSeconds()); }
+double ElapsedPercent(const Span *s) { return ElapsedPct(*s, MODIFIER_REAL_TIME, Time::Clock::NowMs()); }
+
+double RemainingPercent(const Span *s) { return RemainingPct(*s, MODIFIER_REAL_TIME, Time::Clock::NowMs()); }
 
 double Sample(const Span *s, int property, int modifier) {
-    const double now = Time::Clock::NowSeconds();
+    const uint32_t now = Time::Clock::NowMs();
     switch (property) {
     case PROPERTY_REMAINING_DURATION:
-        return Total(*s, modifier) - Elapsed(*s, modifier, now);
+        return Seconds(Remaining(*s, modifier, now));
     case PROPERTY_REMAINING_PERCENT:
         return RemainingPct(*s, modifier, now);
     case PROPERTY_ELAPSED_DURATION:
-        return Elapsed(*s, modifier, now);
+        return Seconds(Elapsed(*s, modifier, now));
     case PROPERTY_ELAPSED_PERCENT:
         return ElapsedPct(*s, modifier, now);
     case PROPERTY_TOTAL_DURATION:
-        return Total(*s, modifier);
+        return Seconds(Total(*s, modifier));
     case PROPERTY_START_TIME:
-        return s->start;
+        return Seconds(Start(*s, modifier));
     default:
-        return s->start + Total(*s, modifier);
+        return Seconds(End(*s, modifier));
     }
 }
 
-bool IsZero(const Span *s) { return s->total == 0.0; }
+bool IsZero(const Span *s) { return Total(*s, MODIFIER_REAL_TIME) == 0; }
 
-bool HasExpired(const Span *s, int modifier) {
-    return Time::Clock::NowSeconds() >= s->start + Total(*s, modifier);
-}
+bool HasExpired(const Span *s, int modifier) { return End(*s, modifier) <= Time::Clock::NowMs(); }
 
 bool ToModifier(void *L, int idx, int &out) {
     out = MODIFIER_REAL_TIME;
-    if (Lua::Type(L, idx) <= Lua::TYPE_NIL)
-        return true;
-    const double n = Lua::Type(L, idx) == Lua::TYPE_NUMBER ? Lua::ToNumber(L, idx) : NAN;
-    if (n != MODIFIER_REAL_TIME && n != MODIFIER_BASE_TIME)
-        return false;
-    out = static_cast<int>(n);
-    return true;
+    return Lua::ToEnumByte(L, idx, MODIFIER_BASE_TIME, out);
 }
 
 } // namespace Duration::Object

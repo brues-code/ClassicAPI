@@ -23,8 +23,12 @@ namespace StatusBar::Display {
 // fraction and marks the fill changed when it moved.
 void Advance(void *bar, float elapsed);
 
-// Drops the bar's timer. Every range change does (retail probe:
-// SetMinMaxValues ends the timer, SetValue does not).
-void ClearTimer(void *bar);
+// Drops the bar's timer; false when it had none. Every range change does
+// (SetMinMaxValues ends the timer, SetValue does not).
+bool ClearTimer(void *bar);
+
+// Whether the bar has a timer, and `zero` whether its duration is zero
+// (StandardNoRangeFill draws such a bar full).
+bool HasTimer(const void *bar, bool &zero);
 
 } // namespace StatusBar::Display

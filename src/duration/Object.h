@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 // Retail's LuaDurationObject, as the engine-side users take it
 // (StatusBar:SetTimerDuration, UnitCastingDuration). A span is shared, not
 // copied: a retail bar follows a change made to the object after it was
@@ -33,12 +35,14 @@ Span *ToSpan(void *L, int idx);
 // Pushes a new Lua object for `s`.
 void Push(void *L, Span *s);
 
-// Pushes a new duration object for `totalSec` from `startSec`, both in
-// GetTime() seconds.
-void PushFromStart(void *L, double startSec, double totalSec);
+// Pushes a new duration object, times in GetTime() milliseconds: one of
+// `durationMs` from `startMs` (SetTimeFromStart, mod rate 1), or one from
+// `startMs` to `endMs` (SetTimeSpan).
+void PushFromStart(void *L, uint32_t startMs, uint32_t durationMs);
+void PushSpan(void *L, uint32_t startMs, uint32_t endMs);
 
 // The share of the span gone, or left, now: GetElapsedPercent /
-// GetRemainingPercent in real time, 0 to 1.
+// GetRemainingPercent in real time, 0 to 1 (a float's precision).
 double ElapsedPercent(const Span *s);
 double RemainingPercent(const Span *s);
 
@@ -54,13 +58,13 @@ enum Property : int {
 };
 
 // `s`'s `property` now, in time `modifier` (Enum.DurationTimeModifier), as
-// the matching Get... method answers it.
+// the matching Get... method answers it: seconds, or a percent 0 to 1.
 double Sample(const Span *s, int property, int modifier);
 bool IsZero(const Span *s);
 bool HasExpired(const Span *s, int modifier);
 
-// The DurationTimeModifier at `idx`, RealTime for nil; false when the value
-// is neither.
+// The DurationTimeModifier at `idx`, RealTime for nil, read as the later
+// clients read an enum (Game::Lua::ToEnumByte); false when it is not one.
 bool ToModifier(void *L, int idx, int &out);
 
 } // namespace Duration::Object

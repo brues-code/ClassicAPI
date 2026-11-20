@@ -375,19 +375,22 @@ int __fastcall Script_GetTotemTimeLeft(void *L) {
 }
 
 // `GetTotemDuration(slot)` → a new duration object for the slot's active
-// totem, from its spawn to its expiry in GetTime() seconds (unrounded, unlike
-// GetTotemInfo's whole seconds), or a zero one when none: retail's return is
-// never nil.
+// totem, its duration from its spawn (unrounded, unlike GetTotemInfo's whole
+// seconds), or nothing: with no totem, and for a slot out of range without an
+// error (3.80.2's reader FUN_140a6bf10 and its body; 2.5 returns nothing for
+// an empty slot too). The rate is 1: 1.12 has no per-totem haste.
 int __fastcall Script_GetTotemDuration(void *L) {
-    const int slot = CheckSlot(L, "Usage: GetTotemDuration(slot)");
-    if (slot < 0)
+    if (!Game::Lua::IsNumber(L, 1)) {
+        Game::Lua::Error(L, "Usage: local duration = GetTotemDuration(slot)");
         return 0;
-    const Slot &t = g_slots[slot];
-    if (t.active)
-        Duration::Object::PushFromStart(L, static_cast<double>(t.startMs) * 0.001,
-                                        static_cast<double>(t.durationMs) * 0.001);
-    else
-        Duration::Object::PushFromStart(L, 0.0, 0.0);
+    }
+    const double slot = Game::Lua::ToNumber(L, 1) - 1.0;
+    if (!(slot >= 0.0 && slot < kSlots))
+        return 0;
+    const Slot &t = g_slots[static_cast<int>(slot)];
+    if (!t.active)
+        return 0;
+    Duration::Object::PushFromStart(L, t.startMs, t.durationMs);
     return 1;
 }
 

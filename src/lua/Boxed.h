@@ -29,13 +29,14 @@ struct Method {
 };
 
 // Builds the class's metatable in this Lua state unless it exists: `__index`
-// with the methods, `__gc`, `__tostring`, and `__metatable` false so scripts
-// cannot reach it.
+// with the methods, `__gc`, `__tostring`, `__eq` when one is given, and
+// `__metatable` false so scripts cannot reach it.
 void CreateMetatable(void *L, const char *key, const Method *methods, size_t count, CFunction gc,
-                     CFunction tostring);
+                     CFunction tostring, CFunction eq);
 template <size_t N>
-void CreateMetatable(void *L, const char *key, const Method (&methods)[N], CFunction gc, CFunction tostring) {
-    CreateMetatable(L, key, methods, N, gc, tostring);
+void CreateMetatable(void *L, const char *key, const Method (&methods)[N], CFunction gc, CFunction tostring,
+                     CFunction eq = nullptr) {
+    CreateMetatable(L, key, methods, N, gc, tostring, eq);
 }
 
 // Pushes the metatable under `key` (nil before CreateMetatable).
