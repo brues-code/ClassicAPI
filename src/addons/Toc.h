@@ -76,4 +76,45 @@ inline bool FindValue(const char *buf, size_t size, const char *key,
     return false;
 }
 
+// Calls `fn(value, valueLen)` for every `## <key>:` line, in file order, with
+// the same line rules as FindValue.
+template <class Fn>
+void ForEachValue(const char *buf, size_t size, const char *key, Fn &&fn) {
+    const char *end = buf + size;
+    const char *v = nullptr;
+    size_t n = 0;
+    while (buf < end && FindValue(buf, static_cast<size_t>(end - buf), key, &v, &n)) {
+        fn(v, n);
+        const char *eol = v + n;
+        while (eol < end && *eol != '\r' && *eol != '\n')
+            ++eol;
+        buf = eol;
+    }
+}
+
+// The 3.80.2 client's TOC true/false value (FUN_1405c85a0): a first character
+// of 1-9, T, t, Y or y is true; 0, F, f, N or n is false; otherwise `on` and
+// `enabled` (any case) are true and everything else is false.
+inline bool Truthy(const char *v, size_t n) {
+    if (n == 0)
+        return false;
+    const char c = v[0];
+    if (c == '0' || c == 'F' || c == 'f' || c == 'N' || c == 'n')
+        return false;
+    if ((c >= '1' && c <= '9') || c == 'T' || c == 't' || c == 'Y' || c == 'y')
+        return true;
+    return Ascii::EqualCI(v, n, "on") || Ascii::EqualCI(v, n, "enabled");
+}
+
+// True when any `## <key>:` line is Truthy. 3.80.2 sets such flags only on a
+// true value, so one true line keeps the flag set.
+inline bool AnyTrue(const char *buf, size_t size, const char *key) {
+    bool any = false;
+    ForEachValue(buf, size, key, [&any](const char *v, size_t n) {
+        if (Truthy(v, n))
+            any = true;
+    });
+    return any;
+}
+
 } // namespace AddOns::Toc

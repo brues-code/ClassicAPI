@@ -89,10 +89,16 @@ uint32_t ClientGameTypes();
 //   - Other `#` lines and blank lines stay as they are.
 //   - File lines go through ProcessLine (inside an addon load). A dropped one
 //     becomes a `# ` comment, so the load loop skips it.
+//   - A true `## AlwaysUpToDate:` becomes `## Interface: <client version>`.
 // For a base TOC (`...\AddOns\<Name>\<Name>.toc`), the `## AllowLoadGameType:`
-// and `## AllowLoad:` values go to AddOns::LoadGate. When the rebuilt TOC
-// differs, a fresh Storm buffer replaces `*outBuf` / `*outSize`; the caller
-// frees it exactly as it would the engine's own read buffer.
-void Transform(const char *path, void **outBuf, size_t *outSize);
+// and `## AllowLoad:` values go to AddOns::LoadGate and the `## LoadManagers:`
+// names to AddOns::LoadManagers. When the rebuilt TOC differs, a fresh Storm
+// buffer replaces `*outBuf` / `*outSize`; the caller frees it exactly as it
+// would the engine's own read buffer.
+//
+// Returns false when the TOC must count as missing: a true
+// `## OnlyBetaAndPTR:` (the last line wins), which a live client removes. The
+// buffer is then freed and `*outBuf` is null; the caller fails the read.
+bool Transform(const char *path, void **outBuf, size_t *outSize);
 
 } // namespace AddOns::TocRewrite

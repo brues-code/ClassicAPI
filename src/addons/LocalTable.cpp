@@ -52,9 +52,9 @@ using IsLoadedFn_t = uint8_t(__fastcall *)(const char *name);
 // every non-`!!!ClassicAPI` path to the original untouched — what we want here.
 
 // True iff the addon's `.toc` has a line `## AllowAddOnTableAccess: <nonzero>`.
-// The value is read as a TOC boolean flag: parse the leading integer, true iff
-// non-zero (so `1` opts in, `0`/absent do not) — matching WoW's numeric TOC
-// flag semantics. Not cached: GetAddOnLocalTable is not a hot path.
+// The value is a TOC true/false value (Toc::Truthy), and one true line is
+// enough, as in the 3.80.2 client. Not cached: GetAddOnLocalTable is not a
+// hot path.
 bool TocAllowsTableAccess(const char *name) {
     // A registered, loaded addon name never carries a path separator; reject
     // any that does so the read stays bounded to the addon's own folder.
@@ -70,19 +70,8 @@ bool TocAllowsTableAccess(const char *name) {
     if (!Storm::File::Read(path, &buf, &size, 1))
         return false;
 
-    const char *v = nullptr;
-    size_t n = 0;
-    bool allowed = false;
-    if (AddOns::Toc::FindValue(static_cast<const char *>(buf), size,
-                               "AllowAddOnTableAccess", &v, &n)) {
-        int value = 0;
-        bool anyDigit = false;
-        for (size_t k = 0; k < n && v[k] >= '0' && v[k] <= '9'; ++k) {
-            value = value * 10 + (v[k] - '0');
-            anyDigit = true;
-        }
-        allowed = anyDigit && value != 0;
-    }
+    const bool allowed = AddOns::Toc::AnyTrue(static_cast<const char *>(buf), size,
+                                              "AllowAddOnTableAccess");
 
     Storm::Free(buf, __FILE__, __LINE__);
     return allowed;

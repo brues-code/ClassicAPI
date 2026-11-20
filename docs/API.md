@@ -28,6 +28,7 @@ build instructions.
   - [`C_AddOns.GetAddOnName(indexOrName)`](#c_addonsgetaddonnameindexorname)
   - [`C_AddOns.GetAddOnTitle(indexOrName)`](#c_addonsgetaddontitleindexorname)
   - [`C_AddOns.GetAddOnNotes(indexOrName)`](#c_addonsgetaddonnotesindexorname)
+  - [`C_AddOns.GetAddOnMetadata(indexOrName, variable)`](#c_addonsgetaddonmetadataindexorname-variable)
   - [`C_AddOns.IsAddOnLoadable(indexOrName)`](#c_addonsisaddonloadableindexorname)
   - [`C_AddOns.IsAddOnLoaded(indexOrName)`](#c_addonsisaddonloadedindexorname)
   - [`C_AddOns.LoadAddOn(indexOrName)`](#c_addonsloadaddonindexorname)
@@ -37,6 +38,7 @@ build instructions.
   - [`C_AddOns.GetAddOnInterfaceVersion(indexOrName)`](#c_addonsgetaddoninterfaceversionindexorname)
   - [`C_AddOns.GetAddOnLocalTable(name)`](#c_addonsgetaddonlocaltablename)
   - [Conditional and multi-flavor TOC loading](#conditional-and-multi-flavor-toc-loading)
+  - [Other TOC metadata keys](#other-toc-metadata-keys)
   - [SavedVariables loaded first](#savedvariables-loaded-first)
   - [`<Script file>` paths in XML files](#script-file-paths-in-xml-files)
 
@@ -1772,6 +1774,41 @@ addons or addons without notes.
 C_AddOns.GetAddOnNotes("MyAddon") -- "Shows a thing on the screen."
 ```
 
+### `C_AddOns.GetAddOnMetadata(indexOrName, variable)`
+
+Returns the value of a `##` key from the `.toc` file of an addon. The
+key is not case-sensitive. The function returns `nil` when the TOC has
+no such key, or when no addon has that name.
+
+The function reads these keys, and every key that starts with them:
+`Title`, `Notes`, `Author`, `Version`, `IconTexture`, `IconAtlas`,
+`AddonCompartmentFunc`, `Category`, `Group` and `X-`. It cannot read
+other keys, for example `SavedVariables` or `Interface`.
+
+A key with a locale suffix, such as `## Title-deDE:`, applies only when
+that locale is your client locale. It then replaces the key without the
+suffix. When the same key occurs on two lines, the last line wins.
+`Title` is the folder name when the TOC has no `## Title:`.
+
+`Group` names the addon that this addon belongs to. When the TOC has no
+`## Group:`, the value comes from the addon names. The value is the name
+of an addon that comes earlier in alphabetical order and that matches
+both of these conditions:
+
+1. Its name is the start of this addon's name.
+2. One of the two addons lists the other in `## Dependencies:` or
+   `## OptionalDeps:`.
+
+When no addon matches, `Group` is the addon's own name.
+
+```lua
+-- MyAddon.toc contains: ## IconTexture: Interface\Icons\INV_Misc_QuestionMark
+C_AddOns.GetAddOnMetadata("MyAddon", "IconTexture")  -- "Interface\Icons\INV_Misc_QuestionMark"
+C_AddOns.GetAddOnMetadata("MyAddon", "x-website")    -- the ## X-Website: value
+-- MyAddon_Options.toc contains: ## Dependencies: MyAddon
+C_AddOns.GetAddOnMetadata("MyAddon_Options", "Group")  -- "MyAddon"
+```
+
 ### `C_AddOns.IsAddOnLoadable(indexOrName)`
 
 Returns `loadable, reason` — a real boolean and a status string
@@ -2075,6 +2112,31 @@ An addon that these keys stop does not load. `LoadAddOn` returns the
 reason `WRONG_GAME_TYPE` or `WRONG_ACTIVE_INTERFACE`, and an addon that
 depends on it gets `DEP_WRONG_GAME_TYPE` or `DEP_WRONG_ACTIVE_INTERFACE`.
 `GetAddOnInfo` and `IsAddOnLoadable` do not report these reasons.
+
+### Other TOC metadata keys
+
+ClassicAPI reads these `##` keys in addition to the keys above:
+
+| Key | Result |
+|---|---|
+| `## AlwaysUpToDate: 1` | The addon is never out of date. Its interface version is the client interface version. A `## Interface:` line after this line replaces the value. |
+| `## OnlyBetaAndPTR: 1` | The addon is not available. It is not in the addon list, and no function finds it. The last line of this key wins. |
+| `## LoadManagers: A, B` | Before the addon loads at login, its managers load, in the listed order. When a manager loads, the addon becomes load-on-demand and does not load at login. When no manager loads, the addon loads as usual. Several lines add their names together. |
+
+A key with a true or false value, such as `## AllowAddOnTableAccess:`,
+`## LoadSavedVariablesFirst:` or `## AlwaysUpToDate:`, reads the value
+this way:
+
+- True: a value that starts with `1` to `9`, `T`, `t`, `Y` or `y`, and
+  the values `on` and `enabled`, in any case.
+- False: all other values.
+
+For `## AllowAddOnTableAccess:` and `## LoadSavedVariablesFirst:`, one
+true line is sufficient.
+
+An addon that `## AllowLoadGameType:` stops is also not in the addon
+list (`GetNumAddOns` and `GetAddOnInfo(index)`). Functions that take its
+name still find it.
 
 ### SavedVariables loaded first
 

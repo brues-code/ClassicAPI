@@ -15,6 +15,8 @@
 
 #include "addons/FlavorToc.h"
 #include "addons/LoadGate.h"
+#include "addons/LoadManagers.h"
+#include "addons/Toc.h"
 #include "baselib/Ascii.h"
 #include "localization/Locale.h"
 
@@ -26,6 +28,7 @@
 #include <cstdint>
 #include <cstring>
 #include <string>
+#include <vector>
 
 namespace AddOns::TocRewrite {
 
@@ -209,18 +212,31 @@ bool MetadataValue(const std::string &line, const char *key, const char **value,
     return true;
 }
 
-// What a TOC's metadata says about where the addon may load.
-struct Gates {
+// The metadata 1.12's parser does not store, as 3.80.2's parser reads it.
+struct TocInfo {
     uint32_t gameTypes = 0;                // `## AllowLoadGameType:` lines, OR'ed
     uint32_t allowLoad = ALLOW_LOAD_GAME;  // the last `## AllowLoad:` line
+    std::vector<std::string> managers;     // `## LoadManagers:` lines, appended
+    bool onlyBetaAndPtr = false;           // the last `## OnlyBetaAndPTR:` line
 };
 
-// One processed `##` line: rewrites `## Interface:` to its single value and
-// collects the load gates.
-void ProcessMetadata(std::string &line, Gates &gates) {
+// One processed `##` line: rewrites `## Interface:` to its single value, turns
+// a true `## AlwaysUpToDate:` into `## Interface: <client>` (3.80.2 sets the
+// stored version to the client's), and collects the rest of TocInfo.
+void ProcessMetadata(std::string &line, TocInfo &info) {
     const char *v = nullptr;
     size_t n = 0, prefix = 0;
-    if (MetadataValue(line, "Interface", &v, &n, &prefix)) {
+    if (MetadataValue(line, "AlwaysUpToDate", &v, &n, &prefix)) {
+        if (Toc::Truthy(v, n))
+            line = "## Interface: " + std::to_string(ClientInterfaceVersion());
+    } else if (MetadataValue(line, "OnlyBetaAndPTR", &v, &n, &prefix)) {
+        info.onlyBetaAndPtr = Toc::Truthy(v, n);
+    } else if (MetadataValue(line, "LoadManagers", &v, &n, &prefix)) {
+        AnyItem(v, n, [&info](const char *item, size_t len) {
+            info.managers.emplace_back(item, len);
+            return false;
+        });
+    } else if (MetadataValue(line, "Interface", &v, &n, &prefix)) {
         const std::string value =
             std::to_string(PickInterface(v, n, ClientInterfaceVersion()));
         if (std::string(v, n) != value) {
@@ -229,14 +245,14 @@ void ProcessMetadata(std::string &line, Gates &gates) {
             line += value;
         }
     } else if (MetadataValue(line, "AllowLoadGameType", &v, &n, &prefix)) {
-        gates.gameTypes |= GameTypeMask(v, n);
+        info.gameTypes |= GameTypeMask(v, n);
     } else if (MetadataValue(line, "AllowLoad", &v, &n, &prefix)) {
-        gates.allowLoad = AllowLoadValue(v, n);
+        info.allowLoad = AllowLoadValue(v, n);
     }
 }
 
 // Walk the whole TOC, keeping line terminators and any UTF-8 BOM.
-void RebuildToc(const char *src, size_t srcLen, std::string &out, Gates &gates) {
+void RebuildToc(const char *src, size_t srcLen, std::string &out, TocInfo &info) {
     out.clear();
     out.reserve(srcLen + 32);
     size_t i = 0;
@@ -265,7 +281,7 @@ void RebuildToc(const char *src, size_t srcLen, std::string &out, Gates &gates) 
             out.append("# ");      // dropped: a comment sets no key and loads no file
             out.append(line, len);
         } else {
-            if (metadata) ProcessMetadata(lineOut, gates);
+            if (metadata) ProcessMetadata(lineOut, info);
             out.append(lineOut);
         }
         out.append(src + termStart, i - termStart);
@@ -344,39 +360,50 @@ uint32_t ClientGameTypes() {
            (Turtle::Detected() ? GAME_TYPE_TURTLE : 0);
 }
 
-void Transform(const char *path, void **outBuf, size_t *outSize) {
-    if (path == nullptr || outBuf == nullptr || *outBuf == nullptr) return;
-    if (!IsAddonToc(path)) return;
+bool Transform(const char *path, void **outBuf, size_t *outSize) {
+    if (path == nullptr || outBuf == nullptr || *outBuf == nullptr) return true;
+    if (!IsAddonToc(path)) return true;
 
     const char *content = static_cast<const char *>(*outBuf);
     const size_t size =
         (outSize != nullptr && *outSize != 0) ? *outSize : std::strlen(content);
 
     std::string rebuilt;
-    Gates gates;
-    RebuildToc(content, size, rebuilt, gates);
+    TocInfo info;
+    RebuildToc(content, size, rebuilt, info);
 
     size_t prefixLen = 0;
     if (FlavorToc::BaseTocPrefix(path, &prefixLen)) {
         size_t nameStart = prefixLen;
         while (nameStart > 0 && path[nameStart - 1] != '\\' && path[nameStart - 1] != '/')
             --nameStart;
-        LoadGate::Record(path + nameStart, prefixLen - nameStart, gates.gameTypes,
-                         gates.allowLoad);
+        LoadGate::Record(path + nameStart, prefixLen - nameStart, info.gameTypes,
+                         info.allowLoad);
+        LoadManagers::Record(path + nameStart, prefixLen - nameStart, info.managers);
+    }
+
+    // A live client (this one, always) removes an OnlyBetaAndPTR addon
+    // (0x141af4b22): the TOC does not exist, so the folder never registers.
+    if (info.onlyBetaAndPtr) {
+        Storm::Free(*outBuf, __FILE__, __LINE__);
+        *outBuf = nullptr;
+        if (outSize != nullptr) *outSize = 0;
+        return false;
     }
 
     if (rebuilt.size() == size && std::memcmp(rebuilt.data(), content, size) == 0)
-        return; // nothing changed: keep the engine's buffer
+        return true; // nothing changed: keep the engine's buffer
 
     const size_t newLen = rebuilt.size();
     void *buf = Storm::Alloc(newLen + 1, __FILE__, __LINE__); // +1 NUL (extraBytes=1)
-    if (buf == nullptr) return;                               // OOM: keep the original
+    if (buf == nullptr) return true;                          // OOM: keep the original
     std::memcpy(buf, rebuilt.data(), newLen);
     static_cast<char *>(buf)[newLen] = '\0';
 
     Storm::Free(*outBuf, __FILE__, __LINE__);
     *outBuf = buf;
     if (outSize != nullptr) *outSize = newLen;
+    return true;
 }
 
 } // namespace AddOns::TocRewrite

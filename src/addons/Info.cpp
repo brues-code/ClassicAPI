@@ -452,8 +452,8 @@ const Game::Doc::Field kInterfaceVersionRets[] = {
                    "The ## Interface: value from the TOC, or nil for an unknown name."),
 };
 const Game::Doc::Function kGetAddOnInterfaceVersion{
-    "Returns the Interface directive of an addon TOC. For a comma-separated list, "
-    "returns the closest value at or below the client interface version.",
+    "Returns the Interface directive of an addon TOC: the client interface version when "
+    "the list holds it, else the largest value below it, else 0.",
     kInterfaceVersionArgs, kInterfaceVersionRets};
 
 } // namespace

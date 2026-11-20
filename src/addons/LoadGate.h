@@ -45,4 +45,13 @@ namespace AddOns::LoadGate {
 // `## AllowLoad:` value (1 glue, 2 game, 3 both, 0 unknown).
 void Record(const char *name, size_t nameLen, uint32_t gameTypes, uint32_t allowLoad);
 
+// 3.80.2's addon index list (FUN_141af4fe0, what GetNumAddOns counts) leaves
+// out an addon that fails `## AllowLoadGameType:`; the name still resolves.
+// Sets the entry's filter-out byte (OFF_ADDON_ENTRY_FILTER_OUT, which 1.12's
+// list builders skip) on every such non-secure entry, and clears it on an
+// entry it hid before that no longer fails. Called before each list build:
+// 1.12's own (FUN_ADDON_BUILD_DISPLAY at SMSG_ADDON_INFO, redirected here) and
+// AddOns::Rescan's.
+void ApplyListFilter();
+
 } // namespace AddOns::LoadGate

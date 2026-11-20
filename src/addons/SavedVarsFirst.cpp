@@ -106,20 +106,9 @@ bool AddonNameFromToc(const char *path, char *out, size_t outSize) {
     return true;
 }
 
-// True iff the leading integer of a TOC value is nonzero (WoW numeric flag).
-bool NonzeroFlag(const char *v, size_t n) {
-    long val = 0;
-    bool digit = false;
-    for (size_t i = 0; i < n && v[i] >= '0' && v[i] <= '9'; ++i) {
-        val = val * 10 + (v[i] - '0');
-        digit = true;
-    }
-    return digit && val != 0;
-}
-
 // The SavedVariables directives that decide what LoadSavedVarsEarly does.
 struct SvFlags {
-    bool first = false;   // `## LoadSavedVariablesFirst:` is nonzero
+    bool first = false;   // a `## LoadSavedVariablesFirst:` line is true (Toc::Truthy)
     bool account = false; // `## SavedVariables:` declares at least one variable
     bool perChar = false; // `## SavedVariablesPerCharacter:` declares at least one
 };
@@ -136,8 +125,7 @@ SvFlags ReadSvFlags(const char *tocPath) {
 
     const char *v = nullptr;
     size_t n = 0;
-    if (AddOns::Toc::FindValue(b, size, "LoadSavedVariablesFirst", &v, &n))
-        f.first = NonzeroFlag(v, n);
+    f.first = AddOns::Toc::AnyTrue(b, size, "LoadSavedVariablesFirst");
     // Gate each SV file on the DECLARATION, not mere file existence — mirroring
     // the engine, which loads the account file iff `## SavedVariables` is
     // declared and the per-char file iff `## SavedVariablesPerCharacter` is.

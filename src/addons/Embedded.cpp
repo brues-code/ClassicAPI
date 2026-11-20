@@ -367,9 +367,10 @@ int __stdcall FileRead_h(int unused, const char *path, void **outBuf,
         // TOC directives: evaluate `[Condition]` and expand `[Variable]`
         // tokens on this addon TOC's lines, and reduce `## Interface:` to one
         // value, so the engine's parsers see processed lines (see
-        // addons/TocRewrite.h). No-op unless `path` is an addon `.toc`.
-        if (result != 0)
-            AddOns::TocRewrite::Transform(path, outBuf, outSize);
+        // addons/TocRewrite.h). No-op unless `path` is an addon `.toc`. A TOC
+        // that must count as missing (OnlyBetaAndPTR) fails the read.
+        if (result != 0 && !AddOns::TocRewrite::Transform(path, outBuf, outSize))
+            result = 0;
         return result;
     }
 
@@ -377,8 +378,8 @@ int __stdcall FileRead_h(int unused, const char *path, void **outBuf,
     // installed addon's, whichever source serves it.
     const int result = ReadAddonFile(addon, relPath, unused, path, outBuf, outSize,
                                      extraBytes, flag1, flag2);
-    if (result != 0)
-        AddOns::TocRewrite::Transform(path, outBuf, outSize);
+    if (result != 0 && !AddOns::TocRewrite::Transform(path, outBuf, outSize))
+        return 0;
     return result;
 }
 

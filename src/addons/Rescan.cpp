@@ -83,6 +83,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "addons/LoadGate.h"
 #include "addons/Embedded.h"
 #include "storm/File.h"
 #include "addons/Registry.h"
@@ -370,6 +371,7 @@ void FixupReverseLoadWith(const std::vector<uintptr_t> &added) {
 // list, skipping filtered entries (keeps the embedded addons hidden), then
 // sort with the engine's own comparator to restore alphabetical order.
 void RebuildDisplayArray() {
+    AddOns::LoadGate::ApplyListFilter(); // hides wrong-game-type addons first
     auto desc = reinterpret_cast<Desc *>(
         static_cast<uintptr_t>(Offsets::VAR_ADDON_ARRAY_CAP));
     auto grow = reinterpret_cast<DescGrow_t>(Offsets::FUN_ADDON_ARRAY_GROW);

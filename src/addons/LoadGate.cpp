@@ -13,6 +13,7 @@
 
 #include "addons/LoadGate.h"
 
+#include "addons/Registry.h"
 #include "addons/TocRewrite.h"
 #include "baselib/Ascii.h"
 #include "Common.h"
@@ -68,6 +69,29 @@ const char *ReasonName(int code) {
     case REASON_WRONG_GAME_TYPE: return "WRONG_GAME_TYPE";
     default: return nullptr;
     }
+}
+
+bool FailsGameType(const char *name) {
+    if (name == nullptr) return false;
+    const Gate *g = Find(name, std::strlen(name));
+    return g != nullptr && g->gameTypes != 0 &&
+           (g->gameTypes & TocRewrite::ClientGameTypes()) == 0;
+}
+
+// Names of the entries ApplyListFilter hid, so it unhides only its own.
+std::vector<std::string> g_hidden;
+
+bool WasHidden(const char *name) {
+    for (const std::string &h : g_hidden)
+        if (Ascii::EqualCI(name, h.c_str())) return true;
+    return false;
+}
+
+// FUN_ADDON_BUILD_DISPLAY at the SMSG_ADDON_INFO handler's call.
+using BuildDisplay_t = void(__fastcall *)(void *packet);
+void __fastcall BuildDisplay(void *packet) {
+    ApplyListFilter();
+    reinterpret_cast<BuildDisplay_t>(Offsets::FUN_ADDON_BUILD_DISPLAY)(packet);
 }
 
 // FUN_ADDON_CAN_LOAD.
@@ -131,11 +155,16 @@ void Register() {
                          reinterpret_cast<const void *>(&CanLoadForLoad));
     Common::RedirectCall(Offsets::CALL_ADDON_CAN_LOAD_DEPENDENCY, Offsets::FUN_ADDON_CAN_LOAD,
                          reinterpret_cast<const void *>(&CanLoadForDependency));
+    Common::RedirectCall(Offsets::CALL_ADDON_INFO_BUILD_DISPLAY, Offsets::FUN_ADDON_BUILD_DISPLAY,
+                         reinterpret_cast<const void *>(&BuildDisplay));
     Common::RedirectCall(Offsets::CALL_LOAD_ADDON_FORMAT_REASON,
                          Offsets::FUN_ADDON_FORMAT_REASON,
                          reinterpret_cast<const void *>(&FormatReason));
 }
 
+// The addon list is built at the glue screen (SMSG_ADDON_INFO), before the
+// in-game pass; both passes patch.
+const Game::GlueModuleAutoRegister _gluePatch{&Register};
 const Game::ModuleAutoRegister _autoreg{&Register};
 
 } // namespace
@@ -153,6 +182,25 @@ void Record(const char *name, size_t nameLen, uint32_t gameTypes, uint32_t allow
     }
     g->gameTypes = gameTypes;
     g->allowLoad = allowLoad;
+}
+
+void ApplyListFilter() {
+    std::vector<std::string> hidden;
+    Addons::ForEachEntry([&hidden](uintptr_t entry) {
+        const char *name =
+            *reinterpret_cast<const char *const *>(entry + Offsets::OFF_ADDON_ENTRY_NAME_PTR);
+        if (name == nullptr ||
+            *reinterpret_cast<const uint8_t *>(entry + Offsets::OFF_ADDON_ENTRY_SECURE) != 0)
+            return;
+        auto *filter = reinterpret_cast<uint8_t *>(entry + Offsets::OFF_ADDON_ENTRY_FILTER_OUT);
+        if (FailsGameType(name)) {
+            *filter = 1;
+            hidden.emplace_back(name);
+        } else if (WasHidden(name)) {
+            *filter = 0;
+        }
+    });
+    g_hidden = std::move(hidden);
 }
 
 } // namespace AddOns::LoadGate

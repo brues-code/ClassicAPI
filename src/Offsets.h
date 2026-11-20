@@ -11892,6 +11892,11 @@ enum Offsets {
     // the list at its tail, and the load pass walks it in that order.
     // `Addons::Embedded` pre-hooks it to register `!!!ClassicAPI` first.
     FUN_ADDON_SCAN_FULL = 0x0051C760,
+    // FUN_TOC_PARSER's generic-metadata key test is a chain of
+    // FUN_SSTR_CMP_I prefix compares (Title 5, Notes 5, Author 6, Version 7,
+    // X- 2; 0x0051CC9E..0x0051CD01), each match jumping to the store at
+    // 0x0051D3C6. This is the last one, `X-` (AddOns::Metadata).
+    CALL_TOC_PARSER_MATCH_X_PREFIX = 0x0051CCFA,
 
     // Addon-registry intrusive-list control. Layout
     // (`__thiscall`-friendly, generic across all intrusive lists in the
@@ -12217,6 +12222,11 @@ enum Offsets {
     VAR_ADDON_INDEX_RANGE_ERROR_FMT = 0x00837D70,
     FUN_ADDON_GET_TITLE_BY_NAME = 0x0051DF20,   // (name) → title string or NULL
     FUN_ADDON_GET_NOTES_BY_NAME = 0x0051E050,   // (name) → notes string or NULL
+    // `const char *__fastcall(const char *name, const char *key)` — the
+    // generic metadata lookup behind GetAddOnMetadata (0x0048E5B5): the addon
+    // by name, then `key` in its metadata table (+0xB4 / mask +0xBC), both
+    // through SStrCmpI, so case-insensitive. NULL when either is missing.
+    FUN_ADDON_GET_METADATA = 0x0051E220,
 
     // `__fastcall(const char *name) → AddOnEntry*+0x48 or NULL`.
     // Hash-table lookup by name (a `FUN_ADDON_GET_BY_INDEX` result works
@@ -12246,6 +12256,11 @@ enum Offsets {
     OFF_ADDON_INTERFACE_VERSION = 0x1C,
     OFF_ADDON_OPTIONALDEPS_COUNT = 0x3C,
     OFF_ADDON_OPTIONALDEPS_ARRAY = 0x40,
+    // RequiredDeps / Dependencies list {count, data} (desc +0x48): count @+0x4C,
+    // `char **` @+0x50 (FUN_ADDON_CAN_LOAD's dep loop reads [rec+0x4C] /
+    // [rec+0x50] at 0x0051E8CF..0x0051E8DE).
+    OFF_ADDON_REQDEPS_COUNT = 0x4C,
+    OFF_ADDON_REQDEPS_ARRAY = 0x50,
 
     // Per-field accessors `Script_GetAddOnInfo` calls internally for
     // returns 5 (loadable), 6 (reason string), 7 (security category).
@@ -12332,6 +12347,18 @@ enum Offsets {
     // 0x0046D583) and Script_LoadAddOn (0x0048EB21).
     FUN_ADDON_FORMAT_REASON = 0x0051E930,
     CALL_LOAD_ADDON_FORMAT_REASON = 0x0048EB21,
+    // The login load pass FUN_0051F600's loader call for each entry that is
+    // not LoadOnDemand (`xor dl,dl`, name in ECX, the progress context
+    // pushed), and its progress sum's load check (FUN_0051F1xx, fullCheck 0)
+    // for the same entries. AddOns::LoadManagers redirects both.
+    CALL_ADDON_LOAD_PASS_LOAD_ONE = 0x0051F62B,
+    CALL_ADDON_PROGRESS_CAN_LOAD = 0x0051F215,
+    // The addon list builder, `void __fastcall(packet)`: reads SMSG_ADDON_INFO
+    // for the secure entries, then fills VAR_ADDON_ARRAY from the entry list,
+    // skipping entries with OFF_ADDON_ENTRY_FILTER_OUT set, and sorts it. Its
+    // one call is in the SMSG_ADDON_INFO handler (0x005B4282).
+    FUN_ADDON_BUILD_DISPLAY = 0x0051DA70,
+    CALL_ADDON_INFO_BUILD_DISPLAY = 0x005B4282,
     FUN_ADDON_GET_SECURITY_INDEX = 0x0051E990,
 
     // Per-character enable-state resolver — the inner check
@@ -12399,6 +12426,9 @@ enum Offsets {
     //           the loader's post-ADDON_LOADED loop.
     OFF_ADDON_ENTRY_NAME_PTR = 0x14,
     OFF_ADDON_ENTRY_FILTER_OUT = 0x29,
+    // LoadOnDemand byte; the load pass FUN_0051F600 skips an entry with it set
+    // (0x0051F61E) and so does its progress sum (0x0051F1F9).
+    OFF_ADDON_ENTRY_LOAD_ON_DEMAND = 0x2C,
     OFF_ADDON_LOADWITH_COUNT = 0x5C,
     OFF_ADDON_LOADWITH_ARRAY = 0x60,
     OFF_ADDON_REVLOADWITH_DESC = 0x88,
