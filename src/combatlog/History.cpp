@@ -456,4 +456,11 @@ bool MatchesFilter(const Entry &entry) {
     return false;
 }
 
+void ForEachNewest(const std::function<bool(const Entry &)> &visit) {
+    for (auto it = g_entries.rbegin(); it != g_entries.rend(); ++it) {
+        if (!visit(*it))
+            return;
+    }
+}
+
 } // namespace CombatLog::History

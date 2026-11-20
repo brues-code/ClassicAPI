@@ -129,6 +129,7 @@ struct MeterEvent {
     double amount = 0;
     double overkill = 0;
     double overhealing = 0;
+    int deathRecapID = 0; // a Death's C_DeathRecap ID; 0 for none
 };
 
 // The amount one spell of a source did to, or took from, one other unit.
@@ -161,6 +162,7 @@ struct Source {
     MeterUnit unit;
     double total = 0;
     int64_t deathMs = 0; // the time of its last death, for STORAGE_DEATHS
+    int deathRecapID = 0; // that death's C_DeathRecap ID; 0 for none
     std::map<SpellKey, Spell> spells;
 };
 
@@ -226,7 +228,7 @@ public:
 private:
     void Add(int storage, const Actor &subject, const Actor &other, uint32_t spellID,
              const std::string &creatureName, double amount, double overkill, bool deadly,
-             int64_t timeMs);
+             int64_t timeMs, int deathRecapID);
     void Name(const MeterEvent &event);
 
     struct LastHit {

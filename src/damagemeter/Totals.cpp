@@ -115,7 +115,10 @@ void Totals::Merge(const Totals &from) {
             if (into.unit.key == 0)
                 into.unit = s.unit;
             into.total += s.total;
-            into.deathMs = std::max(into.deathMs, s.deathMs);
+            if (s.deathMs >= into.deathMs) {
+                into.deathMs = s.deathMs;
+                into.deathRecapID = s.deathRecapID;
+            }
             for (const auto &[spellKey, spell] : s.spells)
                 MergeSpell(into.spells[spellKey], spell);
         }
@@ -182,7 +185,7 @@ const Session *Meter::Find(uint32_t sessionID) const {
 
 void Meter::Add(int storage, const Actor &subject, const Actor &other, uint32_t spellID,
                 const std::string &creatureName, double amount, double overkill, bool deadly,
-                int64_t timeMs) {
+                int64_t timeMs, int deathRecapID) {
     Totals *both[] = {&sessions_.back().totals, &overall_};
     for (Totals *totals : both) {
         Source &source = SourceIn(*totals, storage, subject.unit);
@@ -190,6 +193,7 @@ void Meter::Add(int storage, const Actor &subject, const Actor &other, uint32_t 
             // The source counts deaths; its spells are the hits that killed.
             source.total += 1;
             source.deathMs = timeMs;
+            source.deathRecapID = deathRecapID;
         } else {
             source.total += amount;
         }
@@ -222,7 +226,8 @@ uint32_t Meter::Feed(const MeterEvent &e) {
     auto add = [&](int storage, const Actor &subject, const Actor &other, uint32_t spellID,
                    const std::string &creatureName, double amount, double overkill,
                    bool deadly) {
-        Add(storage, subject, other, spellID, creatureName, amount, overkill, deadly, e.timeMs);
+        Add(storage, subject, other, spellID, creatureName, amount, overkill, deadly, e.timeMs,
+            e.deathRecapID);
         changed |= 1u << storage;
     };
     const std::string &minion = e.source.petName;
@@ -258,8 +263,9 @@ uint32_t Meter::Feed(const MeterEvent &e) {
     case EventKind::Death: {
         if (dst.key == 0 || !dst.ally)
             break;
-        // Our choice: a death's spell is the last hit the ally took, which
-        // retail's death recap (deathRecapID) shows instead.
+        // Our choice: a death's spell is the last hit the ally took. Retail
+        // shows the death recap (deathRecapID) instead, which only the local
+        // player's deaths have.
         const auto hit = lastHits_.find(dst.key);
         if (hit != lastHits_.end()) {
             const LastHit h = hit->second;

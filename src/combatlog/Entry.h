@@ -96,6 +96,9 @@ enum Info : uint32_t {
     INFO_ITEM = 0x200,        // itemId, itemName
     INFO_AURA_TYPE = 0x400,   // auraType
     INFO_AURA_AMOUNT = 0x800, // amount (stacks)
+    // recapID (v[0]), unconsciousOnDeath — 3.80.2's death suffix (the bit its
+    // UNIT_DIED handler FUN_1414407d0 sets). 4.3.4 has no death recap.
+    INFO_DEATH = 0x80000,
 };
 
 // 4.3.4's miss types (g_spellMissStrings), in the server's numbering.
@@ -174,6 +177,11 @@ struct Entry {
     bool glancing = false;
     bool crushing = false;
     bool offHand = false;
+    // A damage entry's target health before the hit, as the tick's earlier
+    // messages leave it — 3.80.2's entry +0x180, which its damage builder
+    // (FUN_14143b030) reads before it predicts the hit. 0 when the target is
+    // out of view. The death recap's currentHP.
+    int currentHP = 0;
 };
 
 // The Spell.dbc record of `spellId`, or nullptr.
@@ -240,6 +248,12 @@ constexpr int MAX_EVENT_VALUES = 32;
 // CombatLogEntry::PushEvent: pushes the entry's values in 4.3.4's layout and
 // returns their count. The stack must have room for MAX_EVENT_VALUES.
 int PushEvent(void *L, const Entry &entry);
+
+// Pushes the entry as one table keyed by field name: 3.80.2's entry
+// serializer (FUN_1414331b0), the one C_DeathRecap.GetRecapEvents uses. Its
+// key names are kept as they are, quirks included (a heal's "crit", the text
+// suffix's "extraAmount").
+void PushTable(void *L, const Entry &entry);
 
 // QueueCombatLogEntry + SendCombatLogEvents: stamps the entry, keeps it and
 // sends it.

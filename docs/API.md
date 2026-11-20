@@ -230,6 +230,12 @@ build instructions.
   - [Damage meter tables](#damage-meter-tables)
   - [Damage meter cvars (`damageMeterEnabled`, `damageMeterResetOnNewInstance`)](#damage-meter-cvars-damagemeterenabled-damagemeterresetonnewinstance)
 
+- [DeathRecap](#deathrecap)
+  - [`C_DeathRecap.GetRecapEvents([recapID])`](#c_deathrecapgetrecapeventsrecapid)
+  - [`C_DeathRecap.GetRecapLink([recapID])`](#c_deathrecapgetrecaplinkrecapid)
+  - [`C_DeathRecap.GetRecapMaxHealth([recapID])`](#c_deathrecapgetrecapmaxhealthrecapid)
+  - [`C_DeathRecap.HasRecapEvents([recapID])`](#c_deathrecaphasrecapeventsrecapid)
+
 - [DeathInfo](#deathinfo)
   - [`C_DeathInfo.GetSelfResurrectOptions()`](#c_deathinfogetselfresurrectoptions)
   - [`C_DeathInfo.UseSelfResurrectOption(optionType, id)`](#c_deathinfouseselfresurrectoptionoptiontype-id)
@@ -5768,7 +5774,8 @@ A `DamageMeterCombatSource` has these fields:
 | `deathTimeSeconds` | For `Deaths`: the seconds from the start of the session to the last death of the source. `-1` for `Overall` and `Expired`. `0` for the other types. |
 | `sourceDisplayType` | `Enum.DamageMeterSourceDisplayType`: `Ally` for your group, `Enemy` for an enemy, and `None` for other units. |
 | `factionGroup` | `Alliance` or `Horde` for a player. Nil for other units. |
-| `specIconID`, `deathRecapID` | Always `0`. |
+| `deathRecapID` | For `Deaths`: the [death recap](#deathrecap) of your last death. `0` for other units, and when your death has no recap. |
+| `specIconID` | Always `0`. |
 
 A `DamageMeterCombatSessionSource` has `combatSpells`, an array of
 `DamageMeterCombatSpell` with the highest amount first, and `maxAmount` and
@@ -5795,6 +5802,69 @@ The meter's events are under [Events](#damage_meter_combat_session_updated--dama
 
 Each character has its own values for the two cvars. The game saves them in
 `WTF\Account\<account>\<realm>\<character>\config-cache.wtf`.
+
+## DeathRecap
+
+When you die, the client keeps a death recap: the last hits that you took
+before the death. The recap comes from the [combat log](#combatlog) that the
+client keeps. Thus it holds only the hits that the log still has, and the
+`combatLogRetentionTime` cvar limits that time.
+
+A recap holds up to 5 hits, newest first. The hit that killed you comes
+first. A hit counts when it did damage past any overkill, and every
+`SPELL_INSTAKILL` counts. The hits start after your previous death. A death
+with no such hit has no recap.
+
+Each death gets the next recap ID, also a death with no recap. The client
+keeps the last 15 recaps. The IDs and the recaps are cleared when you log
+out.
+
+Your death's `UNIT_DIED` combat log event gives the recap ID as `recapID`.
+The `Deaths` mode of the [damage meter](#damagemeter) gives it as
+`deathRecapID`.
+
+There is no recap window. A click on a death link does nothing, and
+`OpenDeathRecapUI(recapID)` does nothing.
+
+### `C_DeathRecap.GetRecapEvents([recapID])`
+
+Returns an array of the hits in the recap, newest first. Without `recapID`,
+the function uses your last death. Returns nothing when no recap has the ID.
+
+Each hit is a table of the combat log event. Its keys are the names of the
+event's values: `timestamp`, `event`, `hideCaster`, `sourceGUID`,
+`sourceName`, `sourceFlags`, `sourceRaidFlags`, `destGUID`, `destName`,
+`destFlags`, `destRaidFlags`, and `spellId`, `spellName`, `spellSchool` when
+the event has a spell. The damage values are `amount`, `overkill`, `school`,
+`critical`, `glancing`, `crushing`, `isOffHand`, and `resisted`, `blocked`,
+`absorbed` when they are not `0`. An `ENVIRONMENTAL_DAMAGE` hit also has
+`environmentalType`.
+
+`currentHP` is your health just before the hit. `0` means that the client
+did not know it.
+
+```lua
+local maxHealth = C_DeathRecap.GetRecapMaxHealth()
+for _, hit in ipairs(C_DeathRecap.GetRecapEvents() or {}) do
+    print(hit.spellName or hit.event, hit.amount, floor(hit.currentHP / maxHealth * 100) .. "%")
+end
+```
+
+### `C_DeathRecap.GetRecapLink([recapID])`
+
+Returns a chat link to the recap: `DEATH_RECAP_LINK` with the ID, for
+example `[You died.]`. Without `recapID`, the function uses your last death.
+When no recap has the ID, it returns the plain text `DEATH_RECAP_TEXT`.
+
+### `C_DeathRecap.GetRecapMaxHealth([recapID])`
+
+Returns your maximum health when the death happened. Returns `0` when no
+recap has the ID.
+
+### `C_DeathRecap.HasRecapEvents([recapID])`
+
+Returns `true` when a recap with the ID exists. Without `recapID`, the
+function uses your last death.
 
 ## DeathInfo
 
@@ -6692,7 +6762,8 @@ Then comes the suffix:
 | `_DURABILITY_DAMAGE` | `itemId`, `itemName` |
 | `_AURA_APPLIED`, `_AURA_REMOVED`, `_AURA_REFRESH` | `auraType`: `"BUFF"` or `"DEBUFF"` |
 | `_AURA_APPLIED_DOSE`, `_AURA_REMOVED_DOSE` | `auraType`, `amount` |
-| `_CAST_START`, `_CAST_SUCCESS`, `_INSTAKILL`, `_RESURRECT`, `_SUMMON`, `_CREATE`, `_DURABILITY_DAMAGE_ALL`, `UNIT_DIED`, `UNIT_DESTROYED`, `PARTY_KILL` | *(none)* |
+| `UNIT_DIED`, `UNIT_DESTROYED` | `recapID`, `unconsciousOnDeath`. `recapID` is the [death recap](#deathrecap) of your own death, and `-1` for every other death. `unconsciousOnDeath` is always `0`. |
+| `_CAST_START`, `_CAST_SUCCESS`, `_INSTAKILL`, `_RESURRECT`, `_SUMMON`, `_CREATE`, `_DURABILITY_DAMAGE_ALL`, `PARTY_KILL` | *(none)* |
 
 The subevents that fire:
 
@@ -6714,6 +6785,10 @@ The subevents that fire:
 - `SPELL_DISPEL`, `SPELL_DISPEL_FAILED`
 - `UNIT_DIED`, `UNIT_DESTROYED` (a totem or another summoned unit),
   `PARTY_KILL`
+
+A unit's `UNIT_DIED` or `UNIT_DESTROYED` comes after the hit that killed it.
+The server sends the death first. Thus the event waits for the next hit on
+the unit, or for the end of the frame when no hit comes in that frame.
 
 Some values have fixed contents:
 

@@ -389,6 +389,8 @@ bool EventOf(const CombatLog::Entry &e, DamageMeter::MeterEvent &out) {
         break;
     case UNIT_DIED:
         out.kind = EventKind::Death;
+        if ((e.info & INFO_DEATH) && e.v[0] > 0)
+            out.deathRecapID = e.v[0];
         break;
     default:
         return false;

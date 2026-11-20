@@ -18,6 +18,8 @@
 
 #include "combatlog/Entry.h"
 
+#include <functional>
+
 namespace CombatLog::History {
 
 // QueueCombatLogEntry's link: keeps a copy of the entry, first letting go of
@@ -26,5 +28,9 @@ void Record(const Entry &entry);
 
 // CombatLogEntry::MatchesFilter: true when no filter is set or one matches.
 bool MatchesFilter(const Entry &entry);
+
+// Visits the kept entries newest first until `visit` returns false — the walk
+// 3.80.2's death recap makes over its log (FUN_1414407d0).
+void ForEachNewest(const std::function<bool(const Entry &)> &visit);
 
 } // namespace CombatLog::History

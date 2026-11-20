@@ -147,13 +147,21 @@ Predicted g_predicted[kPredictedMax];
 // damage would read as overkill, so such a unit gets none.
 constexpr int kHiddenMaxHealth = 100;
 
+// The exception to "a changed field is a fresh snapshot" is the kill: the
+// server deals the damage, which kills, before it sends the damage message
+// (tortoise Unit::AttackerStateUpdate: DealMeleeDamage, then
+// SendAttackStateUpdate — "in sniffs", as on the original servers), so the
+// field reads 0 when the killing blow's message arrives. A drop to 0 while the
+// messages left the unit alive keeps that health for the killing blow.
 Predicted &PredictedFor(uint64_t guid, int health, uint32_t now) {
     Predicted *oldest = &g_predicted[0];
     for (Predicted &p : g_predicted) {
         if (p.guid == guid) {
-            if (p.health != health || Time::Clock::Elapsed(p.stampMs, now) > kPredictedStaleMs) {
+            const bool stale = Time::Clock::Elapsed(p.stampMs, now) > kPredictedStaleMs;
+            if (p.health != health || stale) {
+                const int predicted = p.health + p.delta;
+                p.delta = (health == 0 && !stale && predicted > 0) ? predicted : 0;
                 p.health = health;
-                p.delta = 0;
             }
             p.stampMs = now;
             return p;
@@ -182,16 +190,29 @@ bool PredictedHealth(uint64_t guid, int *health, int *max, Predicted **entry) {
     return true;
 }
 
-// The damage past the target's health, counting the damage for the tick's
-// later messages.
-int Overkill(uint64_t dest, int damage) {
+// The damage suffix's amount and overkill — the damage past the target's
+// health, counting the damage for the tick's later messages — and the
+// target's health before the hit, as 3.80.2's damage builder (FUN_14143b030)
+// reads it before it predicts the hit (the death recap's currentHP). A target
+// whose health is hidden keeps its field's value there and has no overkill.
+void SetDamage(Entry &e, uint64_t dest, int damage) {
+    e.v[1] = damage;
+    e.v[2] = 0;
     int health, max;
     Predicted *p;
-    if (damage <= 0 || !PredictedHealth(dest, &health, &max, &p))
-        return 0;
+    if (!PredictedHealth(dest, &health, &max, &p)) {
+        const void *unit = Unit(dest);
+        const auto *fields = unit != nullptr ? Object::Fields(unit) : nullptr;
+        e.currentHP =
+            fields != nullptr ? Game::Read<int>(fields, Offsets::OFF_UNIT_FIELD_HEALTH) : 0;
+        return;
+    }
+    e.currentHP = health > 0 ? health : 0;
+    if (damage <= 0)
+        return;
     const int overkill = damage > health ? damage - health : 0;
     p->delta -= damage - overkill;
-    return overkill;
+    e.v[2] = overkill;
 }
 
 // The heal past the health the target is missing, counting the heal for the
@@ -213,8 +234,7 @@ void SendDamage(uint64_t source, uint64_t dest, int event, const uint8_t *spell,
                 bool glancing, bool crushing, bool offHand) {
     Entry e = Begin(source, dest, event, spell);
     e.info |= INFO_DAMAGE;
-    e.v[1] = damage;
-    e.v[2] = Overkill(dest, damage);
+    SetDamage(e, dest, damage);
     e.v[3] = static_cast<int>(schoolMask);
     e.v[4] = absorbed;
     e.v[5] = resisted;
@@ -521,8 +541,7 @@ void DamageShield(CDataStore *p) {
     e.spellPrefix = true;
     e.spellSchool = SchoolMask(school);
     e.info |= INFO_DAMAGE;
-    e.v[1] = damage;
-    e.v[2] = Overkill(victim, damage);
+    SetDamage(e, victim, damage);
     e.v[3] = static_cast<int>(SchoolMask(school));
     Queue(e);
 }
@@ -542,8 +561,7 @@ void EnvironmentalDamage(CDataStore *p) {
     Entry e = Begin(0, victim, ENVIRONMENTAL_DAMAGE, nullptr);
     e.info |= INFO_ENVIRONMENTAL | INFO_DAMAGE;
     e.v[0] = static_cast<int>(type);
-    e.v[1] = damage;
-    e.v[2] = Overkill(victim, damage);
+    SetDamage(e, victim, damage);
     e.v[3] = static_cast<int>(SchoolMask(type < 6 ? kSchools[type] : 0));
     e.v[4] = absorbed;
     e.v[5] = resisted;

@@ -36,6 +36,7 @@
 #include "combatlog/Entry.h"
 
 #include "Game.h"
+#include "combatlog/Deaths.h"
 #include "combatlog/Encounter.h"
 #include "combatlog/File.h"
 #include "combatlog/History.h"
@@ -302,13 +303,16 @@ void PushName(void *L, bool named, const std::string &name) {
         Game::Lua::PushNil(L);
 }
 
+// The entry's Unix time in seconds, with the clock's milliseconds.
+double Timestamp(const Entry &e) {
+    return static_cast<double>(e.timeMs - g_startTimeMs) * 0.001 + static_cast<double>(g_startTime);
+}
+
 // CombatLogEntry::PushEvent, the blocks 1.12 fills.
 int Push(void *L, const Entry &e) {
     using namespace Game::Lua;
     char guid[Guid::STRING_SIZE];
-    const double timestamp =
-        static_cast<double>(e.timeMs - g_startTimeMs) * 0.001 + static_cast<double>(g_startTime);
-    PushNumber(L, timestamp);
+    PushNumber(L, Timestamp(e));
     PushString(L, Name(e.event));
     PushBool(L, e.hideCaster);
     PushString(L, Guid::FormatAsString(e.source, guid, sizeof guid));
@@ -418,7 +422,41 @@ int Push(void *L, const Entry &e) {
         PushNumber(L, e.v[2]);
         ++count;
     }
+    if (e.info & INFO_DEATH) {
+        // recapID, unconsciousOnDeath (a number; Era's log compares it to 1).
+        // 1.12 has no unconscious death.
+        PushNumber(L, e.v[0]);
+        PushNumber(L, 0);
+        count += 2;
+    }
     return count;
+}
+
+// FUN_1414331b0's block for a unit: its GUID (nil, or "" for the target, when
+// there is none), its name when it has one, its flags.
+void SetUnitFields(void *L, const char *guidKey, const char *nameKey, const char *flagsKey,
+                   const char *raidFlagsKey, uint64_t guid, bool named, const std::string &name,
+                   uint32_t flags, uint32_t raidFlags, bool emptyGuid) {
+    using namespace Game::Lua;
+    char buf[Guid::STRING_SIZE];
+    if (guid != 0)
+        SetFieldString(L, guidKey, Guid::FormatAsString(guid, buf, sizeof buf));
+    else if (emptyGuid)
+        SetFieldString(L, guidKey, "");
+    if (named && !name.empty())
+        SetFieldString(L, nameKey, name.c_str());
+    SetFieldNumber(L, flagsKey, flags);
+    SetFieldNumber(L, raidFlagsKey, raidFlags);
+}
+
+// A spell's name and school mask as FUN_1414331b0 pairs them: no name and
+// school 0 when the spell has no record (1.12 keeps both in the one record).
+void SetSpellFields(void *L, const char *nameKey, const char *schoolKey, int spellId) {
+    const uint8_t *spell = SpellRecord(spellId);
+    const char *name = Spell::Lookup::Name(spell);
+    if (name != nullptr)
+        Game::Lua::SetFieldString(L, nameKey, name);
+    Game::Lua::SetFieldNumber(L, schoolKey, spell != nullptr ? SpellSchoolMask(spell) : 0);
 }
 
 const Game::Doc::Field kEventPayload[] = {
@@ -502,6 +540,94 @@ const char *EnvironmentalName(int type) {
 }
 
 int PushEvent(void *L, const Entry &entry) { return Push(L, entry); }
+
+void PushTable(void *L, const Entry &e) {
+    using namespace Game::Lua;
+    NewTable(L);
+    SetFieldNumber(L, "timestamp", Timestamp(e));
+    SetFieldString(L, "event", Name(e.event));
+    SetFieldBool(L, "hideCaster", e.hideCaster);
+    SetUnitFields(L, "sourceGUID", "sourceName", "sourceFlags", "sourceRaidFlags", e.source,
+                  e.sourceNamed, e.sourceName, e.sourceFlags, e.sourceRaidFlags, false);
+    SetUnitFields(L, "destGUID", "destName", "destFlags", "destRaidFlags", e.dest, e.destNamed,
+                  e.destName, e.destFlags, e.destRaidFlags, true);
+    if (e.spellId != 0) {
+        SetFieldNumber(L, "spellId", e.spellId);
+        SetSpellFields(L, "spellName", "spellSchool", e.spellId);
+    }
+    if (e.info & INFO_COUNT)
+        SetFieldNumber(L, "value", e.v[0]);
+    if (e.info & INFO_TEXT)
+        SetFieldString(L, "extraAmount", e.text.c_str());
+    if (e.info & INFO_MISS) {
+        SetFieldString(L, "missedReason", MissName(e.v[0]));
+        SetFieldBool(L, "missedOffhand", e.offHand);
+    }
+    if (e.info & INFO_ENVIRONMENTAL)
+        SetFieldString(L, "environmentalType", EnvironmentalName(e.v[0]));
+    if (e.info & INFO_DAMAGE) {
+        SetFieldNumber(L, "amount", e.v[1]);
+        SetFieldNumber(L, "overkill", e.v[2]);
+        SetFieldNumber(L, "school", e.v[3]);
+        if (e.v[5] != 0)
+            SetFieldNumber(L, "resisted", e.v[5]);
+        if (e.v[6] != 0)
+            SetFieldNumber(L, "blocked", e.v[6]);
+        if (e.v[4] != 0)
+            SetFieldNumber(L, "absorbed", e.v[4]);
+        SetFieldBool(L, "critical", e.critical);
+        SetFieldBool(L, "glancing", e.glancing);
+        SetFieldBool(L, "crushing", e.crushing);
+        SetFieldBool(L, "isOffHand", e.offHand);
+    }
+    if (e.info & INFO_MISS_ABSORBED)
+        SetFieldNumber(L, "absorbed", e.v[4]);
+    if (e.info & INFO_MISS_RESISTED)
+        SetFieldNumber(L, "extraResisted", e.v[5]);
+    if (e.info & INFO_MISS_BLOCKED)
+        SetFieldNumber(L, "extraBlocked", e.v[6]);
+    if (e.info & INFO_HEAL) {
+        SetFieldNumber(L, "amount", e.v[0]);
+        SetFieldNumber(L, "overheal", e.v[1]);
+        SetFieldNumber(L, "absorbed", e.v[2]);
+        SetFieldBool(L, "crit", e.critical);
+    }
+    if (e.info & INFO_ENERGIZE) {
+        // 3.80.2's overenergizeAmount has no 4.3.4 value.
+        SetFieldNumber(L, "amount", e.v[0]);
+        SetFieldNumber(L, "powerType", e.v[1]);
+        SetFieldNumber(L, "overenergizeAmount", 0);
+        if (e.v[2] >= 0)
+            SetFieldNumber(L, "alternatePowerType", e.v[2]);
+    }
+    if (e.info & INFO_DRAIN) {
+        SetFieldNumber(L, "amount", e.v[0]);
+        SetFieldNumber(L, "powerType", e.v[1]);
+        if (e.v[2] != 0)
+            SetFieldNumber(L, "extraAmount", e.v[2]);
+        if (e.v[3] >= 0)
+            SetFieldNumber(L, "alternatePowerType", e.v[3]);
+    }
+    if (e.info & INFO_EXTRA_SPELL) {
+        SetFieldNumber(L, "extraSpellID", e.v[0]);
+        // 3.80.2 keys the extra spell's name "extraSchoolName".
+        if (SpellRecord(e.v[0]) != nullptr)
+            SetSpellFields(L, "extraSchoolName", "extraSchool", e.v[0]);
+    }
+    if (e.info & INFO_ITEM) {
+        SetFieldNumber(L, "itemId", e.v[0]);
+        if (e.itemNamed)
+            SetFieldString(L, "itemName", e.itemName.c_str());
+    }
+    if (e.info & INFO_AURA_TYPE)
+        SetFieldString(L, "auraType", e.harmful ? "DEBUFF" : "BUFF");
+    if (e.info & INFO_AURA_AMOUNT)
+        SetFieldNumber(L, "amount", e.v[2]);
+    if (e.info & INFO_DEATH) {
+        SetFieldNumber(L, "recapID", e.v[0]);
+        SetFieldNumber(L, "unconscious", 0);
+    }
+}
 
 uint64_t Controller(uint64_t guid) {
     uint64_t owner = guid;
@@ -644,6 +770,7 @@ void Queue(Entry &e) {
     DamageMeter::Live::Observe(e);
     File::Write(e);
     Send(e);
+    Deaths::Observe(e);
 }
 
 } // namespace CombatLog

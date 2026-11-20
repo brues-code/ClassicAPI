@@ -249,6 +249,20 @@ LinkUtil.RegisterLinkHandler(LinkTypes.Spell, function(link, text, linkData, con
 end);
 
 ------------------------------------------------------------------------------
+-- Death recap links (`|Hdeath:<recapID>|h`, C_DeathRecap.GetRecapLink), as
+-- Classic Era's ItemRefHandlersShared.lua handles them. Era has no recap
+-- window: its OpenDeathRecapUI is defined with its body commented out, so a
+-- click is taken and does nothing. Defined here the same way, which also
+-- keeps the damage meter's recap button from calling nil.
+------------------------------------------------------------------------------
+function OpenDeathRecapUI(id)
+end
+
+LinkUtil.RegisterLinkHandler(LinkTypes.DeathRecap, function(link, text, linkData, contextData)
+	OpenDeathRecapUI(tonumber(string.match(linkData.options or "", "^(%d+)")));
+end);
+
+------------------------------------------------------------------------------
 -- Turtle reroute. Turtle's FrameXML (SpellChatLinks.lua, in FrameXML.toc)
 -- overrides ChatFrame_OnHyperlinkShow and handles `spell:` links itself, so
 -- those clicks never reach SetItemRef — and its `spell:(%d+):(%w+):(%w+)`

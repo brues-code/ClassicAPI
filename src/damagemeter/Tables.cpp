@@ -13,8 +13,9 @@
 
 // The C_DamageMeter tables. Field names and types are retail's
 // (Blizzard_APIDocumentationGenerated/DamageMeterDocumentation.lua). 1.12 has
-// no specializations or death recap, so specIconID and deathRecapID are 0, and
-// no avoidable-spell list, so isAvoidable is false.
+// no specializations, so specIconID is 0, and no avoidable-spell list, so
+// isAvoidable is false. deathRecapID is the C_DeathRecap ID of the source's
+// last death: only the local player's live deaths have one.
 //
 // How a source's spells are listed follows Blizzard_DamageMeter's use of them
 // (DamageMeterEntry.lua): a spell names its unit (combatSpellDetails.unitName)
@@ -172,7 +173,7 @@ void PushCombatSource(void *L, const Source &source, const View &view, int type)
     Lua::SetFieldNumber(L, "totalAmount", source.total);
     Lua::SetFieldNumber(L, "amountPerSecond", PerSecond(source.total, view));
     Lua::SetFieldBool(L, "isLocalPlayer", u.isLocalPlayer);
-    Lua::SetFieldNumber(L, "deathRecapID", 0);
+    Lua::SetFieldNumber(L, "deathRecapID", source.deathRecapID);
     Lua::SetFieldNumber(L, "deathTimeSeconds", DeathTimeSeconds(source, view, storage));
     Lua::SetFieldString(L, "classification", u.classification.c_str());
     Lua::SetFieldNumber(L, "sourceDisplayType", DisplayType(u));
