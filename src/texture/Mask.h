@@ -24,15 +24,22 @@ namespace Texture::Mask {
 // zero-dimension texture without anyone having to reproduce the freeze.
 bool AnyMaskActive();
 
-// texture:SetMask(path) on `region`. nullptr or "" clears the mask. Returns
-// false, keeping the mask it had, when the file does not load.
+// texture:SetMask(path) on `region`. nullptr or "" clears the mask, and so
+// does a file that does not load (the return is then false).
 bool SetPath(void *region, const char *path);
 
-// Turns a texture region into a MaskTexture: hidden, never drawn, and
-// accepted as a mask source.
-void MakeSource(void *region);
+// Turns a texture region into a MaskTexture: its own copy of the texture
+// vtable (GetObjectType "MaskTexture", no mask methods), shown but never drawn,
+// and accepted as a mask.
+void MakeMask(void *region);
 
-// base:AddMaskTexture(mask). Adding the same mask twice is a no-op.
-void Add(void *base, void *mask);
+// The region is a MaskTexture. Null-safe.
+bool IsMask(const void *region);
+
+enum class AddResult { Added, Full };
+
+// base:AddMaskTexture(mask). Adding the same mask twice is a no-op; a texture
+// that already has 3 masks takes no more (checked first, as 3.80.2's).
+AddResult Add(void *base, void *mask);
 
 } // namespace Texture::Mask

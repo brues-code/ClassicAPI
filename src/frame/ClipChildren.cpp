@@ -14,15 +14,18 @@
 // `clipChildren` on XML frames, and `frame:SetClipsChildren(clips)` /
 // `frame:DoesClipChildren()`.
 //
-// A frame that clips its children draws every frame under it only inside its
-// own rect, and the mouse reaches them only there. Its own regions are not
-// clipped.
+// A frame that clips its children draws its own regions and every frame under
+// it only inside its own hit rect, and the mouse reaches them only there, as
+// the 3.80.2 client's render node does (0x14058B700 puts the root's own
+// regions in the node; the hit walk 0x140589E10 tests every edge inclusively).
 //
 // Retail keeps the clipped frames in their own strata and levels: the talent
 // tree draws a button's glow at the button's level - 1, under its own parent,
 // and its edges under the buttons, inside a clipping frame. So the clip has to
 // apply per level, not by drawing the subtree in one piece the way 1.12's
-// ScrollFrame draws its scroll child.
+// ScrollFrame draws its scroll child. (3.80.2 draws a clipping frame's subtree
+// at the frame's own strata slot, sorted inside by a key not confirmed from
+// code; the per-level batches stay, on the retail probe.)
 //
 // 1.12 draws each level from five layer batches that all the level's frames
 // fill. The level rebuild asks each frame for its regions of a layer
@@ -49,19 +52,19 @@
 // a clipping parent's hit rect around it.
 //
 // The mouse hit test (FUN_FRAME_HIT_TEST) gets the same rects: a point outside
-// any clipping ancestor's hit rect misses, the test the engine makes against
-// the ancestor of a scrolled frame.
+// the hit rect of the frame, if it clips, or of any clipping ancestor misses.
+// 3.80.2 counts every edge as inside.
 //
 // Turning the clip on or off, and moving a frame to another parent, marks the
 // layers of every frame under it changed, so the next rebuild moves their
 // regions. SetParent alone does not relink a frame whose level and strata
 // stay the same.
 //
-// A frame with an alpha gradient (Frame::AlphaGradient) has its own regions
-// and those of every frame under it drawn the same way, from a batch per level
-// batch, nearest clipping frame and nearest frame with a gradient. Its draw
-// applies the gradients around the clipped draw, and the child draw of a
-// ScrollFrame applies a child's own.
+// Alpha gradients (Frame::AlphaGradient) draw on the same nodes: a clipping
+// frame's batches draw with its own gradient, and a frame a ScrollFrame draws
+// that clips, or the scroll child itself (through the ScrollFrame's draw,
+// FUN_SCROLLFRAME_DRAW_SCROLL_CHILD), with its own; each mutes the gradients
+// of the nodes around it.
 
 #include "Common.h"
 #include "Game.h"
@@ -79,7 +82,7 @@
 
 #include <cstdint>
 #include <map>
-#include <tuple>
+#include <utility>
 
 namespace Frame::ClipChildren {
 
@@ -95,17 +98,15 @@ using SetupOrtho_t = void(__fastcall *)(const float *rect, const float *point, i
 // A hit rect: {bottom, left, top, right}.
 enum { BOTTOM, LEFT, TOP, RIGHT };
 
-// One level batch's regions under one clipping frame and one frame with a
-// gradient, either of which may be none.
+// One level batch's regions under one clipping frame.
 struct Record {
     alignas(4) uint8_t batch[Offsets::RENDERBATCH_SIZE];
     void *clipRoot;
-    void *gradientRoot;
     bool live;
     bool sorted;
 };
 
-using Key = std::tuple<const void *, const void *, const void *>;
+using Key = std::pair<const void *, const void *>;
 std::map<Key, Record *> g_records;
 int g_clipping = 0; // frames with the flag; nothing to look up while 0
 
@@ -119,14 +120,15 @@ const float *HitRect(const void *frame) {
     return reinterpret_cast<const float *>(static_cast<const uint8_t *>(frame) + Offsets::OFF_FRAME_HIT_RECT);
 }
 
+// The frame itself when it clips, else its nearest clipping ancestor.
 void *NearestRoot(const void *frame) {
-    for (void *p = Parent(frame); p != nullptr; p = Parent(p))
+    for (const void *p = frame; p != nullptr; p = Parent(p))
         if (Clips(p))
-            return p;
+            return const_cast<void *>(p);
     return nullptr;
 }
 
-bool Grouping() { return g_clipping != 0 || Frame::AlphaGradient::Any(); }
+bool Grouping() { return g_clipping != 0; }
 
 void __fastcall DrawClipped(void *arg);
 
@@ -140,21 +142,18 @@ bool HasCallback(const void *levelBatch, const Record *r) {
 }
 
 // The batch `frame`'s regions of this layer go into: the batch under its
-// nearest clipping frame and nearest frame with a gradient, begun and hooked
-// onto the level batch the first time this rebuild reaches it, or the level
-// batch itself.
+// nearest clipping frame, itself included, begun and hooked onto the level
+// batch the first time this rebuild reaches it, or the level batch itself.
 void *BatchFor(void *frame, void *levelBatch) {
     if (!Grouping())
         return levelBatch;
-    void *clipRoot = g_clipping != 0 ? NearestRoot(frame) : nullptr;
-    void *gradientRoot = Frame::AlphaGradient::Nearest(frame);
-    if (clipRoot == nullptr && gradientRoot == nullptr)
+    void *clipRoot = NearestRoot(frame);
+    if (clipRoot == nullptr)
         return levelBatch;
-    Record *&r = g_records[Key(levelBatch, clipRoot, gradientRoot)];
+    Record *&r = g_records[Key(levelBatch, clipRoot)];
     if (r == nullptr) {
         r = new Record{};
         r->clipRoot = clipRoot;
-        r->gradientRoot = gradientRoot;
         r->live = true;
         reinterpret_cast<BatchOp_t>(Offsets::FUN_RENDERBATCH_CONSTRUCT)(r->batch);
     }
@@ -259,19 +258,15 @@ void DrawInside(float rect[4], Callback_t draw, void *arg) {
 void __fastcall DrawClipped(void *arg) {
     Record *r = static_cast<Record *>(arg);
     float rect[4];
-    if (!r->live || (r->clipRoot != nullptr && !ClipRect(r->clipRoot, rect)))
+    if (!r->live || !ClipRect(r->clipRoot, rect))
         return;
     if (!r->sorted) {
         reinterpret_cast<BatchOp_t>(Offsets::FUN_RENDERBATCH_SORT)(r->batch);
         r->sorted = true;
     }
-    const auto render = reinterpret_cast<Callback_t>(Offsets::FUN_FRAME_LAYER_RENDER);
-    const int stages = Frame::AlphaGradient::Begin(r->gradientRoot, true);
-    if (r->clipRoot != nullptr)
-        DrawInside(rect, render, r->batch);
-    else
-        render(r->batch);
-    Frame::AlphaGradient::End(stages);
+    const int gradient = Frame::AlphaGradient::Begin(r->clipRoot);
+    DrawInside(rect, reinterpret_cast<Callback_t>(Offsets::FUN_FRAME_LAYER_RENDER), r->batch);
+    Frame::AlphaGradient::End(gradient);
 }
 
 void __fastcall DrawFrame(void *frame) {
@@ -279,24 +274,55 @@ void __fastcall DrawFrame(void *frame) {
     Game::Read<Callback_t>(vtable, Offsets::VTBL_FRAME_DRAW_SELF)(frame);
 }
 
+bool LayoutValid(const void *frame) {
+    return (Game::Read<uint8_t>(frame, Offsets::OFF_FRAME_LAYOUT_SUBOBJECT + Offsets::OFF_LAYOUT_FLAGS) & 1) != 0;
+}
+
+// `frame`'s draw inside its own hit rect when it clips, its own regions
+// included; nothing when its layout is not valid.
+void __fastcall DrawSelfClipped(void *frame) {
+    if (!Clips(frame)) {
+        DrawFrame(frame);
+    } else if (LayoutValid(frame)) {
+        float rect[4];
+        for (int i = 0; i < 4; ++i)
+            rect[i] = HitRect(frame)[i];
+        DrawInside(rect, &DrawFrame, frame);
+    }
+}
+
 // A frame a ScrollFrame draws draws each child through its own draw
 // (CALL_FRAME_DRAW_SELF_CHILD). A child of a clipping frame draws inside the
 // clipping frame's hit rect; the viewport already holds every clip above it.
-// A child with a gradient draws with it; the gradients above it already apply.
+// A child that clips is a node: it draws with its own gradient alone.
 void __stdcall DrawChild(void *child) {
     const void *parent = Parent(child);
-    const int stages = Frame::AlphaGradient::Begin(child, false);
+    const int gradient = Frame::AlphaGradient::IsNode(child) ? Frame::AlphaGradient::Begin(child) : 0;
     if (g_clipping == 0 || parent == nullptr || !Clips(parent)) {
-        DrawFrame(child);
-    } else if ((Game::Read<uint8_t>(parent, Offsets::OFF_FRAME_LAYOUT_SUBOBJECT + Offsets::OFF_LAYOUT_FLAGS) &
-                1) != 0) {
+        DrawSelfClipped(child);
+    } else if (LayoutValid(parent)) {
         float rect[4];
         for (int i = 0; i < 4; ++i)
             rect[i] = HitRect(parent)[i];
-        DrawInside(rect, &DrawFrame, child);
+        DrawInside(rect, &DrawSelfClipped, child);
     }
-    Frame::AlphaGradient::End(stages);
+    Frame::AlphaGradient::End(gradient);
 }
+
+// The ScrollFrame's draw of its scroll child, `__thiscall(scrollFrame)`: the
+// scroll child is a node, so it draws with its own gradient alone.
+Callback_t g_origScrollDraw = nullptr;
+
+void __fastcall ScrollDraw_h(void *scrollFrame) {
+    void *child = Game::Read<void *>(scrollFrame, Offsets::OFF_SCROLLFRAME_SCROLL_CHILD);
+    const int gradient = child != nullptr ? Frame::AlphaGradient::Begin(child) : 0;
+    g_origScrollDraw(scrollFrame);
+    Frame::AlphaGradient::End(gradient);
+}
+
+const Game::HookAutoRegister _scrollDrawHook{Offsets::FUN_SCROLLFRAME_DRAW_SCROLL_CHILD,
+                                             reinterpret_cast<void *>(&ScrollDraw_h),
+                                             reinterpret_cast<void **>(&g_origScrollDraw)};
 
 // Replaces `mov edx,[ecx]; call [edx+0x40]`: the child in ecx.
 __declspec(naked) void DrawChildThunk() {
@@ -309,17 +335,17 @@ __declspec(naked) void DrawChildThunk() {
 
 HitTest_t g_origHitTest = nullptr;
 
-// FUN_FRAME_HIT_TEST, then each clipping ancestor's hit rect with the edges
-// the engine tests: left and bottom inside, right and top outside.
+// FUN_FRAME_HIT_TEST, then the hit rect of the frame, if it clips, and of each
+// clipping ancestor, every edge inside (3.80.2's 0x140594EE0).
 int __fastcall HitTest_h(void *frame, void *edx, const float *point) {
     const int hit = g_origHitTest(frame, edx, point);
     if (hit == 0 || g_clipping == 0)
         return hit;
-    for (const void *p = Parent(frame); p != nullptr; p = Parent(p)) {
+    for (const void *p = frame; p != nullptr; p = Parent(p)) {
         if (!Clips(p))
             continue;
         const float *rect = HitRect(p);
-        if (point[0] < rect[LEFT] || rect[RIGHT] <= point[0] || point[1] < rect[BOTTOM] || rect[TOP] <= point[1])
+        if (point[0] < rect[LEFT] || rect[RIGHT] < point[0] || point[1] < rect[BOTTOM] || rect[TOP] < point[1])
             return 0;
     }
     return hit;
@@ -346,13 +372,11 @@ void Set(void *frame, bool on) {
         return;
     Frame::Flags::Set(frame, Offsets::FRAME_FLAG_CLIPS_CHILDREN, on);
     g_clipping += on ? 1 : -1;
-    // A gradient draws only while its frame clips, its own regions included.
-    if (Frame::Flags::Has(frame, Offsets::FRAME_FLAG_ALPHA_GRADIENT))
-        MarkLayers(frame);
+    MarkLayers(frame); // its own regions move with the clip
     MarkSubtree(frame);
 }
 
-// Its batches, when a clipping frame or a frame with a gradient goes. They are
+// Its batches, when a clipping frame goes. They are
 // emptied (their quads point into regions about to be freed) and kept: a level
 // batch may still hold their callback until its next rebuild, which makes it a
 // no-op.
@@ -360,7 +384,7 @@ void OnFrameDestroyed(void *frame) {
     if (Clips(frame))
         --g_clipping;
     for (auto it = g_records.begin(); it != g_records.end();) {
-        if (it->second->clipRoot != frame && it->second->gradientRoot != frame) {
+        if (it->second->clipRoot != frame) {
             ++it;
             continue;
         }
@@ -390,11 +414,16 @@ void OnFrameNode(void *object, const void *node, void * /*status*/) {
 
 const Xml::FrameLoad::AutoSubscribe _xmlSub{&OnFrameNode};
 
+// 3.80.2's (0x140A8B850): the flag is required and plain lua_toboolean.
 int __fastcall Script_SetClipsChildren(void *L) {
     void *frame = Game::Lua::ResolveFrame(L);
     if (frame == nullptr)
         return 0;
-    Set(frame, Game::Lua::ToFlag(L, 2));
+    if (Game::Lua::Type(L, 2) <= Game::Lua::TYPE_NIL) {
+        Game::Lua::Error(L, "Usage: self:SetClipsChildren(clipsChildren)");
+        return 0;
+    }
+    Set(frame, Game::Lua::ToBoolean(L, 2) != 0);
     return 0;
 }
 
@@ -413,7 +442,8 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
 
 const Game::Doc::Field kSetArgs[] = {
     Game::Doc::Req("clipsChildren", "bool",
-                   "When true, the frame's child frames draw and take the mouse only inside the frame."),
+                   "When true, the frame's regions and child frames draw, and its child frames take the "
+                   "mouse, only inside the frame."),
 };
 const Game::Doc::Field kDoesRets[] = {
     Game::Doc::Req("clipsChildren", "bool", "True when the frame clips its child frames."),

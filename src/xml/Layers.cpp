@@ -19,6 +19,7 @@
 //       <Anchors>...</Anchors>
 //       <MaskedTextures>
 //         <MaskedTexture childKey="Icon"/>      <!-- parent.Icon -->
+//         <MaskedTexture childKey="Art.Icon"/>  <!-- parent.Art.Icon -->
 //         <MaskedTexture target="$parentIcon"/> <!-- a global name -->
 //       </MaskedTextures>
 //     </MaskTexture>
@@ -30,17 +31,23 @@
 // `level` parse, the element builders, the parent-and-layer placement, and
 // the warning (its format string and arguments). A MaskTexture is built
 // exactly like a Texture, so `file`, `inherits`, `parentKey`, anchors and
-// size all load through the texture loader. It is then turned into a mask
-// source (Texture::Mask::MakeSource), the state frame:CreateMaskTexture
-// leaves.
+// size all load through the texture loader. It is then made a MaskTexture
+// (Texture::Mask::MakeMask), the state frame:CreateMaskTexture leaves.
 //
-// <MaskedTextures> resolve after the whole <Layers> node has loaded, so a
-// mask can name a texture from a later layer. `childKey` is a key on the
-// mask's parent frame; `target` is a global name, with a leading `$parent`
-// standing for the parent frame's name.
+// <MaskedTextures> follow the 3.80.2 client's binder (0x1405AE3B0): `target`,
+// when present, wins over `childKey`; `target` is a global name; `childKey` is
+// a path from the mask's parent frame, keys joined by dots, where a `$parent`
+// part steps up to that object's parent (0x140593270). The templates a mask
+// inherits bind their <MaskedTextures> first, as 3.80.2's LoadXML runs on the
+// inherited node. Two things stay ours: the binding waits for the whole
+// <Layers> node, so a mask can name a texture from a later layer (3.80.2 binds
+// as the mask loads), and a leading `$parent` in `target` stands for the
+// parent frame's name (3.80.2's target takes the name as written, and finds
+// only a MaskTexture by it — a bug not copied).
 
 #include "Game.h"
 #include "Offsets.h"
+#include "baselib/Ascii.h"
 #include "texture/Mask.h"
 #include "xml/FrameLoad.h"
 
@@ -74,37 +81,71 @@ void WarnUnknown(void *status, void *frame, const void *parent, const void *chil
               Xml::Tag(parent), Xml::Tag(child));
 }
 
-// The texture a <MaskedTexture> names, or nullptr.
-void *MaskedTarget(void *L, void *frame, const void *entry) {
-    const int top = Game::Lua::GetTop(L);
-    void *base = nullptr;
-    if (const char *key = Xml::Attr(entry, "childKey"); key != nullptr && *key != '\0') {
-        if (Xml::PushWrapper(L, frame)) { // [frame]
-            Game::Lua::PushString(L, key);
-            Game::Lua::GetTable(L, top + 1); // [frame, frame[key]]
-            base = Game::Lua::ResolveTexture(L, top + 2, /*raiseError=*/false);
-        }
-    } else if (const char *target = Xml::Attr(entry, "target");
-               target != nullptr && *target != '\0') {
-        constexpr char kParent[] = "$parent";
-        constexpr size_t kParentLen = sizeof(kParent) - 1;
-        std::string name = target;
-        if (name.compare(0, kParentLen, kParent) == 0) {
-            const char *parentName = NameOf(frame);
-            name = std::string(parentName != nullptr ? parentName : "") + name.substr(kParentLen);
-        }
-        Game::Lua::PushString(L, name.c_str());
-        Game::Lua::GetTable(L, Game::Lua::GLOBALS_INDEX); // [_G[name]]
-        base = Game::Lua::ResolveTexture(L, top + 1, /*raiseError=*/false);
+void *Parent(void *object) { return Game::Read<void *>(object, Offsets::OFF_REGION_PARENT); }
+
+// `target`: the texture a global name holds, a leading `$parent` standing for
+// the parent frame's name.
+void *TargetTexture(void *L, void *frame, const char *target) {
+    constexpr char kParent[] = "$parent";
+    constexpr size_t kParentLen = sizeof(kParent) - 1;
+    std::string name = target;
+    if (name.compare(0, kParentLen, kParent) == 0) {
+        const char *parentName = NameOf(frame);
+        name = std::string(parentName != nullptr ? parentName : "") + name.substr(kParentLen);
     }
+    const int top = Game::Lua::GetTop(L);
+    Game::Lua::PushString(L, name.c_str());
+    Game::Lua::GetTable(L, Game::Lua::GLOBALS_INDEX); // [_G[name]]
+    void *base = Game::Lua::ResolveTexture(L, top + 1, /*raiseError=*/false);
     Game::Lua::SetTop(L, top);
     return base;
 }
 
-void BindMaskedTextures(void *frame, void *mask, const void *maskNode, void *status) {
-    void *L = Game::Lua::State();
-    if (L == nullptr)
-        return;
+// `childKey`: the object at a dotted path from `frame`, where `$parent` steps
+// up to the current object's parent; then it must be a texture.
+void *ChildTexture(void *L, void *frame, const char *path) {
+    const int top = Game::Lua::GetTop(L);
+    void *current = frame;
+    std::string part;
+    for (const char *p = path;; ++p) {
+        if (*p != '.' && *p != '\0') {
+            part += *p;
+            continue;
+        }
+        if (current == nullptr || part.empty()) {
+            current = nullptr;
+            break;
+        }
+        if (Ascii::EqualCI(part.c_str(), "$parent")) {
+            current = Parent(current);
+        } else if (Xml::PushWrapper(L, current)) { // [object]
+            Game::Lua::PushString(L, part.c_str());
+            Game::Lua::GetTable(L, top + 1); // [object, object[part]]
+            current = Game::Lua::ResolveObject(L, top + 2);
+            if (*p == '\0') {
+                void *texture = Game::Lua::ResolveTexture(L, top + 2, /*raiseError=*/false);
+                Game::Lua::SetTop(L, top);
+                return texture;
+            }
+            Game::Lua::SetTop(L, top);
+        } else {
+            current = nullptr;
+        }
+        part.clear();
+        if (*p == '\0')
+            break;
+    }
+    Game::Lua::SetTop(L, top);
+    return nullptr; // ended on `$parent`, an empty part, or a missing key
+}
+
+const char *DisplayName(void *object) {
+    const char *name = NameOf(object);
+    return name != nullptr ? name : reinterpret_cast<const char *>(Offsets::VAR_STR_UNNAMED);
+}
+
+// One node's <MaskedTextures>.
+void BindNode(void *L, void *frame, void *mask, const void *maskNode, void *status) {
     for (const void *c = Xml::FirstChild(maskNode); c != nullptr; c = Xml::NextSibling(c)) {
         if (!Xml::TagIs(c, "MaskedTextures"))
             continue;
@@ -113,16 +154,54 @@ void BindMaskedTextures(void *frame, void *mask, const void *maskNode, void *sta
                 WarnUnknown(status, frame, c, e);
                 continue;
             }
-            void *base = MaskedTarget(L, frame, e);
-            if (base != nullptr) {
-                Texture::Mask::Add(base, mask);
-                continue;
-            }
+            const char *target = Xml::Attr(e, "target");
             const char *key = Xml::Attr(e, "childKey");
-            Xml::Warn(status, "MaskTexture: Couldn't find masked texture: %s",
-                      key != nullptr ? key : Xml::Attr(e, "target"));
+            void *base = nullptr;
+            if (target != nullptr && *target != '\0') {
+                base = TargetTexture(L, frame, target);
+                if (base == nullptr)
+                    Xml::Warn(status, "Texture %s: Can't find texture to be masked %s",
+                              DisplayName(mask), target);
+            } else if (key != nullptr && *key != '\0') {
+                base = ChildTexture(L, frame, key);
+                if (base == nullptr)
+                    Xml::Warn(status, "Texture %s: Can't find child texture to be masked %s",
+                              DisplayName(mask), key);
+            }
+            if (base != nullptr && Texture::Mask::Add(base, mask) == Texture::Mask::AddResult::Full)
+                Xml::Warn(status, "%s:AddMaskTexture(): Texture already has the maximum number of mask textures (3)",
+                          DisplayName(base));
         }
     }
+}
+
+// The node's inherited templates first (each with its own `inherits`), then
+// the node itself.
+void BindWithTemplates(void *L, void *frame, void *mask, const void *node, void *status, int depth) {
+    if (depth > 16)
+        return; // a template cycle; the loader reports it
+    if (const char *inherits = Xml::Attr(node, "inherits"); inherits != nullptr) {
+        std::string name;
+        for (const char *p = inherits;; ++p) {
+            if (*p == ',' || *p == '\0') {
+                if (!name.empty())
+                    if (const void *t = Xml::Template(name.c_str()))
+                        BindWithTemplates(L, frame, mask, t, status, depth + 1);
+                name.clear();
+                if (*p == '\0')
+                    break;
+            } else if (*p != ' ' && *p != '\t') {
+                name += *p;
+            }
+        }
+    }
+    BindNode(L, frame, mask, node, status);
+}
+
+void BindMaskedTextures(void *frame, void *mask, const void *maskNode, void *status) {
+    void *L = Game::Lua::State();
+    if (L != nullptr)
+        BindWithTemplates(L, frame, mask, maskNode, status, 0);
 }
 
 // FUN_XML_LOAD_LAYERS, `__thiscall` modelled as `__fastcall` with a dummy edx.
@@ -157,7 +236,7 @@ void __fastcall LoadLayers_h(void *frame, void *, const void *layers, void *stat
             }
             place(region, frame, level, Game::Read<int>(region, Offsets::OFF_REGION_DESIRED_SHOWN));
             if (isMask) {
-                Texture::Mask::MakeSource(region);
+                Texture::Mask::MakeMask(region);
                 masks.emplace_back(region, child);
             }
         }

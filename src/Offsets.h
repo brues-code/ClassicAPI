@@ -5286,6 +5286,17 @@ enum Offsets {
     // object as `GetName() ?: VAR_STR_UNNAMED` — 4.3.4's
     // FrameScript_Object::GetDisplayName, inlined.
     VTBL_SCRIPTOBJECT_GET_NAME = 0x04,
+    // CSimpleTexture's main vtable: 13 slots, written only by its constructor
+    // (0x0076FCB7) and destructor (0x0076FD4B). +0x08 GetScriptMethod
+    // `int __thiscall(this, lua_State *L, const char *name)`, ret 8 (0x0079C620:
+    // the Texture registry 0x00CF5434, then the Region's); +0x10 IsA (typeId);
+    // +0x18 IsObjectType `int __thiscall(this, const char *)`, ret 4 (0x00773430:
+    // "Texture" or "Region"); +0x1C GetObjectType `const char *__thiscall(this)`
+    // (0x00773480: the "Texture" string at [0x00878CE4]). Texture::Mask gives a
+    // MaskTexture a copy with its own slots 2, 6 and 7. The slot offsets are the
+    // frame's (VTBL_FRAME_GET_SCRIPT_METHOD / _IS_OBJECT_TYPE / _GET_OBJECT_TYPE).
+    VTBL_SIMPLETEXTURE = 0x0081C718,
+    VTBL_SIMPLETEXTURE_SLOTS = 13,
     FUN_FRAME_SET_FRAME_ALPHA = 0x0076A690,
     // CSimpleFrame::SetParent — `void __thiscall(frame, CSimpleFrame *parent)`,
     // `ret 4`; Script SetParent reaches it through vtable+0x14. No-op for the
@@ -5424,6 +5435,11 @@ enum Offsets {
     // UpdateScrollChildRect 0x007918B0, as VAR_FRAME_LUA_TYPE_ID is by the
     // Frame methods).
     OFF_SCROLLFRAME_SCROLL_CHILD = 0x318,
+    // The ScrollFrame's draw of its scroll child — `void __thiscall(scrollFrame)`,
+    // the render callback its layer emit (0x007871C0) queues with `push esi`
+    // (the ScrollFrame) at 0x007871DA. Frame::ClipChildren wraps it to draw the
+    // scroll child's alpha gradient.
+    FUN_SCROLLFRAME_DRAW_SCROLL_CHILD = 0x00787220,
     VAR_SCROLLFRAME_LUA_TYPE_ID = 0x00CF4F14,
     FUN_SCRIPT_TEXTURE_SHOW = 0x0079B770,
     FUN_SCRIPT_TEXTURE_HIDE = 0x0079B830,
@@ -14673,6 +14689,24 @@ enum Offsets {
     GXRS_TEXTURE0 = 0x17,  // texture bind, +unit 0..7 (via FUN_GX_RS_SET_PTR)
     GXRS_COMBINER0 = 0x1F, // combiner preset, +unit 0..7 (via FUN_GX_RS_SET)
     GXRS_COMBINE_MODULATE = 1, // preset value: COLOROP=MODULATE, ALPHAOP=MODULATE
+    // The D3D9 combiner apply — `void __thiscall(dev, int stage, int preset)`,
+    // `ret 8`: when the stage is below the device's count (+0x23C) and enabled
+    // (+0x3BFC + stage), writes COLOROP = the preset table 0x0080A25C[preset]
+    // to state stage + 0x42 and ALPHAOP = 0x0080A274[preset] to stage + 0x4A
+    // through FUN_GX_D3D_SET_STAGE_STATE (disassembled 0x005A2DD0-0x005A2E1D).
+    // Texture::Mask hooks it for a preset past the table's six.
+    FUN_GX_D3D_APPLY_COMBINER = 0x005A2DD0,
+    FUN_GX_D3D_SET_STAGE_STATE = 0x005A2570, // __thiscall(dev, int stateId, int value), ret 8
+    OFF_GXDEV_D3D_STAGE_COUNT = 0x23C,
+    OFF_GXDEV_D3D_STAGE_ENABLED = 0x3BFC, // u8 per stage
+    GXD3D_STATE_COLOROP0 = 0x42,           // + stage
+    GXD3D_STATE_ALPHAOP0 = 0x4A,           // + stage
+    D3DTOP_SELECTARG1 = 2,
+    D3DTOP_SELECTARG2 = 3,
+    D3DTOP_MODULATE = 4,
+    // Preset 0 is COLOROP MODULATE, ALPHAOP SELECTARG2: on stage 0 the texture's
+    // colour times the vertex colour, and the vertex alpha alone.
+    GXRS_COMBINE_COLOR_ONLY = 0,
     // GxRs setters — `__fastcall(selector, value)`. The int form (0x00589E60)
     // writes combiner presets and the like; the pointer form (0x00589E80) writes
     // texture binds.
@@ -15947,6 +15981,7 @@ enum Offsets {
     FUN_UI_GET_PIXEL_SHADER = 0x00770620,      // __fastcall(index): s_uiPixelShaders[index] iff loaded and valid (FUN_0058B360), else 0; 1 = Desaturate (Script_SetDesaturated's gate; 3.3.5 GetImageModePixelShader)
     VAR_UI_SHADER_DESATURATE = 0x00CF4CD4,     // DAT_00CF4CD0[1]: stock Desaturate.bls CGxShader*; released by FUN_0076FDD0 at shutdown
     FUN_SCRIPT_TEXTURE_SET_DESATURATED = 0x0079C1E0, // Texture method batch entry 20; flag via FUN_LUA_TO_BOOLEAN_LOOSE(L, 2, 1)
+    FUN_SCRIPT_TEXTURE_IS_DESATURATED = 0x0079C2C0,  // Texture method batch entry 21 (docs/raw_methods.txt); 1 or nil by the shader slot
     FUN_GX_SHADER_CREATE = 0x0058B2B0,         // __fastcall(type /*ecx*/, CGxShader **out /*edx*/, const char *path)
     FUN_GX_D3D_COMPILE_PIXEL_SHADER = 0x005A0250, // __thiscall(dev, shader): +0x2c = 0, CreatePixelShader iff +0x50 == 2 && +0x58 → +0x20, +0x2c = 1
     FUN_GX_ARRAY_GROW_BYTES = 0x005268B0,      // __thiscall({cap,size,data,quantum}*, newCap): sets cap, SMemReAllocs data; size is the caller's

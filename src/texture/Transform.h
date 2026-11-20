@@ -43,4 +43,12 @@ void ScaleRotateFontStringNode(void *node, float scale, float angle);
 // entire effect.
 bool GetRotation(void *region, float *angleRad, float *cxN, float *cyN);
 
+// Where `region` draws the corners of the rect {left, right, top, bottom}
+// (rect space, y-down: top < bottom), BL, TL, BR, TR: rotated about its pivot,
+// then moved by its vertex offsets. The rect's own corners when it has neither.
+// Texture::Mask builds a mask's frame from these, as 3.80.2 does from the
+// drawn corners (0x14057A2E0).
+void TargetCorners(void *region, float left, float right, float top, float bottom, float tx[4],
+                   float ty[4]);
+
 } // namespace Texture::Transform

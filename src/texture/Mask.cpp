@@ -28,20 +28,32 @@
 // Two mask sources, ONE sampling path — TEXGEN, the same mechanism as the
 // engine's own minimap-disc mask (FUN_004ec440): each unit's UV is generated
 // from the raw vertex POSITION and mapped through a per-unit texture matrix.
-// No vertex stream is consumed per mask, so up to 7 simultaneous masks
-// (device-stage-cap-clamped), and both sources compose (alpha intersection):
-//   * SetMask("path") — the matrix is built from the BASE region's own rect
-//     (+ its SetRotation, so the mask follows a rotated base). Position-based
+// No vertex stream is consumed per mask, and both sources compose:
+//   * SetMask("path") — the matrix is built from the BASE region's own drawn
+//     corners, so the mask follows a rotated or warped base. Position-based
 //     on purpose: the original recipe here (the minimap BLIP mask's
 //     FUN_004eae10, explicit second UV stream with uv1 = uv0) sampled the mask
 //     at the base's texcoords, which breaks for SetTexCoord'd sprites — the
 //     mask is then sampled at the same sub-rect OF THE MASK IMAGE, showing a
 //     corner chunk of the shape instead of the shape. Texgen spans the drawn
-//     quad regardless of texcoords (retail semantics); for default 0..1
-//     texcoords the two formulas are identical (see BuildMaskMatrix).
-//   * AddMaskTexture(maskRegion) — positioned masks: matrix from the mask
-//     region's rect (plus its SetRotation, a rotation term in the matrix);
-//     each independently positioned, sized, rotated, and animated.
+//     quad regardless of texcoords; for default 0..1 texcoords the two
+//     formulas are identical (see BuildCornerMatrix). As the 3.80.2 client's
+//     bake does (0x140577CF0), the mask's alpha REPLACES the texture's own and
+//     its colour is ignored: stage 0 takes combiner preset 0 (the vertex alpha
+//     alone) and the mask's stage a preset of our own past the engine's six
+//     (kPresetMaskAlpha, applied by the FUN_GX_D3D_APPLY_COMBINER co-hook).
+//   * AddMaskTexture(maskRegion) — positioned masks: the matrix maps the mask
+//     region's drawn corners (its rotation and vertex offsets included, as
+//     3.80.2 builds the frame from the drawn corners, 0x14057A2E0) to the
+//     mask's UV square; each independently positioned, sized, rotated and
+//     animated. At most 3 per texture, as 3.80.2 allows (0x140577610).
+//
+// A MaskTexture (CreateMaskTexture, XML <MaskTexture>) is a texture region
+// given its own copy of CSimpleTexture's vtable, as 3.80.2's CSimpleMaskTexture
+// is the texture constructor plus a vtable swap: GetObjectType answers
+// "MaskTexture", IsObjectType("MaskTexture") is true, and the four mask methods
+// are not on it. It stays shown and is never drawn (the draw hook skips it, as
+// 3.80.2's batch slot 0x140579F50 skips IsMask), and a hidden mask still masks.
 //
 // State discipline: the queued draw is only flushed at the indexed submit
 // (FUN_GX_PRIM_INDEXED) the engine issues right after this stream call, so the
@@ -56,6 +68,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "baselib/Ascii.h"
 #include "frame/AlphaGradient.h"
 #include "frame/Layout.h"
 #include "gx/Device.h"
@@ -73,6 +86,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
+#include <cstring>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -97,14 +112,62 @@ struct MaskEntry {
 std::unordered_map<void *, MaskEntry> g_regionMask;
 
 // --- object mask API: MaskTexture regions ------------------------------------
-// A base region -> the mask regions it's clipped by, in Add order. Each mask is
-// a real (hidden) CSimpleTexture minted by CreateMaskTexture; the draw hook
-// reads its live rect + texture + rotation and clips the base to it. Keyed by
-// the base region pointer, same as g_regionMask. The draw applies the first
-// (stage cap - 1) masks — up to 7 on this device.
+// A base region -> the mask regions it's clipped by, in Add order, at most
+// kMaxMasks. Each mask is a MaskTexture; the draw hook reads its live corners
+// and texture and clips the base to it. Keyed by the base region pointer, same
+// as g_regionMask.
+constexpr size_t kMaxMasks = 3;
 std::unordered_map<void *, std::vector<void *>> g_baseMasks;
-// Regions minted by CreateMaskTexture — a mask-source allow-list.
+// Every MaskTexture region: what the draw hook skips, and what a pooled reuse
+// detaches.
 std::unordered_set<void *> g_maskRegions;
+
+// --- the MaskTexture vtable ------------------------------------------------------
+
+using GetScriptMethod_t = int(__thiscall *)(void *self, void *L, const char *name);
+using IsObjectType_t = int(__thiscall *)(void *self, const char *name);
+
+uintptr_t g_maskVtable[Offsets::VTBL_SIMPLETEXTURE_SLOTS];
+const char kMaskTextureType[] = "MaskTexture";
+
+uintptr_t TextureSlot(uint32_t offset) {
+    return reinterpret_cast<const uintptr_t *>(Offsets::VTBL_SIMPLETEXTURE)[offset / 4];
+}
+
+// The four mask methods are a Texture's only: a MaskTexture's lookup misses
+// them, so they read as nil on it.
+int __fastcall MaskGetScriptMethod(void *self, void *, void *L, const char *name) {
+    static const char *const kTextureOnly[] = {"AddMaskTexture", "RemoveMaskTexture",
+                                               "GetNumMaskTextures", "GetMaskTexture"};
+    for (const char *m : kTextureOnly)
+        if (name != nullptr && std::strcmp(name, m) == 0)
+            return 0;
+    return reinterpret_cast<GetScriptMethod_t>(TextureSlot(Offsets::VTBL_FRAME_GET_SCRIPT_METHOD))(
+        self, L, name);
+}
+
+int __fastcall MaskIsObjectType(void *self, void *, const char *name) {
+    if (name != nullptr && Ascii::EqualCI(name, kMaskTextureType))
+        return 1;
+    return reinterpret_cast<IsObjectType_t>(TextureSlot(Offsets::VTBL_FRAME_IS_OBJECT_TYPE))(self,
+                                                                                         name);
+}
+
+const char *__fastcall MaskGetObjectType(void *) { return kMaskTextureType; }
+
+const void *MaskVtable() {
+    if (g_maskVtable[0] == 0) {
+        for (int i = 0; i < Offsets::VTBL_SIMPLETEXTURE_SLOTS; ++i)
+            g_maskVtable[i] = TextureSlot(i * 4);
+        g_maskVtable[Offsets::VTBL_FRAME_GET_SCRIPT_METHOD / 4] =
+            reinterpret_cast<uintptr_t>(&MaskGetScriptMethod);
+        g_maskVtable[Offsets::VTBL_FRAME_IS_OBJECT_TYPE / 4] =
+            reinterpret_cast<uintptr_t>(&MaskIsObjectType);
+        g_maskVtable[Offsets::VTBL_FRAME_GET_OBJECT_TYPE / 4] =
+            reinterpret_cast<uintptr_t>(&MaskGetObjectType);
+    }
+    return g_maskVtable;
+}
 
 
 using Texture::LoadByPath;
@@ -129,30 +192,34 @@ bool SetPath(void *region, const char *path) {
     auto it = g_regionMask.find(region);
     if (it != g_regionMask.end() && it->second.path == path)
         return true; // unchanged
+    ClearPathMask(region);
     void *handle = LoadByPath(path);
     if (handle == nullptr)
-        return false; // keeps the mask it had, as SetTexture keeps its texture
-    ClearPathMask(region);
+        return false; // a path that does not load clears the mask, as 3.80.2's
+    
     g_regionMask[region] = MaskEntry{handle, path};
     return true;
 }
 
-using RegionHide_t = void(__fastcall *)(void *region);
-
-void MakeSource(void *region) {
-    Game::Ref<uint32_t>(region, Offsets::OFF_REGION_DESIRED_SHOWN) = 0;
-    reinterpret_cast<RegionHide_t>(Offsets::FUN_FONTSTRING_HIDE)(region);
+void MakeMask(void *region) {
+    Game::Ref<const void *>(region, 0) = MaskVtable();
     g_maskRegions.insert(region);
 }
 
-void Add(void *base, void *mask) {
-    if (base == mask)
-        return;
+bool IsMask(const void *region) {
+    return region != nullptr && Game::Read<const void *>(region, 0) == MaskVtable();
+}
+
+AddResult Add(void *base, void *mask) {
     auto &v = g_baseMasks[base];
+    // The cap is checked before the duplicate, as 3.80.2's (0x140577610).
+    if (v.size() >= kMaxMasks)
+        return AddResult::Full;
     for (void *m : v)
         if (m == mask)
-            return;
+            return AddResult::Added;
     v.push_back(mask);
+    return AddResult::Added;
 }
 
 namespace {
@@ -166,8 +233,8 @@ using PrimStreams_t = void(__fastcall *)(int count, const void *pos, int posStri
 
 PrimStreams_t g_primStreamsOriginal = nullptr;
 
-// A hidden mask's rect comes from Frame::Layout::GetResolvedRect: the layout
-// pass skips hidden regions, so a mask would otherwise have none.
+// A mask's rect comes from Frame::Layout::GetResolvedRect: the layout pass
+// skips hidden regions, and a hidden mask still masks.
 
 // --- texgen: every mask samples on its own unit, 1..N -------------------------
 //
@@ -184,46 +251,77 @@ PrimStreams_t g_primStreamsOriginal = nullptr;
 //     established by the 2026-08-18 texprobe fixtures — Transform.cpp
 //     WriteCorners). Texgen samples the STORED position, so the matrix folds
 //     the mirror in: rendered-space y_r = midY − y.
-// In rendered space (y-down): un-rotate about the mask's pivot (a mask rotated
-// +a CCW-on-screen shows texel R(−a) about the pivot), then map the mask's rect
-// to [0,1]². Composed into one row-vector 4×4 (translation in row 3):
-//   u = ( c·x + s·y + Tx − maskLeft) / maskW
-//   v = ( s·x − c·y + Ty − maskTop ) / maskHd     [maskHd = bottom − top]
-// with c = cos a, s = sin a, pivot P in rendered space, and
-//   Tx = Px·(1−c) − s·(midY−Py),  Ty = Py + c·(midY−Py) − s·Px
-// (a = 0 ⇒ u = (x − left)/W, v = (midY − y − top)/Hd — exactly the retired
-// uv1 = uv0 SetMask recipe's formula re-expressed through positions, so a
-// path mask on a default-texcoord texture renders identically to that
-// shipped-and-verified path).
-bool BuildMaskMatrix(const float mr[4], float midY, bool rotated, float angle, float cxN,
-                     float cyN, float out[16]) {
-    const float mW = mr[3] - mr[1];  // left→right
-    const float mHd = mr[2] - mr[0]; // top→bottom (y-down: positive)
-    if (mW == 0.0f || mHd == 0.0f)
+// In rendered space (y-down) the mask's drawn corners give an affine frame,
+// and a point's coordinates in that frame are the mask's UV
+// (BuildCornerMatrix). For an axis-aligned mask that is u = (x - left) / W,
+// v = (midY - y - top) / H — exactly the retired uv1 = uv0 SetMask recipe's
+// formula re-expressed through positions, so a path mask on a default-texcoord
+// texture renders where that shipped-and-verified path put it.
+// The texgen matrix for a mask whose drawn corners (rect space, y-down; BL,
+// TL, BR, TR) are tx/ty: the affine frame of its bottom-left corner and its
+// bottom and left edges maps a rendered point to the mask's UV square, u along
+// the bottom edge and v down from the top (3.80.2's 0x14057A1D0 takes the same
+// three corners). Texgen samples the STORED position, rendered at
+// (x, midY - y), so the mirror is folded in.
+bool BuildCornerMatrix(const float tx[4], const float ty[4], float midY, float out[16]) {
+    const float ox = tx[0], oy = ty[0];         // BL
+    const float ax = tx[2] - ox, ay = ty[2] - oy; // bottom edge, BL -> BR
+    const float bx = tx[1] - ox, by = ty[1] - oy; // left edge, BL -> TL
+    const float det = ax * by - bx * ay;
+    if (std::fabs(det) < 1e-12f)
         return false;
-    float c = 1.0f, s = 0.0f, tx = 0.0f, ty = midY;
-    if (rotated) {
-        c = std::cos(angle);
-        s = std::sin(angle);
-        const float px = mr[1] + cxN * mW;
-        // cyN is measured from the BOTTOM edge on screen (rendered bottom =
-        // mr[2], numerically larger in this y-down space).
-        const float py = mr[2] + cyN * (mr[0] - mr[2]);
-        tx = px * (1.0f - c) - s * (midY - py);
-        ty = py + c * (midY - py) - s * px;
-    }
+    // [u w] = inverse([a b]) * (P - O), w measured up from the bottom edge.
+    const float i11 = by / det, i12 = -bx / det;
+    const float i21 = -ay / det, i22 = ax / det;
+    // P = (x, midY - y): u = i11 x - i12 y + i12 (midY - oy) - i11 ox;
+    // v = 1 - w = -i21 x + i22 y + 1 - i22 (midY - oy) + i21 ox.
     for (int i = 0; i < 16; ++i)
         out[i] = 0.0f;
-    out[0] = c / mW;
-    out[1] = s / mHd;
-    out[4] = s / mW;
-    out[5] = -c / mHd;
+    out[0] = i11;
+    out[4] = -i12;
+    out[12] = i12 * (midY - oy) - i11 * ox;
+    out[1] = -i21;
+    out[5] = i22;
+    out[13] = 1.0f - i22 * (midY - oy) + i21 * ox;
     out[10] = 1.0f;
-    out[12] = (tx - mr[1]) / mW;
-    out[13] = (ty - mr[0]) / mHd;
     out[15] = 1.0f;
     return true;
 }
+
+// `region`'s drawn corners (its rotation and vertex offsets), from its resolved
+// rect as the corner store takes it ({top, left, bottom, right} in `rect`).
+bool DrawnCorners(void *region, float (&rect)[4], float tx[4], float ty[4]) {
+    if (!Frame::Layout::GetResolvedRect(region, rect))
+        return false;
+    Texture::CornerStore::CropInput(region, rect);
+    Texture::Transform::TargetCorners(region, rect[1], rect[3], rect[0], rect[2], tx, ty);
+    return true;
+}
+
+// COLOROP SELECTARG2, ALPHAOP MODULATE: the colour so far, its alpha times the
+// mask texture's. One past the engine's six presets (FUN_GX_D3D_APPLY_COMBINER).
+constexpr int kPresetMaskAlpha = 6;
+
+using ApplyCombiner_t = void(__fastcall *)(void *dev, void *edx, int stage, int preset);
+using SetStageState_t = void(__fastcall *)(void *dev, void *edx, int stateId, int value);
+ApplyCombiner_t g_origApplyCombiner = nullptr;
+
+void __fastcall ApplyCombiner_h(void *dev, void *edx, int stage, int preset) {
+    if (preset != kPresetMaskAlpha) {
+        g_origApplyCombiner(dev, edx, stage, preset);
+        return;
+    }
+    if (static_cast<uint32_t>(stage) >= Game::Read<uint32_t>(dev, Offsets::OFF_GXDEV_D3D_STAGE_COUNT) ||
+        Game::Read<uint8_t>(dev, Offsets::OFF_GXDEV_D3D_STAGE_ENABLED + stage) == 0)
+        return;
+    const auto set = reinterpret_cast<SetStageState_t>(Offsets::FUN_GX_D3D_SET_STAGE_STATE);
+    set(dev, nullptr, Offsets::GXD3D_STATE_COLOROP0 + stage, Offsets::D3DTOP_SELECTARG2);
+    set(dev, nullptr, Offsets::GXD3D_STATE_ALPHAOP0 + stage, Offsets::D3DTOP_MODULATE);
+}
+
+const Game::HookAutoRegister _combinerHook{Offsets::FUN_GX_D3D_APPLY_COMBINER,
+                                           reinterpret_cast<void *>(&ApplyCombiner_h),
+                                           reinterpret_cast<void **>(&g_origApplyCombiner)};
 
 using PrimIndexed_t = void(__fastcall *)(int primType, int indexCount, const void *indices);
 
@@ -277,27 +375,24 @@ bool MaskedRegionDrawImpl(void *base, void *pathMaskH, void *const *masks, int m
     if (usable < 1)
         return false;
 
-    float br[4]; // base rect {top, left, bottom, right}
-    if (!Frame::Layout::GetResolvedRect(base, br))
+    float br[4]; // base rect {top, left, bottom, right}, as the corner store takes it
+    float btx[4], bty[4];
+    if (!DrawnCorners(base, br, btx, bty))
         return false;
-    // The engine corner store's input rect, so midY matches the store's midline.
-    Texture::CornerStore::CropInput(base, br);
-    const float midY = br[0] + br[2];
+    const float midY = br[0] + br[2]; // the store's midline
 
     void *cgx[7];
     float mtx[7][16];
     int units = 0;
 
-    // The path mask (SetMask) spans the base's own rect and follows the base's
-    // rotation — the exact matrix a mask region covering the base would get.
-    // Per-frame residency reference (force=1), exactly like the minimap's mask.
+    // The path mask (SetMask) spans the base's own drawn corners — the exact
+    // matrix a mask region covering the base would get. Per-frame residency
+    // reference (force=1), exactly like the minimap's mask.
     if (pathMaskH != nullptr) {
         cgx[units] = Texture::DeviceTexture(pathMaskH);
         if (cgx[units] == nullptr)
             return false;
-        float angle = 0.0f, cxN = 0.5f, cyN = 0.5f;
-        const bool rotated = Texture::Transform::GetRotation(base, &angle, &cxN, &cyN);
-        if (!BuildMaskMatrix(br, midY, rotated, angle, cxN, cyN, mtx[units]))
+        if (!BuildCornerMatrix(btx, bty, midY, mtx[units]))
             return false;
         ++units;
     }
@@ -313,12 +408,8 @@ bool MaskedRegionDrawImpl(void *base, void *pathMaskH, void *const *masks, int m
         cgx[units] = Texture::DeviceTexture(hTex);
         if (cgx[units] == nullptr)
             return false;
-        float mr[4];
-        if (!Frame::Layout::GetResolvedRect(masks[i], mr))
-            return false;
-        float angle = 0.0f, cxN = 0.5f, cyN = 0.5f;
-        const bool rotated = Texture::Transform::GetRotation(masks[i], &angle, &cxN, &cyN);
-        if (!BuildMaskMatrix(mr, midY, rotated, angle, cxN, cyN, mtx[units]))
+        float mr[4], mtx4[4], mty4[4];
+        if (!DrawnCorners(masks[i], mr, mtx4, mty4) || !BuildCornerMatrix(mtx4, mty4, midY, mtx[units]))
             return false;
     }
     if (units == 0)
@@ -330,10 +421,15 @@ bool MaskedRegionDrawImpl(void *base, void *pathMaskH, void *const *masks, int m
         RestoreAfterDraw(); // stale leftover (shouldn't happen) — clear first
     Gx::PushStates();
     g_pendingRestore = 1u;
+    // The path mask replaces the texture's alpha (D3D9 only: the preset is ours).
+    const bool replaceAlpha = pathMaskH != nullptr && Gx::IsD3d();
+    if (replaceAlpha)
+        Gx::SetState(Offsets::GXRS_COMBINER0, Offsets::GXRS_COMBINE_COLOR_ONLY);
     for (int i = 0; i < units; ++i) {
         const int unit = first + i;
         Gx::SetState(Offsets::GXRS_TEXTURE0 + unit, cgx[i]);
-        Gx::SetState(Offsets::GXRS_COMBINER0 + unit, Offsets::GXRS_COMBINE_MODULATE);
+        Gx::SetState(Offsets::GXRS_COMBINER0 + unit, replaceAlpha && i == 0 ? kPresetMaskAlpha
+                                                                            : Offsets::GXRS_COMBINE_MODULATE);
         Gx::SetState(Offsets::GXRS_TEXGEN0 + unit, Offsets::GXRS_TEXGEN_OBJECT_POS);
         Gx::SetState(Offsets::GXRS_TEXXFORM0 + unit, Offsets::GXRS_TEXXFORM_MATRIX);
         Gx::PushTransform(unit, mtx[i]);
@@ -362,9 +458,9 @@ void __fastcall PrimStreams_h(int count, const void *pos, int posStride, const v
                               int s3Stride, const void *colors, int colorStride, int drop8,
                               int drop9, const void *uv0, int uv0Stride, const void *uv1,
                               int uv1Stride) {
-    // Fast path: nothing masked, feature off, or not a plain textured quad.
-    if (g_enabled && count == 4 && uv0 != nullptr && uv1 == nullptr && pos != nullptr &&
-        (!g_regionMask.empty() || !g_baseMasks.empty())) {
+    // Fast path: nothing masked, no MaskTexture, or not a plain textured quad.
+    if (count == 4 && uv0 != nullptr && uv1 == nullptr && pos != nullptr &&
+        (!g_maskRegions.empty() || (g_enabled && (!g_regionMask.empty() || !g_baseMasks.empty())))) {
         // The region draw passes the region's corner array as `positions`, so
         // the owning region is positions - OFF_SIMPLETEXTURE_CORNERS. A false
         // match needs a non-region draw whose positions pointer numerically
@@ -375,17 +471,20 @@ void __fastcall PrimStreams_h(int count, const void *pos, int posStride, const v
         if (region == nullptr)
             region = reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(pos) -
                                               Offsets::OFF_SIMPLETEXTURE_CORNERS);
+        // A MaskTexture is never drawn.
+        if (!g_maskRegions.empty() && g_maskRegions.count(region) != 0)
+            return;
         // A path mask (SetMask) and positioned mask regions (AddMaskTexture)
         // compose — every mask MODULATEs into the same draw.
         void *pathMaskH = nullptr;
-        if (!g_regionMask.empty()) {
+        if (g_enabled && !g_regionMask.empty()) {
             auto it = g_regionMask.find(region);
             if (it != g_regionMask.end())
                 pathMaskH = it->second.handle;
         }
         void *const *masks = nullptr;
         int maskCount = 0;
-        if (!g_baseMasks.empty()) {
+        if (g_enabled && !g_baseMasks.empty()) {
             auto mit = g_baseMasks.find(region);
             if (mit != g_baseMasks.end() && !mit->second.empty()) {
                 masks = mit->second.data();
@@ -436,15 +535,18 @@ static const Texture::Construct::AutoSubscribe _constructSub{&OnTextureConstruct
 
 // --- Lua surface -------------------------------------------------------------
 
-// texture:SetMask("path") sets the mask; SetMask(nil) / SetMask("") clears it.
+// texture:SetMask(file): a path, or a number read as one; "" or a file that does
+// not load clears the mask. nil is the usage error, as 3.80.2's (0x140A69FE0).
 int __fastcall Script_SetMask(void *L) {
     void *region = Game::Lua::ResolveTexture(L);
     if (region == nullptr)
         return 0;
-    const char *path = (Game::Lua::GetTop(L) >= 2 && Game::Lua::Type(L, 2) == Game::Lua::TYPE_STRING)
-                           ? Game::Lua::ToString(L, 2)
-                           : nullptr;
-    SetPath(region, path);
+    const int type = Game::Lua::Type(L, 2);
+    if (type != Game::Lua::TYPE_STRING && type != Game::Lua::TYPE_NUMBER) {
+        Game::Lua::Error(L, "Usage: self:SetMask(file)");
+        return 0;
+    }
+    SetPath(region, Game::Lua::ToString(L, 2));
     return 0;
 }
 
@@ -458,44 +560,78 @@ void OnTextureNode(void *object, const void *node, void * /*status*/) {
 const Xml::TypeLoad::AutoSubscribe _xmlSub{Xml::TypeLoad::TEXTURE, &OnTextureNode};
 
 
-// frame:CreateMaskTexture([name, layer, ...]) — mint a MaskTexture. Delegates to
-// the engine's own CreateTexture (it reads the args off this same stack and
-// pushes the new region), then hides it (a mask is a source, never drawn) and
-// records it as a valid mask source.
+// The 3.80.2 client's error form (0x1405AC570): "<name>:<fn>(): <message>",
+// or "<fn>(): <message>" without a name, cut at 199 characters.
+void RaiseFor(void *L, void *object, const char *fn, const char *message) {
+    char text[200];
+    const char *name = Game::Lua::ObjectName(object);
+    if (name != nullptr)
+        std::snprintf(text, sizeof text, "%s:%s(): %s", name, fn, message);
+    else
+        std::snprintf(text, sizeof text, "%s(): %s", fn, message);
+    Game::Lua::Error(L, "%s", text);
+}
+
+// The MaskTexture argument at `idx`, or nullptr.
+void *MaskArg(void *L, int idx) {
+    void *mask = Game::Lua::ResolveTexture(L, idx, /*raiseError=*/false);
+    return IsMask(mask) ? mask : nullptr;
+}
+
+// frame:CreateMaskTexture([name, drawLayer, templateName, subLevel]) — the
+// engine's own CreateTexture (it reads name, layer and template off this same
+// stack and pushes the new region), then the MaskTexture vtable. subLevel is
+// checked as 3.80.2 checks it (0x140A84590); a mask never draws, so it places
+// nothing.
 int __fastcall Script_CreateMaskTexture(void *L) {
+    if (Game::Lua::Type(L, 5) > Game::Lua::TYPE_NIL) {
+        const int subLevel = static_cast<int>(Game::Lua::ToNumber(L, 5));
+        if (subLevel < -8 || subLevel > 7) {
+            Game::Lua::Error(L, "Sublevel must be between -8 and 7");
+            return 0;
+        }
+    }
+    if (Game::Lua::GetTop(L) > 4)
+        Game::Lua::SetTop(L, 4);
     const int rc = Game::Lua::CallScript(Offsets::FUN_SCRIPT_CREATE_TEXTURE, L);
     if (rc != 1)
         return rc; // engine raised an error, or pushed nothing
     void *region = Game::Lua::ResolveObject(L, Game::Lua::GetTop(L));
     if (region != nullptr)
-        MakeSource(region);
+        MakeMask(region);
     return 1; // the region object the engine pushed is our return value
 }
 
-// texture:AddMaskTexture(mask) — clip this texture to the mask region. Repeat
-// calls add further masks (drawn on units 1..7; extras past the device's stage
-// budget are stored but not applied). Adding the same mask twice is a no-op.
+// texture:AddMaskTexture(mask) — clip this texture to the mask. Adding the same
+// mask twice is a no-op; a fourth raises 3.80.2's error.
 int __fastcall Script_AddMaskTexture(void *L) {
     void *base = Game::Lua::ResolveTexture(L);
-    void *mask = Game::Lua::ResolveTexture(L, 2, /*raiseError=*/false);
-    if (base != nullptr && mask != nullptr)
-        Add(base, mask);
+    if (base == nullptr)
+        return 0;
+    void *mask = MaskArg(L, 2);
+    if (mask == nullptr) {
+        Game::Lua::Error(L, "Usage: self:AddMaskTexture(mask)");
+        return 0;
+    }
+    if (Add(base, mask) == AddResult::Full)
+        RaiseFor(L, base, "AddMaskTexture",
+                 "Texture already has the maximum number of mask textures (3)");
     return 0;
 }
 
-// texture:RemoveMaskTexture([mask]) — drop the given mask, or all if omitted.
+// texture:RemoveMaskTexture(mask) — a mask that is not attached is no error.
 int __fastcall Script_RemoveMaskTexture(void *L) {
     void *base = Game::Lua::ResolveTexture(L);
     if (base == nullptr)
         return 0;
-    void *mask = Game::Lua::ResolveTexture(L, 2, /*raiseError=*/false);
+    void *mask = MaskArg(L, 2);
+    if (mask == nullptr) {
+        Game::Lua::Error(L, "Usage: self:RemoveMaskTexture(mask)");
+        return 0;
+    }
     auto it = g_baseMasks.find(base);
     if (it == g_baseMasks.end())
         return 0;
-    if (mask == nullptr) {
-        g_baseMasks.erase(it);
-        return 0;
-    }
     auto &v = it->second;
     v.erase(std::remove(v.begin(), v.end(), mask), v.end());
     if (v.empty())
@@ -516,19 +652,30 @@ int __fastcall Script_GetNumMaskTextures(void *L) {
     return 1;
 }
 
-// texture:GetMaskTexture(index) -> the index-th mask region object (or nil).
+#define GET_MASK_TEXTURE_USAGE "Usage: local mask = self:GetMaskTexture(index)"
+
+// texture:GetMaskTexture(index) -> the index-th mask, or nil. `index` is
+// required, a number from 0 to 2^32 - 1; it is lowered by 1 and truncated, so
+// 0 is nil and 1.5 is the first (3.80.2's 0x140A66DE0).
 int __fastcall Script_GetMaskTexture(void *L) {
     void *base = Game::Lua::ResolveTexture(L);
-    const int index =
-        (Game::Lua::GetTop(L) >= 2) ? static_cast<int>(Game::Lua::ToNumber(L, 2)) : 1;
-    if (base != nullptr && index >= 1) {
-        auto it = g_baseMasks.find(base);
-        if (it != g_baseMasks.end() && static_cast<size_t>(index) <= it->second.size()) {
-            Game::Lua::PushObject(L, it->second[index - 1]);
-            return 1;
-        }
+    if (base == nullptr)
+        return 0;
+    if (Game::Lua::Type(L, 2) <= Game::Lua::TYPE_NIL) {
+        Game::Lua::Error(L, GET_MASK_TEXTURE_USAGE);
+        return 0;
     }
-    Game::Lua::PushNil(L);
+    const double index = Game::Lua::IsNumber(L, 2) ? Game::Lua::ToNumber(L, 2) : -1.0;
+    if (!(index >= 0.0 && index <= 4294967295.0)) {
+        Game::Lua::Error(L, "outside of expected range 0 to 4294967295 - " GET_MASK_TEXTURE_USAGE);
+        return 0;
+    }
+    const int i = static_cast<int>(index - 1.0);
+    auto it = g_baseMasks.find(base);
+    if (i >= 0 && it != g_baseMasks.end() && static_cast<size_t>(i) < it->second.size())
+        Game::Lua::PushObject(L, it->second[i]);
+    else
+        Game::Lua::PushNil(L);
     return 1;
 }
 
@@ -556,9 +703,9 @@ const Game::Lua::FrameMethodEntry g_frameMethods[] = {
 };
 
 const Game::Doc::Field kSetMaskArgs[] = {
-    Game::Doc::Opt("file", "cstring", nullptr,
-                   "A texture whose alpha channel is the shape; nil or an empty string removes "
-                   "the mask."),
+    Game::Doc::Req("file", "cstring",
+                   "A texture whose alpha channel replaces the texture's own; an empty string, "
+                   "or a file that does not load, removes the mask."),
 };
 const Game::Doc::Function kSetMask{"Clips the texture to the shape of a mask file.",
                                    kSetMaskArgs, {}};
@@ -567,11 +714,11 @@ const Game::Doc::Field kAddMaskTextureArgs[] = {
     Game::Doc::Req("mask", "SimpleMaskTexture"),
 };
 const Game::Doc::Function kAddMaskTexture{
-    "Clips the texture to a mask texture's shape and position; several masks intersect.",
+    "Clips the texture to a mask texture's shape and position; up to 3 masks intersect.",
     kAddMaskTextureArgs, {}};
 
 const Game::Doc::Field kRemoveMaskTextureArgs[] = {
-    Game::Doc::Opt("mask", "SimpleMaskTexture", nullptr, "Omitted removes every mask."),
+    Game::Doc::Req("mask", "SimpleMaskTexture"),
 };
 const Game::Doc::Function kRemoveMaskTexture{"Removes a mask texture from the texture.",
                                              kRemoveMaskTextureArgs, {}};
@@ -583,7 +730,7 @@ const Game::Doc::Function kGetNumMaskTextures{
     "Returns the number of mask textures attached to the texture.", {}, kGetNumMaskTexturesRets};
 
 const Game::Doc::Field kGetMaskTextureArgs[] = {
-    Game::Doc::Opt("index", "luaIndex", "1", "1 is the first mask added."),
+    Game::Doc::Req("index", "luaIndex", "1 is the first mask added."),
 };
 const Game::Doc::Field kGetMaskTextureRets[] = {
     Game::Doc::Opt("mask", "SimpleMaskTexture", nullptr, "Nil when no mask has the index."),
@@ -595,10 +742,12 @@ const Game::Doc::Field kCreateMaskTextureArgs[] = {
     Game::Doc::Opt("name", "cstring"),
     Game::Doc::Opt("drawLayer", "DrawLayer"),
     Game::Doc::Opt("templateName", "cstring"),
+    Game::Doc::Opt("subLevel", "number", "0", "From -8 to 7."),
 };
 const Game::Doc::Field kCreateMaskTextureRets[] = {
     Game::Doc::Req("maskTexture", "SimpleMaskTexture",
-                   "A texture that is never drawn and clips the textures it is added to."),
+                   "A texture that is never drawn and clips the textures it is added to; "
+                   "GetObjectType returns \"MaskTexture\"."),
 };
 const Game::Doc::Function kCreateMaskTexture{"Creates a mask texture on the frame.",
                                              kCreateMaskTextureArgs, kCreateMaskTextureRets};

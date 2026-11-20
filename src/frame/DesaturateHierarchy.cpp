@@ -23,6 +23,9 @@
 #include "Offsets.h"
 #include "texture/Desaturation.h"
 
+#include <cfloat>
+#include <cmath>
+
 namespace Frame::DesaturateHierarchy {
 
 namespace {
@@ -37,16 +40,31 @@ void Apply(void *frame, double amount, bool regions) {
                                  [amount](void *child) { Apply(child, amount, true); });
 }
 
+#define DESATURATE_HIERARCHY_USAGE "Usage: self:DesaturateHierarchy(desaturation [, excludeRoot])"
+
+// 3.80.2's script (0x140A84F90): `desaturation` is required, a number
+// (lua_isnumber) that is finite and within float range (0x140A6DF60, errors
+// from 0x140A6F330, where a non-number reads as 0 and gets the range message);
+// excludeRoot is plain lua_toboolean. The walk clamps each texture's amount.
 int __fastcall Script_DesaturateHierarchy(void *L) {
     void *frame = Game::Lua::ResolveFrame(L);
     if (frame == nullptr)
         return 0;
-    if (!Game::Lua::IsNumber(L, 2)) {
-        Game::Lua::Error(L, "Usage: %s:DesaturateHierarchy(desaturation [, excludeRoot])",
-                         Game::Lua::ObjectDisplayName(frame));
+    if (Game::Lua::Type(L, 2) <= Game::Lua::TYPE_NIL) {
+        Game::Lua::Error(L, DESATURATE_HIERARCHY_USAGE);
         return 0;
     }
-    Apply(frame, Game::Lua::ToNumber(L, 2), !Game::Lua::ToFlag(L, 3));
+    const double amount = Game::Lua::IsNumber(L, 2) ? Game::Lua::ToNumber(L, 2) : 0.0;
+    if (Game::Lua::IsNumber(L, 2) && !std::isfinite(amount)) {
+        Game::Lua::Error(L, "must be a finite number - " DESATURATE_HIERARCHY_USAGE);
+        return 0;
+    }
+    if (!Game::Lua::IsNumber(L, 2) || amount < -FLT_MAX || amount > FLT_MAX) {
+        Game::Lua::Error(L, "outside of expected range %e to %e - " DESATURATE_HIERARCHY_USAGE,
+                         static_cast<double>(-FLT_MAX), static_cast<double>(FLT_MAX));
+        return 0;
+    }
+    Apply(frame, amount, Game::Lua::ToBoolean(L, 3) == 0);
     return 0;
 }
 

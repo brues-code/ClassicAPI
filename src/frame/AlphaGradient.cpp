@@ -18,9 +18,19 @@
 // left and top edges, index 1 the right and bottom; the gradient's x is the
 // length of the fade in from the left or right edge, its y the length in from
 // the top or bottom, in the frame's own units. What is drawn at an edge has no
-// alpha, and full alpha that length in. As on retail (probed), the fade
-// applies only while the frame clips its children (SetClipsChildren), and then
-// to its own regions too; HasAlphaGradient answers whether one is set either way.
+// alpha, and full alpha that length in.
+//
+// As in the 3.80.2 client, a gradient draws only on a render node (IsNode: a
+// frame that clips its children, or a ScrollFrame's scroll child), over the
+// node's own regions and everything under it, and a node nested inside fades
+// by its own gradient alone (the shader gets only the nearest node's,
+// 0x14059B150), so an outer fade stops at a nested clipping frame or scroll
+// child. HasAlphaGradient answers whether one is set either way.
+//
+// SetAlphaGradient reads as 3.80.2's (0x140A8B170): `index` an integer in
+// int32 range, truncated, of which only 0 and 1 store anything (another index
+// still counts as a gradient); `gradient` a table whose x and y are finite
+// numbers in float range.
 //
 // The fade is a texture stage per index on top of what each draw binds: a 2x2
 // texture, opaque white in one texel and clear in the other three, filtered,
@@ -40,10 +50,9 @@
 // projection and viewport set reloads the matrices. The fade then lands on
 // the same screen spot for textures, text and models alike.
 //
-// Frame::ClipChildren draws the regions of a frame with a gradient, and of all
-// frames under it, from batches of their own, and calls Begin and End around
-// each. A frame a ScrollFrame draws is drawn through its own draw, which
-// ClipChildren also wraps.
+// Frame::ClipChildren draws the regions under each clipping frame from batches
+// of their own and calls Begin and End around each, and around each frame a
+// ScrollFrame draws that is a node, its scroll child included.
 //
 // The OpenGL device takes no texture transform kind, so it draws without the
 // fade, as it draws without a parametric desaturation.
@@ -52,13 +61,14 @@
 
 #include "Game.h"
 #include "Offsets.h"
-#include "frame/ClipChildren.h"
 #include "frame/Destruction.h"
 #include "frame/Flags.h"
 #include "frame/Layout.h"
 #include "gx/Device.h"
 #include "texture/Load.h"
 
+#include <cfloat>
+#include <cmath>
 #include <cstdint>
 #include <unordered_map>
 
@@ -84,6 +94,7 @@ std::unordered_map<const void *, Gradient> g_gradients;
 // fractions where its ramp is 0 and 1.
 struct Stage {
     int unit;
+    bool muted; // a nested node is drawing; the stage fades nothing
     bool on[2];
     float p0[2];
     float p1[2];
@@ -102,19 +113,8 @@ bool Has(const void *frame) {
     return Frame::Flags::Has(frame, Offsets::FRAME_FLAG_ALPHA_GRADIENT);
 }
 
-// The frame's gradient is drawn: it has one and clips its children.
-bool Applies(const void *frame) {
-    constexpr uint32_t both = Offsets::FRAME_FLAG_ALPHA_GRADIENT | Offsets::FRAME_FLAG_CLIPS_CHILDREN;
-    return Frame::Flags::HasAll(frame, both);
-}
 
-void *Parent(const void *frame) { return Game::Read<void *>(frame, Offsets::OFF_REGION_PARENT); }
-
-bool IsD3d() {
-    void *dev = Game::Read<void *>(Offsets::VAR_GX_DEVICE);
-    return dev != nullptr &&
-           Game::Read<void *>(dev, 0) == reinterpret_cast<void *>(Offsets::PTR_GXDEVICE_D3D_VTBL);
-}
+using Gx::IsD3d;
 
 // The highest stage a fade may take.
 int LastUnit() {
@@ -137,7 +137,7 @@ void *RampTexture() {
 void RampColumn(const Stage &s, int axis, float vMin, float vMax, float col[4]) {
     col[0] = col[1] = col[2] = 0.0f;
     col[3] = 1.0f;
-    if (!s.on[axis])
+    if (!s.on[axis] || s.muted)
         return;
     const float a = 0.5f / (s.p1[axis] - s.p0[axis]);
     const float half = 0.5f * (vMax - vMin);
@@ -186,6 +186,7 @@ int AddStages(const void *frame, int n, int lastUnit) {
         const float dy = Game::PixelToInternal(ly * scale) * (index == 0 ? -1.0f : 1.0f);
         Stage &s = g_stages[g_count + n];
         s.unit = 1 + g_count + n;
+        s.muted = false;
         Frame::Layout::DdcToNdc(&s.p0[0], &s.p0[1], ex, ey);
         Frame::Layout::DdcToNdc(&s.p1[0], &s.p1[1], ex + dx, ey + dy);
         s.on[0] = lx > 0.0f && s.p1[0] != s.p0[0];
@@ -219,12 +220,9 @@ const Game::HookAutoRegister _projectionHook{Offsets::FUN_GX_SET_PROJECTION,
 const Game::HookAutoRegister _viewportHook{Offsets::FUN_GX_SET_VIEWPORT, reinterpret_cast<void *>(&SetViewport_h),
                                            reinterpret_cast<void **>(&g_origSetViewport)};
 
-void SetFlag(void *frame, bool on) {
-    if (Has(frame) == on)
-        return;
-    Frame::Flags::Set(frame, Offsets::FRAME_FLAG_ALPHA_GRADIENT, on);
-    Frame::ClipChildren::Regroup(frame);
-}
+// The gradient is read at each draw, and the batches follow clipping alone,
+// so nothing is regrouped.
+void SetFlag(void *frame, bool on) { Frame::Flags::Set(frame, Offsets::FRAME_FLAG_ALPHA_GRADIENT, on); }
 
 void OnFrameDestroyed(void *frame) {
     if (Has(frame))
@@ -232,6 +230,19 @@ void OnFrameDestroyed(void *frame) {
 }
 
 const Frame::Destruction::AutoSubscribe _destructionSub{&OnFrameDestroyed};
+
+#define SET_ALPHA_GRADIENT_USAGE "Usage: self:SetAlphaGradient(index, gradient)"
+
+// A finite number in float range, as 3.80.2's vector reader (0x140A6F5B0) takes.
+bool ReadComponent(void *L, int index, float *out) {
+    if (!Game::Lua::IsNumber(L, index))
+        return false;
+    const double v = Game::Lua::ToNumber(L, index);
+    if (!std::isfinite(v) || v < -FLT_MAX || v > FLT_MAX)
+        return false;
+    *out = static_cast<float>(v);
+    return true;
+}
 
 // gradient.x and gradient.y of the table at `index`.
 bool ReadVector(void *L, int index, float *x, float *y) {
@@ -242,11 +253,7 @@ bool ReadVector(void *L, int index, float *x, float *y) {
     Game::Lua::GetTable(L, index);
     Game::Lua::PushString(L, "y");
     Game::Lua::GetTable(L, index);
-    const bool ok = Game::Lua::IsNumber(L, -2) && Game::Lua::IsNumber(L, -1);
-    if (ok) {
-        *x = static_cast<float>(Game::Lua::ToNumber(L, -2));
-        *y = static_cast<float>(Game::Lua::ToNumber(L, -1));
-    }
+    const bool ok = ReadComponent(L, -2, x) && ReadComponent(L, -1, y);
     Game::Lua::SetTop(L, top);
     return ok;
 }
@@ -255,15 +262,26 @@ int __fastcall Script_SetAlphaGradient(void *L) {
     void *frame = Game::Lua::ResolveFrame(L);
     if (frame == nullptr)
         return 0;
-    float x = 0.0f, y = 0.0f;
-    const double index = Game::Lua::IsNumber(L, 2) ? Game::Lua::ToNumber(L, 2) : -1.0;
-    if ((index != 0.0 && index != 1.0) || !ReadVector(L, 3, &x, &y)) {
-        Game::Lua::Error(L, "Usage: %s:SetAlphaGradient(index, gradient)", Game::Lua::ObjectDisplayName(frame));
+    if (Game::Lua::Type(L, 2) <= Game::Lua::TYPE_NIL) {
+        Game::Lua::Error(L, SET_ALPHA_GRADIENT_USAGE);
         return 0;
     }
-    Gradient &g = g_gradients[frame];
-    g.x[static_cast<int>(index)] = x;
-    g.y[static_cast<int>(index)] = y;
+    const double index = Game::Lua::IsNumber(L, 2) ? Game::Lua::ToNumber(L, 2) : NAN;
+    if (!(index >= -2147483648.0 && index <= 2147483647.0)) {
+        Game::Lua::Error(L, "outside of expected range -2147483648 to 2147483647 - " SET_ALPHA_GRADIENT_USAGE);
+        return 0;
+    }
+    float x = 0.0f, y = 0.0f;
+    if (!ReadVector(L, 3, &x, &y)) {
+        Game::Lua::Error(L, SET_ALPHA_GRADIENT_USAGE);
+        return 0;
+    }
+    Gradient &g = g_gradients[frame]; // made even for an index that stores nothing
+    const int i = static_cast<int>(index);
+    if (i == 0 || i == 1) {
+        g.x[i] = x;
+        g.y[i] = y;
+    }
     SetFlag(frame, true);
     return 0;
 }
@@ -318,51 +336,61 @@ const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 
 } // namespace
 
-bool Any() { return !g_gradients.empty(); }
-
-void *Nearest(const void *frame) {
-    if (g_gradients.empty())
-        return nullptr;
-    for (const void *p = frame; p != nullptr; p = Parent(p))
-        if (Applies(p))
-            return const_cast<void *>(p);
-    return nullptr;
+bool IsNode(const void *frame) {
+    return Frame::Flags::Has(frame, Offsets::FRAME_FLAG_CLIPS_CHILDREN) ||
+           (Game::Read<uint32_t>(frame, Offsets::OFF_FRAME_FLAGS) & Offsets::FRAME_FLAG_SCROLL_CHILD) != 0;
 }
 
-int Begin(const void *frame, bool ancestors) {
-    if (g_gradients.empty() || frame == nullptr || !IsD3d())
+// A token: the node's own stages in the low 4 bits, the outer stages it muted
+// as a mask from bit 4.
+int Begin(const void *node) {
+    if (node == nullptr || !IsD3d())
         return 0;
-    const int lastUnit = LastUnit();
-    int n = 0;
-    for (const void *p = frame; p != nullptr; p = ancestors ? Parent(p) : nullptr)
-        if (Applies(p))
-            n = AddStages(p, n, lastUnit);
-    if (n == 0)
-        return 0;
-    void *ramp = RampTexture();
-    if (ramp == nullptr)
-        return 0;
-    Gx::PushStates();
-    for (int i = g_count; i < g_count + n; ++i) {
-        const int unit = g_stages[i].unit;
-        Gx::SetState(Offsets::GXRS_TEXTURE0 + unit, ramp);
-        Gx::SetState(Offsets::GXRS_COMBINER0 + unit, Offsets::GXRS_COMBINE_MODULATE);
-        Gx::SetState(Offsets::GXRS_TEXGEN0 + unit, Offsets::GXRS_TEXGEN_CAMERA_POS);
-        Gx::SetState(Offsets::GXRS_TEXXFORM0 + unit, Offsets::GXRS_TEXXFORM_PROJECTED);
-        Gx::PushTransform(unit);
-        Load(g_stages[i]);
+    int muted = 0;
+    for (int i = 0; i < g_count; ++i) {
+        if (!g_stages[i].muted) {
+            g_stages[i].muted = true;
+            Load(g_stages[i]);
+            muted |= 1 << i;
+        }
     }
-    g_count += n;
-    return n;
+    int n = 0;
+    if (Has(node) && IsNode(node))
+        n = AddStages(node, 0, LastUnit());
+    void *ramp = n != 0 ? RampTexture() : nullptr;
+    if (ramp == nullptr)
+        n = 0;
+    if (n != 0) {
+        Gx::PushStates();
+        for (int i = g_count; i < g_count + n; ++i) {
+            const int unit = g_stages[i].unit;
+            Gx::SetState(Offsets::GXRS_TEXTURE0 + unit, ramp);
+            Gx::SetState(Offsets::GXRS_COMBINER0 + unit, Offsets::GXRS_COMBINE_MODULATE);
+            Gx::SetState(Offsets::GXRS_TEXGEN0 + unit, Offsets::GXRS_TEXGEN_CAMERA_POS);
+            Gx::SetState(Offsets::GXRS_TEXXFORM0 + unit, Offsets::GXRS_TEXXFORM_PROJECTED);
+            Gx::PushTransform(unit);
+            Load(g_stages[i]);
+        }
+        g_count += n;
+    }
+    return n | (muted << 4);
 }
 
-void End(int stages) {
-    if (stages == 0)
-        return;
-    for (int i = g_count - 1; i >= g_count - stages; --i)
-        Gx::PopTransform(g_stages[i].unit);
-    g_count -= stages;
-    Gx::PopStates();
+void End(int token) {
+    const int n = token & 0xF;
+    if (n != 0) {
+        for (int i = g_count - 1; i >= g_count - n; --i)
+            Gx::PopTransform(g_stages[i].unit);
+        g_count -= n;
+        Gx::PopStates();
+    }
+    const int muted = token >> 4;
+    for (int i = 0; i < g_count; ++i) {
+        if ((muted & (1 << i)) != 0) {
+            g_stages[i].muted = false;
+            Load(g_stages[i]);
+        }
+    }
 }
 
 int StagesInUse() { return g_count; }

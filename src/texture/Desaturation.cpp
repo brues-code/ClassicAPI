@@ -52,6 +52,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "debug/Log.h"
+#include "gx/Device.h"
 #include "xml/FrameLoad.h"
 #include "xml/TypeLoad.h"
 
@@ -150,13 +151,8 @@ int g_forcedProfile = -1;     // diagnostic override of the device profile index
 
 void *Device() { return Game::Read<void *>(Offsets::VAR_GX_DEVICE); }
 
-// Our bytecode is D3D9-only. The OpenGL device has another layout and takes ARB
-// programs, so it keeps the engine's on/off behaviour.
-bool IsD3d() {
-    void *dev = Device();
-    return dev != nullptr &&
-           Game::Read<void *>(dev, 0) == reinterpret_cast<void *>(Offsets::PTR_GXDEVICE_D3D_VTBL);
-}
+// Our bytecode is D3D9-only (Gx::IsD3d).
+using Gx::IsD3d;
 
 int Profile() {
     if (g_forcedProfile >= 0)
@@ -324,7 +320,11 @@ void SetAmount(void *region, double amount) {
         amount = 0.0;
     else if (amount > 1.0)
         amount = 1.0;
-    const int level = static_cast<int>(amount * kFull + 0.5);
+    // 3.80.2 stores the float and IsDesaturated is `amount > 0`
+    // (0x140A68E40), so any amount above 0 takes at least the first level.
+    int level = static_cast<int>(amount * kFull + 0.5);
+    if (level == 0 && amount > 0.0)
+        level = 1;
 
     if (!g_enabled || !Available()) {
         ApplyStock(region, level > 0);
@@ -345,11 +345,13 @@ void *ResolveSelf(void *L) {
 
 // --- Lua surface ------------------------------------------------------------
 
-// texture:SetDesaturation(amount) — amount 0..1 (clamped). Returns nothing.
+// texture:SetDesaturation(amount) — amount 0..1 (clamped), a number and not a
+// numeric string (3.80.2's reader 0x140A6D0D0 checks the Lua type). Returns
+// nothing.
 int __fastcall Script_SetDesaturation(void *L) {
     void *region = ResolveSelf(L);
-    if (region == nullptr || !Game::Lua::IsNumber(L, 2)) {
-        Game::Lua::Error(L, "Usage: texture:SetDesaturation(amount)");
+    if (region == nullptr || Game::Lua::Type(L, 2) != Game::Lua::TYPE_NUMBER) {
+        Game::Lua::Error(L, "Usage: self:SetDesaturation(desaturation)");
         return 0;
     }
     SetAmount(region, Game::Lua::ToNumber(L, 2));
@@ -360,35 +362,48 @@ int __fastcall Script_SetDesaturation(void *L) {
 int __fastcall Script_GetDesaturation(void *L) {
     void *region = ResolveSelf(L);
     if (region == nullptr) {
-        Game::Lua::Error(L, "Usage: texture:GetDesaturation()");
+        Game::Lua::Error(L, "Usage: local desaturation = self:GetDesaturation()");
         return 0;
     }
     Game::Lua::PushNumber(L, GetAmount(region));
     return 1;
 }
 
-// texture:SetDesaturated(flag) — the engine method, re-routed through the
-// shared state so `false` clears any amount. Same contract as the engine:
-// returns 1 when desaturation is supported, nil when it isn't (FrameXML then
-// falls back to a grey vertex colour).
+// texture:SetDesaturated([desaturated]) — the engine method, re-routed through
+// the shared state so `false` clears any amount. The flag is plain
+// lua_toboolean, so no argument is false, as 3.80.2's (0x140A69800). The
+// return stays the engine's, which 1.12 FrameXML reads: 1 when desaturation is
+// supported, nil when it isn't (FrameXML then falls back to a grey vertex
+// colour).
 int __fastcall Script_SetDesaturated(void *L) {
     if (!g_enabled || !IsD3d())
         return Game::Lua::CallScript(Offsets::FUN_SCRIPT_TEXTURE_SET_DESATURATED, L);
 
     void *region = ResolveSelf(L);
     if (region == nullptr) {
-        Game::Lua::Error(L, "Usage: texture:SetDesaturated(flag)");
+        Game::Lua::Error(L, "Usage: self:SetDesaturated([desaturated])");
         return 0;
     }
     if (Profile() < 0) {
         Game::Lua::PushNil(L);
         return 1;
     }
-    if (!Apply(region, Game::Lua::ToFlag(L, 2, true) ? kFull : 0)) {
+    if (!Apply(region, Game::Lua::ToBoolean(L, 2) ? kFull : 0)) {
         Game::Lua::PushNil(L);
         return 1;
     }
     Game::Lua::PushNumber(L, 1.0);
+    return 1;
+}
+
+// texture:IsDesaturated() -> bool: true for any amount above 0, as 3.80.2's
+// (0x140A68E40). The engine's (FUN_SCRIPT_TEXTURE_IS_DESATURATED) answers 1 or
+// nil from the same shader slot; it still raises the usage error.
+int __fastcall Script_IsDesaturated(void *L) {
+    void *region = ResolveSelf(L);
+    if (region == nullptr)
+        return Game::Lua::CallScript(Offsets::FUN_SCRIPT_TEXTURE_IS_DESATURATED, L);
+    Game::Lua::PushBool(L, Game::Read<void *>(region, Offsets::OFF_SIMPLETEXTURE_SHADER) != nullptr);
     return 1;
 }
 
@@ -463,6 +478,7 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"SetDesaturation", &Script_SetDesaturation},
     {"GetDesaturation", &Script_GetDesaturation},
     {"SetDesaturated", &Script_SetDesaturated},
+    {"IsDesaturated", &Script_IsDesaturated},
 };
 
 const Game::Doc::Field kSetDesaturationArgs[] = {
@@ -479,9 +495,8 @@ const Game::Doc::Function kGetDesaturation{
     "Returns how much color is removed from the texture.", {}, kGetDesaturationRets};
 
 const Game::Doc::Field kSetDesaturatedArgs[] = {
-    Game::Doc::Opt("desaturated", "bool", "true",
-                   "True is SetDesaturation(1) and false is SetDesaturation(0); an explicit nil "
-                   "is false."),
+    Game::Doc::Opt("desaturated", "bool", "false",
+                   "True is SetDesaturation(1) and false is SetDesaturation(0)."),
 };
 const Game::Doc::Field kSetDesaturatedRets[] = {
     Game::Doc::Opt("supported", "number", nullptr,
@@ -490,10 +505,17 @@ const Game::Doc::Field kSetDesaturatedRets[] = {
 const Game::Doc::Function kSetDesaturated{"Sets whether the texture is drawn in grayscale.",
                                           kSetDesaturatedArgs, kSetDesaturatedRets};
 
+const Game::Doc::Field kIsDesaturatedRets[] = {
+    Game::Doc::Req("desaturated", "bool", "True for any desaturation above 0."),
+};
+const Game::Doc::Function kIsDesaturated{"Returns whether the texture is desaturated.", {},
+                                         kIsDesaturatedRets};
+
 const Game::Doc::Method g_methodDocs[] = {
     {"SetDesaturation", &kSetDesaturation},
     {"GetDesaturation", &kGetDesaturation},
     {"SetDesaturated", &kSetDesaturated},
+    {"IsDesaturated", &kIsDesaturated},
 };
 
 void RegisterLuaFunctions() {

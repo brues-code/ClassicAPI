@@ -121,22 +121,27 @@ int VertexSlot(int vertexIndex) {
 // first. Without it a region scaled 0.9 got every offset 1/0.9 too large
 // (verified in-game: a 24px offset landed at 26.7px). Reading the scale at
 // write time keeps offsets correct across later scale changes.
-void WriteCorners(void *region, float *base, float left, float right, float top, float bottom,
-                  const Xf &xf) {
+// Each corner's TARGET rect-space position (BL, TL, BR, TR).
+void Targets(void *region, float left, float right, float top, float bottom, const Xf &xf,
+             float tx[4], float ty[4]) {
     const float cx = left + xf.cxN * (right - left);
     const float cy = bottom + xf.cyN * (top - bottom);
     const float c = std::cos(xf.angle);
     const float s = std::sin(xf.angle);
     const float xs[4] = {left, left, right, right};
     const float ys[4] = {bottom, top, bottom, top};
-    // Compute each corner's TARGET rect-space position first.
-    float tx[4], ty[4];
     for (int i = 0; i < 4; ++i) {
         const float dx = xs[i] - cx;
         const float dy = ys[i] - cy;
         tx[i] = cx + dx * c + dy * s + Frame::Layout::FromLocalUnits(region, xf.offX[i]);
         ty[i] = cy - dx * s + dy * c - Frame::Layout::FromLocalUnits(region, xf.offY[i]);
     }
+}
+
+void WriteCorners(void *region, float *base, float left, float right, float top, float bottom,
+                  const Xf &xf) {
+    float tx[4], ty[4];
+    Targets(region, left, right, top, bottom, xf, tx, ty);
     // The draw consumes this array with y INVERTED about the rect's horizontal
     // midline (a vertex stored at rect-space y renders at (top+bottom)-y), and
     // it CULLS a quad whose slot parity flips (mirroring values in place made
@@ -847,6 +852,11 @@ void ScaleRotateFontStringNode(void *node, float scale, float angle) {
     });
     if (angle != 0.0f)
         InsetGlyphUVs(n);
+}
+
+void TargetCorners(void *region, float left, float right, float top, float bottom, float tx[4],
+                   float ty[4]) {
+    Targets(region, left, right, top, bottom, Current(region), tx, ty);
 }
 
 bool GetRotation(void *region, float *angleRad, float *cxN, float *cyN) {

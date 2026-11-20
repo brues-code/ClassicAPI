@@ -413,9 +413,9 @@ build instructions.
   - [`texture:SetRotation(angle [, cx, cy])`](#texturesetrotationangle--cx-cy)
   - [`texture:SetVertexOffset(vertexIndex, offsetX, offsetY)`](#texturesetvertexoffsetvertexindex-offsetx-offsety)
   - [`texture:SetMask(path)`](#texturesetmaskpath)
-  - [`frame:CreateMaskTexture([name, layer, ...])`](#framecreatemasktexturename-layer-)
+  - [`frame:CreateMaskTexture([name, drawLayer, templateName, subLevel])`](#framecreatemasktexturename-drawlayer-templatename-sublevel)
   - [`texture:AddMaskTexture(mask)`](#textureaddmasktexturemask)
-  - [`texture:RemoveMaskTexture([mask])`](#textureremovemasktexturemask)
+  - [`texture:RemoveMaskTexture(mask)`](#textureremovemasktexturemask)
   - [`texture:GetNumMaskTextures()`](#texturegetnummasktextures)
   - [`texture:GetMaskTexture(index)`](#texturegetmasktextureindex)
   - [`texture:SetColorTexture(colorR, colorG, colorB [, a])`](#texturesetcolortexturecolorr-colorg-colorb--a)
@@ -9713,10 +9713,13 @@ buttons, and other shaped art.
 
 `path` is a mask texture. The mask's ALPHA channel is the shape: where the mask
 is opaque the texture shows, where the mask is transparent the texture is
-hidden. The mask stretches across the texture's full display area, so it always
-lines up with the texture. Pass `nil` or `""` to remove the mask; the texture
-returns to its full rectangle. If the file does not load, the texture keeps the
-mask it had.
+hidden. The mask's alpha replaces the alpha of the texture, and the mask's
+color is not used. The mask stretches across the texture's full display area,
+so it always lines up with the texture. A number is read as a path.
+
+Pass `""` to remove the mask; the texture returns to its full rectangle. A file
+that does not load also removes the mask. `nil` raises
+`Usage: self:SetMask(file)`.
 
 A mask file must be one the client can load and must hold its shape in the alpha
 channel:
@@ -9737,17 +9740,18 @@ local t = frame:CreateTexture(nil, "ARTWORK")
 t:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
 t:SetMask("Textures\\MinimapMask")               -- clip the icon to a circle
 t:SetMask("Interface\\AddOns\\MyAddon\\round")   -- or your own mask texture
-t:SetMask(nil)                                    -- remove the mask
+t:SetMask("")                                     -- remove the mask
 ```
 
 > The mask ignores `SetTexCoord`. If you crop the
 > texture to one sprite of a sprite sheet, the full mask shape still clips that
 > sprite. The mask follows
-> [`texture:SetRotation`](#texturesetrotationangle--cx-cy). It also combines
+> [`texture:SetRotation`](#texturesetrotationangle--cx-cy) and
+> `texture:SetVertexOffset`. It also combines
 > with masks from [`texture:AddMaskTexture`](#textureaddmasktexturemask): the
 > texture shows only where every mask is opaque.
 
-### `frame:CreateMaskTexture([name, layer, ...])`
+### `frame:CreateMaskTexture([name, drawLayer, templateName, subLevel])`
 
 Creates a MaskTexture and returns it. A MaskTexture is a texture that never draws
 itself. Instead it clips other textures to its shape.
@@ -9757,9 +9761,11 @@ Give the mask a shape with `SetTexture`, place and size it like any texture
 `texture:AddMaskTexture`. Because the mask has its own position and size, it can
 cover only part of the target, sit to one side, or move each frame.
 
-The arguments match `frame:CreateTexture`. The mask shape lives in the texture's
-alpha channel and must load from a BLP or an uncompressed 32-bit TGA — the same
-rule as [`texture:SetMask`](#texturesetmaskpath).
+The first three arguments match `frame:CreateTexture`. `subLevel` must be from
+`-8` to `7`, or the call raises `Sublevel must be between -8 and 7`. The mask
+shape lives in the texture's alpha channel and must load from a BLP or an
+uncompressed 32-bit TGA — the same rule as
+[`texture:SetMask`](#texturesetmaskpath).
 
 ```lua
 local mask = frame:CreateMaskTexture()
@@ -9768,21 +9774,36 @@ mask:SetAllPoints(icon)      -- cover the whole icon → a round icon
 icon:AddMaskTexture(mask)
 ```
 
+Behavior notes:
+
+- `mask:GetObjectType()` returns `"MaskTexture"`. `mask:IsObjectType("MaskTexture")`
+  and `mask:IsObjectType("Texture")` both return `true`.
+- A mask is shown when it is created, and it never draws. A hidden mask still
+  clips.
+- A MaskTexture has no `AddMaskTexture`, `RemoveMaskTexture`,
+  `GetNumMaskTextures` or `GetMaskTexture` methods.
+
 ### `texture:AddMaskTexture(mask)`
 
 Clips this texture to `mask`'s shape and position. Where the mask is opaque the
-texture shows; where the mask is transparent the texture is hidden.
+texture shows; where the mask is transparent the texture is hidden. `mask` must
+be a MaskTexture, or the call raises `Usage: self:AddMaskTexture(mask)`.
 
 Call it again with a different mask to add another. A texture with several masks
 shows only where ALL of them are opaque — the masks intersect. So two circles
 show their overlapping lens, and a square plus a circle show a square with
-rounded corners. Up to 7 masks apply at once. A mask set with
-[`texture:SetMask`](#texturesetmaskpath) uses one of the 7 slots. Masks cannot
-subtract, so you cannot cut a hole with this.
+rounded corners. Masks cannot subtract, so you cannot cut a hole with this.
 
-A mask honors [`texture:SetRotation`](#texturesetrotationangle--cx-cy): rotate
-the mask and its clip shape turns with it. The mask can also move or resize each
-frame (drive it from an `OnUpdate`), so the clip animates.
+A texture takes up to 3 masks. A fourth call raises
+`<name>:AddMaskTexture(): Texture already has the maximum number of mask textures (3)`,
+also when the mask is already attached. Adding the same mask again below the
+limit does nothing. A mask set with [`texture:SetMask`](#texturesetmaskpath)
+does not count.
+
+A mask follows its own [`texture:SetRotation`](#texturesetrotationangle--cx-cy)
+and `texture:SetVertexOffset`: the clip shape turns and warps with it. The
+mask can also move or resize each frame (drive it from an `OnUpdate`), so the
+clip animates.
 
 > Outside its own rectangle, a mask repeats the alpha of its nearest edge
 > pixel. A mask whose outer edge is transparent, like a circle, hides the
@@ -9790,10 +9811,11 @@ frame (drive it from an `OnUpdate`), so the clip animates.
 > texture past its rectangle. To clip only part of a texture, use a mask with
 > a transparent border.
 
-### `texture:RemoveMaskTexture([mask])`
+### `texture:RemoveMaskTexture(mask)`
 
-Removes `mask` from this texture. With no argument, removes every mask, so the
-texture returns to its full rectangle.
+Removes `mask` from this texture. `mask` must be a MaskTexture, or the call
+raises `Usage: self:RemoveMaskTexture(mask)`. A mask that is not attached is
+not an error.
 
 ### `texture:GetNumMaskTextures()`
 
@@ -9802,7 +9824,9 @@ Returns the number of masks attached to this texture.
 ### `texture:GetMaskTexture(index)`
 
 Returns the mask at `index` (1 is the first one added), or `nil` when there is
-no mask at that index.
+no mask at that index. `index` is required. A value that is not a number from
+`0` to `4294967295` raises an error. A fraction rounds down, and `0` returns
+`nil`.
 
 ### `texture:SetAtlas(atlas [, useAtlasSize, filterMode, resetTexCoords])`
 
@@ -10060,10 +10084,14 @@ Removes some or all of the color from a texture. `amount` is a number from `0`
 (full color) to `1` (grayscale). The method clamps values outside this range.
 At every amount, the texture keeps the tint that `SetVertexColor` gives it.
 
+`amount` must be a number; a string such as `"0.5"` raises
+`Usage: self:SetDesaturation(desaturation)`.
+
 `SetDesaturated(true)` is the same as `SetDesaturation(1)`, and
-`SetDesaturated(false)` is the same as `SetDesaturation(0)`. All three methods
+`SetDesaturated(false)` is the same as `SetDesaturation(0)`. `SetDesaturated()`
+with no argument is the same as `SetDesaturated(false)`. All these methods
 change the same setting, so `SetDesaturated(false)` also clears a partial
-amount.
+amount. `texture:IsDesaturated()` returns `true` for any amount above `0`.
 
 ```lua
 icon:SetDesaturation(0.5)          -- half of the color is gone
@@ -10085,7 +10113,8 @@ that `SetDesaturated(true)` made gray returns `1`.
 
 The texture stores the amount in 255 steps, so the value that you read back can
 differ a little from the value that you set. For example, `0.5` reads back as
-`0.50196`.
+`0.50196`. An amount above `0` stores at least the first step, so it never reads
+back as `0`.
 
 ### `IsDesaturateSupported()`
 
@@ -10846,14 +10875,17 @@ You can also set the value in XML with the `useParentLevel` attribute:
 
 Sets or gets whether the frame clips its child frames.
 
-When `clipsChildren` is true, each frame under the frame draws only inside
-the rectangle of the frame. The parts outside the rectangle are not shown,
-and the mouse does not touch them there. The textures and font strings of
-the frame itself are not clipped.
+When `clipsChildren` is true, the textures and font strings of the frame, and
+each frame under the frame, draw only inside the rectangle of the frame. The
+parts outside the rectangle are not shown, and the mouse does not touch the
+frames under it there. A point on the edge of the rectangle is inside.
 
 The clipped frames keep their frame strata and frame levels. A frame under
 two clipping frames draws only where both rectangles overlap.
 
+- `clipsChildren` is required: no argument or `nil` raises
+  `Usage: self:SetClipsChildren(clipsChildren)`. Any other value is true
+  except `false`, so `0` turns clipping on.
 - `DoesClipChildren` returns `true` or `false`. The default is `false`.
 - The rectangle is the area of the frame less its hit rect insets.
 
@@ -10870,19 +10902,25 @@ You can also set the value in XML with the `clipChildren` attribute:
 Fades what the frame draws near its edges.
 
 - `index` is `0` or `1`. Index `0` is the left and top edges. Index `1` is
-  the right and bottom edges.
+  the right and bottom edges. Any other whole number is accepted and does
+  nothing, and a fraction rounds toward `0`. A value outside the 32-bit
+  integer range raises an error.
 - `gradient` is a vector from `CreateVector2D(x, y)`. `x` is the length of
   the fade in from the left or right edge. `y` is the length of the fade in
   from the top or bottom edge. The lengths use the scale of the frame. A
-  length of `0` gives no fade at that edge.
+  length of `0` gives no fade at that edge. `x` and `y` must be finite
+  numbers, or the call raises `Usage: self:SetAlphaGradient(index, gradient)`.
 
 At the edge, the alpha is `0`. The alpha increases in a straight line to full
 alpha at the end of the length. The fade applies to the textures and font
 strings of the frame and to all frames under it.
 
 The fade shows only when the frame clips its children
-(`frame:SetClipsChildren(true)`). `HasAlphaGradient` returns `true` after you
-set a gradient, also when the frame does not clip. `ClearAlphaGradient`
+(`frame:SetClipsChildren(true)`), or when the frame is the scroll child of a
+ScrollFrame. A frame inside it that also clips, or that is a scroll child,
+uses only its own gradient: the outer fade does not reach the content of that
+frame. `HasAlphaGradient` returns `true` after you set a gradient, also when
+the frame does not clip and when the index did nothing. `ClearAlphaGradient`
 removes the gradient of both indexes.
 
 ```lua
@@ -10903,8 +10941,9 @@ Limits:
 
 Sets the desaturation of each texture of the frame and of all frames under it.
 `desaturation` is a number from `0` (full color) to `1` (grayscale), as for
-`texture:SetDesaturation(amount)`. When `excludeRoot` is `true`, the textures
-of the frame itself do not change.
+`texture:SetDesaturation(amount)`. When `excludeRoot` is true, the textures
+of the frame itself do not change; any value except `false` and `nil` is true.
+A value of `desaturation` that is not a finite number raises an error.
 
 The method sets the value on each texture, so `texture:GetDesaturation()`
 returns the new value after the call. A texture that you add later keeps its
@@ -30604,16 +30643,19 @@ A `<Texture>` element takes a `mask` attribute. It is the same as
 ```
 
 A `<Layer>` also takes a `<MaskTexture>` element. It is the same as
-[`frame:CreateMaskTexture`](#framecreatemasktexturename-layer-): the mask
+[`frame:CreateMaskTexture`](#framecreatemasktexturename-drawlayer-templatename-sublevel): the mask
 loads like a texture (`file`, `inherits`, `parentKey`, `<Size>`, `<Anchors>`)
 and never draws itself. Each `<MaskedTexture>` inside `<MaskedTextures>`
 attaches the mask to one texture, the same as
 [`texture:AddMaskTexture(mask)`](#textureaddmasktexturemask):
 
 - `childKey="Icon"` names the texture at `parent.Icon`, where `parent` is the
-  frame that holds the layer.
+  frame that holds the layer. Keys can be joined with dots
+  (`childKey="Art.Icon"`), and a `$parent` part steps up to the parent of the
+  object before it.
 - `target="$parentIcon"` names a texture by its global name. `$parent` at the
-  start stands for the name of that frame.
+  start stands for the name of that frame (ClassicAPI extension).
+- When both are present, `target` is used.
 
 ```xml
 <Frame name="MyFrame">
@@ -30634,9 +30676,11 @@ attaches the mask to one texture, the same as
 </Frame>
 ```
 
-A `<MaskedTexture>` can name a texture from any layer of the same frame. If
-it names no texture, the load log gets a warning and the mask is not
-attached.
+A `<MaskedTexture>` can name a texture from any layer of the same frame. A
+template that a `<MaskTexture>` inherits also attaches its own
+`<MaskedTextures>`. If an entry names no texture, the load log gets a warning
+(`Texture <mask>: Can't find texture to be masked <target>`, or `Can't find
+child texture to be masked <childKey>`) and the mask is not attached.
 
 ### `function` and `method` on XML script handlers
 

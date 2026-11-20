@@ -19,12 +19,23 @@
 // draw 0x00787220, the portrait bake) save all three first and restore them
 // after; SavedTransforms does that for a scope.
 
+#include "Game.h"
 #include "Offsets.h"
 #include "gx/Matrix.h"
 
 #include <cstdint>
 
 namespace Gx {
+
+// The device is the D3D9 one. The OpenGL device has another layout, takes ARB
+// programs and no texture transform kind, so the features that drive D3D9
+// state themselves (parametric desaturation, alpha gradients, the SetMask
+// combiner) keep to the engine's behaviour there.
+inline bool IsD3d() {
+    void *dev = Game::Read<void *>(Offsets::VAR_GX_DEVICE);
+    return dev != nullptr &&
+           Game::Read<void *>(dev, 0) == reinterpret_cast<void *>(Offsets::PTR_GXDEVICE_D3D_VTBL);
+}
 
 inline void GetProjection(Matrix &m) {
     reinterpret_cast<void(__fastcall *)(float *)>(Offsets::FUN_GX_GET_PROJECTION)(m);
