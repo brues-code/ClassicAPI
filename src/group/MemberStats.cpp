@@ -34,12 +34,11 @@ Stats Lookup(uint64_t guid) {
     if (guid == 0)
         return s;
 
-    // Party stats block — the full record.
+    // The member record — party slot or raid row.
     auto statsFn = reinterpret_cast<Lookup_t>(
         static_cast<uintptr_t>(Offsets::FUN_GROUP_MEMBER_STATS_LOOKUP));
     if (const uint8_t *e = statsFn(&guid)) {
         s.valid = true;
-        s.full = true;
         s.powerType = e[Offsets::OFF_GROUP_MEMBER_STATS_POWER_TYPE];
         s.health = U16(e, Offsets::OFF_GROUP_MEMBER_STATS_HEALTH);
         s.maxHealth = U16(e, Offsets::OFF_GROUP_MEMBER_STATS_MAX_HEALTH);
@@ -49,32 +48,21 @@ Stats Lookup(uint64_t guid) {
         s.areaId = U16(e, Offsets::OFF_GROUP_MEMBER_AREA_ID);
         s.online = (e[Offsets::OFF_GROUP_MEMBER_STATUS_FLAGS] &
                     Offsets::GROUP_MEMBER_STATUS_ONLINE) != 0;
-        // The party stats block carries no dead / subgroup / rank fields; those
-        // are raid-only (dead comes from UnitIsDead on the live unit otherwise).
         return s;
     }
 
-    // Raid slot — same struct GetRaidRosterInfo reads.
-    auto slotFn = reinterpret_cast<Lookup_t>(
-        static_cast<uintptr_t>(Offsets::FUN_GROUP_MEMBER_SLOT_LOOKUP));
-    if (const uint8_t *e = slotFn(&guid)) {
+    // A member's pet — found only through an online owner, with no level,
+    // area or flags of its own.
+    auto petFn = reinterpret_cast<Lookup_t>(
+        static_cast<uintptr_t>(Offsets::FUN_GROUP_PET_RECORD_LOOKUP));
+    if (const uint8_t *e = petFn(&guid)) {
         s.valid = true;
-        s.full = false;
-        s.powerType = e[Offsets::OFF_RAID_SLOT_POWER_TYPE];
-        s.health = U16(e, Offsets::OFF_RAID_SLOT_HEALTH);
-        s.maxHealth = U16(e, Offsets::OFF_RAID_SLOT_MAX_HEALTH);
-        s.power = U16(e, Offsets::OFF_RAID_SLOT_POWER);
-        s.maxPower = U16(e, Offsets::OFF_RAID_SLOT_MAX_POWER);
-        s.level = U16(e, Offsets::OFF_RAID_SLOT_LEVEL);
-        s.areaId = U16(e, Offsets::OFF_RAID_SLOT_AREA_ID);
-        const uint32_t flags =
-            Game::Read<uint32_t>(e, Offsets::OFF_RAID_SLOT_FLAGS);
-        s.online = (flags & Offsets::RAID_SLOT_FLAG_ONLINE) != 0;
-        s.dead = (flags & Offsets::RAID_SLOT_FLAG_DEAD) != 0;
-        s.subgroup = static_cast<int>(Game::Read<uint32_t>(
-                         e, Offsets::OFF_RAID_SLOT_SUBGROUP)) + 1;
-        s.rank = static_cast<int>(
-            Game::Read<uint32_t>(e, Offsets::OFF_RAID_SLOT_RANK));
+        s.powerType = e[Offsets::OFF_GROUP_PET_POWER_TYPE];
+        s.health = U16(e, Offsets::OFF_GROUP_PET_HEALTH);
+        s.maxHealth = U16(e, Offsets::OFF_GROUP_PET_MAX_HEALTH);
+        s.power = U16(e, Offsets::OFF_GROUP_PET_POWER);
+        s.maxPower = U16(e, Offsets::OFF_GROUP_PET_MAX_POWER);
+        s.online = true;
         return s;
     }
 
@@ -99,9 +87,9 @@ const uint16_t *AuraArray(uint64_t guid) {
     if (guid == 0)
         return nullptr;
 
-    // Party stats block first — auras at +0x1a, but only for an online member
-    // (the engine's Script_UnitBuff bails on the party path when the online bit
-    // is clear).
+    // The member record first — auras at +0x1a, but only for an online member
+    // (the engine's Script_UnitBuff gives nil without trying the pet record
+    // when the online bit is clear).
     auto statsFn = reinterpret_cast<Lookup_t>(
         static_cast<uintptr_t>(Offsets::FUN_GROUP_MEMBER_STATS_LOOKUP));
     if (const uint8_t *e = statsFn(&guid)) {
@@ -112,13 +100,13 @@ const uint16_t *AuraArray(uint64_t guid) {
             e, Offsets::OFF_GROUP_MEMBER_STATS_AURAS);
     }
 
-    // Raid slot — auras at +0x64, no online gate (mirrors the engine's raid
-    // branch, which reads the array unconditionally).
-    auto slotFn = reinterpret_cast<Lookup_t>(
-        static_cast<uintptr_t>(Offsets::FUN_GROUP_MEMBER_SLOT_LOOKUP));
-    if (const uint8_t *e = slotFn(&guid)) {
+    // A member's pet — auras at +0x64 of the pet record, no online gate (the
+    // lookup finds a pet only through an online owner).
+    auto petFn = reinterpret_cast<Lookup_t>(
+        static_cast<uintptr_t>(Offsets::FUN_GROUP_PET_RECORD_LOOKUP));
+    if (const uint8_t *e = petFn(&guid)) {
         return Game::Ptr<const uint16_t>(
-            e, Offsets::OFF_RAID_SLOT_AURAS);
+            e, Offsets::OFF_GROUP_PET_AURAS);
     }
 
     return nullptr;

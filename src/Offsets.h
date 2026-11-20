@@ -9971,10 +9971,9 @@ enum Offsets {
     OFF_GROUP_MEMBER_POS_Y = 0x18,
     // `+0x08` status-flags byte of the stats block (see field map above);
     // bit 0 is the online flag `Script_UnitIsConnected` tests. Sibling
-    // `FUN_GROUP_MEMBER_SLOT_LOOKUP` (`0x00496420`, `__fastcall(u64 *guid)
-    // → member slot*`) is the presence fallback UnitIsConnected consults
-    // when no stats block exists — a non-null slot means the member is
-    // present (and thus connected). Both take a pointer to the 64-bit GUID.
+    // `FUN_GROUP_PET_RECORD_LOOKUP` is the fallback UnitIsConnected consults
+    // when no member record exists — a pet record means the pet's owner is
+    // online. Both take a pointer to the 64-bit GUID.
     OFF_GROUP_MEMBER_STATUS_FLAGS = 0x08,
     GROUP_MEMBER_STATUS_ONLINE = 0x1,
     // The party record's pet: its GUID and power type, whose change bits
@@ -10031,25 +10030,30 @@ enum Offsets {
     // Bit 1: flagged for PvP — Script_UnitIsPVP's test (0x00516502) for a
     // token with no unit object.
     GROUP_MEMBER_STATUS_PVP = 0x2,
-    FUN_GROUP_MEMBER_SLOT_LOOKUP = 0x00496420,
-    // Inline member name in the slot record — `Script_UnitName` (0x00517020)
-    // pushes `slot + 8` for a GUID with no live object, as does the unit
-    // tooltip builder's no-object branch (0x00529FE0). This is why
-    // `UnitName("partyN")` answers for an offline member.
-    OFF_GROUP_MEMBER_SLOT_NAME = 0x08,
+    // GetPartyPetRecord — the pet part of a member record: the record's
+    // `+0x80` onward (OFF_GROUP_MEMBER_PET_GUID), for the ONLINE party member
+    // whose pet GUID is `guid` (0x004E8860), else the raid row's pet part
+    // (row + 0x90, 0x004BB130). `const uint8_t *__fastcall(const uint64_t
+    // *guid)`, NULL on a miss. It is how the engine reads partypetN and
+    // raidpetN with no live object (benilla ui/party, ui/raid). A member's
+    // own GUID never matches: that is FUN_GROUP_MEMBER_STATS_LOOKUP's.
+    FUN_GROUP_PET_RECORD_LOOKUP = 0x00496420,
+    // The pet's name in the pet record (0x50 bytes) — `Script_UnitName`
+    // (0x00517020) pushes `pet + 8` for a token with no live object, as does
+    // the unit tooltip builder's no-object branch (0x00529FE0).
+    OFF_GROUP_PET_NAME = 0x08,
 
-    // Health/power fields within the two group-member blocks — the
-    // out-of-range fallback the engine's UnitHealth/UnitMana (and their Max
-    // variants) use when a groupmate has no live CGUnit (different map / out
-    // of range), sourced from SMSG_PARTY_MEMBER_STATS. The two blocks have
-    // DIFFERENT layouts (all u16):
+    // Health/power fields of the two records — the out-of-range fallback the
+    // engine's UnitHealth/UnitMana (and their Max variants) use when a
+    // groupmate or its pet has no live CGUnit (different map / out of range),
+    // sourced from SMSG_PARTY_MEMBER_STATS (all u16):
     //
-    //   Stats block (FUN_GROUP_MEMBER_STATS_LOOKUP): statusFlags@+8,
-    //     powerType@+9, health@+0xa, maxHealth@+0xc, power@+0xe, maxPower@+0x10,
-    //     level@+0x12, areaId@+0x14. The full record.
-    //   Raid slot (FUN_GROUP_MEMBER_SLOT_LOOKUP): powerType@+0x58,
-    //     health@+0x5c, maxHealth@+0x5e, power@+0x60, maxPower@+0x62. Leaner —
-    //     no level/area/flags.
+    //   Member record (FUN_GROUP_MEMBER_STATS_LOOKUP, party or raid):
+    //     statusFlags@+8, powerType@+9, health@+0xa, maxHealth@+0xc,
+    //     power@+0xe, maxPower@+0x10, level@+0x12, areaId@+0x14.
+    //   Pet record (FUN_GROUP_PET_RECORD_LOOKUP, offsets from the pet part):
+    //     powerType@+0x58, health@+0x5c, maxHealth@+0x5e, power@+0x60,
+    //     maxPower@+0x62. No level, area or flags.
     //
     // Power values are raw (divide by the power divisor for display). Verified
     // from Script_UnitHealth (0x005174d0) / Script_UnitHealthMax (0x005175b0)
@@ -10060,22 +10064,20 @@ enum Offsets {
     OFF_GROUP_MEMBER_STATS_POWER = 0xe,
     OFF_GROUP_MEMBER_STATS_MAX_POWER = 0x10,
     OFF_GROUP_MEMBER_STATS_LEVEL = 0x12,
-    OFF_RAID_SLOT_POWER_TYPE = 0x58,
-    OFF_RAID_SLOT_HEALTH = 0x5c,
-    OFF_RAID_SLOT_MAX_HEALTH = 0x5e,
-    OFF_RAID_SLOT_POWER = 0x60,
-    OFF_RAID_SLOT_MAX_POWER = 0x62,
-    // Remaining raid-member-struct fields, mapped from Script_GetRaidRosterInfo
-    // (0x004bb560). Same struct FUN_GROUP_MEMBER_SLOT_LOOKUP returns; all
-    // object-independent (readable for out-of-range raiders). Name + class are
-    // NOT here — GetRaidRosterInfo reads those from the NameCache by GUID.
+    OFF_GROUP_PET_POWER_TYPE = 0x58,
+    OFF_GROUP_PET_HEALTH = 0x5c,
+    OFF_GROUP_PET_MAX_HEALTH = 0x5e,
+    OFF_GROUP_PET_POWER = 0x60,
+    OFF_GROUP_PET_MAX_POWER = 0x62,
+    // The raid roster row (VAR_RAID_MEMBER_PTRS), mapped from
+    // Script_GetRaidRosterInfo (0x004bb560): its header, then the member
+    // record at +0x10, so the record's status byte is the row's +0x18. Name +
+    // class are NOT here — GetRaidRosterInfo reads those from the NameCache by
+    // GUID.
     OFF_RAID_SLOT_SUBGROUP = 0x08,   // u32, 0-based (roster UI shows +1)
     OFF_RAID_SLOT_RANK = 0x0c,       // u32
     OFF_RAID_SLOT_FLAGS = 0x18,      // u32
-    OFF_RAID_SLOT_LEVEL = 0x22,      // u16
-    OFF_RAID_SLOT_AREA_ID = 0x24,    // u16 -> AreaTable.dbc
     RAID_SLOT_FLAG_ONLINE = 0x1,
-    RAID_SLOT_FLAG_DEAD = 0x4,
 
     // Group-member aura spell-ID arrays — the out-of-range fallback the
     // engine's Script_UnitBuff (0x00519500) / Script_UnitDebuff (0x005198f0)
@@ -10087,10 +10089,11 @@ enum Offsets {
     // entries (UNIT_AURA_TOTAL) indexed by the same absolute slot the
     // descriptor uses. Spell IDs are truncated to u16 on the wire, so custom
     // IDs > 65535 come through wrong (same limitation as the built-in
-    // UnitBuff/UnitDebuff). Read the party array only when the member's online
-    // flag (OFF_GROUP_MEMBER_STATUS_FLAGS bit 0) is set — the engine does.
-    OFF_GROUP_MEMBER_STATS_AURAS = 0x1a,  // party stats block (FUN_00496400)
-    OFF_RAID_SLOT_AURAS = 0x64,           // raid slot (FUN_00496420)
+    // UnitBuff/UnitDebuff). Read the member array only when the member's
+    // online flag (OFF_GROUP_MEMBER_STATUS_FLAGS bit 0) is set — the engine
+    // does.
+    OFF_GROUP_MEMBER_STATS_AURAS = 0x1a,  // member record (FUN_GROUP_MEMBER_STATS_LOOKUP)
+    OFF_GROUP_PET_AURAS = 0x64,           // pet record (FUN_GROUP_PET_RECORD_LOOKUP)
 
     // Per-slot GUID tables — used to map party/raid token strings
     // ("party1", "raid17") to GUIDs without going through

@@ -336,17 +336,18 @@ static int __fastcall Script_GameTooltipSetUnit(void *L) {
 }
 
 // The name `UnitName` would give for this GUID, in `Script_UnitName`'s order
-// (0x00517020): the live object, else — no object, e.g. an offline or far
-// party/raid member — the group roster slot's inline name, else the player
-// NameCache. The unit tooltip builder draws its header from the same sources.
+// (0x00517020): the live object, else — no object, e.g. a far party/raid
+// member or its pet — a member's pet's name from its pet record, else the
+// player NameCache. The unit tooltip builder draws its header from the same
+// sources.
 static const char *ResolveUnitName(uint32_t guidLo, uint32_t guidHi) {
     uint64_t guid = (static_cast<uint64_t>(guidHi) << 32) | guidLo;
     void *obj = Object::ByGuid(Offsets::TYPEMASK_UNIT, guid, "GameTooltip:GetUnit", 0x172);
     if (obj == nullptr) {
-        using SlotLookup_t = const uint8_t *(__fastcall *)(const uint64_t *guid);
-        if (const uint8_t *slot = reinterpret_cast<SlotLookup_t>(
-                Offsets::FUN_GROUP_MEMBER_SLOT_LOOKUP)(&guid))
-            return Game::Ptr<const char>(slot, Offsets::OFF_GROUP_MEMBER_SLOT_NAME);
+        using PetLookup_t = const uint8_t *(__fastcall *)(const uint64_t *guid);
+        if (const uint8_t *pet = reinterpret_cast<PetLookup_t>(
+                Offsets::FUN_GROUP_PET_RECORD_LOOKUP)(&guid))
+            return Game::Ptr<const char>(pet, Offsets::OFF_GROUP_PET_NAME);
         return Unit::Identity::NameForGuid(guid);
     }
     // Falls back to the engine's `"UNKNOWNOBJECT"` / `"Unknown Being"`

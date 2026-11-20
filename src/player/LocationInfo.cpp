@@ -193,9 +193,9 @@ int __fastcall Script_IsConnected(void *L) {
 
     bool connected = ResolveUnit(guid) != nullptr; // a synced object is online
     if (!connected) {
-        // Not resident — consult the group-member roster, mirroring
-        // Script_UnitIsConnected: the stats block's online bit, else slot
-        // presence (a member with no stats block yet still counts as present).
+        // Not resident — consult the group records, mirroring
+        // Script_UnitIsConnected: the member record's online bit, else a pet
+        // record (the lookup finds a pet only through an online owner).
         auto stats = reinterpret_cast<GroupLookup_t>(
             Offsets::FUN_GROUP_MEMBER_STATS_LOOKUP)(&guid);
         if (stats != nullptr) {
@@ -205,7 +205,7 @@ int __fastcall Script_IsConnected(void *L) {
                          Offsets::GROUP_MEMBER_STATUS_ONLINE) != 0;
         } else {
             connected = reinterpret_cast<GroupLookup_t>(
-                            Offsets::FUN_GROUP_MEMBER_SLOT_LOOKUP)(&guid) != nullptr;
+                            Offsets::FUN_GROUP_PET_RECORD_LOOKUP)(&guid) != nullptr;
         }
     }
     Game::Lua::PushBool(L, connected);
