@@ -25,7 +25,9 @@
 //     and power changes, retests each such spell and glows what its mask
 //     selects while it is usable.
 // GLOW_SHOW / GLOW_HIDE fire on a spell's glowing ↔ not-glowing transitions,
-// and `IsSpellOverlayed` answers "glowing now". After PLAYER_ENTERING_WORLD,
+// and `IsSpellOverlayed` answers "glowing now". A spellbook change
+// (SPELLS_CHANGED) recomputes which spells glow, as 3.80.2 recounts on learn
+// and unlearn. After PLAYER_ENTERING_WORLD,
 // `EnterWorld` fires HIDE with no spell, fires SHOW again for every active
 // aura row, and reconciles the glows (which survive a /reload — FrameXML's
 // action buttons ask `IsSpellOverlayed` when they update).
@@ -166,6 +168,7 @@ std::vector<uint32_t> g_glowing;
 
 bool g_reconciling = false;
 bool g_again = false;
+bool g_againBook = false;
 
 uint32_t ActiveRows() {
     const uint8_t *player = Unit::Identity::PlayerObject();
@@ -243,10 +246,12 @@ std::vector<uint32_t> GlowTargets(uint32_t rows, const std::vector<uint32_t> &us
     return out;
 }
 
-void Step(bool enterWorld) {
+// `bookChanged`: the spellbook changed, so the same sources can glow other
+// spells.
+void Step(bool enterWorld, bool bookChanged) {
     const uint32_t rows = ActiveRows();
     UsableReactive(g_read);
-    if (!enterWorld && rows == g_activeRows && g_read == g_usable)
+    if (!enterWorld && !bookChanged && rows == g_activeRows && g_read == g_usable)
         return;
     g_activeRows = rows;
     g_usable.swap(g_read);
@@ -287,16 +292,19 @@ void Step(bool enterWorld) {
 
 // A handler of one of our events can change what we read (a target change
 // re-runs FireUsableEvents); that request runs once the outer pass is done.
-void Reconcile(bool enterWorld) {
+void Reconcile(bool enterWorld, bool bookChanged = false) {
     if (g_reconciling) {
         g_again = true;
+        g_againBook = g_againBook || bookChanged;
         return;
     }
     g_reconciling = true;
-    Step(enterWorld);
+    Step(enterWorld, bookChanged);
     while (g_again) {
+        const bool book = g_againBook;
         g_again = false;
-        Step(false);
+        g_againBook = false;
+        Step(false, book);
     }
     g_reconciling = false;
 }
@@ -305,6 +313,14 @@ void OnSpellUpdateUsable() { Reconcile(false); }
 
 const Event::SignalHook::AutoObserve _usable{Offsets::EVENT_SPELL_UPDATE_USABLE,
                                              &OnSpellUpdateUsable};
+
+// 3.80.2 recounts the glows when a spell is learned or unlearned
+// (FUN_14174f940 / FUN_14174fe00 → FUN_1418835a0): a rank learned while its
+// proc is up glows, and an unlearned spell stops. 1.12 signals a spellbook
+// change with SPELLS_CHANGED.
+void OnSpellsChanged() { Reconcile(false, true); }
+
+const Event::SignalHook::AutoObserve _book{Offsets::EVENT_SPELLS_CHANGED, &OnSpellsChanged};
 
 void OnAuraChange(const Aura::Source::Change &c) {
     if (c.type != Aura::Source::ChangeType::Added && c.type != Aura::Source::ChangeType::Removed)

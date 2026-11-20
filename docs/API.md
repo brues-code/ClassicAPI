@@ -7705,6 +7705,10 @@ rank in the spellbook. When the event fires,
 [`IsSpellOverlayed`](#c_spellactivationoverlayisspelloverlayedspellid--isspelloverlayedspellid)
 already gives the new answer.
 
+When you learn or unlearn a spell while a glow is active, the events fire
+for the spells that start or stop glowing. For example, a new rank of a
+glowing spell starts to glow at once.
+
 ### `UI_SCALE_CHANGED` event
 
 Fires (with no payload) each time the game applies the interface scale to
