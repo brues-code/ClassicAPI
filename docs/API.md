@@ -29396,14 +29396,15 @@ local points = GetComboPoints("player", "target")
 local onPlate = GetComboPoints("player", "nameplate3")
 ```
 
-- `unit` must be a string, or the call raises
+- With a `target`, `unit` must be a string, or the call raises
   `Usage: GetComboPoints("unit"[, "target"]`.
 - Only `"player"` (or another token for the player) has combo points, and
   only for rogues and druids. Other units return `0`.
 - The result is `0` unless `target` names the unit that has the points.
 
-`GetComboPoints()` with no arguments returns the points on your current
-target.
+Without a `target` argument, `GetComboPoints` ignores `unit` and returns the
+points on your current target, so `GetComboPoints()` and
+`GetComboPoints("target")` work as before.
 
 ### `UnitSpellHaste(unit)`
 

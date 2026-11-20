@@ -27,7 +27,7 @@
 //   PLAYER_FIELD_COMBO_TARGET on the old unit, so the field — and this event —
 //   changes only when the first point lands on a new unit.
 // - GetComboPoints(unit, target) as 3.80.2 reads it (0x141B7DBB0) when it is
-//   given arguments. With none it stays 1.12's own (the stock ComboFrame calls
+//   given a target. Without one it stays 1.12's own (the stock ComboFrame calls
 //   it that way): the points when the combo target is the selection, 0 over a
 //   hidden (SoftTargetForce) target. 1.12's Script_GetComboPoints (0x0051A190)
 //   reports the points whenever the combo target is the raw selection
@@ -117,8 +117,11 @@ int ForUnits(void *L) {
     return 1;
 }
 
+// Only a call with a target takes 3.80.2's form: vanilla addons (pfUI
+// among them) call GetComboPoints("target"), whose argument 1.12 ignores, and
+// 3.80.2 would read that as the unit and answer 0.
 int __fastcall GetComboPoints_h(void *L) {
-    if (Game::Lua::GetTop(L) > 0)
+    if (Game::Lua::Type(L, 2) > Game::Lua::TYPE_NIL)
         return ForUnits(L);
     if (!Reason::Hidden())
         return g_original(L);
