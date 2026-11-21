@@ -36,6 +36,7 @@
 #include "baselib/Ascii.h"
 #include "frame/Layout.h"
 #include "frame/DebugName.h"
+#include "frame/ParentKey.h"
 
 #include <cmath>
 #include <cstdio>
@@ -816,6 +817,9 @@ const Game::Lua::FrameMethodEntry kAnimMethods[] = {
     {"GetName", &Script_GetName},
     {"GetParent", &Script_GetParent},
     {"GetDebugName", &Frame::DebugName::Script_GetDebugName},
+    {"GetParentKey", &Frame::ParentKey::Script_GetParentKey},
+    {"SetParentKey", &Frame::ParentKey::Script_SetParentKey},
+    {"ClearParentKey", &Frame::ParentKey::Script_ClearParentKey},
     {"Play", &Script_Play},
     {"Pause", &Script_Pause},
     {"Stop", &Script_Stop},

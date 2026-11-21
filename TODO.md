@@ -4110,7 +4110,6 @@ Each entry still needs the usual check of how the engine does it before building
 ### From later clients (retail docs only — contract, no decomp)
 
 Likely worth it (small, ported code uses them):
-- Object: `GetParentKey` / `SetParentKey` / `ClearParentKey`, `GetDebugName`.
 - Region: `SetIgnoreParentAlpha` / `IsIgnoringParentAlpha` (4.3.4 has it
   internally: its texture XML load calls `SetIgnoreParentAlpha` from
   `m_regionFlags 0x10/0x20`, `CSimpleRender.cpp`),

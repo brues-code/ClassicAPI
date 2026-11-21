@@ -18,9 +18,8 @@
 //     it has a parent;
 //   - otherwise the parent's debug name, a dot, and the key the parent's Lua
 //     table holds the object under ("CharacterFrame.TitleBg"). The key is
-//     found by a scan of that table (FUN_140592bb0), not a stored field: the
-//     first string key whose value is the object wins, and a later one
-//     replaces it only when it starts with A-Z and the first does not;
+//     found by a search of that table (FUN_140592bb0, Frame::ParentKey::Find),
+//     not a stored field;
 //   - with no key, the address of the object's Lua table in lowercase hex
 //     ("SomeFrame.1a2b3c4d"); a named object with no key (reachable only
 //     with preferParentKey) gives "Parent, Name" instead;
@@ -35,42 +34,15 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "animation/Object.h"
+#include "frame/ParentKey.h"
 
 #include <cstdint>
 #include <cstdio>
 #include <string>
-#include <utility>
 
 namespace Frame::DebugName {
 
 namespace {
-
-bool StartsUpper(const std::string &key) { return !key.empty() && key[0] >= 'A' && key[0] <= 'Z'; }
-
-// The key under which the parent's table holds the object's table, by
-// 3.80.2's rule. False when it holds it under none.
-bool FindKey(void *L, void *parent, void *object, std::string &key) {
-    const int top = Game::Lua::GetTop(L);
-    Game::Lua::PushObject(L, parent);
-    Game::Lua::PushObject(L, object);
-    const void *child = Game::Lua::ToPointer(L, top + 2);
-    bool found = false;
-    Game::Lua::PushNil(L);
-    while (Game::Lua::Next(L, top + 1) != 0) {
-        if (Game::Lua::Type(L, -2) == Game::Lua::TYPE_STRING &&
-            Game::Lua::Type(L, -1) == Game::Lua::TYPE_TABLE &&
-            Game::Lua::ToPointer(L, -1) == child) {
-            std::string candidate = Game::Lua::ToString(L, -2);
-            if (!found || (StartsUpper(candidate) && !StartsUpper(key))) {
-                key = std::move(candidate);
-                found = true;
-            }
-        }
-        Game::Lua::SetTop(L, -2); // value; keep the key for the next step
-    }
-    Game::Lua::SetTop(L, top);
-    return found;
-}
 
 // The address of the object's Lua table, as 3.80.2 prints it ("%llx" of
 // lua_topointer; "%x" is the same text for a 32-bit pointer).
@@ -91,7 +63,7 @@ std::string Build(void *L, void *object, bool preferParentKey) {
         return name;
 
     std::string key;
-    const bool hasKey = parent != nullptr && FindKey(L, parent, object, key);
+    const bool hasKey = ParentKey::Find(L, object, key);
     if (!hasKey)
         key = Address(L, object);
     if (parent == nullptr)
@@ -108,10 +80,7 @@ std::string Build(void *L, void *object, bool preferParentKey) {
 } // namespace
 
 int __fastcall Script_GetDebugName(void *L) {
-    void *self = Game::Lua::Type(L, 1) == Game::Lua::TYPE_TABLE ? Game::Lua::ResolveObject(L, 1)
-                                                                 : nullptr;
-    if (!Animation::IsOurs(self))
-        self = Game::Lua::ResolveRegion(L);
+    void *self = ParentKey::ResolveSelf(L);
     if (self == nullptr)
         return 0;
     const bool preferParentKey = Game::Lua::ToBoolean(L, 2) != 0;

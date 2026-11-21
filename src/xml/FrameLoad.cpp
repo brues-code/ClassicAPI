@@ -126,13 +126,13 @@ bool PushWrapper(void *L, void *object) {
 void AppendToArray(void *L, int parentIdx, const char *key) {
     const int value = Game::Lua::GetTop(L);        // [.., value]
     Game::Lua::PushString(L, key);
-    Game::Lua::GetTable(L, parentIdx);             // [.., value, array?]
+    Game::Lua::RawGet(L, parentIdx);               // [.., value, array?]
     if (Game::Lua::Type(L, -1) != Game::Lua::TYPE_TABLE) {
         Game::Lua::SetTop(L, value);
         Game::Lua::NewTable(L);                    // [.., value, array]
         Game::Lua::PushString(L, key);
         Game::Lua::PushValue(L, -2);
-        Game::Lua::SetTable(L, parentIdx);         // parent[key] = array
+        Game::Lua::RawSet(L, parentIdx);           // parent[key] = array
     }
     int n = 0;
     for (;;) {

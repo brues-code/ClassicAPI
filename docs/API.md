@@ -389,6 +389,7 @@ build instructions.
   - [`region:AdjustPointsOffset(x, y)` / `region:ClearPointsOffset()`](#regionadjustpointsoffsetx-y--regionclearpointsoffset)
   - [`region:IsDragging()`](#regionisdragging)
   - [`region:GetDebugName([preferParentKey])`](#regiongetdebugnamepreferparentkey)
+  - [`region:GetParentKey()` / `region:SetParentKey(parentKey[, clearOtherKeys])` / `region:ClearParentKey()`](#regiongetparentkey--regionsetparentkeyparentkey-clearotherkeys--regionclearparentkey)
   - [`region:GetSourceLocation()`](#regiongetsourcelocation)
   - [`region:SetToDefaults()`](#regionsettodefaults)
   - [`AddSourceLocationExclude(fileName)`](#addsourcelocationexcludefilename)
@@ -9271,6 +9272,40 @@ print(CreateFrame("Frame"):GetDebugName()) -- "5e6f7a8b"
   (`"SomeFrame, OtherName"`).
 - Animation groups, animations, control points and model scene actors also
   have this method. Their parent is the object that `:GetParent()` returns.
+
+### `region:GetParentKey()` / `region:SetParentKey(parentKey[, clearOtherKeys])` / `region:ClearParentKey()`
+
+Gets, sets or removes the key under which the parent of a region holds the
+region in its table.
+
+```lua
+local f = CreateFrame("Frame", "SomeFrame", UIParent)
+local t = f:CreateTexture()
+t:SetParentKey("Icon")
+print(f.Icon == t, t:GetParentKey()) -- true  Icon
+t:SetParentKey("Glow", true)
+print(f.Icon, t:GetParentKey())      -- nil  Glow
+t:ClearParentKey()
+print(f.Glow, t:GetParentKey())      -- nil  nil
+```
+
+- `GetParentKey` returns the key in the table of the parent that holds the
+  region. If no key holds the region, or the region has no parent, it
+  returns `nil`.
+- If more than one key holds the region, `GetParentKey` returns a key that
+  starts with a capital letter (A to Z) before the other keys.
+- `SetParentKey` sets `parent[parentKey] = region`. A `__newindex`
+  metamethod on the parent runs. A number for `parentKey` becomes a string.
+- Old keys stay in the table of the parent. If `clearOtherKeys` is `true`,
+  `SetParentKey` first removes all the keys that hold the region.
+- If `parentKey` is an empty string, or the region has no parent,
+  `SetParentKey` does not set a key.
+- `ClearParentKey` removes all the string keys that hold the region. The
+  entries that `parentArray` adds stay.
+- `SetParent` does not move the key. After a region gets a new parent, the
+  old parent still holds it, and `GetParentKey` looks only in the new parent.
+- Animation groups, animations, control points and model scene actors also
+  have these methods. Their parent is the object that `:GetParent()` returns.
 
 ### `region:SetToDefaults()`
 
