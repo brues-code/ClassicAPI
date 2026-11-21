@@ -56,14 +56,21 @@ enum class Filter { Helpful, Harmful };
 
 // How a resolved aura is emitted onto the Lua stack by the single-aura push
 // paths. `Table` builds the modern `AuraData` table (net stack +1); `Positional`
-// pushes the Classic-Era `UnitAura` 15-value tuple (net stack +15) with NO table
-// allocation, for the `C_UnitAuras.UnitAura/UnitBuff/UnitDebuff` accessors that
+// pushes the Classic-Era `UnitAura` 15-value tuple plus `auraInstanceID` (net
+// stack +kPositionalValues) with NO table allocation, for the
+// `C_UnitAuras.UnitAura/UnitBuff/UnitDebuff/UnitAuraBySlot` accessors that
 // avoid the per-call GC churn. Selection + timing resolution are identical for
 // both — only the terminal leaf differs. `Fill` writes the `AuraData` fields
 // into the table already on top of the stack instead of a new one (net stack
 // 0), for getters that take a caller's table to reuse; fields the aura lacks
 // are cleared to nil.
 enum class Emit { Table, Positional, Fill };
+
+// The positional tuple's length: Classic Era's 15 `UnitAura` values, then
+// `auraInstanceID` (a ClassicAPI extension, nil where the AuraData table has
+// none), so a table-free caller can reach the GameTooltip *ByAuraInstanceID
+// setters.
+constexpr int kPositionalValues = 16;
 
 // Caster restriction from the `PLAYER` / `!PLAYER` aura filter tokens.
 // `Any` = no restriction; `PlayerOnly` = only auras the local player cast,
@@ -291,14 +298,14 @@ const char *DispelName(uint32_t dispelTypeID);
 //                dispel type a spell the player or pet knows removes from
 //                an enemy)
 //
-// And `auraInstanceID` from `Aura::Instance` (the table forms only).
+// And `auraInstanceID` from `Aura::Instance` (the 16th positional value too).
 //
 // And these as false, since 1.12 spells carry no data for them:
 //   isBossAura, isNameplateOnly, nameplateShowAll, nameplateShowPersonal.
 // `points` is omitted (nil): the descriptor holds no effect amounts.
 //
-// Net stack effect: +1 for `Emit::Table` (the table), +15 for `Emit::Positional`
-// (the Classic-Era `UnitAura` tuple), 0 for `Emit::Fill` — see `Emit`.
+// Net stack effect: +1 for `Emit::Table` (the table), +kPositionalValues for
+// `Emit::Positional` (the `UnitAura` tuple), 0 for `Emit::Fill` — see `Emit`.
 void Push(void *L, const uint8_t *unit, int slot, Emit emit = Emit::Table);
 
 // Fallback for the index path when the descriptor has dropped an aura's slot

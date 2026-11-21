@@ -939,18 +939,22 @@ static void BuildTable(void *L, uint64_t unitGuid, uint32_t spellID, int applica
     // which the 1.12 descriptor does not hold.
 }
 
-// Emits the Classic-Era `UnitAura` 15-value tuple onto the Lua stack from the
-// same already-resolved values `BuildTable` takes. Net stack effect: +15 — NO
-// table allocation, the zero-GC path behind `C_UnitAuras.UnitAura`. Field order
+// Emits the Classic-Era `UnitAura` 15-value tuple, plus `auraInstanceID` as a
+// 16th value (a ClassicAPI extension), onto the Lua stack from the same
+// already-resolved values `BuildTable` takes. Net stack effect:
+// +kPositionalValues — NO table
+// allocation, the zero-GC path behind `C_UnitAuras.UnitAura`. Field order
 // matches Classic-Era `UnitAura`: name, icon, count, dispelType(string),
 // duration, expirationTime, source, isStealable, nameplateShowPersonal, spellId,
 // canApplyAura, isBossDebuff, castByPlayer, nameplateShowAll, timeMod. Values
 // mirror the AuraData table exactly so packed / non-packed callers agree: name /
 // icon / dispelType push `""` when absent (as `SetFieldString` does), while
-// `source` pushes nil when there's no caster (as the table omits `sourceUnit`).
+// `source` pushes nil when there's no caster (as the table omits `sourceUnit`),
+// and `auraInstanceID` pushes nil for `instanceID` 0 (as the table omits it).
 static void PushPositional(void *L, uint64_t unitGuid, uint32_t spellID, int applications,
                            bool isHelpful, double duration,
-                           double expirationTime, uint64_t casterGuid) {
+                           double expirationTime, uint64_t casterGuid,
+                           uint32_t instanceID) {
     const Display disp = ResolveDisplay(spellID, casterGuid, isHelpful, unitGuid);
 
     const char *source = nullptr;
@@ -974,6 +978,10 @@ static void PushPositional(void *L, uint64_t unitGuid, uint32_t spellID, int app
     Game::Lua::PushBool(L, disp.castByPlayer);                       // 13 castByPlayer
     Game::Lua::PushBool(L, false);                                   // 14 nameplateShowAll
     Game::Lua::PushNumber(L, 1);                                     // 15 timeMod
+    if (instanceID != 0)                                             // 16 auraInstanceID
+        Game::Lua::PushNumber(L, static_cast<double>(instanceID));
+    else
+        Game::Lua::PushNil(L);
 }
 
 bool PlayerAuraTiming(int slot, uint32_t *outExpirationMs, uint32_t *outDurationMs) {
@@ -1112,7 +1120,7 @@ static void PushEnriched(void *L, uint64_t guid, uint32_t spellID,
     const uint64_t casterGuid = t.caster;
     if (emit == Emit::Positional)
         PushPositional(L, guid, spellID, applications, isHelpful, duration,
-                       expirationTime, casterGuid);
+                       expirationTime, casterGuid, instanceID);
     else
         BuildTable(L, guid, spellID, applications, isHelpful, duration, expirationTime,
                    casterGuid, instanceID, emit == Emit::Fill);

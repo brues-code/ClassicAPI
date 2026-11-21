@@ -110,10 +110,11 @@ int PushAuraByIndex(void *L, const char *unitToken, int index,
 }
 
 // Positional (multi-return) sibling of `PushAuraByIndex` for the
-// `C_UnitAuras.UnitAura` family: pushes the Classic-Era `UnitAura` 15-tuple with
-// NO table allocation (the zero-GC path). Returns 15 on a hit, or 1 (a single
-// nil) on a miss. The bool-returning push helpers leave exactly the 15-tuple on a
-// hit and nothing on a miss, so the miss `PushNil` + `return 1` needs no cleanup.
+// `C_UnitAuras.UnitAura` family: pushes the Classic-Era `UnitAura` 15-tuple plus
+// `auraInstanceID` with NO table allocation (the zero-GC path). Returns
+// `Data::kPositionalValues` on a hit, or 1 (a single nil) on a miss. The
+// bool-returning push helpers leave exactly the tuple on a hit and nothing on a
+// miss, so the miss `PushNil` + `return 1` needs no cleanup.
 int PushUnitAuraPositional(void *L, const char *unitToken, int index,
                            Data::Filter filter, Data::Match match = {}) {
     const uint8_t *unit = ResolveUnit(unitToken);
@@ -121,14 +122,14 @@ int PushUnitAuraPositional(void *L, const char *unitToken, int index,
         const int slot = Data::FindNthSlot(unit, index, filter, match);
         if (slot >= 0) {
             Data::Push(L, unit, slot, Data::Emit::Positional);
-            return 15;
+            return Data::kPositionalValues;
         }
         if (Data::PushNthCacheFallback(L, unit, index, filter, match,
                                        Data::Emit::Positional))
-            return 15;
+            return Data::kPositionalValues;
     } else if (Data::PushNthGroupAura(L, GuidForOutOfRange(unitToken), index,
                                       filter, match, Data::Emit::Positional)) {
-        return 15;
+        return Data::kPositionalValues;
     }
     Game::Lua::PushNil(L);
     return 1;
@@ -386,7 +387,7 @@ int PushAuraBySlot(void *L, Data::Emit emit) {
     const uint8_t *unit = ResolveUnit(unitToken);
     const uint64_t guid = (unit == nullptr) ? GuidForOutOfRange(unitToken) : 0;
     if (Data::PushBySlot(L, unit, guid, slot, emit))
-        return (emit == Data::Emit::Positional) ? 15 : 1;
+        return (emit == Data::Emit::Positional) ? Data::kPositionalValues : 1;
     Game::Lua::PushNil(L);
     return 1;
 }
@@ -436,7 +437,7 @@ int __fastcall Script_GetAuraDataBySlot(void *L) {
     return PushAuraBySlot(L, Data::Emit::Table);
 }
 
-// C_UnitAuras.UnitAuraBySlot(unit, slot) -> the 15 positional UnitAura values | nil
+// C_UnitAuras.UnitAuraBySlot(unit, slot) -> the positional UnitAura values | nil
 // Zero-allocation sibling of GetAuraDataBySlot, namespaced under C_UnitAuras
 // like C_UnitAuras.UnitAura. What AuraUtil's non-packed iteration reads.
 int __fastcall Script_UnitAuraBySlot(void *L) {
@@ -724,8 +725,8 @@ const Game::Doc::Field kAuraDataFields[] = {
 const Game::Doc::Structure kAuraData{"AuraData", "UnitAuras", kAuraDataFields,
                                      "One aura on a unit."};
 
-// The Classic Era `UnitAura` tuple, shared by the four positional getters.
-// `Data::PushPositional` is the source of the order.
+// The Classic Era `UnitAura` tuple plus `auraInstanceID`, shared by the four
+// positional getters. `Data::PushPositional` is the source of the order.
 const Game::Doc::Field kPositionalRets[] = {
     Game::Doc::Opt("name", "string", nullptr,
                    "Nil, as the only return, when there is no such aura."),
@@ -745,6 +746,8 @@ const Game::Doc::Field kPositionalRets[] = {
                    "True when a player applied the aura; false for a pet."),
     Game::Doc::Opt("nameplateShowAll", "bool", nullptr, "Always false."),
     Game::Doc::Opt("timeMod", "number", nullptr, "Always 1."),
+    Game::Doc::Opt("auraInstanceID", "number", nullptr,
+                   "Nil when the aura has none. A ClassicAPI extension."),
 };
 
 const Game::Doc::Field kAuraRets[] = {

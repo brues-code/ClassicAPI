@@ -31649,7 +31649,7 @@ local d = C_UnitAuras.GetDebuffDataByIndex("target", 2, "PLAYER")
 
 ### `C_UnitAuras.UnitAura(unit, index [, filter])`
 
-Returns the same aura as `GetAuraDataByIndex`, but as 15 positional values
+Returns the same aura as `GetAuraDataByIndex`, but as 16 positional values
 instead of a table — so it allocates nothing. Use it in an `OnUpdate` loop that
 scans many auras, where one table per aura strains Lua's garbage collector.
 Prefer [`AuraUtil.ForEachAura`](#aurautilforeachaura) for iteration.
@@ -31659,8 +31659,16 @@ The values, in order:
 ```
 name, icon, count, dispelType, duration, expirationTime, source, isStealable,
 nameplateShowPersonal, spellId, canApplyAura, isBossDebuff, castByPlayer,
-nameplateShowAll, timeMod
+nameplateShowAll, timeMod, auraInstanceID
 ```
+
+The first 15 values are the classic `UnitAura` values. Position 16,
+`auraInstanceID`, is a ClassicAPI extension. It is the `auraInstanceID` field
+of the [`AuraData`](#auradata-table-shape) table, and it is `nil` in the same
+cases: a group member out of range, or an aura that only the cast cache knows.
+Code that reads 15 values gets the same result as before. Pass the ID to
+[`GameTooltip:SetUnitAuraByAuraInstanceID`](#gametooltipsetunitaurabyaurainstanceidunit-aurainstanceid-filter--setunitbuffbyaurainstanceid--setunitdebuffbyaurainstanceid)
+to show the aura's tooltip without a table.
 
 Returns a single `nil` when the unit has fewer than `index` matching auras.
 `dispelType` is the dispel-type string (`"Magic"`, `"Curse"`, `"Disease"`,
@@ -31729,7 +31737,7 @@ end
 
 `GetAuraDataBySlot` returns the `AuraData` table for the aura that slot id
 `slot` names on `unit`. It returns `nil` when the slot id no longer names an
-aura. `UnitAuraBySlot` returns the same aura as the 15 positional values of
+aura. `UnitAuraBySlot` returns the same aura as the 16 positional values of
 [`C_UnitAuras.UnitAura`](#c_unitaurasunitauraunit-index--filter), so it
 allocates nothing. Get slot ids from `GetAuraSlots`.
 
