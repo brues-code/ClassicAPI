@@ -270,6 +270,8 @@ its ClassicAPI tab.
 | | `SoftTargetWorldtextNearScale` / `SoftTargetWorldtextNearDist` / `SoftTargetWorldtextFarDist` | `1` / `4` / `40` | A near icon is `NearScale` times larger at `NearDist` yards, and normal size at `FarDist` yards. `1` keeps one size. |
 | [Localization](docs/API.md#breakuplargenumbers-cvar) | `breakUpLargeNumbers` | `1` | `1` puts a separator between each group of three digits in `BreakUpLargeNumbers`. `0` writes no separator. |
 | [Cooldown](docs/API.md#createframecooldown--name-parent-template) | `countdownForCooldowns` | `0` | `1` shows the time left as numbers on cooldown frames. |
+| [Frame rate limits](docs/API.md#frame-rate-limits-usemaxfps-maxfps-usemaxfpsbk-maxfpsbk) | `useMaxFPS` | `0` | `1` limits the frame rate to `maxFPS` (default `120`) while WoW is the active window. |
+| | `useMaxFPSBk` | `0` | `1` limits the frame rate to `maxFPSBk` (default `30`) while another window is active. |
 | `ScriptAnimationUtil` | `ShakeStrengthUI` | `1` | Scales how far `ScriptAnimationUtil.ShakeFrame` moves a frame. `0` turns the shake off. |
 | [NamePlate](docs/API.md#nameplate) | `nameplateNotSelectedAlpha` | `0.5` | Alpha of a non-target default nameplate, `0` to `1`. |
 | | `nameplateSelectedAlpha` | `1` | Alpha of the target's default nameplate, `0` to `1`. |

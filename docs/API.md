@@ -1291,6 +1291,7 @@ build instructions.
   - [`GetPhysicalScreenSize()`](#getphysicalscreensize)
   - [`CopyToClipboard(text [, removeMarkup])`](#copytoclipboardtext--removemarkup)
   - [`FlashClientIcon([briefly])`](#flashclienticonbriefly)
+  - [Frame rate limits (`useMaxFPS`, `maxFPS`, `useMaxFPSBk`, `maxFPSBk`)](#frame-rate-limits-usemaxfps-maxfps-usemaxfpsbk-maxfpsbk)
 
 - [Talent](#talent)
   - [`GetTalentSpellID(tabIndex, talentIndex, [rank[, classID]])`](#gettalentspellidtabindex-talentindex-rank-classid)
@@ -28537,6 +28538,32 @@ returns nothing.
 ```lua
 FlashClientIcon()       -- flash until focused (e.g. a battleground queue pops while alt-tabbed)
 FlashClientIcon(true)   -- brief flash
+```
+
+### Frame rate limits (`useMaxFPS`, `maxFPS`, `useMaxFPSBk`, `maxFPSBk`)
+
+These settings limit the frame rate. The game keeps them in
+`WTF\Config.wtf`, so you do not need an addon. You can also change the
+settings in the ClassicAPI options, on the Graphics page.
+
+| Setting | Default | What it does |
+|---|---|---|
+| `useMaxFPS` | `0` | `1` limits the frame rate to `maxFPS` while WoW is the active window. |
+| `maxFPS` | `120` | The frame rate limit while WoW is the active window. |
+| `useMaxFPSBk` | `0` | `1` limits the frame rate to `maxFPSBk` while another window is active. |
+| `maxFPSBk` | `30` | The frame rate limit while another window is active. |
+
+- By default, `useMaxFPS` and `useMaxFPSBk` are `0`, and the frame rate has
+  no limit.
+- The value of `maxFPS` and `maxFPSBk` must be 8 or more. The game does not
+  accept a lower value.
+- `maxFPS` does not apply while another window is active. If `useMaxFPSBk`
+  is `0` at that time, the frame rate has no limit.
+- The limits also apply on the login screen and the character screens.
+
+```
+/console useMaxFPS 1
+/console maxFPS 60
 ```
 
 ## Talent

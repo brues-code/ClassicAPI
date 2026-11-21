@@ -414,6 +414,47 @@ local function RegisterTextToSpeech()
 end
 
 -- ---------------------------------------------------------------------------
+-- Graphics
+-- ---------------------------------------------------------------------------
+
+-- Retail's frame-rate rows (Blizzard_SettingsDefinitions_Shared\Graphics.lua):
+-- a checkbox for each use cvar with a slider for its cap, 8 to 300 (retail
+-- stops at 200, too low for high-refresh monitors). 1.12.1's
+-- other graphics settings stay in its own Video Options.
+local function RegisterGraphics()
+	local category, layout = Settings.RegisterVerticalLayoutCategory(GRAPHICS_LABEL);
+	Settings.RegisterCategory(category);
+
+	local function FormatFPS(value)
+		return SETTINGS_FMT_FPS:format(value);
+	end
+
+	local function AddFPSRow(useCVar, fpsCVar, checkVariable, fpsVariable, checkName, name, tooltip)
+		local getValue, setValue, getDefaultValue = Settings.CreateCVarAccessorClosures(useCVar, Settings.VarType.Boolean);
+		local fpsSetting = Settings.RegisterProxySetting(category, checkVariable,
+			Settings.VarType.Boolean, checkName, getDefaultValue(), getValue, setValue);
+		fpsSetting:SetCommitFlags(Settings.CommitFlag.KioskProtected);
+
+		getValue, setValue, getDefaultValue = Settings.CreateCVarAccessorClosures(fpsCVar, Settings.VarType.Number);
+		local fpsSliderSetting = Settings.RegisterProxySetting(category, fpsVariable,
+			Settings.VarType.Number, name, getDefaultValue(), getValue, setValue);
+		fpsSliderSetting:SetCommitFlags(Settings.CommitFlag.KioskProtected);
+
+		local minValue, maxValue, step = 8, 300, 1;
+		local options = Settings.CreateSliderOptions(minValue, maxValue, step);
+		options:SetLabelFormatter(MinimalSliderWithSteppersMixin.Label.Right, FormatFPS);
+
+		local initializer = CreateSettingsCheckboxSliderInitializer(
+			fpsSetting, name, tooltip,
+			fpsSliderSetting, options, name, tooltip);
+		layout:AddInitializer(initializer);
+	end
+
+	AddFPSRow("useMaxFPS", "maxFPS", "PROXY_FOREGROUND_FPS_ENABLED", "PROXY_FOREGROUND_FPS", MAXFPS_CHECK, MAXFPS, OPTION_MAXFPS_CHECK);
+	AddFPSRow("useMaxFPSBk", "maxFPSBk", "PROXY_BACKGROUND_FPS_ENABLED", "PROXY_BACKGROUND_FPS", MAXFPSBK_CHECK, MAXFPSBK, OPTION_MAXFPSBK_CHECK);
+end
+
+-- ---------------------------------------------------------------------------
 -- Network
 -- ---------------------------------------------------------------------------
 
@@ -525,6 +566,7 @@ SettingsRegistrar:AddRegistrant(function()
 	RegisterInterface();
 	RegisterSocial();
 	RegisterTextToSpeech();
+	RegisterGraphics();
 	RegisterNetwork();
 	RegisterAdvanced();
 end);

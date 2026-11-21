@@ -11889,6 +11889,16 @@ enum Offsets {
     // (FUN_00424F00, 4.3.4's IEvtQueueRegister) — so a handler registered
     // later at an EQUAL priority runs first. Does not dedup.
     FUN_EVENT_REGISTER_EX = 0x0041FCA0,
+    // The frame-time step of a tick — `void __thiscall(EvtContext *ctx)`. It
+    // reads the event clock (0x0042C010), stores it at ctx+0x40, and dispatches
+    // event 5 with the seconds since the previous value. A closing context
+    // (run state ctx+0x2C == 1) returns at once. The tick (0x00420C00) calls it
+    // once at 0x00420D63: after timers, window input, packets and deferred
+    // messages, and before the frame pass 0x00442350 (OnUpdate, the draw,
+    // present). The only other call (0x00422675) is in the loop copy 0x00422540,
+    // and nothing calls that copy (benilla-re core/loop "One tick",
+    // "Frame time", verified against C:\WoW\Octo\WoW.exe).
+    FUN_EVENT_FRAME_TIME = 0x00420F70,
     // Event id of a key press. The console's RegisterHandlers (FUN_0063BC90)
     // registers ids 1, 5, 8, 9, 10, 11, 14, 12 in 4.3.4's order CHAR, IDLE,
     // KEYDOWN, KEYUP, KEYDOWN_REPEATING, MOUSEDOWN, MOUSEUP, MOUSEMOVE; id 8's
