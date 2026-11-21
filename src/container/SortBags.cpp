@@ -62,6 +62,8 @@
 #include "Offsets.h"
 #include "baselib/Ascii.h"
 #include "container/Bag.h"
+#include "container/SlotFlags.h"
+#include "cvar/Character.h"
 #include "cvar/Factory.h"
 #include "item/BagFamily.h"
 #include "item/CGItem.h"
@@ -97,11 +99,9 @@ bool RightToLeft() {
     return CVar::Factory::GetInt(g_rightToLeftCVar, 0) != 0;
 }
 
-// The two containers a sort can be told to leave alone. An equipped bag
-// is excluded per-bag through its own `DisableAutoSort` slot flag; the
-// backpack and the main bank container have no such slot, so each gets
-// its own setting. Persisted as cvars for the same reason the fill
-// direction is.
+// The two containers without a bag slot, so without a slot flag: each gets
+// its own "leave out of sorts" setting. Character cvars, like the slot
+// flags (Container::SlotFlags), since both describe the character's bags.
 CVar::Factory::Handle g_backpackAutosortCVar = nullptr;
 CVar::Factory::Handle g_bankAutosortCVar = nullptr;
 
@@ -706,8 +706,8 @@ size_t g_lastPending = 0;
 uint32_t g_deadline = 0;
 
 // Which set the in-flight sort is arranging, so the deferred placement
-// pass knows what to walk. Owned, since the autosort exclusions hand in
-// a filtered list that does not outlive the call.
+// pass knows what to walk. Owned, since StartSortOf hands in a filtered
+// list that does not outlive the call.
 std::vector<int> g_activeBags;
 
 void BeginWait(Phase phase) {
@@ -789,17 +789,26 @@ void StartSort(std::vector<int> bags) {
         RunPlacement(0); // nothing changes occupancy; the layout reads clean
 }
 
-// Runs a sort over `bags`, dropping `excluded` when its autosort setting
-// says to leave that container alone. Dropping a bag from the set is all
-// it takes: the snapshot, the comparator and the placement only ever see
-// the bags they are handed, so an excluded bag is neither read from nor
-// written to.
+// True for a container a sort leaves alone: the backpack or the main bank
+// with its setting on, or a bag whose slot has DisableAutoSort.
+bool LeftOut(int bag) {
+    if (bag == Offsets::BAG_INDEX_BACKPACK)
+        return BackpackAutosortDisabled();
+    if (bag == Offsets::BAG_INDEX_BANK)
+        return BankAutosortDisabled();
+    return (Container::SlotFlags::Of(bag) & Container::SlotFlags::DISABLE_AUTO_SORT) != 0;
+}
+
+// Runs a sort over `bags` without the ones LeftOut names. Dropping a bag
+// from the set is all it takes: the snapshot, the comparator and the
+// placement only ever see the bags they are handed, so a left-out bag is
+// neither read from nor written to.
 template <size_t N>
-void StartSortExcluding(const int (&bags)[N], int excluded, bool excludeIt) {
+void StartSortOf(const int (&bags)[N]) {
     std::vector<int> kept;
     kept.reserve(N);
     for (const int bag : bags) {
-        if (!excludeIt || bag != excluded)
+        if (!LeftOut(bag))
             kept.push_back(bag);
     }
     if (!kept.empty())
@@ -810,12 +819,12 @@ void StartSortExcluding(const int (&bags)[N], int excluded, bool excludeIt) {
 // arguments, no return, matching the modern signatures. Fire-and-forget:
 // the work spans several frames.
 int __fastcall Script_C_Container_SortBags(void * /*L*/) {
-    StartSortExcluding(kInventoryBags, /*excluded*/ 0, BackpackAutosortDisabled());
+    StartSortOf(kInventoryBags);
     return 0;
 }
 
 int __fastcall Script_C_Container_SortBankBags(void * /*L*/) {
-    StartSortExcluding(kBankBags, /*excluded*/ -1, BankAutosortDisabled());
+    StartSortOf(kBankBags);
     return 0;
 }
 
@@ -944,8 +953,9 @@ void RegisterLuaFunctions() {
     constexpr int kCategory = Offsets::CVAR_CATEGORY_GAME;
     g_rightToLeftCVar = CVar::Factory::Register("sortBagsRightToLeft", nullptr, kCategory, "0");
     g_backpackAutosortCVar =
-        CVar::Factory::Register("backpackAutosortDisabled", nullptr, kCategory, "0");
-    g_bankAutosortCVar = CVar::Factory::Register("bankAutosortDisabled", nullptr, kCategory, "0");
+        CVar::Character::Register("backpackAutosortDisabled", nullptr, kCategory, "0");
+    g_bankAutosortCVar =
+        CVar::Character::Register("bankAutosortDisabled", nullptr, kCategory, "0");
 
     Game::Lua::RegisterTableFunction("C_Container", "SortBags",
                                      &Script_C_Container_SortBags, &kSortBags);

@@ -204,6 +204,8 @@ build instructions.
   - [`C_Container.GetSortBagsRightToLeft()` / `C_Container.SetSortBagsRightToLeft(enable)`](#c_containergetsortbagsrighttoleft--c_containersetsortbagsrighttoleftenable)
   - [`C_Container.GetBackpackAutosortDisabled()` / `C_Container.SetBackpackAutosortDisabled(disable)`](#c_containergetbackpackautosortdisabled--c_containersetbackpackautosortdisableddisable)
   - [`C_Container.GetBankAutosortDisabled()` / `C_Container.SetBankAutosortDisabled(disable)`](#c_containergetbankautosortdisabled--c_containersetbankautosortdisableddisable)
+  - [`C_Container.GetBagSlotFlag(bagIndex, flag)` / `C_Container.SetBagSlotFlag(bagIndex, flag, isSet)`](#c_containergetbagslotflagbagindex-flag--c_containersetbagslotflagbagindex-flag-isset)
+  - [`C_Container.IsBagSlotFlagEnabledOnOtherBankBags(bagIndex, flagIndex)`](#c_containerisbagslotflagenabledonotherbankbagsbagindex-flagindex)
   - [`SetBagPortraitTexture(texture, bagIndex)` / `C_Container.SetBagPortraitTexture(texture, bagIndex)`](#setbagportraittexturetexture-bagindex--c_containersetbagportraittexturetexture-bagindex)
   - [`C_Container.GetContainerNumSlots(containerIndex)` / `C_Container.PickupContainerItem(containerIndex, slotIndex)`](#c_containergetcontainernumslotscontainerindex--c_containerpickupcontaineritemcontainerindex-slotindex)
   - [`ContainerFrame_GetContainerNumSlots(bagID)` / `NUM_TOTAL_BAG_FRAMES`](#containerframe_getcontainernumslotsbagid--num_total_bag_frames)
@@ -5340,7 +5342,7 @@ C_Container.SetBackpackAutosortDisabled(true)
 C_Container.SortBags() -- bags 1..4 only
 ```
 
-The setting is saved, so it survives logging out. It is stored as the
+The setting is saved for each character. It is stored as the
 `backpackAutosortDisabled` console variable, which `GetCVar` also reads.
 
 ### `C_Container.GetBankAutosortDisabled()` / `C_Container.SetBankAutosortDisabled(disable)`
@@ -5353,7 +5355,74 @@ C_Container.SetBankAutosortDisabled(true)
 C_Container.SortBankBags() -- bank bags only
 ```
 
-Stored as the `bankAutosortDisabled` console variable.
+The setting is saved for each character, as the `bankAutosortDisabled`
+console variable.
+
+### `C_Container.GetBagSlotFlag(bagIndex, flag)` / `C_Container.SetBagSlotFlag(bagIndex, flag, isSet)`
+
+Reads and sets the flags of a bag slot. `flag` is a value of
+`Enum.BagSlotFlags`, or the sum of two or more values.
+
+- `Get` returns `isSet`. It is true when one or more of the flags in
+  `flag` is set on the slot.
+- `Set` sets all the flags in `flag` when `isSet` is true, and clears
+  them when `isSet` is false. It returns nothing.
+
+| `bagIndex` | Result |
+|------------|--------|
+| `1` to `4` | The slot of the equipped bag. |
+| `5` to `10` | The slot of the bank bag. The bank can be closed. |
+| Other numbers | `Get` returns false. `Set` does nothing. |
+
+The flags belong to the slot, not to the bag in it. When you put a
+different bag in the slot, the flags stay. The flags are saved for each
+character.
+
+`Enum.BagSlotFlags.DisableAutoSort` keeps the bag out of
+`C_Container.SortBags()` and `C_Container.SortBankBags()`. The other
+flags are saved and returned, but nothing in the game acts on them. For
+the backpack and the main bank container, use
+`C_Container.SetBackpackAutosortDisabled` and
+`C_Container.SetBankAutosortDisabled`.
+
+```lua
+C_Container.SetBagSlotFlag(2, Enum.BagSlotFlags.DisableAutoSort, true)
+C_Container.SortBags() -- bag 2 stays as it is
+```
+
+When a `Set` changes the flags of a slot, an event fires with
+`bagIndex` as its argument: `BAG_SLOT_FLAGS_UPDATED` for an equipped
+bag, `BANK_BAG_SLOT_FLAGS_UPDATED` for a bank bag. A `Set` that changes
+nothing fires no event.
+
+These calls give an error:
+
+- `bagIndex` is not a number.
+- `flag` is not `0`, a value of `Enum.BagSlotFlags`, or a sum of these
+  values.
+- `isSet` is missing or nil.
+
+The `LE_BAG_FILTER_FLAG_*` globals (`IGNORE_CLEANUP`, `EQUIPMENT`,
+`CONSUMABLES`, `TRADE_GOODS`, `JUNK`) and `NUM_LE_BAG_FILTER_FLAGS` are
+an older numbering of the flags, from `1` to `5`. They are not
+`Enum.BagSlotFlags` values. For example, `LE_BAG_FILTER_FLAG_JUNK` is
+`5`, but `Enum.BagSlotFlags.ClassJunk` is `16`.
+
+### `C_Container.IsBagSlotFlagEnabledOnOtherBankBags(bagIndex, flagIndex)`
+
+Returns `isSet`: true when a bank bag slot has a flag. `flagIndex` is
+the position of the flag in `Enum.BagSlotFlags`, counted from `1`. For
+example, `1` is `DisableAutoSort` and `2` is `ClassEquipment`.
+
+The function skips one bank bag: the bank bag at position `bagIndex`,
+where `1` is the first bank bag. Thus a bank container index does not
+skip its own bag. For example, `bagIndex` `5` skips the fifth bank bag
+(bank container `9`), not bank container `5`.
+
+```lua
+-- Is DisableAutoSort set on one or more bank bags?
+local isSet = C_Container.IsBagSlotFlagEnabledOnOtherBankBags(0, 1)
+```
 
 ### `SetBagPortraitTexture(texture, bagIndex)` / `C_Container.SetBagPortraitTexture(texture, bagIndex)`
 
