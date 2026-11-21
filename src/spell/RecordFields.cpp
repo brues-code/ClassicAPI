@@ -55,7 +55,7 @@ static int __fastcall Script_GetSpellDispelType(void *L) {
 }
 
 // C_Spell.IsNextMeleeSpell(spellId) -> bool. True for on-next-swing abilities
-// (Heroic Strike, Maul, Cleave, Raptor Strike, Slam).
+// (Heroic Strike, Maul, Cleave, Raptor Strike).
 static int __fastcall Script_IsNextMeleeSpell(void *L) {
     Game::Lua::PushBool(L, Combat::Swing::IsNextSwing(
                                Spell::Lookup::RecordForID(Spell::Arg::ResolveSpellID(L, 1))));
