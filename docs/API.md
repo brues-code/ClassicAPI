@@ -26951,10 +26951,18 @@ so progress is `(GetTime()*1000 - startTimeMs) / (endTimeMs - startTimeMs)`.
 >
 > `isTradeskill` is `true` for profession recipe casts (smelting,
 > cooking/enchanting recipes, …) and `false` for regular spells.
-> Many recipes have the placeholder icon `Interface\Icons\Temp`. For a spell
-> with that icon that makes an item, `textureID` is the icon of the item.
-> If the item is not in the item cache yet, the first call returns the
-> placeholder icon and requests the item. Later calls return the icon of
+> Many recipes and item spells have the placeholder icon
+> `Interface\Icons\Temp`. For a spell with that icon, `textureID` is one of
+> these icons, in this order:
+>
+> 1. The icon of the item that the cast comes from, for example an armor
+>    kit or a sharpening stone. You get this icon only for the casts of the
+>    player.
+> 2. The icon of the item that the spell makes.
+> 3. The placeholder icon.
+>
+> If the item is not in the item cache yet, the first call returns the next
+> icon in the list and requests the item. Later calls return the icon of
 > the item.
 > `endTimeMs` reflects the **effective** cast time (with level scaling,
 > cast-time talents like Improved Frostbolt, and the haste/cast-speed

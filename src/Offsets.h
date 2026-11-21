@@ -9719,10 +9719,11 @@ enum Offsets {
     // spellID from here.
     VAR_PENDING_CAST_SPELL = 0x00CEAC58,
 
-    // The cast-start state writer — `__fastcall(int spellID, int
-    // targetState)`. Sets `VAR_CURRENT_CAST_SPELL` (pushing any current
-    // spell into `VAR_QUEUED_CAST_SPELL`; `spellID == 0` restores the queued
-    // one). `Spell::Cast` co-hooks it for lag-free, client-side detection of
+    // The cast-start state writer — `__fastcall(int spellID, CGItem *item)`.
+    // Sets `VAR_CURRENT_CAST_SPELL` (pushing any current spell into
+    // `VAR_QUEUED_CAST_SPELL`; `spellID == 0` restores the queued one) and
+    // `VAR_CAST_ITEM_GUID` to the item's GUID `[[item+8]]`, 0 for a null item
+    // (`0x006E4B00`). `Spell::Cast` co-hooks it for lag-free, client-side detection of
     // NORMAL player casts (stamps from the spellID arg before the original).
     // It does NOT fire for a chained same-spell recast: the caller
     // `Spell_C_CastSpell` (`0x006E4B60`) short-circuits at `spellID ==

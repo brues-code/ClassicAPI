@@ -36,8 +36,9 @@ struct Targets {
     float dst[3];  // valid when mask has SPELL_TARGET_FLAG_DEST_LOCATION
 };
 
-// The fields both packets open with. `item` is the item cast from (0 for a
-// spell); `caster` the unit that casts.
+// The fields both packets open with. `item` is the GUID of the item cast
+// from, or the caster's GUID again for a cast not from an item (the server
+// writes item-or-caster); `caster` the unit that casts.
 struct Header {
     uint64_t item;
     uint64_t caster;

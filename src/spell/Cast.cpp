@@ -109,10 +109,11 @@ struct TrackedSpell {
     int startMs;
     int endMs;
     int delayMs; // accumulated pushback (SMSG_SPELL_DELAYED), 0 = none
+    uint32_t itemID; // the item the cast came from, 0 = none or unknown
 };
 
-TrackedSpell g_cast{0, 0, 0, 0};
-TrackedSpell g_channel{0, 0, 0, 0};
+TrackedSpell g_cast{0, 0, 0, 0, 0};
+TrackedSpell g_channel{0, 0, 0, 0, 0};
 
 // The unit GUID the player is currently casting / channeling AT (from the
 // SMSG_SPELL_START target block), or 0 for a self / ground / untargeted cast.
@@ -155,14 +156,14 @@ bool HidesChannelBar(int spellID) {
 // any in-flight cast. Both channel-stamp sites (SMSG_SPELL_START's instant-
 // channel path and the MSG_CHANNEL_START handler) route through here so
 // neither can forget to reset the latch.
-void StampChannel(int spellID, int startMs, int endMs) {
+void StampChannel(int spellID, int startMs, int endMs, uint32_t itemID) {
     if (HidesChannelBar(spellID)) {
         // No channel bar, so no channel info or events — as the engine does.
         g_channel.spellID = 0;
         g_cast.spellID = 0;
         return;
     }
-    g_channel = TrackedSpell{spellID, startMs, endMs, 0};
+    g_channel = TrackedSpell{spellID, startMs, endMs, 0, itemID};
     g_channelConfirmed = false;
     g_cast.spellID = 0;
 }
@@ -304,6 +305,10 @@ const char *SpellIconPath(const uint8_t *rec) {
 // SpellIcon.dbc row 1, `Interface\Icons\Temp`: the placeholder icon of 970 of
 // the 1733 SPELL_ATTR_TRADESPELL spells in Spell.dbc. 969 of those make an
 // item with effect 0 = CREATE_ITEM (parsed from DBFilesClient\Spell.dbc).
+// Most other Temp spells a player casts are item uses (on-use spell slots in
+// WDB\itemcache.wdb): ENCHANT_ITEM armor kits, belt buckles, scopes and
+// shield spikes, ENCHANT_ITEM_TEMP sharpening stones, weightstones and oils,
+// and quest or PvP items (Opening, Recall).
 constexpr uint32_t SPELL_ICON_TEMP = 1;
 
 // The item a spell's first CREATE_ITEM effect makes, or 0.
@@ -320,20 +325,29 @@ uint32_t CreatedItem(const uint8_t *rec) {
     return 0;
 }
 
+// The icon path of item `itemID` into `out`. False for 0, and for an item not
+// yet in the cache, which is then queried so a later read has its icon.
+bool ItemIconPath(uint32_t itemID, char *out, size_t outSize) {
+    if (itemID == 0)
+        return false;
+    if (Item::Icon::PathForItemID(itemID, out, outSize))
+        return true;
+    Item::Data::WarmCache(itemID);
+    return false;
+}
+
 // Pushes the cast-info `textureID`. A spell whose icon is the Temp
-// placeholder and that makes an item shows that item's icon instead — the
-// icon the engine's own tradeskill list gives the recipe (GetTradeSkillIcon
-// is the created item's icon). An item not yet in the cache keeps Temp for
-// this read and is queried, so the next read shows its icon.
-void PushCastIcon(void *L, const uint8_t *rec) {
+// placeholder shows, in this order: the icon of the item the cast came from
+// (`castItemID`: the armor kit or sharpening stone used), else the icon
+// of the item the spell makes — the icon the engine's own tradeskill list
+// gives the recipe (GetTradeSkillIcon is the created item's icon), else Temp.
+void PushCastIcon(void *L, const uint8_t *rec, uint32_t castItemID) {
     if (Game::Read<uint32_t>(rec, Offsets::OFF_SPELL_RECORD_ICON_ID) == SPELL_ICON_TEMP) {
-        if (const uint32_t item = CreatedItem(rec)) {
-            char path[260];
-            if (Item::Icon::PathForItemID(item, path, sizeof path)) {
-                Game::Lua::PushString(L, path);
-                return;
-            }
-            Item::Data::WarmCache(item);
+        char path[260];
+        if (ItemIconPath(castItemID, path, sizeof path) ||
+            ItemIconPath(CreatedItem(rec), path, sizeof path)) {
+            Game::Lua::PushString(L, path);
+            return;
         }
     }
     Game::Lua::PushString(L, SpellIconPath(rec));
@@ -364,7 +378,7 @@ int PushCastInfo(void *L, const TrackedSpell &c, uint64_t casterGuid,
     const char *name = SpellName(rec);
     Game::Lua::PushString(L, name);                          // 1 name
     Game::Lua::PushString(L, name);                          // 2 displayName
-    PushCastIcon(L, rec);                                    // 3 textureID (path)
+    PushCastIcon(L, rec, c.itemID);                          // 3 textureID (path)
     PushMs(L, c.startMs);                                    // 4 startTimeMs
     PushMs(L, c.endMs);                                      // 5 endTimeMs
     Game::Lua::PushBool(L, IsTradeskill(rec));               // 6 isTradeskill
@@ -399,14 +413,14 @@ const uint8_t *ShownChannelRecord(int spellID, int endMs, bool haveTimes) {
 }
 
 int PushChannelInfo(void *L, int spellID, int startMs, int endMs, bool haveTimes,
-                    const uint8_t *casterUnit) {
+                    uint32_t itemID, const uint8_t *casterUnit) {
     const uint8_t *rec = ShownChannelRecord(spellID, endMs, haveTimes);
     if (rec == nullptr)
         return 0;
     const char *name = SpellName(rec);
     Game::Lua::PushString(L, name);                          // 1 name
     Game::Lua::PushString(L, name);                          // 2 text / displayName
-    PushCastIcon(L, rec);                                    // 3 textureID (path)
+    PushCastIcon(L, rec, itemID);                            // 3 textureID (path)
     if (haveTimes) {
         PushMs(L, startMs);                                  // 4 startTimeMs
         PushMs(L, endMs);                                    // 5 endTimeMs
@@ -430,15 +444,17 @@ int PushChannelInfo(void *L, int spellID, int startMs, int endMs, bool haveTimes
 // before ever reaching this writer; those are caught by the SMSG_SPELL_START
 // path instead. The `spellID == 0` (queued-restore / clear) path is left to
 // the OnWorldTick VAR==0 poll so a restore doesn't prematurely wipe a bar.
-using CastStartSet_t = void(__fastcall *)(int spellID, int targetState);
+// `item` is the CGItem the cast came from, null for a spell: the writer stores
+// its GUID `[[item+8]]` at VAR_CAST_ITEM_GUID (0x006E4B00).
+using CastStartSet_t = void(__fastcall *)(int spellID, const void *item);
 CastStartSet_t g_origCastStartSet = nullptr;
 
-void __fastcall CastStartSet_h(int spellID, int targetState) {
+void __fastcall CastStartSet_h(int spellID, const void *item) {
     if (spellID != 0) {
         const int dur = CastTimeMs(spellID);
         if (dur > 0) {
             const int now = NowMs();
-            g_cast = TrackedSpell{spellID, now, now + dur, 0};
+            g_cast = TrackedSpell{spellID, now, now + dur, 0, ::Object::Entry(item)};
             g_castFromServer = false;  // client-tracked; VAR==0 clears it
             g_castMoveDropped = false; // fresh cast — clear the move-drop latch
             g_channel.spellID = 0;     // a cast supersedes any channel
@@ -447,7 +463,7 @@ void __fastcall CastStartSet_h(int spellID, int targetState) {
         // dur == 0: instant (no bar) or channel (handled via +0x228 poll);
         // leave g_cast — don't clobber an unrelated active cast.
     }
-    g_origCastStartSet(spellID, targetState);
+    g_origCastStartSet(spellID, item);
 }
 
 const Game::HookAutoRegister _castStartHook{
@@ -480,6 +496,7 @@ struct RemoteCast {
     int spellID;
     int startMs;
     int endMs;
+    uint32_t itemID; // the item cast from, 0 if none or not visible to us
     bool isChannel;
     bool used;
     bool confirmed; // channel: +0x228 has shown spellID (PollRemoteChannels)
@@ -490,9 +507,9 @@ RemoteCast g_remoteCasts[kRemoteCastSlots];
 int g_remoteCursor = 0;
 
 void StoreRemoteCast(uint64_t caster, uint64_t targetGuid, int spellID,
-                     int startMs, int endMs, bool isChannel) {
-    const RemoteCast entry{caster, targetGuid, spellID,
-                           startMs, endMs, isChannel, true};
+                     int startMs, int endMs, uint32_t itemID, bool isChannel) {
+    const RemoteCast entry{caster, targetGuid, spellID, startMs,
+                           endMs,  itemID,     isChannel, true};
     // One active cast per unit — replace any existing entry for this caster.
     for (auto &e : g_remoteCasts) {
         if (e.used && e.casterGuid == caster) {
@@ -529,7 +546,7 @@ const RemoteCast *FindRemoteCast(uint64_t caster) {
 constexpr int kCastStartDedupMs = 500;
 
 void HandleSpellStart(uint64_t caster, int spellID, uint32_t castTime,
-                      uint64_t targetGuid) {
+                      uint64_t targetGuid, uint32_t itemID) {
     if (caster == 0 || spellID == 0)
         return;
     const uint8_t *rec = Spell::Lookup::RecordForID(spellID);
@@ -552,7 +569,7 @@ void HandleSpellStart(uint64_t caster, int spellID, uint32_t castTime,
             // the server's duration — see ChannelStart_h.)
             const int dur = ChannelDurationMs(spellID);
             if (dur > 0) {
-                StampChannel(spellID, now, now + dur);
+                StampChannel(spellID, now, now + dur, itemID);
                 g_castTargetGuid = targetGuid;
             }
             return;
@@ -594,7 +611,7 @@ void HandleSpellStart(uint64_t caster, int spellID, uint32_t castTime,
             g_castTargetGuid = targetGuid; // confirming packet carries the target
             return;
         }
-        g_cast = TrackedSpell{spellID, now, now + static_cast<int>(castTime), 0};
+        g_cast = TrackedSpell{spellID, now, now + static_cast<int>(castTime), 0, itemID};
         g_castFromServer = true;
         g_castMoveDropped = false; // fresh cast — clear the move-drop latch
         g_channel.spellID = 0;     // a cast supersedes any channel
@@ -610,13 +627,24 @@ void HandleSpellStart(uint64_t caster, int spellID, uint32_t castTime,
         return; // no channel bar — see HidesChannelBar
     const int endMs = instantChannel ? now + RemoteChannelDurationMs(rec)
                                      : now + static_cast<int>(castTime);
-    StoreRemoteCast(caster, targetGuid, spellID, now, endMs, instantChannel);
+    StoreRemoteCast(caster, targetGuid, spellID, now, endMs, itemID, instantChannel);
     // Phase 2 events: START (cast) or CHANNEL_START (channel). Skip pure
     // instants (non-channel, castTime 0 → no bar); their SUCCEEDED still fires
     // from the SPELL_GO hook.
     if (castTime > 0 || instantChannel)
         Spell::CastEvents::OnRemoteCastStart(caster, spellID, endMs,
                                              instantChannel);
+}
+
+// The itemID of the item a cast came from, 0 for a spell. The packet opens
+// with the item's GUID, or the caster's again for a cast not from an item.
+// Only an item in our own object table resolves: the player's bags hold every
+// item the player casts from, while another player's items are not sent to
+// us, so their casts answer 0.
+uint32_t CastItemID(const Spell::CastPacket::Header &h) {
+    if (h.item == 0 || h.item == h.caster)
+        return 0;
+    return ::Object::Entry(::Object::ByGuid(Offsets::TYPEMASK_ITEM, h.item));
 }
 
 // SMSG_SPELL_START, decoded once by Spell::CastPacket. The target is the unit
@@ -626,7 +654,7 @@ void OnCastStart(const Spell::CastPacket::Start &s) {
     const uint64_t targetGuid =
         (s.targets.mask & Offsets::SPELL_TARGET_FLAG_UNIT) ? s.targets.object : 0;
     HandleSpellStart(s.header.caster, static_cast<int>(s.header.spellId), s.castTimeMs,
-                     targetGuid);
+                     targetGuid, CastItemID(s.header));
 }
 
 const Spell::CastPacket::AutoStart _castStart{&OnCastStart};
@@ -656,12 +684,24 @@ void ParseSpellDelayed(Net::CDataStore *packet) {
 // the stamp ahead of the engine's leaf handler (which fires
 // SPELLCAST_CHANNEL_START), so the data is fresh when addons poll. Body:
 // spellId(u32), durationMs(u32).
+//
+// The packet names no item, so the channel keeps the item of the stamp it
+// follows: the instant channel's own SMSG_SPELL_START, or the cast phase of a
+// cast-then-channel spell.
+uint32_t ChannelItemID(int spellID) {
+    if (g_channel.spellID == spellID)
+        return g_channel.itemID;
+    if (g_cast.spellID == spellID)
+        return g_cast.itemID;
+    return 0;
+}
+
 void ParseChannelStart(Net::CDataStore *packet) {
     const int spellID = static_cast<int>(Net::Read<uint32_t>(packet));
     const uint32_t duration = Net::Read<uint32_t>(packet);
     if (spellID != 0 && duration > 0) {
         const int now = NowMs();
-        StampChannel(spellID, now, now + static_cast<int>(duration));
+        StampChannel(spellID, now, now + static_cast<int>(duration), ChannelItemID(spellID));
     }
 }
 
@@ -1061,8 +1101,9 @@ static UnitCast FindUnitCast(void *u) {
     const uint64_t guid = ::Object::Guid(u);
     const RemoteCast *rc = FindRemoteCast(guid);
     if (rc != nullptr && !rc->isChannel && !Ended(rc->endMs))
-        return {TrackedSpell{rc->spellID, rc->startMs, rc->endMs}, guid, static_cast<const uint8_t *>(u)};
-    return {TrackedSpell{0, 0, 0, 0}, guid, static_cast<const uint8_t *>(u)};
+        return {TrackedSpell{rc->spellID, rc->startMs, rc->endMs, 0, rc->itemID}, guid,
+                static_cast<const uint8_t *>(u)};
+    return {TrackedSpell{0, 0, 0, 0, 0}, guid, static_cast<const uint8_t *>(u)};
 }
 
 // `UnitCastingInfo(unit)`.
@@ -1099,6 +1140,7 @@ static int __fastcall Script_UnitCastingDuration(void *L) {
 // `ChannelInfo()` — local player's channel, no token lookup.
 static int __fastcall Script_ChannelInfo(void *L) {
     return PushChannelInfo(L, g_channel.spellID, g_channel.startMs, g_channel.endMs, true,
+                           g_channel.itemID,
                            Unit::Identity::PlayerObject());
 }
 
@@ -1110,16 +1152,18 @@ struct UnitChannel {
     int startMs;
     int endMs;
     bool haveTimes;
+    uint32_t itemID;
     const uint8_t *unit;
 };
 static UnitChannel FindUnitChannel(void *u) {
     if (u == Game::ResolveUnitToken("player"))
-        return {g_channel.spellID, g_channel.startMs, g_channel.endMs, true, Unit::Identity::PlayerObject()};
+        return {g_channel.spellID, g_channel.startMs, g_channel.endMs, true, g_channel.itemID,
+                Unit::Identity::PlayerObject()};
 
     auto *unit = static_cast<const uint8_t *>(u);
     auto *desc = Object::Fields(unit);
     if (desc == nullptr)
-        return {0, 0, 0, false, unit};
+        return {0, 0, 0, false, 0, unit};
     // A cached channel stands while +0x228 shows it, or reads 0 because it
     // hasn't caught up yet (unconfirmed — PollRemoteChannels drops the entry
     // once a confirmed field clears). Otherwise the field alone answers.
@@ -1127,8 +1171,8 @@ static UnitChannel FindUnitChannel(void *u) {
     const RemoteCast *rc = FindRemoteCast(::Object::Guid(unit));
     if (rc != nullptr && rc->isChannel && !Ended(rc->endMs) &&
         (spellID == rc->spellID || (spellID == 0 && !rc->confirmed)))
-        return {rc->spellID, rc->startMs, rc->endMs, true, unit};
-    return {spellID, 0, 0, false, unit};
+        return {rc->spellID, rc->startMs, rc->endMs, true, rc->itemID, unit};
+    return {spellID, 0, 0, false, 0, unit};
 }
 
 // `UnitChannelInfo(unit)`.
@@ -1137,7 +1181,7 @@ static int __fastcall Script_UnitChannelInfo(void *L) {
     if (u == nullptr)
         return 0;
     const UnitChannel c = FindUnitChannel(u);
-    return PushChannelInfo(L, c.spellID, c.startMs, c.endMs, c.haveTimes, c.unit);
+    return PushChannelInfo(L, c.spellID, c.startMs, c.endMs, c.haveTimes, c.itemID, c.unit);
 }
 
 // `UnitChannelDuration(unit)` — the channel UnitChannelInfo reports, as a
