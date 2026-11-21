@@ -52,6 +52,48 @@ function C_AutoComplete.GetAutoCompleteRealms()
     return {}
 end
 
+-- C_GossipInfo's window functions come from the DLL. This client has no
+-- forced gossip, no option descriptions and no friendship factions. The
+-- friendship answers are the ones the Classic client gives for a faction
+-- without a friendship record.
+function C_GossipInfo.ForceGossip()
+    return false
+end
+
+function C_GossipInfo.GetCompletedOptionDescriptionString()
+    return nil
+end
+
+function C_GossipInfo.GetCustomGossipDescriptionString()
+    return nil
+end
+
+function C_GossipInfo.GetFriendshipReputation(friendshipFactionID)
+    local id = tonumber(friendshipFactionID)
+    if not id then
+        error("Usage: local reputationInfo = C_GossipInfo.GetFriendshipReputation(friendshipFactionID)", 2)
+    end
+    if id <= 0 then
+        return
+    end
+    return {
+        friendshipFactionID = 0,
+        standing = 0,
+        maxRep = 0,
+        text = "",
+        texture = 0,
+        reaction = "",
+        reactionThreshold = 0,
+    }
+end
+
+function C_GossipInfo.GetFriendshipReputationRanks(friendshipFactionID)
+    if not tonumber(friendshipFactionID) then
+        error("Usage: local rankInfo = C_GossipInfo.GetFriendshipReputationRanks(friendshipFactionID)", 2)
+    end
+    return { currentLevel = 0, maxLevel = 0 }
+end
+
 -- C_LootHistory's store comes from the DLL. This client rolls no master-loot
 -- items, so no history item can be given out by the master looter.
 function C_LootHistory.CanMasterLoot(itemIdx, playerIdx)

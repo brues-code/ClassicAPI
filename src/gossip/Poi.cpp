@@ -19,9 +19,12 @@
 //
 // The engine keeps the marker in static blip record 1 (see
 // `VAR_GOSSIP_POI_BLIP` in Offsets.h): one marker at a time, live while its
-// position is nonzero. Both functions read that record and apply the world
-// map's own placement test (0x004A7360): the map's WorldMapArea row must
-// carry the marker's map id and the projected point must land inside 0..1.
+// position is nonzero. As in 3.80.2, GetPoiForUiMapID checks only that the
+// map is on the marker's world map (FUN_1416cc160: the uiMap's assigned map
+// ids hold it; here the map's WorldMapArea row carries the marker's map id),
+// and GetPoiInfo also needs the projected point inside 0..1 (FUN_1416cd670
+// fails outside it), the world map's own placement test (0x004A7360).
+// `inBattleMap` is bit 9 of the packet's flags, as 3.80.2 reads it.
 //
 // The packet carries no POI id, and there is only ever one marker, so its
 // `gossipPoiID` is the engine's slot number, 1.
@@ -78,30 +81,43 @@ void OnTick() {
 
 const Tick::WorldTick::AutoSubscribe _tick{&OnTick};
 
-// Projects the live marker onto `uiMapID`. False when there is no marker or
-// it isn't on that map.
-bool ProjectOnMap(int uiMapID, double *outPx, double *outPy) {
-    const float x = BlipField<float>(Offsets::OFF_STATIC_BLIP_X);
-    const float y = BlipField<float>(Offsets::OFF_STATIC_BLIP_Y);
-    if (x == 0.0f && y == 0.0f)
-        return false;
+bool MarkerLive() {
+    return BlipField<float>(Offsets::OFF_STATIC_BLIP_X) != 0.0f ||
+           BlipField<float>(Offsets::OFF_STATIC_BLIP_Y) != 0.0f;
+}
 
+// The WorldMapArea row of `uiMapID` when the live marker is on that row's
+// world map, else 0.
+int MarkerRow(int uiMapID) {
+    if (!MarkerLive())
+        return 0;
     const int row = Map::Area::RowForUiMapID(uiMapID);
     int rowMapID = 0;
+    return row > 0 && Map::Area::RowRect(row, nullptr, &rowMapID) &&
+                   rowMapID == BlipField<int32_t>(Offsets::OFF_STATIC_BLIP_MAP)
+               ? row
+               : 0;
+}
+
+// Projects the live marker onto `uiMapID`. False when there is no marker, it
+// isn't on that map's world map, or the point lies outside the map.
+bool ProjectOnMap(int uiMapID, double *outPx, double *outPy) {
+    const int row = MarkerRow(uiMapID);
     return row > 0 &&
-           Map::Area::RowRect(row, nullptr, &rowMapID) &&
-           rowMapID == BlipField<int32_t>(Offsets::OFF_STATIC_BLIP_MAP) &&
-           Map::Area::PercentInRow(row, x, y, outPx, outPy) &&
+           Map::Area::PercentInRow(row, BlipField<float>(Offsets::OFF_STATIC_BLIP_X),
+                                   BlipField<float>(Offsets::OFF_STATIC_BLIP_Y), outPx, outPy) &&
            *outPx >= 0.0 && *outPx <= 1.0 && *outPy >= 0.0 && *outPy <= 1.0;
 }
 
 // `C_GossipInfo.GetPoiForUiMapID(uiMapID)` — the id of the gossip marker
-// shown on that map, or nil.
+// when it is on that map's world map, or nil.
 int __fastcall Script_GetPoiForUiMapID(void *L) {
-    const int uiMapID =
-        Game::Lua::IsNumber(L, 1) ? static_cast<int>(Game::Lua::ToNumber(L, 1)) : 0;
-    double px = 0.0, py = 0.0;
-    const bool have = uiMapID != 0 && ProjectOnMap(uiMapID, &px, &py);
+    if (!Game::Lua::IsNumber(L, 1)) {
+        Game::Lua::Error(L, "Usage: local gossipPoiID = C_GossipInfo.GetPoiForUiMapID(uiMapID)");
+        return 0;
+    }
+    const int uiMapID = static_cast<int>(Game::Lua::ToNumber(L, 1));
+    const bool have = MarkerRow(uiMapID) > 0;
 
     Game::Lua::SetTop(L, 0);
     if (!have)
@@ -114,9 +130,13 @@ int __fastcall Script_GetPoiForUiMapID(void *L) {
 // `C_GossipInfo.GetPoiInfo(uiMapID, gossipPoiID)` — the marker's name, icon
 // index and 0..1 position on that map, or nil.
 int __fastcall Script_GetPoiInfo(void *L) {
-    const bool ok = Game::Lua::IsNumber(L, 1) && Game::Lua::IsNumber(L, 2);
-    const int uiMapID = ok ? static_cast<int>(Game::Lua::ToNumber(L, 1)) : 0;
-    const int poiID = ok ? static_cast<int>(Game::Lua::ToNumber(L, 2)) : 0;
+    if (!Game::Lua::IsNumber(L, 1) || !Game::Lua::IsNumber(L, 2)) {
+        Game::Lua::Error(
+            L, "Usage: local gossipPoiInfo = C_GossipInfo.GetPoiInfo(uiMapID, gossipPoiID)");
+        return 0;
+    }
+    const int uiMapID = static_cast<int>(Game::Lua::ToNumber(L, 1));
+    const int poiID = static_cast<int>(Game::Lua::ToNumber(L, 2));
     double px = 0.0, py = 0.0;
     const bool have = poiID == kGossipPoiID && ProjectOnMap(uiMapID, &px, &py);
 
@@ -134,7 +154,8 @@ int __fastcall Script_GetPoiInfo(void *L) {
     Game::Lua::PushString(L, "position");
     Map::PushVector2D(L, px, py);
     Game::Lua::SetTable(L, -3);
-    Game::Lua::SetFieldBool(L, "inBattleMap", false);
+    Game::Lua::SetFieldBool(
+        L, "inBattleMap", ((BlipField<uint32_t>(Offsets::OFF_STATIC_BLIP_FLAGS) >> 9) & 1) != 0);
     return 1;
 }
 
@@ -147,14 +168,15 @@ const Game::Doc::Field kForMapRets[] = {
     Game::Doc::Opt("gossipPoiID", "number"),
 };
 const Game::Doc::Function kGetPoiForUiMapID{
-    "Returns the id of the gossip point of interest shown on the map, if any.",
+    "Returns the id of the gossip point of interest when the map is on its continent or "
+    "instance.",
     kForMapArgs, kForMapRets};
 
 const Game::Doc::Field kPoiInfoFields[] = {
     Game::Doc::Req("name", "string"),
     Game::Doc::Req("textureIndex", "number", "The icon's index in the map POI icon texture."),
     Game::Doc::Req("position", "vector2", "The point on the map, from 0 to 1 on each axis."),
-    Game::Doc::Req("inBattleMap", "bool"),
+    Game::Doc::Req("inBattleMap", "bool", "A flag that the server sends with the point."),
 };
 const Game::Doc::Structure kGossipPoiInfo{
     "GossipPoiInfo", "GossipInfo", kPoiInfoFields,

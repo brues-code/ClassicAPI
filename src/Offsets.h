@@ -14020,6 +14020,11 @@ enum Offsets {
     // many pairs. Neither checks for a live gossip session.
     FUN_GOSSIP_NUM_AVAILABLE_QUESTS = 0x004E2430,
     FUN_GOSSIP_NUM_ACTIVE_QUESTS = 0x004E2580,
+    // The gray gap by the player's level / 5, 20 dwords (4, 4, 5, 5, 6, 6, 7,
+    // 7, 8, 9, 10, 11, then 12): Script_GetQuestGreenRange (0x004E17D0) reads
+    // `gap[min(level / 5, 19)]`. Disassembled; bytes read from the exe.
+    VAR_QUEST_GRAY_GAPS = 0x008076C0,
+    QUEST_GRAY_GAPS_COUNT = 20,
 
     // Inline greeting buffer pushed by Script_GetGossipText. Populated
     // by the engine after the NPC_TEXT.dbc query for the gossip giver
@@ -14050,7 +14055,7 @@ enum Offsets {
     // handler, cleared by the gossip-close worker at 0x004E1FA0 (which
     // then fires GOSSIP_CLOSED, event 0x12B). Non-zero = a gossip
     // session is live — the gate that keeps `C_GossipInfo` from serving
-    // the previous NPC's stale arrays/text after close.
+    // the previous NPC's stale arrays after close.
     VAR_GOSSIP_NPC_GUID = 0x00BC3F58,
 
     // u32, 1 while the greeting is unresolved. The greeting builder
@@ -14080,6 +14085,9 @@ enum Offsets {
     // zero it with x/y (0x006D93FB, 0x006D9A3A). 0 = no marker.
     VAR_GOSSIP_POI_EXPIRY = 0x00CEAAA4,
     OFF_STATIC_BLIP_ICON = 0x08,      // u32, POI icon index (the packet's icon)
+    // u32, the packet's flags: the setter 0x006DAC10 stores edx at record
+    // +0x20 (0x006DAC1E, `mov [eax+0xCEA780], edx`). Bit 9 is inBattleMap.
+    OFF_STATIC_BLIP_FLAGS = 0x20,
     OFF_STATIC_BLIP_X = 0x10,         // float, world X (north)
     OFF_STATIC_BLIP_Y = 0x14,         // float, world Y (west)
     OFF_STATIC_BLIP_MAP = 0x1C,       // i32, Map.dbc id: the minimap's map when set

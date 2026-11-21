@@ -588,15 +588,16 @@ build instructions.
 - [Gossip](#gossip)
   - [`C_GossipInfo.GetText()`](#c_gossipinfogettext)
   - [`C_GossipInfo.GetOptions()`](#c_gossipinfogetoptions)
-  - [`C_GossipInfo.GetAvailableQuests()`](#c_gossipinfogetavailablequests)
-  - [`C_GossipInfo.GetActiveQuests()`](#c_gossipinfogetactivequests)
+  - [`C_GossipInfo.GetAvailableQuests()` / `C_GossipInfo.GetActiveQuests()`](#c_gossipinfogetavailablequests--c_gossipinfogetactivequests)
   - [`C_GossipInfo.GetNumOptions()` / `GetNumAvailableQuests()` / `GetNumActiveQuests()`](#c_gossipinfogetnumoptions--getnumavailablequests--getnumactivequests)
-  - [`C_GossipInfo.SelectOption(gossipOptionID)` / `SelectOptionByIndex(orderIndex)`](#c_gossipinfoselectoptiongossipoptionid--selectoptionbyindexorderindex)
-  - [`C_GossipInfo.SelectAvailableQuest(questID)`](#c_gossipinfoselectavailablequestquestid)
-  - [`C_GossipInfo.SelectActiveQuest(questID)`](#c_gossipinfoselectactivequestquestid)
+  - [`C_GossipInfo.SelectOption(gossipOptionID[, text, confirmed])` / `SelectOptionByIndex(orderIndex[, text, confirmed])`](#c_gossipinfoselectoptiongossipoptionid-text-confirmed--selectoptionbyindexorderindex-text-confirmed)
+  - [`C_GossipInfo.SelectAvailableQuest(questID)` / `C_GossipInfo.SelectActiveQuest(questID)`](#c_gossipinfoselectavailablequestquestid--c_gossipinfoselectactivequestquestid)
   - [`C_GossipInfo.CloseGossip()`](#c_gossipinfoclosegossip)
+  - [`C_GossipInfo.ForceGossip()` / `GetCompletedOptionDescriptionString()` / `GetCustomGossipDescriptionString()`](#c_gossipinfoforcegossip--getcompletedoptiondescriptionstring--getcustomgossipdescriptionstring)
+  - [`C_GossipInfo.GetFriendshipReputation(friendshipFactionID)` / `GetFriendshipReputationRanks(friendshipFactionID)`](#c_gossipinfogetfriendshipreputationfriendshipfactionid--getfriendshipreputationranksfriendshipfactionid)
   - [`C_GossipInfo.GetPoiForUiMapID(uiMapID)`](#c_gossipinfogetpoiforuimapiduimapid)
   - [`C_GossipInfo.GetPoiInfo(uiMapID, gossipPoiID)`](#c_gossipinfogetpoiinfouimapid-gossippoiid)
+  - [`Enum.GossipOptionStatus`](#enumgossipoptionstatus)
   - [`GetNumGossipAvailableQuests()` / `GetNumGossipActiveQuests()`](#getnumgossipavailablequests--getnumgossipactivequests)
   - [`GetNumGossipOptions()`](#getnumgossipoptions)
 
@@ -13696,22 +13697,13 @@ end
 
 ## Gossip
 
-Struct-shaped wrappers around the flat `GetGossipText` /
-`GetGossipOptions` / `GetGossipAvailableQuests` / `GetGossipActiveQuests`
-/ `SelectGossipOption` / `SelectGossipAvailableQuest` /
-`SelectGossipActiveQuest` / `CloseGossip` surface. The data is the
-same. These calls only shape it into the struct-tables that addons
-expect.
+`C_GossipInfo.*` reads the gossip window of an NPC: its text, options and
+quests. The text and quest functions also read the quest greeting window.
+That is the window of an NPC that has quests but no gossip menu
+(`QUEST_GREETING`). A quest greeting window has no options.
 
-**Fields the server simply doesn't send** — and therefore aren't
-in any of the returned tables — include `rewards` and `spellID`,
-per-option `status` (Available / Unavailable / Locked / AlreadyComplete
-— the server doesn't compute this), and UX hints like `overrideIconID`
-and `selectOptionWhenOnlyOption`.
-
-The `icon` field is the raw icon-type byte that the server sends
-(server-extensible — pservers can add custom NPC types past the
-Blizzard 0..10 range). Default Blizzard types resolve to
+The `icon` field of an option is the icon type that the server sends. The
+default types show these textures, at
 `Interface\GossipFrame\<Type>GossipIcon`:
 
 | Value | Type | Value | Type |
@@ -13723,12 +13715,16 @@ Blizzard 0..10 range). Default Blizzard types resolve to
 | `4` | Healer       | `10` | Auctioneer   |
 | `5` | Binder (innkeeper) | | |
 
+A server can send more types after `10`. The field gives them without
+change.
+
 ### `C_GossipInfo.GetText()`
 
-Returns the greeting text of the NPC. For a gossip window it is the
-same value that `GetGossipText()` returns. For a quest greeting window
-(an NPC with several quests and no gossip), it is the greeting of that
-window.
+Returns the greeting text of the NPC. For a gossip window, it is the same
+value that `GetGossipText()` returns. The text stays after the window
+closes. While the text of the next NPC loads, the function returns the
+previous text. For a quest greeting window, it is the same value that
+`GetGreetingText()` returns.
 
 ```lua
 print(C_GossipInfo.GetText())
@@ -13736,16 +13732,20 @@ print(C_GossipInfo.GetText())
 
 ### `C_GossipInfo.GetOptions()`
 
-Returns an array of gossip-option tables in display order. Each entry
-contains:
+Returns an array of option tables in display order. The array is empty when
+no gossip window is open. Each table contains:
 
-| Field            | Type    | Notes |
-|------------------|---------|-------|
-| `gossipOptionID` | number  | The option index that the server sends. The same value `C_GossipInfo.SelectOption` expects; arbitrary integer assigned by the server. |
-| `name`           | string  | Option text (locale-applied by the server). |
-| `icon`           | number  | Raw icon-type byte that the server sends — passed through unmapped so pserver-added types (anything past the default `0..10` range) survive. See the type table above for the default Blizzard categories and the `Interface\GossipFrame\<Type>GossipIcon` path each one resolves to. |
-| `flags`          | number  | Bit 0 set = `boxCoded` (the option asks for confirmation text — `Are you sure?` boxes). |
-| `orderIndex`     | number  | 1-based position in the emitted list. Matches the index `SelectGossipOption` (legacy) expects. |
+| Field                        | Type    | Notes |
+|------------------------------|---------|-------|
+| `gossipOptionID`             | number  | The option ID that the server sends. `C_GossipInfo.SelectOption` takes this ID. |
+| `name`                       | string  | The text of the option. |
+| `icon`                       | number  | The icon type. See the table above. It is not a file ID. |
+| `status`                     | number  | Always `Enum.GossipOptionStatus.Available`. |
+| `flags`                      | number  | Always `0`. |
+| `selectOptionWhenOnlyOption` | boolean | Always `false`. |
+| `orderIndex`                 | number  | The 1-based position in the list. `C_GossipInfo.SelectOptionByIndex` and `SelectGossipOption` take this index. |
+
+`spellID`, `overrideIconID` and `failureDescription` are always nil.
 
 ```lua
 for _, opt in ipairs(C_GossipInfo.GetOptions()) do
@@ -13753,105 +13753,145 @@ for _, opt in ipairs(C_GossipInfo.GetOptions()) do
 end
 ```
 
-### `C_GossipInfo.GetAvailableQuests()`
+### `C_GossipInfo.GetAvailableQuests()` / `C_GossipInfo.GetActiveQuests()`
 
-Returns an array of deliverable-quest tables (quests the giver is
-offering to start), in display order. For a gossip window the list
-holds the same quests as `GetGossipAvailableQuests`. For a quest
-greeting window it holds that window's quests.
+`GetAvailableQuests` returns the quests that the NPC offers.
+`GetActiveQuests` returns the quests that the NPC can take back, complete or
+not. Each list is in display order. For a gossip window, it holds the same
+quests as `GetGossipAvailableQuests()` or `GetGossipActiveQuests()`. For a
+quest greeting window, it holds the quests of that window. The list is empty
+when neither window is open. Each table contains:
 
-| Field        | Type   | Notes |
-|--------------|--------|-------|
-| `questID`    | number | Quest.dbc row ID. |
-| `title`      | string | Localized quest title. |
-| `questLevel` | number | Quest level. |
-
-### `C_GossipInfo.GetActiveQuests()`
-
-Returns an array of active-quest tables (quests the giver wants you
-to turn in, in-progress or complete). For a gossip window the list
-holds the same quests as `GetGossipActiveQuests`. For a quest greeting
-window it holds that window's quests.
-
-| Field        | Type    | Notes |
-|--------------|---------|-------|
-| `questID`    | number  | Quest.dbc row ID. |
-| `title`      | string  | Localized quest title. |
-| `questLevel` | number  | Quest level. |
-| `isComplete` | boolean | `true` when the quest is ready to turn in; `false` when it is still in progress. |
+| Field         | Type    | Notes |
+|---------------|---------|-------|
+| `questID`     | number  | The quest ID. |
+| `title`       | string  | The quest title. |
+| `questLevel`  | number  | The quest level. |
+| `isTrivial`   | boolean | `true` when the quest is gray: the player level is more than `GetQuestGreenRange()` above the quest level. |
+| `isComplete`  | boolean | Active quests only. `true` when the quest is ready to turn in. nil on an available quest. |
+| `questInfoID` | number  | The quest type (Group, Dungeon, Raid and more), from the quest data. `0` when the quest data is not loaded. |
+| `frequency`   | number  | Always `0` (`Enum.QuestFrequency.Default`). |
+| `repeatable`  | boolean | Always `false`. |
+| `isLegendary` | boolean | Always `false`. |
+| `isIgnored`   | boolean | Always `false`. |
+| `isImportant` | boolean | Always `false`. |
+| `isMeta`      | boolean | Always `false`. |
 
 ### `C_GossipInfo.GetNumOptions()` / `GetNumAvailableQuests()` / `GetNumActiveQuests()`
 
-Convenience counters — return the length of each of the three lists
-above without building the table.
+Return the number of entries in the three lists above. Each is `0` when the
+window of its list is not open.
 
-### `C_GossipInfo.SelectOption(gossipOptionID)` / `SelectOptionByIndex(orderIndex)`
+### `C_GossipInfo.SelectOption(gossipOptionID[, text, confirmed])` / `SelectOptionByIndex(orderIndex[, text, confirmed])`
 
-Picks a gossip option. `SelectOption` finds the 1-based slot of the
-`gossipOptionID`, then selects it the same way as
-`SelectGossipOption`. `SelectOptionByIndex` is a thin
-passthrough for callers that already have the slot index (e.g. from
-`opt.orderIndex` on a `GetOptions()` entry, or from a UI button bound
-directly to the slot).
+Select a gossip option. `SelectOption` finds the option by its
+`gossipOptionID`. `SelectOptionByIndex` finds the option by its
+`orderIndex`. Both send the same request to the server as
+`SelectGossipOption`. They return nothing.
 
-Both send the same request to the server. The option-ID variant exists so addons can
-drive selections off the `gossipOptionID` key without keeping
-their own slot mapping. Returns nothing.
+`text` is the code for an option that asks for one. It is the text that the
+player types in the `GOSSIP_ENTER_CODE` dialog. `confirmed` has no effect.
 
-`SelectOption` takes an optional second argument, `text`, for
-`boxCoded` options. The text goes to the server with the selection, as
-the password typed into the confirm dialog does.
+When no gossip window is open, or no option has that ID or index, the
+functions do nothing.
 
-### `C_GossipInfo.SelectAvailableQuest(questID)`
+### `C_GossipInfo.SelectAvailableQuest(questID)` / `C_GossipInfo.SelectActiveQuest(questID)`
 
-Picks a deliverable quest by `questID`. Finds the 1-based slot of the
-quest in the `GetAvailableQuests` list, and selects it the same way as
-`SelectGossipAvailableQuest`. Returns nothing.
+Select a quest by its `questID`. `SelectAvailableQuest` looks in the
+`GetAvailableQuests` list. `SelectActiveQuest` looks in the
+`GetActiveQuests` list. For a gossip window, they send the same request as
+`SelectGossipAvailableQuest` or `SelectGossipActiveQuest`. For a quest
+greeting window, they send the same request as `SelectAvailableQuest` or
+`SelectActiveQuest`. They return nothing.
 
-### `C_GossipInfo.SelectActiveQuest(questID)`
-
-Picks an in-progress quest by `questID`. Same shape as
-`SelectAvailableQuest`, but uses the `GetActiveQuests` list and
-selects the quest the same way as `SelectGossipActiveQuest`. Returns
-nothing.
+When neither window is open, or the list has no quest with that ID, the
+functions do nothing.
 
 ### `C_GossipInfo.CloseGossip()`
 
 Closes the gossip window. Same as `CloseGossip`. Returns nothing.
 
+### `C_GossipInfo.ForceGossip()` / `GetCompletedOptionDescriptionString()` / `GetCustomGossipDescriptionString()`
+
+`ForceGossip` always returns `false`. The two description functions always
+return nil.
+
+### `C_GossipInfo.GetFriendshipReputation(friendshipFactionID)` / `GetFriendshipReputationRanks(friendshipFactionID)`
+
+The client has no friendship factions.
+
+`GetFriendshipReputation` returns nothing when `friendshipFactionID` is `0`
+or less. For other IDs, it returns this table:
+
+| Field                 | Value |
+|-----------------------|-------|
+| `friendshipFactionID` | `0` |
+| `standing`            | `0` |
+| `maxRep`              | `0` |
+| `text`                | `""` |
+| `texture`             | `0` |
+| `reaction`            | `""` |
+| `reactionThreshold`   | `0` |
+
+`name` and `nextThreshold` are nil.
+
+`GetFriendshipReputationRanks` returns `{ currentLevel = 0, maxLevel = 0 }`.
+
+```lua
+local info = C_GossipInfo.GetFriendshipReputation(factionID)
+if info and info.friendshipFactionID > 0 then
+    -- a friendship faction
+end
+```
+
 ### `C_GossipInfo.GetPoiForUiMapID(uiMapID)`
 
-Returns the ID of the gossip point of interest on the map `uiMapID`, or nil.
-Some gossip options add this marker to the map, for example the directions
-that a city guard gives. There is only one marker at a time, and its ID is
-always `1`.
+Returns the ID of the gossip point of interest, or nil. Some gossip options
+add this marker to the map, for example the directions that a city guard
+gives. There is only one marker at a time, and its ID is always `1`.
 
-The function returns nil when there is no marker, or when the marker is not
-inside the map. The marker goes away when the player comes within 10 yards of
-it, or 8 minutes after it was added.
+The function returns the ID when the map `uiMapID` is on the same continent
+or instance as the marker. The marker does not have to be inside that map.
+The function returns nil when there is no marker.
+
+The marker goes away when the player comes within 10 yards of it, or 8
+minutes after it was added.
 
 ### `C_GossipInfo.GetPoiInfo(uiMapID, gossipPoiID)`
 
 Returns a table that describes the gossip point of interest on the map
-`uiMapID`, or nil. It returns nil in the same conditions as
-`GetPoiForUiMapID`, and when `gossipPoiID` is not the ID that
-`GetPoiForUiMapID` returns.
+`uiMapID`, or nil. It returns nil when `GetPoiForUiMapID` returns nil, when
+`gossipPoiID` is not the ID of the marker, and when the marker is outside
+the map.
 
 | Field          | Type    | Description |
 |----------------|---------|-------------|
 | `name`         | string  | The name of the location, for example `"Stormwind Bank"`. |
 | `textureIndex` | number  | The icon index. It is the same index that `GetMapLandmarkInfo` returns for this marker. |
 | `position`     | vector2 | The position on the map, from 0 to 1 on each axis. |
-| `inBattleMap`  | boolean | Always `false`. |
+| `inBattleMap`  | boolean | A flag that the server sends with the marker. |
 
 ```lua
 local mapID = C_Map.GetBestMapForUnit("player")
 local poiID = C_GossipInfo.GetPoiForUiMapID(mapID)
-if poiID then
-    local info = C_GossipInfo.GetPoiInfo(mapID, poiID)
+local info = poiID and C_GossipInfo.GetPoiInfo(mapID, poiID)
+if info then
     print(info.name, info.position:GetXY())
 end
 ```
+
+### `Enum.GossipOptionStatus`
+
+The values of the `status` field of an option.
+
+| Field | Value |
+|---|---|
+| `Available` | 0 |
+| `Unavailable` | 1 |
+| `Locked` | 2 |
+| `AlreadyComplete` | 3 |
+
+Every option is `Available`.
 
 ### `GetNumGossipAvailableQuests()` / `GetNumGossipActiveQuests()`
 
