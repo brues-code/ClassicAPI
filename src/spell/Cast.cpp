@@ -77,6 +77,8 @@
 #include "Offsets.h"
 #include "aura/Source.h"
 #include "duration/Object.h"
+#include "item/Data.h"
+#include "item/Icon.h"
 #include "net/PacketDispatch.h"
 #include "net/PacketReader.h"
 #include "object/Resolve.h"
@@ -299,6 +301,44 @@ const char *SpellIconPath(const uint8_t *rec) {
     return (path != nullptr) ? path : "";
 }
 
+// SpellIcon.dbc row 1, `Interface\Icons\Temp`: the placeholder icon of 970 of
+// the 1733 SPELL_ATTR_TRADESPELL spells in Spell.dbc. 969 of those make an
+// item with effect 0 = CREATE_ITEM (parsed from DBFilesClient\Spell.dbc).
+constexpr uint32_t SPELL_ICON_TEMP = 1;
+
+// The item a spell's first CREATE_ITEM effect makes, or 0.
+uint32_t CreatedItem(const uint8_t *rec) {
+    for (int i = 0; i < Offsets::SPELL_RECORD_EFFECT_COUNT; ++i) {
+        if (Game::Read<int32_t>(rec, Offsets::OFF_SPELL_RECORD_EFFECT + i * 4) !=
+            Offsets::SPELL_EFFECT_CREATE_ITEM)
+            continue;
+        const int32_t item =
+            Game::Read<int32_t>(rec, Offsets::OFF_SPELL_RECORD_EFFECT_ITEM_TYPE + i * 4);
+        if (item > 0)
+            return static_cast<uint32_t>(item);
+    }
+    return 0;
+}
+
+// Pushes the cast-info `textureID`. A spell whose icon is the Temp
+// placeholder and that makes an item shows that item's icon instead — the
+// icon the engine's own tradeskill list gives the recipe (GetTradeSkillIcon
+// is the created item's icon). An item not yet in the cache keeps Temp for
+// this read and is queried, so the next read shows its icon.
+void PushCastIcon(void *L, const uint8_t *rec) {
+    if (Game::Read<uint32_t>(rec, Offsets::OFF_SPELL_RECORD_ICON_ID) == SPELL_ICON_TEMP) {
+        if (const uint32_t item = CreatedItem(rec)) {
+            char path[260];
+            if (Item::Icon::PathForItemID(item, path, sizeof path)) {
+                Game::Lua::PushString(L, path);
+                return;
+            }
+            Item::Data::WarmCache(item);
+        }
+    }
+    Game::Lua::PushString(L, SpellIconPath(rec));
+}
+
 // Pushes UnitCastingInfo's 11-tuple from a tracked cast, or nothing (nil)
 // if there's no active cast. `casterGuid` identifies whose cast this is (the
 // player's or a remote unit's) so `castID` can be pulled from Spell::CastEvents
@@ -324,7 +364,7 @@ int PushCastInfo(void *L, const TrackedSpell &c, uint64_t casterGuid,
     const char *name = SpellName(rec);
     Game::Lua::PushString(L, name);                          // 1 name
     Game::Lua::PushString(L, name);                          // 2 displayName
-    Game::Lua::PushString(L, SpellIconPath(rec));            // 3 textureID (path)
+    PushCastIcon(L, rec);                                    // 3 textureID (path)
     PushMs(L, c.startMs);                                    // 4 startTimeMs
     PushMs(L, c.endMs);                                      // 5 endTimeMs
     Game::Lua::PushBool(L, IsTradeskill(rec));               // 6 isTradeskill
@@ -366,7 +406,7 @@ int PushChannelInfo(void *L, int spellID, int startMs, int endMs, bool haveTimes
     const char *name = SpellName(rec);
     Game::Lua::PushString(L, name);                          // 1 name
     Game::Lua::PushString(L, name);                          // 2 text / displayName
-    Game::Lua::PushString(L, SpellIconPath(rec));            // 3 textureID (path)
+    PushCastIcon(L, rec);                                    // 3 textureID (path)
     if (haveTimes) {
         PushMs(L, startMs);                                  // 4 startTimeMs
         PushMs(L, endMs);                                    // 5 endTimeMs
