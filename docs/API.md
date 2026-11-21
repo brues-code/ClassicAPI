@@ -16,6 +16,7 @@ build instructions.
   - [`C_ActionBar.ShouldShowKeyring()`](#c_actionbarshouldshowkeyring)
   - [`C_ActionBar.EnableActionRangeCheck(slot, enable)`](#c_actionbarenableactionrangecheckslot-enable)
   - [`C_ActionBar.GetSpell(actionID)`](#c_actionbargetspellactionid)
+  - [`C_ActionBar.GetActionLossOfControlCooldownInfo(actionID)` / `C_ActionBar.GetActionLossOfControlCooldownDuration(actionID)`](#c_actionbargetactionlossofcontrolcooldowninfoactionid--c_actionbargetactionlossofcontrolcooldowndurationactionid)
   - [`C_ActionBar.GetItemActionOnEquipSpellID(actionID)`](#c_actionbargetitemactiononequipspellidactionid)
   - [`IsStackableAction(slot)` / `C_ActionBar.IsStackableAction(actionID)`](#isstackableactionslot--c_actionbarisstackableactionactionid)
   - [`C_ActionBar.IsMacroActionWithShowTooltip(actionID)`](#c_actionbarismacroactionwithshowtooltipactionid)
@@ -731,8 +732,10 @@ build instructions.
   - [`C_LootHistory.CanMasterLoot(itemIdx, playerIdx)` / `C_LootHistory.GiveMasterLoot(itemIdx, playerIdx)`](#c_loothistorycanmasterlootitemidx-playeridx--c_loothistorygivemasterlootitemidx-playeridx)
 
 - [LossOfControl](#lossofcontrol)
-  - [`C_LossOfControl.GetActiveLossOfControlDataCount()`](#c_lossofcontrolgetactivelossofcontroldatacount)
-  - [`C_LossOfControl.GetActiveLossOfControlData(index)`](#c_lossofcontrolgetactivelossofcontroldataindex)
+  - [`C_LossOfControl.GetActiveLossOfControlDataCount()` / `C_LossOfControl.GetActiveLossOfControlDataCountByUnit(unitToken)`](#c_lossofcontrolgetactivelossofcontroldatacount--c_lossofcontrolgetactivelossofcontroldatacountbyunitunittoken)
+  - [`C_LossOfControl.GetActiveLossOfControlData(index)` / `C_LossOfControl.GetActiveLossOfControlDataByUnit(unitToken, index)`](#c_lossofcontrolgetactivelossofcontroldataindex--c_lossofcontrolgetactivelossofcontroldatabyunitunittoken-index)
+  - [`C_LossOfControl.GetActiveLossOfControlDuration(unitToken, index)`](#c_lossofcontrolgetactivelossofcontroldurationunittoken-index)
+  - [`Constants.LossOfControlConsts`](#constantslossofcontrolconsts)
   - [`C_LossOfControl.GetSchoolLockout([filterMask])`](#c_lossofcontrolgetschoollockoutfiltermask)
 
 - [Lua](#lua)
@@ -1150,6 +1153,7 @@ build instructions.
   - [`IsAutoRepeatSpell(slot, bookType)`](#isautorepeatspellslot-booktype)
   - [`IsConsumableSpell(spellID)` / `IsConsumableSpell(slot, bookType)`](#isconsumablespellspellid--isconsumablespellslot-booktype)
   - [`C_Spell.GetSpellLossOfControlCooldown(spellIdentifier)`](#c_spellgetspelllossofcontrolcooldownspellidentifier)
+  - [`C_Spell.GetSpellLossOfControlCooldownInfo(spellIdentifier)` / `C_Spell.GetSpellLossOfControlCooldownDuration(spellIdentifier)` / `GetSpellLossOfControlCooldown(spell)`](#c_spellgetspelllossofcontrolcooldowninfospellidentifier--c_spellgetspelllossofcontrolcooldowndurationspellidentifier--getspelllossofcontrolcooldownspell)
   - [`C_Spell.IsCurrentSpell(spellIdentifier)`](#c_spelliscurrentspellspellidentifier)
   - [`C_Spell.IsSelfBuff(spellID)`](#c_spellisselfbuffspellid)
   - [`C_Spell.SpellHasRange(spellIdentifier)` / `SpellHasRange(slot, bookType)`](#c_spellspellhasrangespellidentifier--spellhasrangeslot-booktype)
@@ -1626,6 +1630,15 @@ if actionType == "item" then
     id = C_ActionBar.GetSpell(1)
 end
 ```
+
+### `C_ActionBar.GetActionLossOfControlCooldownInfo(actionID)` / `C_ActionBar.GetActionLossOfControlCooldownDuration(actionID)`
+
+The loss-of-control block of the spell in an action slot, in the same forms as
+[`C_Spell.GetSpellLossOfControlCooldownInfo`](#c_spellgetspelllossofcontrolcooldowninfospellidentifier--c_spellgetspelllossofcontrolcooldowndurationspellidentifier--getspelllossofcontrolcooldownspell)
+and `C_Spell.GetSpellLossOfControlCooldownDuration`. The spell of the slot is
+the one that [`C_ActionBar.GetSpell`](#c_actionbargetspellactionid) returns.
+For a slot outside 1 to 120, the functions return nothing. A slot with no
+spell gives a table with no block.
 
 ### `C_ActionBar.GetItemActionOnEquipSpellID(actionID)`
 
@@ -7322,19 +7335,20 @@ from `ScanNearbyLoot`). See the Loot section for the full scan flow.
 
 ### `LOSS_OF_CONTROL_ADDED` / `LOSS_OF_CONTROL_UPDATE` events
 
-Fire as loss-of-control effects change, so a UI can react without polling.
-Register like any engine event
+These events fire when the loss-of-control effects on the player change.
+Register them like any engine event
 (`frame:RegisterEvent("LOSS_OF_CONTROL_ADDED")`).
 
 | Event | Args | When |
 |---|---|---|
-| `LOSS_OF_CONTROL_ADDED` | `unitToken` (string), `eventIndex` (number) | A new effect was applied — `unitToken` is always `"player"`, and `eventIndex` is the 1-based index of the effect for [`C_LossOfControl.GetActiveLossOfControlData`](#c_lossofcontrolgetactivelossofcontroldataindex). |
-| `LOSS_OF_CONTROL_UPDATE` | `unitToken` (string) | The active set changed — an effect was added, fell off, or expired. Re-scan with `GetActiveLossOfControlData`. Always `"player"` (only the local player is tracked), but passed so the event carries a unit token and leaves room for per-unit tracking. |
+| `LOSS_OF_CONTROL_ADDED` | `unitToken` (string), `effectIndex` (number) | An effect lands on the player, or a running effect gets a later end time. `unitToken` is always `"player"`. `effectIndex` is the 1-based position of the effect for [`C_LossOfControl.GetActiveLossOfControlData`](#c_lossofcontrolgetactivelossofcontroldataindex--c_lossofcontrolgetactivelossofcontroldatabyunitunittoken-index), at the time the event fires. |
+| `LOSS_OF_CONTROL_UPDATE` | `unitToken` (string) | The effects changed: an effect was added, changed, fell off or expired. `unitToken` is always `"player"`. |
 
-Events fire within one frame of the change. Several changes in the same
-frame fire one `LOSS_OF_CONTROL_UPDATE`. A
-counterspelled cast, for instance, fires two `ADDED` (the school lockout and,
-with Improved Counterspell, the silence) then an `UPDATE` as each expires.
+The events fire in the frame after the change. When an effect lands, its
+`ADDED` fires first, then one `UPDATE` for all the changes of that frame. A
+second `ADDED` in the same frame can move the effects after it, so read the
+list again on `UPDATE`.
+
 See the [LossOfControl](#lossofcontrol) section for the effect data.
 
 ### `MAP_EXPLORATION_UPDATED` event
@@ -17152,20 +17166,36 @@ the empty history.
 
 ## LossOfControl
 
-`C_LossOfControl` — the active crowd-control / interrupt effects on
-the **local player**. The CC types come from the player's debuffs. The
-school-interrupt lockout comes from the lockout that the server sends after a
-Counterspell or Kick.
+`C_LossOfControl` gives the loss-of-control effects on the **local player**.
+There are two kinds of effect:
 
-### `C_LossOfControl.GetActiveLossOfControlDataCount()`
+- **Control effects** come from the player's debuffs. Each effect of a debuff
+  that stuns, fears, confuses, charms, possesses, roots, silences, pacifies or
+  disarms is one entry. Thus a debuff with two such effects gives two entries.
+- **School lockouts** come from the lockout that the server sends after a
+  Counterspell, Kick or other interrupt. Each locked school is one entry.
 
-Returns the number of active loss-of-control effects on the player (`0` when
-none).
+The list is in this order:
 
-### `C_LossOfControl.GetActiveLossOfControlData(index)`
+1. The full-screen effects (`displayType` 2), by `priority`, highest first.
+   Effects with the same priority are sorted by end time, the latest first.
+2. All other effects, in the order that they landed.
 
-Returns a `LossOfControlData` table for the `index`-th active effect (1-based,
-up to the count above), or `nil` if the index is out of range.
+A control effect stays in the list until its debuff goes, also after its timer
+has run out. A school lockout leaves the list when its timer runs out.
+
+### `C_LossOfControl.GetActiveLossOfControlDataCount()` / `C_LossOfControl.GetActiveLossOfControlDataCountByUnit(unitToken)`
+
+Return the number of loss-of-control effects on the player, `0` when there
+are none. `GetActiveLossOfControlDataCountByUnit` gives the count when
+`unitToken` is the player, and `0` for any other unit.
+
+### `C_LossOfControl.GetActiveLossOfControlData(index)` / `C_LossOfControl.GetActiveLossOfControlDataByUnit(unitToken, index)`
+
+Return a `LossOfControlData` table for the effect at position `index`
+(1-based), or `nil` when no effect has that position.
+`GetActiveLossOfControlDataByUnit` gives `nil` for any unit but the player. A
+missing or negative `index` raises a usage error.
 
 ```lua
 for i = 1, C_LossOfControl.GetActiveLossOfControlDataCount() do
@@ -17176,35 +17206,55 @@ end
 
 | Field | Type | Notes |
 |---|---|---|
-| `locType` | string | `"STUN"`, `"FEAR"`, `"ROOT"`, `"CONFUSE"`, `"CHARM"`, `"POSSESS"`, `"SILENCE"`, `"PACIFY"`, `"PACIFYSILENCE"`, `"DISARM"`, or `"SCHOOL_INTERRUPT"`. |
-| `spellID` | number | The spell causing the effect. `0` for `SCHOOL_INTERRUPT` (the server does not send the interrupting spell). |
-| `displayText` | string | Effect name — the spell name for CC, `"Interrupted"` for `SCHOOL_INTERRUPT`. |
-| `iconTexture` | string | The spell's icon path (there are no FileDataIDs here; the path is the functional equivalent). `""` for `SCHOOL_INTERRUPT`. |
-| `startTime` | number? | `GetTime()`-epoch seconds. `nil` when the effect has no timer. |
-| `timeRemaining` | number? | Seconds remaining. |
-| `duration` | number? | Effect duration, in seconds. |
-| `lockoutSchool` | number | The locked spell-school mask for `SCHOOL_INTERRUPT` (feed to `C_Spell.GetSchoolString` for the name); `0` for CC effects. |
-| `priority` | number | Always `0` — no equivalent here. |
-| `displayType` | number | Always `2` (show for the effect's full duration). |
+| `locType` | string | `"POSSESS"`, `"CONFUSE"`, `"CHARM"`, `"FEAR"`, `"STUN"`, `"PACIFY"`, `"ROOT"`, `"SILENCE"`, `"PACIFYSILENCE"`, `"DISARM"` or `"SCHOOL_INTERRUPT"`. |
+| `spellID` | number | The spell of the debuff. `0` for `SCHOOL_INTERRUPT`, because the server does not send the interrupting spell. |
+| `displayText` | string | The global string `LOSS_OF_CONTROL_DISPLAY_<mechanic>` for the mechanic of the effect, for example `"Polymorphed"` or `"Sapped"`. Without a mechanic, it is `LOSS_OF_CONTROL_DISPLAY_<locType>`, for example `"Stunned"`. When that global string is missing, it is the name of the global string. |
+| `iconTexture` | string | The icon path of the spell. `""` for `SCHOOL_INTERRUPT`. |
+| `startTime` | number? | In `GetTime()` seconds. `nil` when the effect has no timer. |
+| `timeRemaining` | number? | In seconds. `0` after the timer has run out. `nil` when the effect has no timer. |
+| `duration` | number? | In seconds. `nil` when the effect has no timer. |
+| `lockoutSchool` | number | The mask of the locked school for `SCHOOL_INTERRUPT`, for `C_Spell.GetSchoolString`. `0` for a control effect. |
+| `priority` | number | See the table below. |
+| `displayType` | number | `0` not shown, `1` alert, `2` full screen. See the table below. |
+| `auraInstanceID` | number? | The instance ID of the debuff (see [`AuraData`](#auradata-table-shape)). `nil` for `SCHOOL_INTERRUPT`. |
 
-Fidelity notes:
+| `locType` | `priority` | `displayType` |
+|---|---|---|
+| `POSSESS`, `CONFUSE`, `CHARM`, `FEAR`, `STUN` | 5 | 2 |
+| `PACIFYSILENCE` | 4 | 1 |
+| `PACIFY`, `SILENCE`, `DISARM` | 3 | 1 |
+| `SCHOOL_INTERRUPT` | 2 | 1 |
+| `ROOT` | 1 | 0 |
 
-- **`SCHOOL_INTERRUPT`** comes from the lockout that the server sends. The
-  server locks every spell of the interrupted school for the same duration, so
-  the school and duration are exact. The server does not send the interrupting
-  spell, so `spellID = 0` and `displayText = "Interrupted"`.
-- **CC timing** comes from the server's timer for your debuff, the same timer
-  `GetPlayerBuffTimeLeft` uses. It includes diminishing returns and the
-  caster's talents. `startTime` / `timeRemaining` / `duration` are `nil` when
-  the debuff has no timer.
-- **`auraInstanceID`** is the instance ID of the CC debuff (see
-  [`AuraData`](#auradata-table-shape)). It is `nil` for
-  `SCHOOL_INTERRUPT`, which is not an aura.
+Notes:
+
+- **`SCHOOL_INTERRUPT`**: the server locks every spell of the interrupted
+  school for the same duration, so the school and the duration are exact.
+- **Control-effect timing** comes from the server's timer for your debuff, the
+  same timer that `GetPlayerBuffTimeLeft` uses. It includes diminishing returns
+  and the talents of the caster.
+- **`displayText` strings**: ClassicAPI gives the `LOSS_OF_CONTROL_DISPLAY_*`
+  global strings in all supported locales, together with
+  `LOSS_OF_CONTROL_DISPLAY_INTERRUPT_SCHOOL` (`"%s Locked"`).
+
+### `C_LossOfControl.GetActiveLossOfControlDuration(unitToken, index)`
+
+Returns the timer of the effect at position `index` as a duration object (see
+[`C_DurationUtil.CreateDuration`](#c_durationutilcreateduration)), or `nil` when no effect has that
+position. The object is zero for an effect with no timer. It is `nil` for any
+unit but the player.
+
+### `Constants.LossOfControlConsts`
+
+| Field | Value |
+|---|---|
+| `LOSS_OF_CONTROL_ACTIVE_INDEX` | 1 |
 
 ### `C_LossOfControl.GetSchoolLockout([filterMask])`
 
-Returns `lockedMask, secondsRemaining` for the school-interrupt lockout — the
-`SCHOOL_INTERRUPT` slice of the list above, without building the list.
+**ClassicAPI extension.** Returns `lockedMask, secondsRemaining` for the school
+lockouts: the `SCHOOL_INTERRUPT` part of the list above, without building the
+list.
 
 ```lua
 local mask, remaining = C_LossOfControl.GetSchoolLockout()
@@ -17222,32 +17272,23 @@ end
 
 | Return | Type | Notes |
 |---|---|---|
-| `lockedMask` | number | Every currently locked school OR'd together, as `1 << schoolIndex` — the same shape as `lockoutSchool`. `0` when nothing is locked. |
-| `secondsRemaining` | number? | Until every school in `lockedMask` is clear, i.e. the lockout ending last. `nil` when `lockedMask` is `0`. |
+| `lockedMask` | number | All locked schools together, as `1 << schoolIndex`. This is the same form as `lockoutSchool`. `0` when no school is locked. |
+| `secondsRemaining` | number? | The time until all schools in `lockedMask` are clear, that is, until the last lockout ends. `nil` when `lockedMask` is `0`. |
 
-`filterMask` narrows the scan to those schools, so one school's own remaining
-time is `GetSchoolLockout(1 << schoolIndex)`. Omitted or `0` means all schools.
+`filterMask` limits the result to those schools. Thus the remaining time of one
+school is `GetSchoolLockout(1 << schoolIndex)`. Omitted or `0` means all
+schools.
 
-Two schools can be locked at the same time — each interrupt
-locks one, so being kicked on fire and then on frost leaves both active. That is
-why this returns a mask rather than a single school, and why walking the list
-above and stopping at the first `SCHOOL_INTERRUPT` entry is wrong.
+Two schools can be locked at the same time: each interrupt locks one school.
+For example, a Kick on a fire spell and then on a frost spell locks both. For
+this reason the function returns a mask.
 
-Prefer this over the list walk whenever only the school lockout matters: it
-reads the lockout state directly, allocating no table and skipping the
-debuff scan that every `GetActiveLossOfControlData` call performs. Cheap enough
-to call per frame from a macro conditional.
+The function makes no table and does not read the debuffs, so you can call it
+each frame, for example from a macro conditional.
 
-The `LOSS_OF_CONTROL_ADDED` / `LOSS_OF_CONTROL_UPDATE` events fire as these
-effects change — see [Events](#loss_of_control_added--loss_of_control_update-events).
-Note that they are driven by a diff of *which* effects are active, so
-re-locking an already-locked school extends its lockout without firing either
-event. Read the remaining time when you need it rather than caching it on the
-events.
-
-For the effect that blocks one specific spell, shaped as a cooldown, see
+For the effect that blocks one spell, as a cooldown, see
 [`C_Spell.GetSpellLossOfControlCooldown`](#c_spellgetspelllossofcontrolcooldownspellidentifier)
-and its spellbook-slot variants.
+and the related functions.
 
 ## Lua
 
@@ -25392,7 +25433,7 @@ IsUsableSpell(1, "pet")      -- pet spellbook slot 1
 > Read cooldown with
 > [`C_Spell.GetSpellCooldown`](#c_spellgetspellcooldownspellidentifier)
 > and lockouts with
-> [`C_LossOfControl.GetActiveLossOfControlData`](#c_lossofcontrolgetactivelossofcontroldataindex).
+> [`C_LossOfControl.GetActiveLossOfControlData`](#c_lossofcontrolgetactivelossofcontroldataindex--c_lossofcontrolgetactivelossofcontroldatabyunitunittoken-index).
 >
 > For a pet spell, the test is the current power of the pet against
 > the spell cost, after the pet can act (not stunned, feared, or
@@ -25565,12 +25606,39 @@ Which effects block which spells:
 An effect does not block a spell that makes you immune to that effect.
 For example, Polymorph does not block a druid's shapeshift forms.
 
-The function reports only effects with a known end time. See the timing
-note in [LossOfControl](#lossofcontrol): a school lockout always has one,
-and a control effect has one when ClassicAPI saw the cast that applied it.
-When only the end time is known, `startTime` is the current time and
-`duration` is the remaining time. When several effects block the spell,
-the function reports the one that ends last.
+When several effects block the spell, the function reports the one that ends
+last. An effect with no timer is reported as `startTime` = now and
+`duration` = `0`. When only the end time of an effect is known, `startTime`
+is the current time and `duration` is the remaining time.
+
+### `C_Spell.GetSpellLossOfControlCooldownInfo(spellIdentifier)` / `C_Spell.GetSpellLossOfControlCooldownDuration(spellIdentifier)` / `GetSpellLossOfControlCooldown(spell)`
+
+The same block as
+[`C_Spell.GetSpellLossOfControlCooldown`](#c_spellgetspelllossofcontrolcooldownspellidentifier),
+in other forms:
+
+- `GetSpellLossOfControlCooldownInfo` returns a table, or `nil` for an unknown
+  spell:
+
+  | Field | Type | Notes |
+  |---|---|---|
+  | `startTime` | number | In `GetTime()` seconds. `0` when nothing blocks the spell. |
+  | `duration` | number | In seconds. `0` when nothing blocks the spell. |
+  | `modRate` | number | Always `1`. |
+  | `isActive` | boolean | `true` while an effect with a timer blocks the spell. |
+  | `shouldReplaceNormalCooldown` | boolean | `true` when the effect ends after the spell's own cooldown. A button then shows the loss-of-control swipe instead of the normal one. |
+
+- `GetSpellLossOfControlCooldownDuration` returns a duration object (see
+  [`C_DurationUtil.CreateDuration`](#c_durationutilcreateduration)), or `nil` for an unknown spell. The
+  object is zero when `isActive` is `false`.
+- The global `GetSpellLossOfControlCooldown` returns `start, duration`. Both
+  are `0` when nothing blocks the spell. `spell` is one of:
+  - a spell ID;
+  - a spellbook slot and its `bookType` (`"spell"` or `"pet"`);
+  - a spell name, with an optional rank as a second argument.
+
+  When the arguments name no spell, the function returns nothing. A pet
+  spell gives `0, 0`.
 
 ### `C_Spell.IsCurrentSpell(spellIdentifier)`
 
@@ -26528,7 +26596,7 @@ returned as a table. Returns `nil` for an empty slot.
 | `startTime` | number | Start of the blocking effect, in `GetTime()` seconds. `0` when nothing blocks the spell. |
 | `duration` | number | Length of the blocking effect in seconds. `0` when nothing blocks the spell. |
 | `modRate` | number | Always `1`. |
-| `isActive` | boolean | `true` while an effect blocks the spell. |
+| `isActive` | boolean | `true` while an effect with a timer blocks the spell. |
 | `shouldReplaceNormalCooldown` | boolean | `true` when the effect outlasts the spell's own cooldown. A button then draws the loss-of-control swipe instead of the normal one. |
 
 ### `C_SpellBook.GetSpellBookItemLossOfControlCooldownDuration(slotIndex, spellBank)`
