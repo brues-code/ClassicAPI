@@ -800,6 +800,7 @@ build instructions.
   - [`collectgarbage(opt [, arg])`](#collectgarbageopt--arg)
   - [`table.wipe(t)` / `wipe(t)`](#tablewipet--wipet)
   - [`table.count(tbl)`](#tablecounttbl)
+  - [`table.create(arraySizeHint [, nodeSizeHint])`](#tablecreatearraysizehint--nodesizehint)
   - [`table.maxn(t)`](#tablemaxnt)
   - [`table.removemulti(t [, pos [, count]])`](#tableremovemultit--pos--count)
   - [Stale table lengths (5.1 healing)](#stale-table-lengths-51-healing)
@@ -18741,6 +18742,29 @@ table.count({ [-3] = "x" })           -- 1, 0, 0
 
 Pure iteration over the table (`lua_next`), so no dependency on Lua's internal
 storage layout. Errors on non-table input.
+
+### `table.create(arraySizeHint [, nodeSizeHint])`
+
+Returns a new empty table with space for `arraySizeHint` array entries (keys
+1 to n) and `nodeSizeHint` other keys. As a result, the table does not grow
+step by step while you fill it.
+
+- Each hint is a number. The function removes the fractional part of a hint
+  (it rounds toward zero).
+- A hint less than 0 counts as 0. A hint more than 1048576 counts as 1048576.
+- `nodeSizeHint` is optional. The default is 0.
+- The hints only reserve space. The new table is empty, and `#t` is 0.
+
+```lua
+local list = table.create(100)   -- space for 100 array entries
+local map = table.create(0, 16)  -- space for 16 keyed entries
+```
+
+The function gives an error in these conditions:
+
+- `arraySizeHint` is missing.
+- A hint is not a number.
+- A hint is less than -2147483648 or more than 2147483647.
 
 ### `table.maxn(t)`
 

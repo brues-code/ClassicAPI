@@ -136,6 +136,35 @@ CLASSICAPI_LUA_BINDINGS(CLASSICAPI_BIND_LUA)
 #undef CLASSICAPI_BIND_LUA
 #undef CLASSICAPI_LUA_BINDINGS
 
+void CreateTable(void *L, int narr, int nrec) {
+    using luaC_collectgarbage_t = void(__fastcall *)(void *L);
+    using luaH_new_t = void *(__fastcall *)(void *L, int narray, int lnhash);
+
+    // luaO_ceillog2, except that 1 node takes lnhash 1: lnhash 0 is the
+    // shared dummy node, which holds nothing. Past 24 luaH_new raises its own
+    // "table overflow", so the count stops at 25.
+    int lnhash = 0;
+    if (nrec > 0)
+        for (lnhash = 1; lnhash < 25 && (1 << lnhash) < nrec; ++lnhash) {
+        }
+
+    // lua_newtable (0x6F3C90) step for step: the GC step first (it can move
+    // the stack), then the TValue at top, then luaH_new, then top += 1.
+    const uint8_t *g = Game::Read<const uint8_t *>(L, Offsets::OFF_LUA_STATE_G);
+    if (Game::Read<uint32_t>(g, Offsets::OFF_LUA_G_NBLOCKS) >=
+        Game::Read<uint32_t>(g, Offsets::OFF_LUA_G_GCTHRESHOLD))
+        reinterpret_cast<luaC_collectgarbage_t>(Offsets::FUN_LUA_C_COLLECTGARBAGE)(L);
+
+    uint8_t *slot = Game::Read<uint8_t *>(L, Offsets::OFF_LUA_STATE_TOP);
+    Game::Ref<int>(slot, Offsets::OFF_LUA_TVALUE_TT) = TYPE_TABLE;
+    Game::Ref<uint32_t>(slot, Offsets::OFF_LUA_TVALUE_CONTEXT) =
+        Game::Read<uint32_t>(Offsets::VAR_FRAMESCRIPT_EXEC_CONTEXT);
+    Game::Ref<void *>(slot, Offsets::OFF_LUA_TVALUE_VALUE) =
+        reinterpret_cast<luaH_new_t>(Offsets::FUN_LUAH_NEW)(L, narr > 0 ? narr : 0, lnhash);
+    Game::Ref<uint8_t *>(L, Offsets::OFF_LUA_STATE_TOP) =
+        Game::Read<uint8_t *>(L, Offsets::OFF_LUA_STATE_TOP) + Offsets::SIZEOF_LUA_TVALUE;
+}
+
 namespace {
 using FrameScript_RegisterFunction_t = void(__fastcall *)(const char *name, CFunction func);
 using RegisterFrameMethods_t = void(__fastcall *)(const FrameMethodEntry *table, int count,

@@ -190,6 +190,18 @@ bool FiniteFloat(void *L, int arg, const char *usage, float &out, bool optional,
     return ReadFiniteFloat(L, Slot{arg, nullptr}, usage, out, optional, error);
 }
 
+bool Int32(void *L, int arg, const char *usage, int32_t &out, bool optional, Error *error) {
+    const Slot at{arg, nullptr};
+    const int present = Present(L, at, usage, optional, error);
+    if (present <= 0)
+        return present == 0;
+    const double v = IsNumber(L, arg) ? ToNumber(L, arg) : NAN;
+    if (!(v >= -2147483648.0 && v <= 2147483647.0))
+        return Fail(L, at, "outside of expected range -2147483648 to 2147483647", usage, error);
+    out = static_cast<int32_t>(v);
+    return true;
+}
+
 bool UInt32(void *L, int arg, const char *usage, uint32_t &out, bool optional, Error *error) {
     const Slot at{arg, nullptr};
     const int present = Present(L, at, usage, optional, error);

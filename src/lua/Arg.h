@@ -83,6 +83,12 @@ bool String(void *L, int arg, const char *usage, Text &out, bool optional = fals
 bool FiniteNumber(void *L, int arg, const char *usage, double &out, bool optional = false,
                   Error *error = nullptr);
 
+// An int32 argument (FUN_140A91460, range check FUN_140A65EE0): a number from
+// -2147483648 to 2147483647, truncated toward zero. Otherwise "outside of
+// expected range -2147483648 to 2147483647 - <usage>".
+bool Int32(void *L, int arg, const char *usage, int32_t &out, bool optional = false,
+           Error *error = nullptr);
+
 // A uint32 argument (FUN_140A6E2D0): a number from 0 to 4294967295, truncated.
 // Otherwise "outside of expected range 0 to 4294967295 - <usage>".
 bool UInt32(void *L, int arg, const char *usage, uint32_t &out, bool optional = false,

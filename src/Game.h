@@ -469,6 +469,12 @@ extern const lua_concat_t Concat;
 extern const lua_newuserdata_t NewUserdata;
 extern const lua_touserdata_t ToUserdata;
 
+// Lua 5.1's `lua_createtable`: pushes a new table with room for `narr` array
+// slots and `nrec` hash nodes. lua_newtable's own body with the sizes passed
+// through. 5.0 sizes the hash part as a power of two and 0 means "none", so
+// `nrec` rounds up to one (1 gets 2 nodes). Negative counts mean 0.
+void CreateTable(void *L, int narr, int nrec);
+
 // Returns the global `lua_State *` (read on demand from the engine's global).
 // Callable outside a Lua callback, e.g. during LoadScriptFunctions setup.
 void *State();

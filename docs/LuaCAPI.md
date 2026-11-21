@@ -225,7 +225,7 @@ filenames in Lua 5.0 by behaviour.
 | `0x006F6200` | `adjust_varargs`         | stock 5.0: pads missing fixed params with nil, then `luaH_new(L, nvar, 1)` + `luaH_setnum` per extra arg + sets field `"n"` and pushes the table. So EVERY call to a vararg Lua function allocates one table, whether the body uses `arg` or `...` — keep vararg helpers off per-frame paths |
 | `0x006F65A0` | `luaD_call`              | the actual call dispatcher                        |
 | `0x006F6960` | `luaD_pcall`             | protected call dispatcher                         |
-| `0x006F7340` | `luaD_growstack` (or checkstack) | invoked when stack needs space            |
+| `0x006F7340` | `luaC_collectgarbage`    | GC step; `lua_newtable` calls it when `nblocks >= GCthreshold` (`0x006F3CA1`) |
 | `0x006F7C20` | `luaV_tonumber`          | string→number coercion                            |
 | `0x006F7C80` | `luaV_tostring`          | number→string coercion                            |
 | `0x006F7CF0` | `luaV_gettable`          | metamethod-aware get                              |

@@ -84,6 +84,9 @@ static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("table", "count", &Script_table_count, &kCount);
 }
 
+// 3.80.2 registers table.count in both states (0x140D32F40, called by the game
+// and the glue registrars).
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
+static const Game::GlueModuleAutoRegister _glueAutoreg{&RegisterLuaFunctions};
 
 } // namespace Table::Count

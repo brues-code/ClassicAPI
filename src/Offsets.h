@@ -10410,7 +10410,22 @@ enum Offsets {
     // — the canonical freelist-link operation.
     LUA_REF_UNREF = 0x6F5400,
     LUA_PUSH_CCLOSURE = 0x6F3920,
+    // `lua_newtable(L)` — __fastcall, plain RET. Stock 5.0 (disassembled):
+    // `if (G->nblocks >= G->GCthreshold) luaC_collectgarbage(L)`, then write
+    // tt 5 and VAR_FRAMESCRIPT_EXEC_CONTEXT at L->top, `luaH_new(L, 0, 0)` into
+    // its value, top += 0x10. Game::Lua::CreateTable is this body with sizes.
     LUA_NEW_TABLE = 0x6F3C90,
+    // `luaH_new(L, narray, lnhash)` → Table*. __fastcall(L /*ecx*/, narray
+    // /*edx*/, lnhash /*stack*/), RET 4. Allocates 0x20, luaC_link tt 5,
+    // metatable = the default sentinel (G+0x48), flags 0xFF, then the array
+    // part (0x006FA560, narray nil slots) and the node part (setnodevector
+    // 0x006FA5D0): lnhash is a log2 — 0 is the shared dummy node (G+0x58),
+    // above 24 raises "table overflow" (disassembled).
+    FUN_LUAH_NEW = 0x6FA4F0,
+    // `luaC_collectgarbage(L)` — __fastcall(L), the GC step lua_newtable runs
+    // when nblocks reaches GCthreshold (0x006F3CA1). wow_turbo replaces it
+    // with its parallel sweep (symbols.toml `luaC_collectgarbage__6f7340`).
+    FUN_LUA_C_COLLECTGARBAGE = 0x6F7340,
     // `lua_newuserdata(L, size)` — `__fastcall`, plain RET; pushes a full
     // userdata (tt 7, stamped with the exec context like every push) and
     // returns its block, the Udata + 0x10. Verified by disassembly: GC step
@@ -10784,7 +10799,9 @@ enum Offsets {
     FUN_LUA_S_NEWUDATA = 0x006F9E30,
     // `__fastcall(L, o)`. Switch on tt-4 through the jump table at 0x006F72D0.
     FUN_LUA_C_FREEOBJ = 0x006F7260,
-    // lua_State: the global state (luaC_link reads `[ecx+0x10]`).
+    // lua_State: the stack top (lua_newtable writes its TValue at `[esi+8]`
+    // and adds 0x10) and the global state (luaC_link reads `[ecx+0x10]`).
+    OFF_LUA_STATE_TOP = 0x08,
     OFF_LUA_STATE_G = 0x10,
     // global_State: string table {hash@+4, nuse@+8, size@+0xC} (newlstr's
     // bucket insert), rootgc / rootudata (luaC_link, luaS_newudata,
@@ -10794,6 +10811,7 @@ enum Offsets {
     OFF_LUA_G_STRT_SIZE = 0x0C,
     OFF_LUA_G_ROOTGC = 0x10,
     OFF_LUA_G_ROOTUDATA = 0x14,
+    OFF_LUA_G_GCTHRESHOLD = 0x24,
     OFF_LUA_G_NBLOCKS = 0x28,
     // GCheader: next@+0, tt@+4 (luaC_link writes both; freeobj switches on tt).
     OFF_LUA_GCHEADER_NEXT = 0x00,
