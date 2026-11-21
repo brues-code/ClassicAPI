@@ -28905,61 +28905,97 @@ Notes (apply to all three functions):
 
 ### `C_DateAndTime` overview
 
-Backport of the `C_DateAndTime` namespace — calendar-style
-date math built on top of the server clock. The calendar functions
-exchange `CalendarTime` tables with these fields (matching
-Blizzard's `TimeDocumentation.lua`):
+The `C_DateAndTime` functions do date arithmetic and read the server
+clock. The calendar functions use `CalendarTime` tables with these
+fields:
 
 | Field | Range | Notes |
 |-------|-------|-------|
-| `year` | full year, e.g. 2026 | |
+| `day` | 0 | Always 0 in a result. An argument can leave it out. |
+| `year` | full year, for example 2026 | |
 | `month` | 1..12 | luaIndex (1-based) |
 | `monthDay` | 1..31 | luaIndex (1-based) |
-| `weekday` | 1..7 | luaIndex; 1 = Sunday |
+| `weekday` | 1..7 | luaIndex. 1 is Sunday. |
 | `hour` | 0..23 | |
 | `minute` | 0..59 | |
 
-> **Two clocks.** A realm sends the client both an instant and a wall
-> clock, and they differ by the realm's timezone. `GetServerTime` and
-> `GetSecondsUntilDailyReset` report the instant, so they are the ones
-> to compare, sort, store, and count down with.
-> `GetCurrentCalendarTime` and `GetServerTimeLocal` report the wall
-> clock, for display, and always agree with `GetGameTime()`.
+A table that you give as an argument must have all the fields except
+`day`. The functions drop the fraction of a value. These causes give an
+error:
+
+- an argument that is not a table.
+- a missing field. The message names the field.
+- a field that is not a number, or a number out of range. `month`,
+  `monthDay` and `weekday` must be from 0 to 4294967295. `year`, `hour`
+  and `minute` must be 32-bit integers.
+
+```text
+bad argument #3 to `AdjustTimeByDays' (Current Field: [hour], Usage: local newDate = C_DateAndTime.AdjustTimeByDays(date, days))
+```
+
+> **Two clocks.** A realm sends the client two clocks: the instant, and
+> the wall clock of the realm. They differ by the time zone of the realm.
+> `GetServerTime` and `GetSecondsUntilDailyReset` use the instant. Use
+> these to compare, sort, store and count down.
+> `GetCurrentCalendarTime` and `GetServerTimeLocal` use the wall clock.
+> They are for display, and they always agree with `GetGameTime()`.
 >
-> **Daily reset semantics.** `GetSecondsUntilDailyReset` counts down to
-> UTC midnight, which is where a realm's own day boundary sits. A realm
-> can shift that boundary by a configured amount, and it never tells the
-> client, so a realm that shifts it resets at a different moment.
+> **Daily reset.** `GetSecondsUntilDailyReset` counts down to midnight
+> UTC, where the day of a realm starts. A realm can move this boundary by
+> a configured amount, and it does not tell the client. On such a realm,
+> the reset occurs at a different time.
 >
-> **Weekly reset not implemented.** There is no server-broadcast
-> weekly reset schedule, and Turtle WoW realm schedules vary, so
-> `C_DateAndTime.GetSecondsUntilWeeklyReset` would have to hardcode a
-> weekday/hour that's wrong on some realms. Addons that need it can
-> compute their own value from the daily reset + a CVAR.
+> **No weekly reset.** There is no
+> `C_DateAndTime.GetSecondsUntilWeeklyReset`. The server sends no weekly
+> reset schedule, and raids reset on different cycles.
 
 ### `C_DateAndTime.GetCurrentCalendarTime()`
 
-Returns the realm's date and time as a CalendarTime table, or nothing
-before login. The `hour` and `minute` fields always agree with
-`GetGameTime()`. This is realm time, not the instant, so it does not
-match `GetCalendarTimeFromEpoch(GetServerTime())` on a realm that is
-not on UTC.
+Returns the date and time of the realm as a CalendarTime table. Before
+login, it returns nothing. The `hour` and `minute` fields always agree
+with `GetGameTime()`. This is realm time, not the instant. Thus on a
+realm that is not on UTC, it is not the same as the result of
+`GetCalendarTimeFromEpoch`.
 
 ```lua
 local t = C_DateAndTime.GetCurrentCalendarTime()
--- t = { year=2026, month=5, monthDay=11, weekday=2, hour=14, minute=30 }
+-- t = { day=0, year=2026, month=5, monthDay=11, weekday=2, hour=14, minute=30 }
 ```
 
 ### `C_DateAndTime.GetCalendarTimeFromEpoch(epoch)`
 
-Converts a Unix epoch (seconds since 1970-01-01 UTC) to a
-CalendarTime table. Uses no game state.
+Converts `epoch` to a CalendarTime table in the time zone of the
+computer. `epoch` is in **microseconds** since 1970-01-01 UTC. The
+function uses no game state.
+
+`GetServerTime()` and `time()` give seconds. Multiply their value by
+1000000 before you give it to this function.
+
+```lua
+local t = C_DateAndTime.GetCalendarTimeFromEpoch(GetServerTime() * 1000000)
+```
+
+An `epoch` that is not a number from 0 to 9007199254740991 causes an
+error.
+
+CAUTION: The function uses the daylight-saving state of the current
+moment for all dates. Thus the hour of a date in the other half of the
+year can be one hour wrong.
 
 ### `C_DateAndTime.AdjustTimeByDays(date, days)` / `AdjustTimeByMinutes(date, minutes)`
 
-Returns a new CalendarTime offset from the input by the given number
-of days (or minutes). Negative deltas walk backwards. Out-of-range
-inputs (`month=13`, `monthDay=32`) are normalized.
+Return a new CalendarTime, moved by `days` or by `minutes`. A negative
+value moves back in time. The functions normalize a date that is out of
+range, for example `month=13` or `monthDay=32`.
+
+`AdjustTimeByDays` changes only the date and the weekday. The `hour` and
+`minute` fields do not change. The input `weekday` has no effect.
+
+If `year` is before 2000, or `month` or `monthDay` is 0, the date does
+not change.
+
+`days` and `minutes` must be 32-bit integers. Another value causes an
+error.
 
 ```lua
 local today = C_DateAndTime.GetCurrentCalendarTime()
@@ -28970,23 +29006,33 @@ local yesterday = C_DateAndTime.AdjustTimeByDays(today, -1)
 ### `C_DateAndTime.CompareCalendarTime(lhs, rhs)`
 
 Returns `1` if `lhs` is earlier than `rhs`, `0` if they are equal, and
-`-1` if `lhs` is later. The sign tells you where `rhs` is in relation
-to `lhs`. Compares by epoch conversion so denormalized inputs sort
-consistently.
+`-1` if `lhs` is later. The sign tells you where `rhs` is in relation to
+`lhs`.
+
+The function compares the fields one at a time in this sequence: `year`,
+`month`, `monthDay`, `weekday`, `hour`, `minute`. It does not normalize
+the fields. It skips a field when the field is not set in one of the
+tables. A field is not set when it has one of these values:
+
+- `month`, `monthDay` or `weekday` is 0.
+- `year` is before 2000.
+- `hour` or `minute` is negative.
 
 ### `C_DateAndTime.GetServerTimeLocal()`
 
-Returns [`GetServerTime()`](#getservertime) offset by the server's
-timezone. The result is a display value, not an instant: formatting it
-shows the realm's clock digits. If the realm reports 14:30, this
-returns the epoch for 14:30 UTC, so `date("!%H:%M", t)` prints
-`14:30`. Do not compare it against a real timestamp.
+Returns [`GetServerTime()`](#getservertime) moved by the time zone of
+the server. The result is a display value, not an instant. When you
+format it as UTC, it shows the clock of the realm. If the realm shows
+14:30, this function returns the epoch for 14:30 UTC, so
+`date("!%H:%M", t)` prints `14:30`. Do not compare it with a real
+timestamp.
 
 ### `C_DateAndTime.GetSecondsUntilDailyReset()`
 
-Returns seconds until the next UTC midnight, where the realm's day
-boundary sits. Returns nothing if called before login. See the overview's
-"Daily reset semantics" note.
+Returns the seconds until the next midnight UTC, where the day of the
+realm starts. The count stops at the last second before midnight. Thus
+the value is from 0 to 86399. Before login, it returns nothing. Refer to
+"Daily reset" in the overview.
 
 ## Totem
 
