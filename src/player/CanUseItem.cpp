@@ -26,8 +26,15 @@
 // Equip confirmation, as 4.3.4's CGPlayer_C::CanUseItem is behind the
 // modern API.
 //
+// 3.80.2's check (FUN_1414250b0) tests the same set: level, class and race
+// masks, proficiency (mask 0 passes), required skill and rank, required
+// spell or one that supersedes it, PvP rank, PvP medal bit, reputation. Its
+// extra steps (a player flag that passes everything, the artifact spec, the
+// skill-skip item flags) have no 1.12 counterpart.
+//
 // Cache-miss handling matches `C_Item.IsEquippableItem`: a synchronous
-// peek that returns false without firing a load.
+// peek that returns false without firing a load. 3.80.2 reads its item data
+// locally, so only an unknown item returns false there.
 
 #include "Game.h"
 #include "Offsets.h"
@@ -63,8 +70,29 @@ bool ComputeCanUse(int itemID) {
     return Check(player, record);
 }
 
+#define CAN_USE_ITEM_USAGE "Usage: local isUseable = C_PlayerInfo.CanUseItem(itemID)"
+
+// 3.80.2's (0x140D71700) argument: a required number, finite and in int32
+// range, else the argument error with its usage string. An item link is
+// also accepted here (a ClassicAPI extension); a string with no link in it
+// gets the same argument error.
 int __fastcall Script_CanUseItem(void *L) {
-    const int itemID = Item::Arg::ResolveItemID(L, 1);
+    int itemID = 0;
+    if (Game::Lua::IsNumber(L, 1)) {
+        const double v = Game::Lua::ToNumber(L, 1);
+        if (!(v >= -2147483648.0 && v <= 2147483647.0)) {
+            Game::Lua::ArgError(
+                L, 1, "outside of expected range -2147483648 to 2147483647 - " CAN_USE_ITEM_USAGE);
+            return 0;
+        }
+        itemID = static_cast<int>(v);
+    } else {
+        itemID = Game::Lua::IsString(L, 1) ? Item::Arg::ResolveItemID(L, 1) : 0;
+        if (itemID == 0) {
+            Game::Lua::ArgError(L, 1, CAN_USE_ITEM_USAGE);
+            return 0;
+        }
+    }
     Game::Lua::PushBool(L, ComputeCanUse(itemID));
     return 1;
 }

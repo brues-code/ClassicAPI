@@ -23558,7 +23558,9 @@ the tooltip" gate, and rounds out the item-usability trio:
 So this is what answers "a Mail chest on a Mage" (armor proficiency), "a
 level-40 item at level 20" (RequiredLevel), and class/race-restricted gear.
 
-`itemID` is a number (item links are also accepted). Checks performed:
+`itemID` is a number. An item link is also accepted (ClassicAPI extension).
+A missing argument, a number outside the int32 range, or a string with no
+item link in it raises a usage error. Checks performed:
 
 1. **Proficiency** — for weapons and armor, the player must have the
    proficiency for the item's subclass. Item classes with no proficiency concept
