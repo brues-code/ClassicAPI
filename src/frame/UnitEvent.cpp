@@ -63,10 +63,10 @@
 //
 //   - UNIT COUNT. 3.80.2 packs at most four token ids into the listener entry.
 //     We store strings in our own map, so every unit argument counts.
-//   - TOKENS AND EVENTS. ClassicAPI's own tokens (`markN`, `totemN`) join the
-//     token table, and 1.12's own unit events that 3.80.2 replaced (UNIT_RAGE,
-//     UNIT_MAXMANA, …) plus ClassicAPI's (UNIT_AURA_DELTA, UNIT_AREA_CHANGED)
-//     join the event list.
+//   - TOKENS AND EVENTS. ClassicAPI's own tokens (`pettarget`, `markN`,
+//     `totemN`) join the token table, and 1.12's own unit events that 3.80.2
+//     replaced (UNIT_RAGE, UNIT_MAXMANA, …) plus ClassicAPI's
+//     (UNIT_AURA_DELTA, UNIT_AREA_CHANGED) join the event list.
 //
 // Filter rule: the filter applies only when the event's first argument is a
 // string (every unit event fires as "%s" + token). 3.80.2 fires each unit
@@ -108,6 +108,8 @@ constexpr const char *kSingleTokens[] = {
     "targettarget", "softenemy", "softfriend", "softinteract",   "focus",
     "focustarget", "anytarget", "anyinteract", "anyleftinteract", "anyenemy",
     "anyfriend", "npc",        "questnpc",
+    // ClassicAPI's
+    "pettarget",
 };
 
 struct TokenFamily {

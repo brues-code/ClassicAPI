@@ -13,9 +13,10 @@
 
 // Every unit event the engine fires reaches the tokens 1.12's token map
 // lacks — `nameplateN`, `targettarget`, `focus`, `focustarget`,
-// `softenemy`, `softfriend`, `softinteract`, and ClassicAPI's `markN` and
-// `totemN` — as it reaches `target`. The 3.80.2 client fires every unit event
-// for all of these but the last two (its token builder 0x141B90E10).
+// `softenemy`, `softfriend`, `softinteract`, and ClassicAPI's `pettarget`,
+// `markN` and `totemN` — as it reaches `target`. The 3.80.2 client fires every
+// unit event for all of these but the last three (its token builder
+// 0x141B90E10).
 //
 // This is how 4.3.4 makes its focus a full unit token (decomp: GameUI.cpp
 // SetFocusTarget, ScriptEvents.cpp token maps), in two steps: the unit gets a
@@ -86,8 +87,8 @@ using CombatFeedback_t = void(__fastcall *)(const uint64_t *guid, const char *ac
                                             int school, uint32_t hitInfo);
 
 // At most one nameplate, targettarget, focus, focustarget, softenemy,
-// softfriend, softinteract, mark and totem per unit.
-constexpr int kMaxTokens = 9;
+// softfriend, softinteract, pettarget, mark and totem per unit.
+constexpr int kMaxTokens = 10;
 using TokenList = char[kMaxTokens][32];
 
 // The unit `guid`'s target, or 0 when the unit is not in view.
@@ -133,6 +134,13 @@ uint64_t FocusTarget() {
     return Eligible(focus == Unit::Identity::PlayerGuid() ? TargetGuid() : TargetOf(focus));
 }
 
+// `pettarget`: your pet's target, under the same test. The pet is whatever
+// the engine's own `pet` token names.
+uint64_t PetTarget() {
+    const uint64_t pet = Unit::Identity::GuidForToken("pet");
+    return pet != 0 ? Eligible(TargetOf(pet)) : 0;
+}
+
 // The ClassicAPI tokens `guid` has right now, in the 3.80.2 client's unit
 // event order (0x141B90E10), then the ClassicAPI extensions, at most `max`.
 int ListTokens(uint64_t guid, char (*out)[32], int max) {
@@ -156,6 +164,8 @@ int ListTokens(uint64_t guid, char (*out)[32], int max) {
         std::snprintf(out[n++], sizeof out[0], "softfriend");
     if (n < max && guid == Target::SoftInteract::Get())
         std::snprintf(out[n++], sizeof out[0], "softinteract");
+    if (n < max && guid == PetTarget())
+        std::snprintf(out[n++], sizeof out[0], "pettarget");
     if (const int m = Unit::RaidTarget::MarkOf(guid); n < max && m != 0)
         std::snprintf(out[n++], sizeof out[0], "mark%d", m);
     for (int s = 1; n < max && s <= Totem::Tracker::kSlotCount; ++s)
@@ -166,11 +176,12 @@ int ListTokens(uint64_t guid, char (*out)[32], int max) {
     return n;
 }
 
-// targettarget and focustarget change with no event (UNIT_FIELD_TARGET has
-// no event-table slot), so the world tick re-reads them and moves the
-// registration bit when either changes.
+// targettarget, focustarget and pettarget change with no event
+// (UNIT_FIELD_TARGET has no event-table slot), so the world tick re-reads
+// them and moves the registration bit when one changes.
 uint64_t g_targetTarget = 0;
 uint64_t g_focusTarget = 0;
+uint64_t g_petTarget = 0;
 
 void Follow(uint64_t &last, uint64_t now) {
     if (now == last)
@@ -186,6 +197,7 @@ void OnWorldTick() {
         return;
     Follow(g_targetTarget, TargetTarget());
     Follow(g_focusTarget, FocusTarget());
+    Follow(g_petTarget, PetTarget());
 }
 
 const Tick::WorldTick::AutoSubscribe _tick{&OnWorldTick};

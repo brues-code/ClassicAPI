@@ -352,7 +352,8 @@ const char *TokenFromGUID(uint64_t target, char *buf, size_t bufSize) {
 // A token's place in the 3.80.2 client's unit-event list (0x141B90E10):
 // player, pet, party / partypet, raid / raidpet, nameplate, target,
 // targettarget, focus, focustarget, npc, softenemy, softfriend, softinteract;
-// then ClassicAPI's markN and totemN. Prefixes are tested longest first.
+// then ClassicAPI's pettarget, markN and totemN. Prefixes are tested longest
+// first.
 static int TokenRank(const char *t) {
     static const struct {
         const char *name;
@@ -361,18 +362,18 @@ static int TokenRank(const char *t) {
         {"player", false},    {"pet", false},          {"partypet", true},   {"party", true},
         {"raidpet", true},    {"raid", true},          {"nameplate", true},  {"target", false},
         {"targettarget", false}, {"focus", false},     {"focustarget", false}, {"npc", false},
-        {"softenemy", false}, {"softfriend", false},   {"softinteract", false}, {"mark", true},
-        {"totem", true},
+        {"softenemy", false}, {"softfriend", false},   {"softinteract", false},
+        {"pettarget", false}, {"mark", true},          {"totem", true},
     };
     // party and partypet (raid and raidpet) share a place.
-    static const int kRank[] = {0, 1, 2, 2, 3, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14};
+    static const int kRank[] = {0, 1, 2, 2, 3, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
     for (size_t i = 0; i < sizeof kOrder / sizeof kOrder[0]; ++i) {
         const size_t len = std::strlen(kOrder[i].name);
         if (kOrder[i].prefix ? std::strncmp(t, kOrder[i].name, len) == 0
                              : std::strcmp(t, kOrder[i].name) == 0)
             return kRank[i];
     }
-    return 15;
+    return 16;
 }
 
 int TokensForGUID(uint64_t guid, char (*out)[32], int maxTokens) {

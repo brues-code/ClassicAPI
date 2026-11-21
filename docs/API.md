@@ -11788,7 +11788,7 @@ Unit tokens compare without regard to case. The units are these tokens:
   other tokens of the same client table.
 - `partyN`, `partypetN`, `raidN`, `raidpetN`, `nameplateN` (1 to 150),
   `bossN`, `arenaN`, and `arenapetN`.
-- `markN` and `totemN` (ClassicAPI extension).
+- `pettarget`, `markN`, and `totemN` (ClassicAPI extension).
 
 The call ignores a token that is not in this list, for example
 `party1target`. A unit that is several tokens at once (your target who is
@@ -23456,15 +23456,16 @@ and one time with `"focus"`.
 The unit events that ClassicAPI adds use these tokens, in this order:
 `player`, `pet`, `partyN` or `partypetN`, `raidN` or `raidpetN`,
 `nameplateN`, `target`, `targettarget`, `focus`, `focustarget`, `npc`,
-`softenemy`, `softfriend`, `softinteract`, `markN`, and `totemN`. Examples
-of these events are `UNIT_POWER_UPDATE`, `UNIT_TARGETABLE_CHANGED`, and
-`UNIT_CONNECTION`. They do not fire for `mouseover`.
+`softenemy`, `softfriend`, `softinteract`, `pettarget`, `markN`, and
+`totemN`. Examples of these events are `UNIT_POWER_UPDATE`,
+`UNIT_TARGETABLE_CHANGED`, and `UNIT_CONNECTION`. They do not fire for
+`mouseover`.
 
 The other unit events, for example `UNIT_HEALTH`, `UNIT_AURA`, and
 `UNIT_COMBAT`, fire first for `player`, `pet`, `target`, `partyN`,
 `partypetN`, `raidN`, `raidpetN`, `npc`, and `mouseover`. Then they fire for
 `nameplateN`, `targettarget`, `focus`, `focustarget`, `softenemy`,
-`softfriend`, `softinteract`, `markN`, and `totemN`.
+`softfriend`, `softinteract`, `pettarget`, `markN`, and `totemN`.
 
 Some tokens have special rules:
 - In a raid, you are also `raidN`.
@@ -23472,8 +23473,9 @@ Some tokens have special rules:
   target, it is you.
 - `focustarget` is the target of your focus. When you are your own focus, it
   is your target.
-- A `targettarget` or `focustarget` unit that is not selectable gets no
-  events, except a player.
+- `pettarget` is the target of your pet.
+- A `targettarget`, `focustarget`, or `pettarget` unit that is not
+  selectable gets no events, except a player.
 
 ### Unit tokens (`nameplateN`)
 
