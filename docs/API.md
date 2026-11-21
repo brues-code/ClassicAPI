@@ -801,6 +801,7 @@ build instructions.
   - [`table.wipe(t)` / `wipe(t)`](#tablewipet--wipet)
   - [`table.count(tbl)`](#tablecounttbl)
   - [`table.create(arraySizeHint [, nodeSizeHint])`](#tablecreatearraysizehint--nodesizehint)
+  - [`C_TableUtil.FindIndexedMismatch(t1, t2)`](#c_tableutilfindindexedmismatcht1-t2)
   - [`table.maxn(t)`](#tablemaxnt)
   - [`table.removemulti(t [, pos [, count]])`](#tableremovemultit--pos--count)
   - [Stale table lengths (5.1 healing)](#stale-table-lengths-51-healing)
@@ -18765,6 +18766,25 @@ The function gives an error in these conditions:
 - `arraySizeHint` is missing.
 - A hint is not a number.
 - A hint is less than -2147483648 or more than 2147483647.
+
+### `C_TableUtil.FindIndexedMismatch(t1, t2)`
+
+Returns the first index `i` where `t1[i]` and `t2[i]` are not equal. Returns
+nil when there is no such index.
+
+- The function compares the indexes from 1 to the longer length (`#t1` or
+  `#t2`).
+- Each comparison is the same as the `==` operator.
+- After the end of the shorter table, its values are nil. As a result, two
+  tables with different lengths differ at the index after the end of the
+  shorter table.
+- Both arguments must be tables. Other types give an error.
+
+```lua
+C_TableUtil.FindIndexedMismatch({ 1, 2, 3 }, { 1, 2, 3 }) -- nil
+C_TableUtil.FindIndexedMismatch({ 1, 2, 3 }, { 1, 5, 3 }) -- 2
+C_TableUtil.FindIndexedMismatch({ 1, 2 }, { 1, 2, 3 })    -- 3
+```
 
 ### `table.maxn(t)`
 

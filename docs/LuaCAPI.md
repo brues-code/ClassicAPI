@@ -105,8 +105,8 @@ context but not byte-by-byte verified.
 | `0x006F34D0` | `lua_isnumber`          | fastcall | tag == 3 OR coercible (`luaV_tonumber` at `0x006F7C20`)               | ✓   |
 | `0x006F3510` | `lua_isstring`          | fastcall | tag == 4 OR tag == 3                                                  | ★   |
 | `0x006F3530` | `lua_isuserdata`        | fastcall | tag == 7 (full) OR tag == 2 (light)                                   | ★   |
-| `0x006F3550` | `lua_equal`             | fastcall | calls `equalobj` at `0x006F58B0`                                      | ★   |
-| `0x006F3590` | `lua_rawequal`          | fastcall |                                                                       | ★   |
+| `0x006F3550` | `lua_rawequal`          | fastcall | calls `luaO_rawequalObj` at `0x006F58B0` (no `__eq`)                  | ✓   |
+| `0x006F3590` | `lua_equal`             | fastcall | same tt, then `luaV_equalval` at `0x006F8330` (`__eq`)                | ✓   |
 | `0x006F35E0` | `lua_lessthan`          | fastcall | calls `luaV_lessthan` at `0x006F8190`                                 | ★   |
 | `0x006F3620` | `lua_tonumber`          | fastcall | returns double in `st0`                                               | ✓   |
 | `0x006F3660` | `lua_toboolean`         | fastcall | tag != nil AND not (tag==1 && value==0)                               | ★   |
@@ -220,7 +220,7 @@ filenames in Lua 5.0 by behaviour.
 | VA           | Likely function          | Notes                                            |
 |--------------|--------------------------|---------------------------------------------------|
 | `0x006F3140` | `setobj` / TValue copy   | 16-byte memcpy                                    |
-| `0x006F58B0` | `equalobj`               | called by `lua_equal`                             |
+| `0x006F58B0` | `luaO_rawequalObj`       | raw compare; called by `lua_rawequal`             |
 | `0x006F6050` | `luaD_precall`           | frame setup for a call; Lua closure: reads Proto (`+0xc` of the closure), `is_vararg` at Proto `+0x46` → `adjust_varargs`, `numparams` `+0x45`, `maxstacksize` `+0x47`; C closure: reserves 0x14 slots and calls the C function |
 | `0x006F6200` | `adjust_varargs`         | stock 5.0: pads missing fixed params with nil, then `luaH_new(L, nvar, 1)` + `luaH_setnum` per extra arg + sets field `"n"` and pushes the table. So EVERY call to a vararg Lua function allocates one table, whether the body uses `arg` or `...` — keep vararg helpers off per-frame paths |
 | `0x006F65A0` | `luaD_call`              | the actual call dispatcher                        |
@@ -231,7 +231,7 @@ filenames in Lua 5.0 by behaviour.
 | `0x006F7CF0` | `luaV_gettable`          | metamethod-aware get                              |
 | `0x006F7F40` | `luaV_settable`          |                                                   |
 | `0x006F8190` | `luaV_lessthan`          |                                                   |
-| `0x006F8330` | (rawequal helper)        |                                                   |
+| `0x006F8330` | `luaV_equalval`          | `__eq` compare; `lua_equal` and `OP_EQ`           |
 | `0x006F84D0` | `luaV_concat`            |                                                   |
 | `0x006F9D00` | `luaS_newlstr`           | string interning                                  |
 | `0x006F9E30` | `luaS_newudata`          | full-userdata allocator                           |

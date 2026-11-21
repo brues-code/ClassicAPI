@@ -39,12 +39,11 @@ namespace {
 
 // Raw engine primitives not exposed via Game::Lua.
 using SetFenv_t = int(__fastcall *)(void *L, int idx);
-using CheckType_t = void(__fastcall *)(void *L, int narg, int t);
 using GetFunc_t = void(__fastcall *)(void *L);
 const auto SetFenv = reinterpret_cast<SetFenv_t>(Offsets::LUA_SET_FENV);
-const auto CheckType = reinterpret_cast<CheckType_t>(Offsets::LUAL_CHECK_TYPE);
 const auto GetFunc = reinterpret_cast<GetFunc_t>(Offsets::FUN_LUA_BASE_GETFUNC);
 
+using Game::Lua::CheckType;
 using Game::Lua::GetFenv;
 using Game::Lua::GetMetatable;
 using Game::Lua::Replace;

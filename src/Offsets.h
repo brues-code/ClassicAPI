@@ -10486,6 +10486,12 @@ enum Offsets {
     LUA_REMOVE = 0x6F30D0,        // (was 0x6F32B0, which is lua_replace)
     LUA_REPLACE = 0x6F32B0,
     LUA_TYPE = 0x6F3400,
+    // `lua_equal(L, index1, index2)` — `int __fastcall(L /*ecx*/, index1
+    // /*edx*/, index2 /*stack*/)`, RET 4. Same tt, then luaV_equalval
+    // (0x006F8330, TM_EQ via get_compTM 0x006F8440) — `__eq` honored, as
+    // OP_EQ (0x006F9071) does. 0x006F3550 before it is lua_rawequal
+    // (luaO_rawequalObj 0x006F58B0, no L). Disassembled.
+    LUA_EQUAL = 0x6F3590,
     // `lua_typename(L, type)` — `const char *__fastcall`; indexes the name
     // array at 0x00811CD0, `-1` → "no value" (0x00871624).
     LUA_TYPE_NAME = 0x6F3480,

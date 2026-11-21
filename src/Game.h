@@ -371,6 +371,8 @@ using lua_newthread_t = void *(__fastcall *)(void *L);
 using lua_resume_t = int(__fastcall *)(void *L, int nargs);
 using lua_yield_t = int(__fastcall *)(void *L, int nresults);
 using luaL_argerror_t = void(__fastcall *)(void *L, int narg, const char *msg);
+using luaL_checktype_t = void(__fastcall *)(void *L, int narg, int t);
+using lua_equal_t = int(__fastcall *)(void *L, int index1, int index2);
 // The auxlib argument readers: each raises the engine's own "bad argument"
 // error. CheckLString's `len` may be null.
 using luaL_checklstring_t = const char *(__fastcall *)(void *L, int narg, unsigned int *len);
@@ -458,6 +460,10 @@ extern const lua_newthread_t NewThread;
 extern const lua_resume_t Resume;
 extern const lua_yield_t Yield;
 extern const luaL_argerror_t ArgError;
+// "bad argument #n to `fn' (<type> expected, got <type>)" unless lua_type == t.
+extern const luaL_checktype_t CheckType;
+// Equality with `__eq`, as the `==` operator compares.
+extern const lua_equal_t Equal;
 extern const luaL_checklstring_t CheckLString;
 extern const luaL_checknumber_t CheckNumber;
 extern const luaL_optnumber_t OptNumber;

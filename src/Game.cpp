@@ -119,6 +119,8 @@ namespace Lua {
     F(Resume,      lua_resume,      LUA_RESUME)       \
     F(Yield,       lua_yield,       LUA_YIELD)        \
     F(ArgError,    luaL_argerror,   LUAL_ARG_ERROR)   \
+    F(CheckType,   luaL_checktype,  LUAL_CHECK_TYPE)  \
+    F(Equal,       lua_equal,       LUA_EQUAL)        \
     F(CheckLString,luaL_checklstring,LUAL_CHECK_LSTRING)\
     F(CheckNumber, luaL_checknumber,LUAL_CHECK_NUMBER)\
     F(OptNumber,   luaL_optnumber,  LUAL_OPT_NUMBER)  \
