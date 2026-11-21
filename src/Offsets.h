@@ -2046,6 +2046,12 @@ enum Offsets {
     // The world frame is `*VAR_GAME_STATE_PTR`.
     FUN_WORLDFRAME_GET_SCREEN_COORDS = 0x00483EE0,
     OFF_WORLDFRAME_VIEW_PROJECTION = 0x3B0,
+    // The world frame's own mouseover GUID (uint64): CGWorldFrame::
+    // PublishMouseover (0x00482090) publishes only when its pick differs from
+    // it, then stores it; its leave (0x00483B10) publishes null and zeroes it.
+    // A mouseover any other setter wrote (a nameplate, an addon through
+    // FUN_SET_MOUSEOVER_UNIT) is not here. Ghidra.
+    OFF_WORLDFRAME_MOUSEOVER_GUID = 0x340,
     // C4Vector × C44Matrix — `C4Vector *__fastcall(C4Vector *out /*ecx*/,
     // const C4Vector *v /*edx*/, const C44Matrix *m)`, `ret 4`.
     FUN_C44_TRANSFORM = 0x007BCB40,

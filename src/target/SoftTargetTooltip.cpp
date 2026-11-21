@@ -14,8 +14,10 @@
 // The soft-target tooltip — retail's "Show Target Tooltip": the
 // SoftTargetTooltipInteract / Locked / Enemy / Friend / DurationMs cvars, as
 // the 3.80.2 Classic client runs them each frame (FUN_1405e1f00):
-//   - only while the world mouseover is empty (a hovered object owns the
-//     tooltip); with one, the soft tooltip is forgotten;
+//   - only while nothing is hovered (a hovered object owns the tooltip);
+//     with a hovered object, the soft tooltip is forgotten. A mouseover that
+//     names the shown object and that the world frame did not publish counts
+//     as none: an addon took it from this tooltip (Hovered);
 //   - the first of the soft interact object, the target, the soft enemy and
 //     the soft friend whose cvar is on and which exists is the one;
 //   - a new one gets its tooltip, as the mouseover would show it;
@@ -28,6 +30,8 @@
 // or game object builder.
 // The fade and the hide touch the tooltip only while it still shows the
 // object this set — GameTooltip is shared, and another frame may own it now.
+// They go through GameTooltip's Lua methods, so an addon that wraps them sees
+// the tooltip go (CallMethod).
 //
 // A unit's tooltip is bound to the token 3.80.2's GameTooltip:GetUnit gives
 // for its GUID (FUN_141b8f7b0's order, Unit::Identity::TokenFromGUID):
@@ -61,7 +65,6 @@ namespace {
 
 using InvokeScript_t = void(__fastcall *)(int handler, void *self);
 using Build_t = int(__thiscall *)(void *tooltip, uint32_t *guid);
-using TooltipFn_t = void(__thiscall *)(void *tooltip);
 using SetOwner_t = void(__thiscall *)(void *tooltip, void *ownerLayout, int anchor, float x,
                                       float y);
 using Floating_t = int(__thiscall *)(void *object);
@@ -144,9 +147,44 @@ void Show(void *tooltip, uint64_t guid) {
         ColorName(token);
 }
 
-void Hide(void *tooltip) {
-    const auto *vtable = Game::Read<const uintptr_t *>(tooltip, 0);
-    reinterpret_cast<TooltipFn_t>(vtable[Offsets::VTBL_FRAME_HIDE / sizeof(uintptr_t)])(tooltip);
+// GameTooltip:<method>() through Lua, under the engine's script error
+// handler: the same C call as the engine's, and an addon that wraps the
+// method (SuperCleveRoidMacros' tooltip mouseover hooks Hide and FadeOut)
+// sees it.
+void CallMethod(const char *method) {
+    void *L = Game::Lua::State();
+    if (L == nullptr)
+        return;
+    const int top = Game::Lua::GetTop(L);
+    const int errIdx = Game::Lua::PushErrorHandler(L);
+    Game::Lua::PushString(L, "GameTooltip");
+    Game::Lua::RawGet(L, Game::Lua::GLOBALS_INDEX);
+    const int tooltip = Game::Lua::GetTop(L);
+    if (Game::Lua::Type(L, tooltip) == Game::Lua::TYPE_TABLE) {
+        Game::Lua::PushString(L, method);
+        Game::Lua::GetTable(L, tooltip);
+        if (Game::Lua::Type(L, -1) == Game::Lua::TYPE_FUNCTION) {
+            Game::Lua::PushValue(L, tooltip);
+            Game::Lua::PCall(L, 1, 0, errIdx);
+        }
+    }
+    Game::Lua::SetTop(L, top);
+}
+
+// A hovered object owns the tooltip. A mouseover that names the object this
+// tooltip shows and that the world frame did not publish is not one: it was
+// taken from this tooltip (an addon making the tooltip's unit the mouseover
+// through FUN_SET_MOUSEOVER_UNIT), and leaving the tooltip to it kept both up
+// for good.
+bool Hovered() {
+    const uint64_t mouseover = Game::Read<uint64_t>(Offsets::VAR_MOUSEOVER_GUID_LO);
+    if (mouseover == 0)
+        return false;
+    if (mouseover != g_shown)
+        return true;
+    void *worldFrame = Game::Read<void *>(Offsets::VAR_GAME_STATE_PTR);
+    return worldFrame != nullptr &&
+           Game::Read<uint64_t>(worldFrame, Offsets::OFF_WORLDFRAME_MOUSEOVER_GUID) == mouseover;
 }
 
 void Forget() {
@@ -156,8 +194,7 @@ void Forget() {
 
 void OnFrameTick() {
     void *tooltip = Tooltip();
-    if (tooltip == nullptr || !Object::RegistryReady() ||
-        Game::Read<uint64_t>(Offsets::VAR_MOUSEOVER_GUID_LO) != 0) {
+    if (tooltip == nullptr || !Object::RegistryReady() || Hovered()) {
         Forget();
         return;
     }
@@ -187,11 +224,11 @@ void OnFrameTick() {
             return;
         g_fading = false;
         if (StillOurs(tooltip))
-            reinterpret_cast<TooltipFn_t>(Offsets::FUN_GAMETOOLTIP_FADE_OUT)(tooltip);
+            CallMethod("FadeOut");
         return;
     }
     if (g_shown != 0 && StillOurs(tooltip))
-        Hide(tooltip);
+        CallMethod("Hide");
     Forget();
 }
 
