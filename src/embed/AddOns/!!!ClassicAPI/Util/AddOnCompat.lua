@@ -146,6 +146,53 @@ if C_AddOns.DoesAddOnExist("Turtle_GroupUI") then
     end)
 end
 
+-- RollFor's minimap button calls `RegisterForClicks("anyUp")`
+-- (MinimapButton.lua). Stock 1.12 does not know the AnyUp name, so its click
+-- mask stays empty and a real click never fires OnClick. RollFor works around
+-- that by calling OnClick from its own OnMouseUp. Our DLL accepts AnyUp, so
+-- the engine now fires OnClick too, and the handler runs twice per click.
+-- (RollFor's OnMouseUp skips the call after a drag; a release that ends a
+-- drag runs no engine OnClick either.)
+-- Each of its three actions is a toggle, so the window opens and closes again
+-- in the same frame.
+--
+-- Let the handler run once per release, whichever path gets there first. The
+-- manual call goes through the frame field (`self:OnClick()`) from OnMouseUp,
+-- and the engine's OnClick follows it in the same release, so a manual call
+-- marks that release and the engine's OnClick after it skips. A RollFor
+-- without the manual call never sets the mark, so its engine OnClick always
+-- runs, and Button:Click() runs as usual. A press clears the mark, in case a
+-- release outside the button ran the manual call with no engine OnClick
+-- after it.
+if C_AddOns.DoesAddOnExist("RollFor") then
+    EventUtil.ContinueOnAddOnLoaded("RollFor", function()
+        local minimapButton = RollFor and RollFor.MinimapButton
+        if not (minimapButton and minimapButton.new) then return end
+
+        hooksecurefunc(minimapButton, "new", function()
+            local button = RollForMinimapButton
+            local onClick = button and button:GetScript("OnClick")
+            if not onClick then return end
+
+            local ranByMouseUp = false
+            button.OnClick = function(...)
+                ranByMouseUp = true
+                return onClick(...)
+            end
+            button:SetScript("OnClick", function(...)
+                if ranByMouseUp then
+                    ranByMouseUp = false
+                    return
+                end
+                return onClick(...)
+            end)
+            button:HookScript("OnMouseDown", function()
+                ranByMouseUp = false
+            end)
+        end)
+    end)
+end
+
 if C_AddOns.DoesAddOnExist("Puppeteer") then
     EventUtil.ContinueOnAddOnLoaded("Puppeteer", function()
         CAPI_MouseoverClearedCompat(PTEnemyUpdater)
