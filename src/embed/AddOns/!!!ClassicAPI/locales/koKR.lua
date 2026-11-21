@@ -132,6 +132,7 @@ D_MINUTES = "%d분";
 D_SECONDS = "%d초";
 LESS_THAN_OPERAND = "< %s";
 TIME_UNIT_DELIMITER = " ";
+COOLDOWN_DURATION_TEN_SEC = "%.1f";
 SHOW_CLASS_COLOR = "직업 색상 표시";
 TALENT_TOOLTIP_ADDPREVIEWPOINT = "이 특성을 선택하려면 왼쪽 클릭하십시오.";
 TARGET_TOOLTIP_OPTION = "대상 표시 툴팁";

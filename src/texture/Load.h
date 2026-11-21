@@ -38,6 +38,13 @@ uint32_t SetFile(void *texture, const char *path);
 // drops it with ReleaseHandle.
 void *LoadByPath(const char *path, uint32_t flags = DefaultFlags());
 
+// Whether an interface texture of this name would load from a loose file on
+// disk rather than from the game's archives: TextureCreate's file names for
+// it (`X.blp`, then `X.tga`; a .tga name the other way round) resolved as
+// SetTexture opens them (FUN_SFILE_RESOLVE_OPEN with SFILE_OPEN_LOOSE), the
+// first that resolves deciding. False when none resolves.
+bool IsLooseFile(const char *path);
+
 // The handle's device texture (FUN_TEXTURE_GET_RENDERABLE), what a render
 // state binds. The texture is finished loading first, so null means it has
 // none.

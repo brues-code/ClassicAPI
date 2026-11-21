@@ -17,6 +17,7 @@
 #include "Offsets.h"
 
 #include <cstdint>
+#include <cstring>
 
 namespace Texture {
 
@@ -96,6 +97,33 @@ void *LoadByPath(const char *path, uint32_t flags) {
     }
     reinterpret_cast<StatusDestroy_t>(Offsets::FUN_FRAMESCRIPT_STATUS_RESET)(&desc);
     return handle;
+}
+
+// TextureCreate's candidates in its order, each resolved as its loader would
+// open it; the first that resolves decides.
+bool IsLooseFile(const char *path) {
+    using Split_t = int(__fastcall *)(const char *name, char *buffer, char **split);
+    using Resolve_t = int(__fastcall *)(const char *name, char *out, uint32_t size, uint32_t flags,
+                                        uint32_t *kind, void **archive);
+    if (path == nullptr || *path == '\0')
+        return false;
+    // The engine's buffer is TEXTURE_NAME_BUFFER; the slack keeps a name of
+    // the full length from running its extension past the end.
+    char name[Offsets::TEXTURE_NAME_BUFFER + 8] = {};
+    char *split = nullptr;
+    const int first = reinterpret_cast<Split_t>(Offsets::FUN_TEXTURE_NAME_SPLIT)(path, name, &split);
+    const auto *extensions = reinterpret_cast<const char *const *>(Offsets::VAR_TEXTURE_NAME_EXTENSIONS);
+    for (int i = 0; i < 2; ++i) {
+        const char *extension = extensions[i == 0 ? first : 1 - first];
+        std::memcpy(split, extension, std::strlen(extension) + 1);
+        char resolved[Offsets::TEXTURE_NAME_BUFFER];
+        uint32_t kind = 0;
+        void *archive = nullptr;
+        if (reinterpret_cast<Resolve_t>(Offsets::FUN_SFILE_RESOLVE_OPEN)(
+                name, resolved, sizeof resolved, Offsets::SFILE_OPEN_LOOSE, &kind, &archive) != 0)
+            return kind != Offsets::SFILE_KIND_ARCHIVE;
+    }
+    return false;
 }
 
 void *CreateFromPixels(const char *name, uint32_t width, uint32_t height,

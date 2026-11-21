@@ -15,17 +15,19 @@
 // as the 3.80.2 client does them (UIUtil; RTTI NumericFormatter).
 //
 // THE OBJECTS. A formatter is a reference-counted C++ object; each Lua value
-// is a userdata holding one reference. Two classes box it:
+// is a userdata holding one reference. Its class is the value's metatable:
 //   - NumericRuleFormatter (CreateNumericRuleFormatter, Copy): AddBreakpoint,
 //     SetBreakpoints, GetBreakpoints, ClearBreakpoints, Copy, FormatNumber.
-//   - NumericFormatter, its base (Cooldown:GetCountdownFormatter pushes this
-//     one, 0x140C13520): FormatNumber only.
-// Both have __gc, __tostring ("<class>: %p" of the formatter), __eq (the same
-// formatter, 0x140D56710), __metatable false, and fields: `f.foo = 1` stores
-// into one table per formatter (__newindex 0x140D56550), shared by every
-// value boxing it; __index reads the methods first. A method name or a
-// metatable key is read-only: "Attempted to assign to read-only key %s".
-// Copy (0x140D528C0) copies the breakpoints, not the fields.
+//   - NumericFormatter, the base (Cooldown:GetCountdownFormatter pushes this
+//     one for any formatter, 0x140C13520): FormatNumber only.
+//   - the other C_StringUtil classes, each in its own file, built here with
+//     CreateClass.
+// Every class has __gc, __tostring ("<class>: %p" of the formatter), __eq
+// (the same formatter, 0x140D56710), __metatable false, and fields:
+// `f.foo = 1` stores into one table per formatter (__newindex 0x140D56550),
+// shared by every value boxing it; __index reads the methods first. A method
+// name or a metatable key is read-only: "Attempted to assign to read-only key
+// %s". Copy (0x140D528C0) copies the breakpoints, not the fields.
 //
 // BREAKPOINTS (readers 0x140D53540 / 0x140D53330). Number fields (threshold,
 // step, min, max; a component's div, mod, step) must be finite numbers: a
@@ -55,6 +57,7 @@
 #include "text/NumericFormatter.h"
 
 #include "Game.h"
+#include "lua/Arg.h"
 #include "lua/Boxed.h"
 
 #include <algorithm>
@@ -97,72 +100,32 @@ struct Breakpoint {
     std::vector<Component> components;
 };
 
-struct Formatter {
-    int refs = 0;
-    std::vector<Breakpoint> breakpoints; // largest threshold first
-};
-
 namespace {
 
-// The two classes' metatables, one each per Lua state.
+struct RuleFormatter : Formatter {
+    std::vector<Breakpoint> breakpoints; // largest threshold first
+
+    bool FormatValue(void *L, double value, std::string &out) const override;
+};
+
+// The classes' metatables, one each per Lua state.
 constexpr const char *kRuleKey = "ClassicAPI.NumericRuleFormatter";
 constexpr const char *kBaseKey = "ClassicAPI.NumericFormatter";
-// registry[kFieldsKey][formatter address] = the formatter's field table.
-constexpr const char *kFieldsKey = "ClassicAPI.NumericFormatter.fields";
-// The metatable field holding the class's methods, 3.80.2's name for it.
-constexpr const char *kMethodTableKey = "FullUserdataMethodTable";
+// Every formatter class CreateClass has built, so ToFormatter knows them all.
+std::vector<const char *> g_classes;
 
 constexpr std::size_t kErrorCap = 199;
 constexpr std::size_t kFormatBuffer = 0x400; // 0x141BA5199: the formatter's output buffer
 
-// Raises a formatted error cut to kErrorCap characters.
+} // namespace
+
 void RaiseCapped(void *L, const char *fmt, ...) {
     char text[kErrorCap + 1];
     va_list args;
     va_start(args, fmt);
     std::vsnprintf(text, sizeof(text), fmt, args);
     va_end(args);
-    Lua::Error(L, "%s", text);
-}
-
-// Pushes registry[kFieldsKey], creating it when `create`; false (nothing
-// pushed) when it does not exist.
-bool PushFieldsRoot(void *L, bool create) {
-    Lua::PushString(L, kFieldsKey);
-    Lua::RawGet(L, Lua::REGISTRY_INDEX);
-    if (Lua::Type(L, -1) == Lua::TYPE_TABLE)
-        return true;
-    Lua::SetTop(L, -2);
-    if (!create)
-        return false;
-    Lua::NewTable(L);
-    Lua::PushString(L, kFieldsKey);
-    Lua::PushValue(L, -2);
-    Lua::RawSet(L, Lua::REGISTRY_INDEX);
-    return true;
-}
-
-double FieldsKey(const Formatter *f) { return static_cast<double>(reinterpret_cast<uintptr_t>(f)); }
-
-void ForgetFields(Formatter *f) {
-    void *L = Lua::State();
-    if (L == nullptr || !PushFieldsRoot(L, false))
-        return;
-    Lua::PushNumber(L, FieldsKey(f));
-    Lua::PushNil(L);
-    Lua::RawSet(L, -3);
-    Lua::SetTop(L, -2);
-}
-
-} // namespace
-
-void Retain(Formatter *f) { ++f->refs; }
-
-void Release(Formatter *f) {
-    if (f != nullptr && --f->refs == 0) {
-        ForgetFields(f);
-        delete f;
-    }
+    Lua::Arg::RaiseMessage(L, text);
 }
 
 namespace {
@@ -507,7 +470,7 @@ bool ReadBreakpoint(void *L, int t, Breakpoint &bp, ReadError &e) {
 }
 
 // After every breakpoint with the same or a larger threshold.
-bool AddFrom(void *L, Formatter &f, int t, ReadError &e) {
+bool AddFrom(void *L, RuleFormatter &f, int t, ReadError &e) {
     Breakpoint bp;
     if (!ReadBreakpoint(L, t, bp, e))
         return false;
@@ -518,7 +481,7 @@ bool AddFrom(void *L, Formatter &f, int t, ReadError &e) {
 }
 
 // All or nothing.
-bool ReplaceFrom(void *L, Formatter &f, int t, ReadError &e) {
+bool ReplaceFrom(void *L, RuleFormatter &f, int t, ReadError &e) {
     std::vector<Breakpoint> list;
     for (int i = 1;; ++i) {
         Lua::RawGetI(L, t, i);
@@ -557,10 +520,8 @@ void RaiseReadError(void *L, int arg, const ReadError &e, const char *usage) {
 
 // ---- the methods ----------------------------------------------------------------
 
-Formatter *Rule(void *L, int idx) { return static_cast<Formatter *>(Lua::Boxed::To(L, idx, kRuleKey)); }
-
-Formatter *Self(void *L, const char *usage) {
-    Formatter *f = Rule(L, 1);
+RuleFormatter *Self(void *L, const char *usage) {
+    auto *f = static_cast<RuleFormatter *>(ToClass(L, 1, kRuleKey));
     if (f == nullptr)
         RaiseCapped(L, "bad argument #1 to '?' (Usage: %s)", usage);
     return f;
@@ -568,7 +529,7 @@ Formatter *Self(void *L, const char *usage) {
 
 int __fastcall Script_AddBreakpoint(void *L) {
     constexpr const char *kUsage = "self:AddBreakpoint(breakpoint)";
-    Formatter *f = Self(L, kUsage);
+    RuleFormatter *f = Self(L, kUsage);
     if (f == nullptr)
         return 0;
     ReadError e;
@@ -579,7 +540,7 @@ int __fastcall Script_AddBreakpoint(void *L) {
 
 int __fastcall Script_SetBreakpoints(void *L) {
     constexpr const char *kUsage = "self:SetBreakpoints(breakpoints)";
-    Formatter *f = Self(L, kUsage);
+    RuleFormatter *f = Self(L, kUsage);
     if (f == nullptr)
         return 0;
     if (Lua::Type(L, 2) != Lua::TYPE_TABLE) {
@@ -593,14 +554,14 @@ int __fastcall Script_SetBreakpoints(void *L) {
 }
 
 int __fastcall Script_ClearBreakpoints(void *L) {
-    Formatter *f = Self(L, "self:ClearBreakpoints()");
+    RuleFormatter *f = Self(L, "self:ClearBreakpoints()");
     if (f != nullptr)
         f->breakpoints.clear();
     return 0;
 }
 
 int __fastcall Script_GetBreakpoints(void *L) {
-    Formatter *f = Self(L, "local breakpoints = self:GetBreakpoints()");
+    RuleFormatter *f = Self(L, "local breakpoints = self:GetBreakpoints()");
     if (f == nullptr)
         return 0;
     Lua::NewTable(L);
@@ -637,10 +598,12 @@ int __fastcall Script_GetBreakpoints(void *L) {
 }
 
 int __fastcall Script_Copy(void *L) {
-    Formatter *f = Self(L, "local copy = self:Copy()");
+    RuleFormatter *f = Self(L, "local copy = self:Copy()");
     if (f == nullptr)
         return 0;
-    Push(L, new Formatter{0, f->breakpoints});
+    auto *copy = new RuleFormatter;
+    copy->breakpoints = f->breakpoints;
+    Push(L, kRuleKey, copy);
     return 1;
 }
 
@@ -670,109 +633,8 @@ int __fastcall Script_FormatNumber(void *L) {
 
 // ---- metamethods ----------------------------------------------------------------
 
-int __fastcall Meta_gc(void *L) {
-    auto **block = static_cast<Formatter **>(Lua::ToUserdata(L, 1));
-    if (block != nullptr) {
-        Release(*block);
-        *block = nullptr;
-    }
-    return 0;
-}
-
-int __fastcall Meta_tostringRule(void *L) {
-    char text[48];
-    std::snprintf(text, sizeof(text), "NumericRuleFormatter: %p", static_cast<void *>(ToFormatter(L, 1)));
-    Lua::PushString(L, text);
-    return 1;
-}
-
-int __fastcall Meta_tostringBase(void *L) {
-    char text[48];
-    std::snprintf(text, sizeof(text), "NumericFormatter: %p", static_cast<void *>(ToFormatter(L, 1)));
-    Lua::PushString(L, text);
-    return 1;
-}
-
-int __fastcall Meta_eq(void *L) {
-    const Formatter *a = ToFormatter(L, 1);
-    Lua::PushBool(L, a != nullptr && a == ToFormatter(L, 2));
-    return 1;
-}
-
-// Pushes metatable(stack 1)[kMethodTableKey][key at 2].
-void PushMethod(void *L) {
-    Lua::GetMetatable(L, 1);
-    Lua::PushString(L, kMethodTableKey);
-    Lua::RawGet(L, -2);
-    Lua::PushValue(L, 2);
-    Lua::GetTable(L, -2);
-    Lua::Replace(L, -3);
-    Lua::SetTop(L, -2);
-}
-
-// Methods first, then the formatter's fields.
-int __fastcall Meta_index(void *L) {
-    PushMethod(L);
-    if (Lua::Type(L, -1) != Lua::TYPE_NIL)
-        return 1;
-    Lua::SetTop(L, -2);
-    Formatter *f = ToFormatter(L, 1);
-    if (f == nullptr || !PushFieldsRoot(L, false)) {
-        Lua::PushNil(L);
-        return 1;
-    }
-    Lua::PushNumber(L, FieldsKey(f));
-    Lua::RawGet(L, -2);
-    if (Lua::Type(L, -1) != Lua::TYPE_TABLE) {
-        Lua::PushNil(L);
-        return 1;
-    }
-    Lua::PushValue(L, 2);
-    Lua::RawGet(L, -2);
-    return 1;
-}
-
-// A metatable key or a method is read-only; any other key goes to the
-// formatter's field table.
-int __fastcall Meta_newindex(void *L) {
-    Lua::GetMetatable(L, 1);
-    Lua::PushValue(L, 2);
-    Lua::RawGet(L, -2);
-    bool readOnly = Lua::Type(L, -1) != Lua::TYPE_NIL;
-    Lua::SetTop(L, 3);
-    if (!readOnly) {
-        PushMethod(L);
-        readOnly = Lua::Type(L, -1) != Lua::TYPE_NIL;
-        Lua::SetTop(L, 3);
-    }
-    if (readOnly) {
-        Lua::PushValue(L, 2);
-        const char *name = Lua::ToString(L, -1);
-        RaiseCapped(L, "Attempted to assign to read-only key %s", name != nullptr ? name : Lua::TypeName(L, Lua::Type(L, 2)));
-        return 0;
-    }
-    Formatter *f = ToFormatter(L, 1);
-    if (f == nullptr)
-        return 0;
-    PushFieldsRoot(L, true);
-    const int root = Lua::GetTop(L);
-    Lua::PushNumber(L, FieldsKey(f));
-    Lua::RawGet(L, root);
-    if (Lua::Type(L, -1) != Lua::TYPE_TABLE) {
-        Lua::SetTop(L, -2);
-        Lua::NewTable(L);
-        Lua::PushNumber(L, FieldsKey(f));
-        Lua::PushValue(L, -2);
-        Lua::RawSet(L, root);
-    }
-    Lua::PushValue(L, 2);
-    Lua::PushValue(L, 3);
-    Lua::RawSet(L, -3);
-    return 0;
-}
-
 int __fastcall Script_CreateNumericRuleFormatter(void *L) {
-    Push(L, new Formatter);
+    Push(L, kRuleKey, new RuleFormatter);
     return 1;
 }
 
@@ -780,35 +642,8 @@ using Lua::Boxed::Method;
 const Method kRuleMethods[] = {
     {"AddBreakpoint", &Script_AddBreakpoint},     {"SetBreakpoints", &Script_SetBreakpoints},
     {"GetBreakpoints", &Script_GetBreakpoints},   {"ClearBreakpoints", &Script_ClearBreakpoints},
-    {"Copy", &Script_Copy},                       {"FormatNumber", &Script_FormatNumber},
+    {"Copy", &Script_Copy},
 };
-const Method kBaseMethods[] = {
-    {"FormatNumber", &Script_FormatNumber},
-};
-
-// Builds a class's metatable, then moves its method table to
-// kMethodTableKey and puts __index / __newindex in front of the fields.
-template <size_t N>
-void CreateClass(void *L, const char *key, const Method (&methods)[N], Lua::CFunction tostring) {
-    Lua::Boxed::PushMetatable(L, key);
-    const bool exists = Lua::Type(L, -1) == Lua::TYPE_TABLE;
-    Lua::SetTop(L, -2);
-    if (exists)
-        return;
-    Lua::Boxed::CreateMetatable(L, key, methods, &Meta_gc, tostring, &Meta_eq);
-    Lua::Boxed::PushMetatable(L, key);
-    Lua::PushString(L, kMethodTableKey);
-    Lua::PushString(L, "__index");
-    Lua::RawGet(L, -3);
-    Lua::RawSet(L, -3);
-    Lua::PushString(L, "__index");
-    Lua::PushCClosure(L, &Meta_index, 0);
-    Lua::RawSet(L, -3);
-    Lua::PushString(L, "__newindex");
-    Lua::PushCClosure(L, &Meta_newindex, 0);
-    Lua::RawSet(L, -3);
-    Lua::SetTop(L, -2);
-}
 
 const Lua::EnumIntegerEntry kRounding[] = {
     {"Nearest", ROUNDING_NEAREST},
@@ -850,8 +685,8 @@ const Game::Doc::Function kCreateNumericRuleFormatter{
 
 void RegisterLuaFunctions() {
     void *L = Lua::State();
-    CreateClass(L, kRuleKey, kRuleMethods, &Meta_tostringRule);
-    CreateClass(L, kBaseKey, kBaseMethods, &Meta_tostringBase);
+    CreateClass(L, kRuleKey, "NumericRuleFormatter", kRuleMethods);
+    CreateClass(L, kBaseKey, "NumericFormatter", nullptr, 0);
     Lua::RegisterTableFunction("C_StringUtil", "CreateNumericRuleFormatter",
                                &Script_CreateNumericRuleFormatter, &kCreateNumericRuleFormatter);
     Lua::RegisterIntegerEnum("Enum", "NumericRuleFormatRounding", kRounding, "StringUtil");
@@ -860,27 +695,10 @@ void RegisterLuaFunctions() {
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 const Game::GlueModuleAutoRegister _autoregGlue{&RegisterLuaFunctions};
 
-} // namespace
-
-Formatter *ToFormatter(void *L, int idx) {
-    if (Formatter *f = Rule(L, idx))
-        return f;
-    return static_cast<Formatter *>(Lua::Boxed::To(L, idx, kBaseKey));
-}
-
-void Push(void *L, Formatter *f) {
-    Retain(f);
-    Lua::Boxed::Push(L, kRuleKey, f);
-}
-
-void PushBase(void *L, Formatter *f) {
-    Retain(f);
-    Lua::Boxed::Push(L, kBaseKey, f);
-}
-
-const char *Format(void *L, Formatter *f, double value) {
+// FORMATNUMBER: the first breakpoint with threshold <= value, else "%.14g".
+bool RuleFormatter::FormatValue(void * /*L*/, double value, std::string &out) const {
     const Breakpoint *bp = nullptr;
-    for (const Breakpoint &b : f->breakpoints) {
+    for (const Breakpoint &b : breakpoints) {
         if (b.threshold <= value) {
             bp = &b;
             break;
@@ -889,8 +707,8 @@ const char *Format(void *L, Formatter *f, double value) {
     if (bp == nullptr) {
         char text[32];
         std::snprintf(text, sizeof(text), "%.14g", value);
-        Lua::PushString(L, text);
-        return Lua::ToString(L, -1);
+        out = text;
+        return true;
     }
     double v = Snap(value, bp->step, bp->rounding);
     if (bp->hasMin && !(bp->min <= v))
@@ -902,11 +720,44 @@ const char *Format(void *L, Formatter *f, double value) {
         numbers.push_back(v);
     for (const Component &c : bp->components)
         numbers.push_back(Apply(c, v));
-    std::string text;
     FormatArgs args{bp->format, numbers, {}};
-    const bool ok = FormatText(args, text);
-    const std::string &result = ok ? text : args.error;
-    Lua::PushLString(L, result.data(), static_cast<unsigned int>(result.size()));
+    if (FormatText(args, out))
+        return true;
+    out = args.error;
+    return false;
+}
+
+} // namespace
+
+Formatter *ToClass(void *L, int idx, const char *key) {
+    return static_cast<Formatter *>(Lua::FullUserdata::To(L, idx, key));
+}
+
+Formatter *ToFormatter(void *L, int idx) {
+    for (const char *key : g_classes) {
+        if (Formatter *f = ToClass(L, idx, key))
+            return f;
+    }
+    return nullptr;
+}
+
+void Push(void *L, const char *key, Formatter *f) { Lua::FullUserdata::Push(L, key, f); }
+
+void PushBase(void *L, Formatter *f) { Push(L, kBaseKey, f); }
+
+void CreateClass(void *L, const char *key, const char *name, const Method *methods, std::size_t count) {
+    if (std::find_if(g_classes.begin(), g_classes.end(),
+                     [&](const char *k) { return std::strcmp(k, key) == 0; }) == g_classes.end())
+        g_classes.push_back(key);
+    std::vector<Method> all(methods, methods + count);
+    all.push_back({"FormatNumber", &Script_FormatNumber});
+    Lua::FullUserdata::CreateClass(L, key, name, all.data(), all.size());
+}
+
+const char *Format(void *L, Formatter *f, double value) {
+    std::string text;
+    const bool ok = f->FormatValue(L, value, text);
+    Lua::PushLString(L, text.data(), static_cast<unsigned int>(text.size()));
     return ok ? Lua::ToString(L, -1) : nullptr;
 }
 

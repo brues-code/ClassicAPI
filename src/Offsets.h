@@ -15756,6 +15756,29 @@ enum Offsets {
     FUN_SFILE_GET_FILE_SIZE = 0x006487F0,
     FUN_SFILE_READ = 0x00648460,
     FUN_SFILE_CLOSE = 0x00648730,
+    // SFileResolveOpen — `int __fastcall(const char *name, char *out, uint32
+    // size, uint32 flags, uint32 *kind, void **archive)`, `ret 0x10`: where an
+    // open of `name` would read from, without opening it (benilla-re
+    // storm/mount). With flag bit 0 or 1 it asks Storm's loose-file index
+    // first (the files on disk below the base folder and Data\, built on first
+    // use), which answers kind 0 (a file), 1 (.bz) or 2 (.MPQ); only on a miss
+    // does it walk the archives, whose hit stores SFILE_KIND_ARCHIVE
+    // (0x00648146). 0 when the name resolves nowhere.
+    FUN_SFILE_RESOLVE_OPEN = 0x00647E60,
+    SFILE_KIND_ARCHIVE = 3,
+    // An open flag: ask the loose-file index first. CSimpleTexture::SetTexture
+    // passes it for every interface texture (TextureCreate's fileFlag).
+    SFILE_OPEN_LOOSE = 1,
+    // TextureCreate's name split — `int __fastcall(const char *name, char
+    // *buffer, char **split)`, `ret 4`: copies the name (0x104 bytes) and,
+    // when the byte four from the end is `.`, lowers and cuts the three bytes
+    // after it. Returns the index into VAR_TEXTURE_NAME_EXTENSIONS to try
+    // first: 0 (.tga) only for a .tga name, else 1 (.blp). TextureCreate
+    // (FUN_TEXTURE_LOAD_BY_PATH) copies that extension at `split`, then the
+    // other one (0x00449E00 to 0x00449E5D; benilla-re gx/textures).
+    FUN_TEXTURE_NAME_SPLIT = 0x00449590,
+    VAR_TEXTURE_NAME_EXTENSIONS = 0x00835248, // const char *[2]: ".tga", ".blp"
+    TEXTURE_NAME_BUFFER = 0x104,
     // A WMO-only map's WDT, as CMap::LoadWdt (0x00694760) reads it: header,
     // version, header, MPHD (0x20), header, MAIN (0x8000), then, when MPHD's
     // first dword has bit 0, header (its size is the name's), the name,

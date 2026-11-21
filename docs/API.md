@@ -232,6 +232,13 @@ build instructions.
   - [`CursorHasMacro()`](#cursorhasmacro)
   - [Expanded cursors (`expandedCursors`)](#expanded-cursors-expandedcursors)
 
+- [CurveUtil](#curveutil)
+  - [`C_CurveUtil.CreateCurve()`](#c_curveutilcreatecurve)
+  - [`C_CurveUtil.CreateColorCurve()`](#c_curveutilcreatecolorcurve)
+  - [`C_CurveUtil.EvaluateColorFromBoolean(boolean, valueIfTrue, valueIfFalse)`](#c_curveutilevaluatecolorfrombooleanboolean-valueiftrue-valueiffalse)
+  - [`C_CurveUtil.EvaluateColorValueFromBoolean(boolean, valueIfTrue, valueIfFalse)`](#c_curveutilevaluatecolorvaluefrombooleanboolean-valueiftrue-valueiffalse)
+  - [`C_CurveUtil.EvaluateGameCurve(curveID, x)`](#c_curveutilevaluategamecurvecurveid-x)
+
 - [CVar](#cvar)
   - [`GetCVar(name)`](#getcvarname)
   - [`GetCVarDefault(name)`](#getcvardefaultname)
@@ -747,6 +754,8 @@ build instructions.
   - [`AbbreviateLargeNumbers(number [, options])`](#abbreviatelargenumbersnumber--options)
   - [`C_StringUtil.GetDefaultAbbreviationBreakpoints([locale])`](#c_stringutilgetdefaultabbreviationbreakpointslocale)
   - [`C_StringUtil.CreateNumericRuleFormatter()`](#c_stringutilcreatenumericruleformatter)
+  - [`C_StringUtil.CreateAbbreviatedNumberFormatter()`](#c_stringutilcreateabbreviatednumberformatter)
+  - [`C_StringUtil.CreateSecondsFormatter()`](#c_stringutilcreatesecondsformatter)
   - [`breakUpLargeNumbers` (CVar)](#breakuplargenumbers-cvar)
 
 - [Loot](#loot)
@@ -1256,6 +1265,19 @@ build instructions.
   - [`GetSheathState()`](#getsheathstate)
   - [`IsLoggingOut()`](#isloggingout)
   - [`IsPlayerInWorld()`](#isplayerinworld)
+
+- [StringUtil](#stringutil)
+  - [`C_StringUtil.EscapeDecimalNonPrintables(text)`](#c_stringutilescapedecimalnonprintablestext)
+  - [`C_StringUtil.EscapeLuaFormatString(text)`](#c_stringutilescapeluaformatstringtext)
+  - [`C_StringUtil.EscapeLuaPatterns(text)`](#c_stringutilescapeluapatternstext)
+  - [`C_StringUtil.EscapeQuotedCodes(text)`](#c_stringutilescapequotedcodestext)
+  - [`C_StringUtil.FloorToNearestString(number)`](#c_stringutilfloortoneareststringnumber)
+  - [`C_StringUtil.RoundToNearestString(number)`](#c_stringutilroundtoneareststringnumber)
+  - [`C_StringUtil.TruncateWhenZero(number)`](#c_stringutiltruncatewhenzeronumber)
+  - [`C_StringUtil.RemoveContiguousSpaces(text, maxAllowedSpaces)`](#c_stringutilremovecontiguousspacestext-maxallowedspaces)
+  - [`C_StringUtil.WrapString(infix [, prefix, suffix])`](#c_stringutilwrapstringinfix--prefix-suffix)
+  - [`C_StringUtil.StripHyperlinks(text [, maintainColor, maintainBrackets, stripNewlines, maintainAtlases, maintainTextures])`](#c_stringutilstriphyperlinkstext--maintaincolor-maintainbrackets-stripnewlines-maintainatlases-maintaintextures)
+  - [`C_StringUtil.StripTextureMarkupForLooseFiles(text)`](#c_stringutilstriptexturemarkupforloosefilestext)
 
 - [SwingTimer](#swingtimer)
   - [`C_SwingTimer.EnableRangeCheck(swingType, enable)`](#c_swingtimerenablerangecheckswingtype-enable)
@@ -5890,6 +5912,128 @@ show the same images as the cursor. For a quest, they show no image.
 ```
 
 *ClassicAPI extension.*
+
+## CurveUtil
+
+`C_CurveUtil` makes curves. A curve has a list of points and gives a value
+for each `x`. A `LuaCurveObject` gives numbers, and a `LuaColorCurveObject`
+gives colors. The
+[`SecondsFormatter`](#c_stringutilcreatesecondsformatter) setters that end
+in `Curve` take a `LuaCurveObject`.
+
+### `C_CurveUtil.CreateCurve()`
+
+Returns a new curve of numbers. The curve has no points, and its type is
+`Enum.LuaCurveType.Linear`.
+
+```lua
+local curve = C_CurveUtil.CreateCurve()
+curve:AddPoint(0, 0)
+curve:AddPoint(10, 100)
+curve:Evaluate(5)    -- 50
+curve:Evaluate(-1)   -- 0
+curve:Evaluate(20)   -- 100
+```
+
+| Method | Notes |
+| --- | --- |
+| `curve:AddPoint(x, y)` | Adds a point. If points with the same `x` exist, the new point goes before them. |
+| `curve:SetPoints(points)` | Replaces all points with a list of `{ x = number, y = number }` tables. The curve sorts the points by `x`. If one table is not correct, the points do not change. |
+| `curve:GetPoint(index)` | Returns point `index` as a `Vector2DMixin` table. Point `1` has the smallest `x`. If there is no point `index`, the result is `nil`. |
+| `curve:GetPoints()` | Returns a new list of all points, sorted by `x`. |
+| `curve:GetPointCount()` | Returns the number of points. |
+| `curve:RemovePoint(index)` | Removes point `index`. If there is no point `index`, the function gives an error. |
+| `curve:ClearPoints()` | Removes all points. |
+| `curve:Evaluate(x)` | Returns the value of the curve at `x`. |
+| `curve:SetType(type)` / `curve:GetType()` | Sets and returns the `Enum.LuaCurveType` of the curve. |
+| `curve:Copy()` | Returns a new curve with the same points and type. |
+| `curve:SetToDefaults()` | Removes all points and sets the type to `Linear`. |
+| `curve:HasSecretValues()` | Always returns `false`. |
+
+How `Evaluate` works:
+
+- A curve with no points gives `0`. A curve with one point gives the value
+  of that point.
+- Before the first point, the value is the value of the first point. After
+  the last point, the value is the value of the last point.
+- At an `x` that two or more points have, the value is the value of the
+  point that you added first.
+- The values are floats, so `0.1` comes back as `0.10000000149011612`.
+
+A curve holds 256 points or fewer. One more point gives an error, and
+`SetPoints` with more points does not change the curve.
+
+`Enum.LuaCurveType`:
+
+| Name | Value | Description |
+|------|-------|-------------|
+| `Linear` | `0` | A straight line between two points. |
+| `Step` | `1` | The value of the last point at or before `x`. |
+| `Cosine` | `2` | A smooth line between two points. |
+| `Cubic` | `3` | A Catmull-Rom spline. The first and the last point only shape the spline, so the curve is flat before the second point and from the second-last point. With less than four points, `Cubic` is the same as `Cosine`. |
+
+`SetType` cuts a fraction from its argument, so `2.7` gives `Cosine`.
+
+You can store other values in a curve, for example `curve.name = "fade"`.
+All objects of the same curve share these values, and `Copy` does not copy
+them. Two objects of the same curve are equal (`==`).
+
+### `C_CurveUtil.CreateColorCurve()`
+
+Returns a new curve of colors. It has the same methods as a curve of
+numbers, but each point has a color as its `y`.
+
+```lua
+local curve = C_CurveUtil.CreateColorCurve()
+curve:AddPoint(0, CreateColor(1, 0, 0, 1))
+curve:AddPoint(10, CreateColor(0, 0, 1, 1))
+local color = curve:Evaluate(5)           -- a ColorMixin, r and b 0.502
+local r, g, b, a = curve:EvaluateUnpacked(5)
+```
+
+| Method | Notes |
+| --- | --- |
+| `curve:AddPoint(x, color)` | Adds a point. `color` is a table with `r`, `g`, `b` and `a`, for example from `CreateColor`. All four fields are necessary. |
+| `curve:SetPoints(points)` | Replaces all points with a list of `{ x = number, y = color }` tables. |
+| `curve:GetPoint(index)` / `curve:GetPoints()` | Give each point as a `{ x = number, y = ColorMixin }` table. |
+| `curve:Evaluate(x)` | Returns a new `ColorMixin` table. |
+| `curve:EvaluateUnpacked(x)` | Returns the four numbers `r`, `g`, `b` and `a`. |
+
+The curve keeps each channel as a whole number from `0` to `255`. As a
+result, a color comes back in steps of 1/255: `0.3` comes back as
+`0.3019607961177826`. A channel less than `0` changes to `0`, and a channel
+more than `1` changes to `1`.
+
+The curve calculates each channel separately. A `Cubic` curve can go past
+`0` or `1` between points, and then the channel wraps around: a value a
+little less than `0` comes back near `1`.
+
+### `C_CurveUtil.EvaluateColorFromBoolean(boolean, valueIfTrue, valueIfFalse)`
+
+Returns a new `ColorMixin` table with the color of `valueIfTrue` when
+`boolean` is `true`, and of `valueIfFalse` when it is not. Both colors need
+`r`, `g`, `b` and `a`. The result is in steps of 1/255, as in a color curve.
+
+```lua
+local red, green = CreateColor(1, 0, 0, 1), CreateColor(0, 1, 0, 1)
+C_CurveUtil.EvaluateColorFromBoolean(true, red, green)  -- a new red ColorMixin
+```
+
+### `C_CurveUtil.EvaluateColorValueFromBoolean(boolean, valueIfTrue, valueIfFalse)`
+
+Returns `valueIfTrue` when `boolean` is `true`, and `valueIfFalse` when it
+is not, as one color channel: limited to the range `0` to `1` and in steps
+of 1/255. The two values must be numbers, not strings.
+
+```lua
+C_CurveUtil.EvaluateColorValueFromBoolean(true, 0.3, 0.7)  -- 0.3019607961177826
+C_CurveUtil.EvaluateColorValueFromBoolean(false, 0.3, 2)   -- 1
+```
+
+### `C_CurveUtil.EvaluateGameCurve(curveID, x)`
+
+Always returns `0`. `curveID` must be a whole number from `-2147483648` to
+`2147483647`, and `x` must be a finite number.
 
 ## CVar
 
@@ -17560,6 +17704,130 @@ If `format` asks for more values than the breakpoint gives, or has an option
 that is not in the list, `FormatNumber` gives an error that starts with
 `NumericFormatter:FormatNumber():`.
 
+### `C_StringUtil.CreateAbbreviatedNumberFormatter()`
+
+Returns a new formatter that shortens numbers with an abbreviation. The
+formatter has a list of `NumberAbbreviationBreakpoint` tables, as
+[`AbbreviateNumbers`](#abbreviatenumbersnumber--options) uses them. A new
+formatter has the default breakpoints for the language of the client.
+
+```lua
+local formatter = C_StringUtil.CreateAbbreviatedNumberFormatter()
+formatter:FormatNumber(1234)    -- "1.2K"
+formatter:FormatNumber(12345)   -- "12K"
+formatter:FormatNumber(999)     -- "999"
+formatter:SetBreakpoints({
+    { breakpoint = 100, abbreviation = "h", significandDivisor = 10, fractionDivisor = 10,
+      abbreviationIsGlobal = false },
+})
+formatter:FormatNumber(1234)    -- "12.3h"
+```
+
+| Method | Notes |
+| --- | --- |
+| `formatter:FormatNumber(number)` | Returns the text for `number`, as `AbbreviateNumbers` makes it. The formatter uses the first breakpoint that `number` reaches. If no breakpoint applies, the text is the number as `tostring` writes it. |
+| `formatter:SetBreakpoints(breakpoints)` | Replaces all breakpoints with the tables in the list. The formatter sorts them from the largest `breakpoint` to the smallest. If one table is not correct, the breakpoints do not change. |
+| `formatter:AddBreakpoint(breakpoint)` | Adds one breakpoint, after all breakpoints that are equal or larger. |
+| `formatter:GetBreakpoints()` | Returns a new list of the breakpoints, from the largest to the smallest. Each table has all five fields. |
+| `formatter:ClearBreakpoints()` | Removes all breakpoints. |
+| `formatter:ResetBreakpoints()` | Replaces the breakpoints with the default breakpoints for the language of the client. |
+| `formatter:Copy()` | Returns a new formatter with the same breakpoints. |
+
+`breakpoint`, `significandDivisor` and `fractionDivisor` must be more than
+`0`. If one is not, `AddBreakpoint` and `SetBreakpoints` give an error that
+starts with `AbbreviatedNumberFormatter:`. `abbreviationIsGlobal` is
+`true` when you do not set it.
+
+You can store other values in the formatter, as in a
+[`NumericRuleFormatter`](#c_stringutilcreatenumericruleformatter). Two
+objects of the same formatter are equal (`==`).
+
+### `C_StringUtil.CreateSecondsFormatter()`
+
+Returns a new formatter that writes a number of seconds as a duration. In a
+font string, `93` shows as `"1 Minute 33 Seconds"`.
+
+```lua
+local A = Enum.SecondsFormatterAbbreviation
+local formatter = C_StringUtil.CreateSecondsFormatter()
+formatter:Format(93)                 -- "1 |4Minute:Minutes; 33 |4Second:Seconds;"
+formatter:Format(93, A.OneLetter)    -- "1 m 33 s"
+formatter:Format(3661)               -- 1 hour 1 minute: two units by default
+formatter:SetApproximationSeconds(60)
+formatter:Format(30)                 -- "< 1 |4Minute:Minutes;"
+```
+
+The text comes from the global strings `D_SECONDS`, `D_MINUTES`, `D_HOURS`
+and `D_DAYS`, and for the abbreviations from `SECONDS_ABBR` and
+`SECOND_ONELETTER_ABBR` and the related strings. Their `|4` codes select
+the singular or the plural when the text shows. With `Truncate`, the text
+has the unit word without the count, for example `"Min Sec"`.
+
+How `Format` works:
+
+1. If `seconds` is less than the milliseconds threshold, the text is the
+   number with one decimal, for example `"3.1"`. The default threshold is
+   `0`, so a negative number gives text such as `"-5.0"`.
+2. Otherwise the formatter rounds `seconds` up to a whole number.
+3. If the result is `0`, the text is the zero text: `0` of the minimum
+   interval.
+4. If the result is less than the approximation seconds, the text is
+   `"< "` and the count of one unit, rounded up. The unit is minutes or
+   larger.
+5. Otherwise the formatter writes units from the maximum interval down to
+   the minimum interval, and stops after the desired unit count. It rounds
+   each count down. With `CanRoundUpLastUnit`, it rounds the last count up.
+
+With `CanRoundUpIntervals`, a count equal to the number of seconds in its
+own unit changes to one more of the next unit. As a result, 60 minutes
+change to 1 hour, but 1 second also changes to 1 more minute: `61` gives
+`"2 Minutes"`.
+
+| Method | Notes |
+| --- | --- |
+| `formatter:Format(seconds [, abbreviation])` | Returns the text. Without `abbreviation`, the formatter uses its default abbreviation. |
+| `formatter:FormatZero([abbreviation])` | Returns the zero text. |
+| `formatter:FormatNumber(seconds)` | The same as `Format` with the default abbreviation. |
+| `formatter:SetDefaultAbbreviation(abbreviation)` / `GetDefaultAbbreviation()` | An `Enum.SecondsFormatterAbbreviation`. The default is `None`. |
+| `formatter:SetMinInterval(interval)` / `GetMinInterval()` | The smallest unit, an `Enum.SecondsFormatterInterval`. The default is `Seconds`. |
+| `formatter:SetMaxInterval(interval)` / `GetMaxInterval()` | The largest unit. The default is `Days`. When the minimum interval is larger, the formatter uses the minimum interval. |
+| `formatter:SetDesiredUnitCount(count)` / `GetDesiredUnitCount()` | The number of units, from `0` to `255`. The default is `2`. |
+| `formatter:SetMinIntervalCurve(curve)` / `GetMinIntervalCurve()` | Gets the minimum interval from a curve. See below. |
+| `formatter:SetMaxIntervalCurve(curve)` / `GetMaxIntervalCurve()` | Gets the maximum interval from a curve. |
+| `formatter:SetDesiredUnitCountCurve(curve)` / `GetDesiredUnitCountCurve()` | Gets the unit count from a curve. |
+| `formatter:EvaluateMinInterval(seconds)` / `EvaluateMaxInterval(seconds)` / `EvaluateDesiredUnitCount(seconds)` | Return the value that the formatter uses for `seconds`. |
+| `formatter:SetApproximationSeconds(seconds)` / `GetApproximationSeconds()` | Below this number, the text is `"< "` and one unit. The default is `0`. |
+| `formatter:CanApproximate(seconds)` | Returns `true` when `seconds` is more than `0` and less than the approximation seconds. |
+| `formatter:SetMillisecondsThreshold(threshold)` / `GetMillisecondsThreshold()` | Below this number, the text is the number with one decimal. The default is `0`. |
+| `formatter:SetCanRoundUpLastUnit(canRound)` / `CanRoundUpLastUnit()` | Rounds the last count up. The default is `false`. |
+| `formatter:SetCanRoundUpIntervals(canRound)` / `CanRoundUpIntervals()` | Changes a full unit to the next unit. The default is `false`. |
+| `formatter:SetConvertToLower(convert)` / `GetConvertToLower()` | Writes the unit text in lowercase. The default is `false`. |
+| `formatter:SetStripIntervalWhitespace(strip)` / `GetStripIntervalWhitespace()` | An `Enum.SecondsFormatterIntervalWhitespace`. The default is `Preserve`. |
+| `formatter:Reset()` | Sets all values to their defaults. |
+
+A setter that ends in `Curve` takes a
+[`LuaCurveObject`](#c_curveutilcreatecurve). The formatter keeps the curve
+itself, not a copy, so a change to the curve changes the formatter. For each
+duration, the formatter gets the value of the curve at the number of seconds
+and cuts the fraction. An interval past `Days` changes to `Seconds`. While a
+curve is set, the getter without `Curve` returns `nil`. A setter without
+`Curve` removes the curve. The getter with `Curve` returns a new object of
+the same curve, which is equal (`==`) to the curve that you set.
+
+`Strip` removes the spaces in the unit text, but not on German and Russian
+clients. `StripIgnoreLocale` always removes them. The spaces between units
+stay.
+
+`Enum.SecondsFormatterAbbreviation`: `None` (`0`), `Truncate` (`1`),
+`OneLetter` (`2`).
+`Enum.SecondsFormatterInterval`: `Seconds` (`0`), `Minutes` (`1`), `Hours`
+(`2`), `Days` (`3`).
+`Enum.SecondsFormatterIntervalWhitespace`: `Preserve` (`0`), `Strip`
+(`1`), `StripIgnoreLocale` (`2`).
+
+You can store other values in the formatter, as in a
+[`NumericRuleFormatter`](#c_stringutilcreatenumericruleformatter).
+
 ### `breakUpLargeNumbers` (CVar)
 
 A setting for `BreakUpLargeNumbers` and the functions that use it. `1` (the
@@ -27943,6 +28211,151 @@ if IsPlayerInWorld() then
     -- safe to read world state
 end
 ```
+
+## StringUtil
+
+`C_StringUtil` has functions that change text and that write numbers as
+text. The formatters of this namespace are in
+[Localization](#localization). Each function raises an error when an
+argument has the wrong type. A `text` argument can also be a number.
+
+### `C_StringUtil.EscapeDecimalNonPrintables(text)`
+
+Returns `text` with each control character written as a decimal escape: a
+`\` and three digits. Bytes that are not valid UTF-8 and zero bytes also
+change to escapes. Tab, line feed and carriage return do not change.
+
+```lua
+C_StringUtil.EscapeDecimalNonPrintables("a\1b\200")  -- the text a\001b\200
+C_StringUtil.EscapeDecimalNonPrintables("a\tb")      -- the text does not change
+```
+
+### `C_StringUtil.EscapeLuaFormatString(text)`
+
+Returns `text` with each `%` written two times. As a result,
+`string.format` writes the text without a change. The text stops at its
+first zero byte.
+
+```lua
+C_StringUtil.EscapeLuaFormatString("50%")  -- "50%%"
+```
+
+### `C_StringUtil.EscapeLuaPatterns(text)`
+
+Returns `text` with a `%` before each character that has a special meaning
+in a Lua pattern: `%`, `(`, `)`, `*`, `+`, `-`, `.`, `?`, `[` and `]`. A `^`
+gets a `%` only as the first character. A `$` gets a `%` only as the last
+character.
+
+```lua
+C_StringUtil.EscapeLuaPatterns("1.5 (max)")  -- "1%.5 %(max%)"
+```
+
+### `C_StringUtil.EscapeQuotedCodes(text)`
+
+Returns `text` with each `|` written two times. As a result, color codes
+and links show as plain text. The text stops at its first zero byte.
+
+```lua
+C_StringUtil.EscapeQuotedCodes("|cffff0000Red|r")  -- "||cffff0000Red||r"
+```
+
+### `C_StringUtil.FloorToNearestString(number)`
+
+Returns `number` as a whole number in text. The function cuts the fraction,
+so a negative number moves toward zero.
+
+```lua
+C_StringUtil.FloorToNearestString(2.7)   -- "2"
+C_StringUtil.FloorToNearestString(-1.5)  -- "-1"
+```
+
+### `C_StringUtil.RoundToNearestString(number)`
+
+Returns `number` rounded to a whole number, in text. A number halfway
+between two whole numbers moves away from zero.
+
+```lua
+C_StringUtil.RoundToNearestString(2.5)   -- "3"
+C_StringUtil.RoundToNearestString(-2.5)  -- "-3"
+C_StringUtil.RoundToNearestString(2.4)   -- "2"
+```
+
+### `C_StringUtil.TruncateWhenZero(number)`
+
+Returns `number` as a whole number in text, as
+[`FloorToNearestString`](#c_stringutilfloortoneareststringnumber) does.
+When `number` is between `-0.000001` and `0.000001`, the result is an empty
+string.
+
+```lua
+C_StringUtil.TruncateWhenZero(12.9)  -- "12"
+C_StringUtil.TruncateWhenZero(0)     -- ""
+C_StringUtil.TruncateWhenZero(0.5)   -- "0"
+```
+
+### `C_StringUtil.RemoveContiguousSpaces(text, maxAllowedSpaces)`
+
+Returns `text` with each series of spaces cut to `maxAllowedSpaces` spaces.
+Only the space character counts, not tabs or line feeds.
+`maxAllowedSpaces` is a whole number from `0` to `4294967295`. With `0`,
+the function removes all spaces.
+
+```lua
+C_StringUtil.RemoveContiguousSpaces("a    b  c", 1)  -- "a b c"
+```
+
+### `C_StringUtil.WrapString(infix [, prefix, suffix])`
+
+Returns `prefix`, `infix` and `suffix` as one string. When `infix` is
+empty, the result is an empty string, without `prefix` and `suffix`.
+
+```lua
+C_StringUtil.WrapString("12", "(", ")")  -- "(12)"
+C_StringUtil.WrapString("", "(", ")")    -- ""
+```
+
+### `C_StringUtil.StripHyperlinks(text [, maintainColor, maintainBrackets, stripNewlines, maintainAtlases, maintainTextures])`
+
+Returns `text` without links and other display codes. All options are
+`false` by default.
+
+```lua
+local link = "|cff1eff00|Hitem:2589:0:0:0|h[Linen Cloth]|h|r"
+C_StringUtil.StripHyperlinks(link)              -- "Linen Cloth"
+C_StringUtil.StripHyperlinks(link, true, true)  -- "|cff1eff00[Linen Cloth]|r"
+```
+
+| Code | What the function does |
+|------|------------------------|
+| `\|H...\|h` and the closing `\|h` of a link | Removes them. The function also removes the brackets around the text of the link, unless `maintainBrackets` is `true`. Brackets outside a link do not change. |
+| `\|cAARRGGBB` and `\|r` | Removes them, unless `maintainColor` is `true`. |
+| `\|A...\|a` | Removes the atlas, unless `maintainAtlases` is `true`. |
+| `\|T...\|t` | Removes the texture, unless `maintainTextures` is `true`. |
+| `\|W...\|w` | Removes the code and the text between. |
+| `\|n` | Removes it only when `stripNewlines` is `true`. |
+| `\|\|` | Does not change. |
+
+When a code has no closing code, the function removes the rest of the
+text. The text stops at its first zero byte.
+
+### `C_StringUtil.StripTextureMarkupForLooseFiles(text)`
+
+Returns `text` without the `|T...|t` textures that come from loose files.
+A loose file is a file on the disk, for example in a folder of an addon,
+and not a file in the archives of the game. Other textures and other text
+do not change.
+
+```lua
+C_StringUtil.StripTextureMarkupForLooseFiles(
+    "|TInterface\\Icons\\INV_Misc_QuestionMark:16|t |TInterface\\AddOns\\MyAddon\\icon:16|t")
+-- "|TInterface\\Icons\\INV_Misc_QuestionMark:16|t ", when the icon of MyAddon is on the disk
+```
+
+For each texture, the function looks for the same files as
+`texture:SetTexture`: `X.blp`, then `X.tga`. When a
+`|T` has no closing `|t`, the text before the `|T` appears two times in
+the result. The text stops at its first zero byte.
 
 ## SwingTimer
 

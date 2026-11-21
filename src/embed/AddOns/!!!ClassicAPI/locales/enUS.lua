@@ -495,6 +495,7 @@ D_MINUTES = "%d |4Minute:Minutes;";
 D_SECONDS = "%d |4Second:Seconds;";
 LESS_THAN_OPERAND = "< %s";
 TIME_UNIT_DELIMITER = " ";
+COOLDOWN_DURATION_TEN_SEC = "%.1f";
 SHOW_CLASS_COLOR = "Show Class Color";
 TALENT_TOOLTIP_ADDPREVIEWPOINT = "Left click to select this talent.";
 TARGET_TOOLTIP_OPTION = "Show Target Tooltip";

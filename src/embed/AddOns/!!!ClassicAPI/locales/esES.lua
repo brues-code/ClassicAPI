@@ -345,6 +345,7 @@ D_MINUTES = "%d |4minuto:minutos;";
 D_SECONDS = "%d |4segundo:segundos;";
 LESS_THAN_OPERAND = "< %s";
 TIME_UNIT_DELIMITER = " ";
+COOLDOWN_DURATION_TEN_SEC = "%.1f";
 SHOW_CLASS_COLOR = "Mostrar color de clase";
 TALENT_TOOLTIP_ADDPREVIEWPOINT = "Haz clic izquierdo para seleccionar este talento.";
 TARGET_TOOLTIP_OPTION = "Mostrar descripción de objetivo";

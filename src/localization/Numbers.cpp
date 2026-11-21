@@ -59,6 +59,8 @@
 //     decimals: 123456789 with locale "zhCN" -> "1.23 M".
 // options.config (CreateAbbreviateConfig's cached object) is not backported.
 
+#include "localization/Numbers.h"
+
 #include "Game.h"
 #include "Offsets.h"
 #include "cvar/Factory.h"
@@ -138,17 +140,6 @@ bool IsAsianLocale(const char *locale) {
 }
 
 bool ClientIsAsian() { return IsAsianLocale(Localization::Locale::Client()); }
-
-// `_G[name]` when it is a string, else "".
-std::string GlobalString(void *L, const char *name) {
-    Lua::PushString(L, name);
-    Lua::GetTable(L, Lua::GLOBALS_INDEX);
-    std::string s;
-    if (Lua::Type(L, -1) == Lua::TYPE_STRING)
-        s = Lua::ToString(L, -1);
-    Lua::SetTop(L, -2);
-    return s;
-}
 
 // A number as Lua's tostring writes it.
 std::string LuaNumber(double v) {
@@ -420,6 +411,33 @@ const Game::Doc::Field kDefaultsRets[] = {
 };
 const Game::Doc::Function kGetDefaultAbbreviationBreakpoints{
     "Returns the breakpoints AbbreviateNumbers uses by default.", kDefaultsArgs, kDefaultsRets};
+
+} // namespace
+
+std::string GlobalString(void *L, const char *name) {
+    Lua::PushString(L, name);
+    Lua::GetTable(L, Lua::GLOBALS_INDEX);
+    std::string s;
+    if (Lua::Type(L, -1) == Lua::TYPE_STRING)
+        s = Lua::ToString(L, -1);
+    Lua::SetTop(L, -2);
+    return s;
+}
+
+std::vector<AbbreviationBreakpoint> DefaultAbbreviationBreakpoints() {
+    std::vector<AbbreviationBreakpoint> out;
+    const auto add = [&](const auto &table) {
+        for (const Breakpoint &b : table)
+            out.push_back({b.breakpoint, b.abbreviation, b.significandDivisor, b.fractionDivisor, true});
+    };
+    if (ClientIsAsian())
+        add(kNumberBreakpointsAsian);
+    else
+        add(kNumberBreakpoints);
+    return out;
+}
+
+namespace {
 
 void RegisterLuaFunctions() {
     g_breakUpLargeNumbers =
