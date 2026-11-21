@@ -266,13 +266,20 @@ EnsureCompostErasesInPlace()
 -- that loads later, which is what breaks pfUI's who list when it calls
 -- `NORMAL_FONT_COLOR:GetRGB()` (brues-code/pfUI#56).
 --
+-- RAID_CLASS_COLORS gets the same treatment: an addon that swaps in its own
+-- plain class colors breaks every `RAID_CLASS_COLORS[class]:GetRGB()`, such as
+-- the damage meter's bars.
+--
 -- Re-apply after each addon loads, so a clobbered color is repaired before the
 -- next addon reads it. This also covers an addon loaded on demand mid-session.
--- The pass mixes the methods back into the table that is there, and costs one
--- lookup per color when nothing is broken.
+-- Login and entering the world cover addons that write their colors from those
+-- events rather than at file scope. The pass mixes the methods back into the
+-- table that is there, and costs one lookup per color when nothing is broken.
 EventRegistry:RegisterFrameEventAndCallback("ADDON_LOADED",
                                             CAPI_ApplyStandardColorGlobals)
 EventRegistry:RegisterFrameEventAndCallback("PLAYER_LOGIN",
+                                            CAPI_ApplyStandardColorGlobals)
+EventRegistry:RegisterFrameEventAndCallback("PLAYER_ENTERING_WORLD",
                                             CAPI_ApplyStandardColorGlobals)
 
 -- Outfitter keeps its minimap button's drag state in a plain field,

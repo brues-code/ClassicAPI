@@ -3,15 +3,6 @@ COLOR_FORMAT_RGB = "RRGGBB"
 COLOR_FORMAT_ARGB = "AARRGGBB"
 FONT_COLOR_CODE_CLOSE = "|r"
 
-do
-	local ColorMixin = ColorMixin
-	for _, classColor in pairs(RAID_CLASS_COLORS) do
-		Mixin(classColor, ColorMixin)
-		classColor.a = 1
-		classColor.colorStr = classColor:GenerateHexColor();
-	end
-end
-
 function ExtractColorValueFromHex(str, index)
 	return tonumber(string.sub(str, index, index + 1), 16) / 255;
 end

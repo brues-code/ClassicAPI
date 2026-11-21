@@ -131,6 +131,26 @@ local function ApplyItemQualityColors()
     end
 end
 
+-- RAID_CLASS_COLORS comes from FrameXML as plain {r, g, b} entries, and every
+-- class-color reader we ship (C_ClassColor.GetClassColor, GetClassColorObj, the
+-- ported retail damage meter) calls ColorMixin methods on them. Addons replace
+-- the whole table or single entries with their own plain copies -- recolored
+-- shamans, a CUSTOM_CLASS_COLORS-style palette -- and the next `:GetRGB()` on a
+-- class color errors. Mix the methods into whatever entries are there, so the
+-- colors that addon picked stay. A `colorStr` it set is kept for the same
+-- reason; FrameXML's own entries have none, so they get one here.
+local function ApplyRaidClassColors()
+    if type(RAID_CLASS_COLORS) ~= "table" then return end
+
+    for _, classColor in pairs(RAID_CLASS_COLORS) do
+        if IsPlainColorTable(classColor) then
+            Mixin(classColor, ColorMixin)
+            classColor.a = classColor.a or 1
+            classColor.colorStr = classColor.colorStr or classColor:GenerateHexColor()
+        end
+    end
+end
+
 function CAPI_ApplyStandardColorGlobals()
     -- `C_UIColor.GetColors()` makes a color object for each of its 331 rows,
     -- so keep the values from the first call. Each later pass is then one
@@ -165,5 +185,6 @@ function CAPI_ApplyStandardColorGlobals()
     end
 
     ApplyItemQualityColors()
+    ApplyRaidClassColors()
 end
 CAPI_ApplyStandardColorGlobals()
