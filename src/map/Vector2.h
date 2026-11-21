@@ -14,6 +14,7 @@
 #pragma once
 
 #include "Game.h"
+#include "lua/MixinTable.h"
 
 // Shared `vector2` marshalling for the `C_Map` surface. Map positions cross
 // the C/Lua boundary as `Vector2DMixin` objects (so consumers can call
@@ -22,21 +23,10 @@
 
 namespace Map {
 
-// Pushes a `Vector2DMixin` built from (x, y) via the `CreateVector2D` global.
-// Falls back to a plain `{x=, y=}` table when that global isn't reachable
-// (the addon half isn't loaded). Leaves exactly one value on the stack.
+// Pushes a `Vector2DMixin` of (x, y), built as 3.80.2 builds every vector2
+// return (lua/MixinTable.h). Leaves exactly one value on the stack.
 inline void PushVector2D(void *L, double x, double y) {
-    const int base = Game::Lua::GetTop(L);
-    Game::Lua::PushString(L, "CreateVector2D");
-    Game::Lua::GetTable(L, Game::Lua::GLOBALS_INDEX);
-    Game::Lua::PushNumber(L, x);
-    Game::Lua::PushNumber(L, y);
-    if (Game::Lua::PCall(L, 2, 1, 0) == 0)
-        return; // Vector2DMixin object on top
-    // pcall failed (global missing / not callable): drop the error object and
-    // build a plain coordinate table instead.
-    Game::Lua::SetTop(L, base);
-    Game::Lua::NewTable(L);
+    Game::Lua::MixinTable::Push(L, "Vector2DMixin");
     Game::Lua::SetFieldNumber(L, "x", x);
     Game::Lua::SetFieldNumber(L, "y", y);
 }

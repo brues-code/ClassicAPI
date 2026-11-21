@@ -34,11 +34,10 @@
 // ERRORS. Argument errors are the generated readers' (lua/Arg.h). A method's
 // own error is "<class>:<Method>(): <message>\nNo Lua Taint" (the pending
 // error formatter 0x1405AC380 always adds the taint line; this client has no
-// taint). The point tables copy the keys of Vector2DMixin / ColorMixin, as
-// 3.80.2's pushers do; it takes the mixin from the calling function's
-// environment, this from the globals. C_CurveUtil's three Evaluate* are not
-// wrapped in a pcall there, so their argument errors name the function and
-// carry the caller's position (Arg::RaiseNamed).
+// taint). The point and colour tables are mixin tables (lua/MixinTable.h).
+// C_CurveUtil's three Evaluate* are not wrapped in a pcall there, so their
+// argument errors name the function and carry the caller's position
+// (Arg::RaiseNamed).
 //
 // Not ported: secret values (HasSecretValues is always false), the
 // Enum.LuaCurveTypeMeta table, and game curves: this client has no
@@ -49,6 +48,7 @@
 
 #include "Game.h"
 #include "lua/Arg.h"
+#include "lua/MixinTable.h"
 
 #include <algorithm>
 #include <cfloat>
@@ -207,40 +207,8 @@ namespace {
 
 // ---- Lua values -------------------------------------------------------------------
 
-// Pushes a new table holding every key of _G[mixin] (0x140A6FCF0 /
-// 0x140AD1900). Raises when the mixin is not a table.
-void PushMixinCopy(void *L, const char *mixin) {
-    Lua::PushString(L, mixin);
-    Lua::GetTable(L, Lua::GLOBALS_INDEX);
-    if (Lua::Type(L, -1) != Lua::TYPE_TABLE) {
-        char text[Arg::kErrorCap + 1];
-        std::snprintf(text, sizeof text, "unable to find mixin or metatable (%s)", mixin);
-        Arg::RaiseMessage(L, text);
-        return;
-    }
-    const int m = Lua::GetTop(L);
-    Lua::NewTable(L);
-    const int t = Lua::GetTop(L);
-    Lua::PushNil(L);
-    while (Lua::Next(L, m) != 0) {
-        Lua::PushValue(L, -2);
-        Lua::PushValue(L, -2);
-        Lua::RawSet(L, t);
-        Lua::SetTop(L, -2);
-    }
-    Lua::Remove(L, m);
-}
-
-void PushColor(void *L, uint32_t color) {
-    PushMixinCopy(L, "ColorMixin");
-    Lua::SetFieldNumber(L, "r", Unpack(Channel(color, kShiftR)));
-    Lua::SetFieldNumber(L, "g", Unpack(Channel(color, kShiftG)));
-    Lua::SetFieldNumber(L, "b", Unpack(Channel(color, kShiftB)));
-    Lua::SetFieldNumber(L, "a", Unpack(Channel(color, kShiftA)));
-}
-
 void PushPoint(void *L, const ScalarPoint &p) {
-    PushMixinCopy(L, "Vector2DMixin");
+    Lua::MixinTable::Push(L, "Vector2DMixin");
     Lua::SetFieldNumber(L, "x", p.x);
     Lua::SetFieldNumber(L, "y", p.y);
 }
@@ -249,7 +217,7 @@ void PushPoint(void *L, const ColorPoint &p) {
     Lua::NewTable(L);
     Lua::SetFieldNumber(L, "x", p.x);
     Lua::PushString(L, "y");
-    PushColor(L, p.color);
+    Lua::MixinTable::PushColor(L, p.color);
     Lua::SetTable(L, -3);
 }
 
@@ -502,7 +470,7 @@ bool EvaluateColorImpl(void *L, Arg::Error &e) {
     float x = 0.0f;
     if (c == nullptr || !Arg::FiniteFloat(L, 2, kUsage, x, false, &e))
         return false;
-    PushColor(L, c->Evaluate(x));
+    Lua::MixinTable::PushColor(L, c->Evaluate(x));
     return true;
 }
 
@@ -612,7 +580,7 @@ int __fastcall Script_EvaluateColorFromBoolean(void *L) {
         Arg::RaiseNamed(L, e);
         return 0;
     }
-    PushColor(L, which ? ifTrue : ifFalse);
+    Lua::MixinTable::PushColor(L, which ? ifTrue : ifFalse);
     return 1;
 }
 

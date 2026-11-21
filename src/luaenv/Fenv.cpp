@@ -38,18 +38,16 @@ namespace LuaEnv {
 namespace {
 
 // Raw engine primitives not exposed via Game::Lua.
-using GetFenv_t = void(__fastcall *)(void *L, int idx);
 using SetFenv_t = int(__fastcall *)(void *L, int idx);
-using Replace_t = void(__fastcall *)(void *L, int idx);
 using CheckType_t = void(__fastcall *)(void *L, int narg, int t);
 using GetFunc_t = void(__fastcall *)(void *L);
-const auto GetFenv = reinterpret_cast<GetFenv_t>(Offsets::LUA_GET_FENV);
 const auto SetFenv = reinterpret_cast<SetFenv_t>(Offsets::LUA_SET_FENV);
-const auto Replace = reinterpret_cast<Replace_t>(Offsets::LUA_REPLACE);
 const auto CheckType = reinterpret_cast<CheckType_t>(Offsets::LUAL_CHECK_TYPE);
 const auto GetFunc = reinterpret_cast<GetFunc_t>(Offsets::FUN_LUA_BASE_GETFUNC);
 
+using Game::Lua::GetFenv;
 using Game::Lua::GetMetatable;
+using Game::Lua::Replace;
 
 // Replacement for the protection predicate, now called only by getfenv
 // (FUN_SCRIPT_SETFENV no longer reaches it). Contract mirrored from the

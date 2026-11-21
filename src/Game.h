@@ -358,6 +358,9 @@ using lua_tocfunction_t = CFunction(__fastcall *)(void *L, int idx);
 // with the fields `what` names. Level 0 is the running C function.
 using lua_getstack_t = int(__fastcall *)(void *L, int level, void *ar);
 using lua_getinfo_t = int(__fastcall *)(void *L, const char *what, void *ar);
+// Pushes the environment of the Lua function at `idx`; the globals for any
+// other value.
+using lua_getfenv_t = void(__fastcall *)(void *L, int idx);
 using lua_xmove_t = void(__fastcall *)(void *from, void *to, int n);
 // `lua_newthread` returns the new `lua_State *` in eax, but Ghidra
 // infers `void` because the inner call's value just flows through.
@@ -449,6 +452,7 @@ extern const lua_iscfunction_t IsCFunction;
 extern const lua_tocfunction_t ToCFunction;
 extern const lua_getstack_t GetStack;
 extern const lua_getinfo_t GetInfo;
+extern const lua_getfenv_t GetFenv;
 extern const lua_xmove_t XMove;
 extern const lua_newthread_t NewThread;
 extern const lua_resume_t Resume;

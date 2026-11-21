@@ -10459,9 +10459,11 @@ enum Offsets {
     // returns 1. Catalogued (★-verified) in docs/LuaCAPI.md. Used by
     // Table::Length to build its weak-keyed mark table from C.
     LUA_SET_METATABLE = 0x6F4020,
-    // `lua_getfenv(L, idx)` — pushes the environment table of the function
-    // (or userdata/thread) at `idx`. The getfenv/setfenv base-lib code calls
-    // it to read a function's environment before the protection check.
+    // `lua_getfenv(L, idx)`, `__fastcall`, plain `ret` — pushes the
+    // environment of the Lua function at `idx` (closure +0x10, `l.g`) and the
+    // state's globals (L +0x40) for any other value, a C function included
+    // (Lua 5.0's body, read from the bytes). The getfenv/setfenv base-lib code
+    // calls it to read a function's environment before the protection check.
     LUA_GET_FENV = 0x6F3D50,
     LUA_SET_TABLE = 0x6F3E20,
     LUA_RAW_SET = 0x6F3EA0,

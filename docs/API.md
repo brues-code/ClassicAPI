@@ -15720,7 +15720,7 @@ local link = C_Item.GetItemLink({bagID = 0, slotIndex = 1})
 ### `C_Item.GetItemLocation(itemGUID)`
 
 Reverse lookup from a GUID string (the format `C_Item.GetItemGUID`
-returns) to an `itemLocation` table identifying the slot currently
+returns) to an `ItemLocationMixin` that identifies the slot currently
 holding that item. Returns `nil` if you do not have the item there.
 
 ```lua
@@ -15728,13 +15728,14 @@ local guid = C_Item.GetItemGUID({equipmentSlotIndex = INVSLOT_HEAD})
 -- player moves item to bag, drops it, etc. — guid stays valid across
 -- bag/equipment rearrangements until the item leaves the session
 local loc = C_Item.GetItemLocation(guid)
--- loc might now be { bagID = 1, slotIndex = 4 }, or nil if sold
+-- loc can now be in bag 1, slot 4: loc:GetBagAndSlot() gives 1, 4
 ```
 
-The function returns a plain table with the same field shape every other
-`C_Item.*` API in ClassicAPI accepts as input (`{equipmentSlotIndex=N}`
-or `{bagID=B, slotIndex=S}`), so the result pipes straight into
-`C_Item.GetItemQuality(loc)`, `C_Item.GetItemLink(loc)`, etc.
+The result is a new table with the `ItemLocationMixin` methods, for
+example `IsBagAndSlot` and `GetEquipmentSlot`. It has the field
+`equipmentSlotIndex`, or the fields `bagID` and `slotIndex`. You can give
+it to each `C_Item` function that takes an item location, for example
+`C_Item.GetItemLink(loc)`.
 
 **Scope.** Equipped items and equipped bags (`equipmentSlotIndex`),
 the backpack and bags 1..4, the keyring (bagID -2), and, while the bank
@@ -30273,14 +30274,13 @@ end
 
 Returns an array of rows, each shaped
 `{ baseTag = "FOO_COLOR", color = ColorMixin }`, mirroring the
-function of the same name. The `color` field is a real `ColorMixin`
-instance (carries `GetRGB`, `GenerateHexColorMarkup`, etc.) — the DLL
-calls back into Lua's `CreateColor(r,g,b,a)` per row to construct it,
-so `ColorMixin` and `CreateColor` must already be defined when
-`GetColors` is called.
+function of the same name. Each `color` is a new table with the
+`ColorMixin` methods, for example `GetRGB` and
+`GenerateHexColorMarkup`, and the fields `r`, `g`, `b` and `a`. Each
+field is a float in steps of 1/255, so `0.3` comes back as
+`0.3019607961177826`.
 
-The companion addon `!!!ClassicAPI/Util/Color.lua` does both: it
-defines `ColorMixin`/`CreateColor` first, then loops the result the
+The companion addon `!!!ClassicAPI/Util/Color.lua` loops the result the
 same way `Blizzard_SharedXMLBase/Color.lua` does —
 assigning each row as a global under its `baseTag` plus a `_CODE`
 variant holding the `|c`-prefixed hex markup:
@@ -30308,12 +30308,6 @@ with the higher ID wins, as `ipairs(DBColors)` assigns them. Colors for
 Death Knight runes, Mythic+ medals, healing
 absorbs, glyphs, and the objective tracker aren't in the snapshot and so
 aren't surfaced — none have a use case here anyway.
-
-If `CreateColor` happens not to be defined when `GetColors` is called
-(e.g. another DLL or addon manages to call us before `!!!ClassicAPI`
-loads), each `color` field falls back to a plain `{r,g,b,a}` table.
-The loop above tolerates both shapes — `dbColor.color.r` reads the
-same way either way — so consumers shouldn't notice.
 
 ## Unit
 

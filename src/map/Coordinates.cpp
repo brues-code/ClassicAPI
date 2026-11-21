@@ -37,10 +37,8 @@
 //
 // ## vector2 returns
 //
-// Positions are returned as `Vector2DMixin` objects (built through the
-// `CreateVector2D` global) so consumers can call `pos:GetXY()` / read `pos.x`.
-// If that global is unavailable, a plain `{x=, y=}` table carries the same
-// coordinates.
+// Positions are returned as `Vector2DMixin` tables (Map::PushVector2D), so
+// consumers can call `pos:GetXY()` / read `pos.x`.
 
 #include "Game.h"
 #include "Offsets.h"

@@ -40,6 +40,7 @@
 #include "frame/Layout.h"
 #include "frame/DebugName.h"
 #include "frame/ParentKey.h"
+#include "lua/MixinTable.h"
 #include "tick/FrameTick.h"
 
 #include <cmath>
@@ -974,30 +975,10 @@ bool ColorArg(void *L, int idx, const char *usage, uint32_t &bgra) {
     return true;
 }
 
-// A new colour table with ColorMixin's fields, as 3.80.2's getters build one.
+// A new ColorMixin, as 3.80.2's getters (0x140AC7E30 / 0x140AC7B60) build one:
+// the stored bytes through 0x140AD1900 (lua/MixinTable.h).
 int PushColor(void *L, uint32_t bgra) {
-    Game::Lua::PushString(L, "ColorMixin");
-    Game::Lua::GetTable(L, Game::Lua::GLOBALS_INDEX);
-    if (Game::Lua::Type(L, -1) != Game::Lua::TYPE_TABLE) {
-        Game::Lua::Error(L, "unable to find mixin or metatable (%s)", "ColorMixin");
-        return 0;
-    }
-    const int mixin = Game::Lua::GetTop(L);
-    Game::Lua::NewTable(L);
-    const int color = Game::Lua::GetTop(L);
-    Game::Lua::PushNil(L);
-    while (Game::Lua::Next(L, mixin) != 0) {
-        Game::Lua::PushValue(L, -2);
-        Game::Lua::Insert(L, -2);
-        Game::Lua::RawSet(L, color);
-    }
-    const char *const keys[] = {"b", "g", "r", "a"};
-    for (int i = 0; i < 4; ++i) {
-        Game::Lua::PushString(L, keys[i]);
-        Game::Lua::PushNumber(L, ((bgra >> (i * 8)) & 0xFF) / 255.0);
-        Game::Lua::RawSet(L, color);
-    }
-    Game::Lua::Remove(L, mixin);
+    Game::Lua::MixinTable::PushColor(L, bgra);
     return 1;
 }
 

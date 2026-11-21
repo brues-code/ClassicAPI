@@ -31,6 +31,7 @@
 #include "item/ID.h"
 #include "item/Location.h"
 #include "item/Record.h"
+#include "lua/MixinTable.h"
 #include "model/Outfit.h"
 #include "spell/Lookup.h"
 
@@ -157,15 +158,10 @@ bool ReadTransmogInfo(void *L, const char *name, Request &request) {
 }
 
 void PushTransmogInfo(void *L, const Outfit::Appearance &slot) {
-    Game::Lua::PushString(L, "ItemUtil");
-    Game::Lua::GetTable(L, Game::Lua::GLOBALS_INDEX);
-    Game::Lua::PushString(L, "CreateItemTransmogInfo");
-    Game::Lua::GetTable(L, -2);
-    Game::Lua::Remove(L, -2);
-    Game::Lua::PushNumber(L, slot.item);
-    Game::Lua::PushNumber(L, 0);
-    Game::Lua::PushNumber(L, slot.enchant);
-    Game::Lua::Call(L, 3, 1);
+    Game::Lua::MixinTable::Push(L, "ItemTransmogInfoMixin");
+    Game::Lua::SetFieldNumber(L, "appearanceID", slot.item);
+    Game::Lua::SetFieldNumber(L, "secondaryAppearanceID", 0);
+    Game::Lua::SetFieldNumber(L, "illusionID", slot.enchant);
 }
 
 void PushTransmogInfoList(void *L, const Outfit::Worn &worn) {

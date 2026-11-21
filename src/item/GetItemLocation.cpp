@@ -13,6 +13,7 @@
 
 #include "Game.h"
 #include "item/Location.h"
+#include "lua/MixinTable.h"
 
 #include <cstdint>
 
@@ -20,33 +21,26 @@ namespace Item::GetItemLocation {
 
 namespace {
 
-void PushEquipmentLocation(void *L, int slot) {
-    Game::Lua::SetTop(L, 0);
-    Game::Lua::NewTable(L);
-    Game::Lua::SetFieldNumber(L, "equipmentSlotIndex",
-                              static_cast<double>(slot));
-}
-
-void PushBagLocation(void *L, int bagID, int slotIndex) {
-    Game::Lua::SetTop(L, 0);
-    Game::Lua::NewTable(L);
-    Game::Lua::SetFieldNumber(L, "bagID", static_cast<double>(bagID));
-    Game::Lua::SetFieldNumber(L, "slotIndex", static_cast<double>(slotIndex));
+// An ItemLocationMixin table with the bag and slot, or the equipment slot, as
+// 3.80.2 builds an itemLocation return (0x140B3C770 / 0x140A61FA0,
+// lua/MixinTable.h).
+void PushItemLocation(void *L, const Item::Location::ByGUIDResult &found) {
+    Game::Lua::MixinTable::Push(L, "ItemLocationMixin");
+    if (found.equipmentSlotIndex != 0) {
+        Game::Lua::SetFieldNumber(L, "equipmentSlotIndex", found.equipmentSlotIndex);
+        return;
+    }
+    Game::Lua::SetFieldNumber(L, "bagID", found.bagID);
+    Game::Lua::SetFieldNumber(L, "slotIndex", found.slotIndex);
 }
 
 } // namespace
 
 // `C_Item.GetItemLocation(itemGUID)` — reverse lookup from a per-
 // instance item GUID (in the `"0xHHHHHHHHLLLLLLLL"` form
-// `C_Item.GetItemGUID` returns) to an `itemLocation` table that
+// `C_Item.GetItemGUID` returns) to an ItemLocationMixin that
 // identifies the slot currently holding it. Returns `nil` for
 // unknown / non-resident GUIDs.
-//
-// Modern WoW returns an `ItemLocation` mixin object; we return a
-// plain table with the same field shape every other `C_Item.*` API
-// in ClassicAPI accepts as input (`{equipmentSlotIndex=N}` or
-// `{bagID=B, slotIndex=S}`), so the result pipes straight into
-// `C_Item.GetItemQuality(loc)`, `C_Item.GetItemLink(loc)`, etc.
 //
 // Scope: `Item::Location::FindLocationByGUID` — equipment, bags, keyring,
 // and the bank while a banker is open. A buyback item has no location.
@@ -63,10 +57,7 @@ static int __fastcall Script_C_Item_GetItemLocation(void *L) {
     if (!Item::Location::FindLocationByGUID(guid, &found))
         return 0;
 
-    if (found.equipmentSlotIndex != 0)
-        PushEquipmentLocation(L, found.equipmentSlotIndex);
-    else
-        PushBagLocation(L, found.bagID, found.slotIndex);
+    PushItemLocation(L, found);
     return 1;
 }
 
@@ -75,7 +66,7 @@ static const Game::Doc::Field kArgs[] = {
 };
 static const Game::Doc::Field kRets[] = {
     Game::Doc::Opt("itemLocation", "ItemLocation", nullptr,
-                   "A plain table, not an ItemLocation object; nil when the item is not "
+                   "nil when the item is not "
                    "equipped, in the bags, on the keyring, or in an open bank."),
 };
 static const Game::Doc::Function kGetItemLocation{

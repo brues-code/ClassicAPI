@@ -20,7 +20,7 @@
 // Retail's getters read its UiModelScene DB2s; these read the rows embedded
 // in model/SceneData.h, shaped as retail returns them. An unknown ID returns
 // nothing, as retail's do (MayReturnNothing). The vector3 fields are
-// Vector3DMixin objects (CreateVector3D, Util/Vector3D.lua). From a retail
+// Vector3DMixin tables (lua/MixinTable.h). From a retail
 // probe (docs/notes/model-scene.md § Data): the actor flags split into the
 // three useCenterForOrigin booleans, and a NormalizedScale of 0 is a nil
 // normalizeScaleAggressiveness; a display ID of 0 is likewise nil. Retail's
@@ -28,6 +28,7 @@
 // public clients and is the embedded addon's (Compat.lua).
 
 #include "Game.h"
+#include "lua/MixinTable.h"
 #include "model/SceneData.h"
 
 #include <cstdint>
@@ -58,15 +59,14 @@ bool IdArg(void *L, uint32_t &id) {
     return true;
 }
 
-// `t[key] = CreateVector3D(v)` on the table at the top of the stack.
+// `t[key]` = a Vector3DMixin of `v` on the table at the top of the stack,
+// built as 3.80.2 builds its vector3 returns (lua/MixinTable.h).
 void SetFieldVector3D(void *L, const char *key, const Vec3 &v) {
     Game::Lua::PushString(L, key);
-    Game::Lua::PushString(L, "CreateVector3D");
-    Game::Lua::GetTable(L, Game::Lua::GLOBALS_INDEX);
-    Game::Lua::PushNumber(L, v.x);
-    Game::Lua::PushNumber(L, v.y);
-    Game::Lua::PushNumber(L, v.z);
-    Game::Lua::Call(L, 3, 1);
+    Game::Lua::MixinTable::Push(L, "Vector3DMixin");
+    Game::Lua::SetFieldNumber(L, "x", v.x);
+    Game::Lua::SetFieldNumber(L, "y", v.y);
+    Game::Lua::SetFieldNumber(L, "z", v.z);
     Game::Lua::SetTable(L, -3);
 }
 

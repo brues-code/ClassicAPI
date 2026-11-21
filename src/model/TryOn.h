@@ -56,8 +56,8 @@ void ShowNotEquippable();
 // usage error naming the frame `name`, when index 2 is not a table.
 bool ReadTransmogInfo(void *L, const char *name, Request &request);
 
-// One slot as retail's ItemTransmogInfo: ItemUtil.CreateItemTransmogInfo(item,
-// NoTransmogID, enchant), built by the mixin's own constructor.
+// One slot as an ItemTransmogInfoMixin table of (item, NoTransmogID, enchant),
+// built as 3.80.2 builds one (0x140B0E2A0, lua/MixinTable.h).
 void PushTransmogInfo(void *L, const Outfit::Appearance &slot);
 
 // Every slot 1..19 as a list of ItemTransmogInfo.
