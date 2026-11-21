@@ -27,6 +27,7 @@
 
 #include "Game.h"
 #include "baselib/Ascii.h"
+#include "frame/DebugName.h"
 
 #include <algorithm>
 #include <cmath>
@@ -486,6 +487,7 @@ const Game::Lua::FrameMethodEntry kPathMethods[] = {
 const Game::Lua::FrameMethodEntry kPointMethods[] = {
     {"GetObjectType", &Script_GetObjectType}, {"IsObjectType", &Script_IsObjectType},
     {"GetName", &Script_GetName},             {"GetParent", &Script_GetParent},
+    {"GetDebugName", &Frame::DebugName::Script_GetDebugName},
     {"SetParent", &Script_PointSetParent},    {"SetOffset", &Script_PointSetOffset},
     {"GetOffset", &Script_PointGetOffset},    {"SetOrder", &Script_PointSetOrder},
     {"GetOrder", &Script_PointGetOrder},

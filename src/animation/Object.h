@@ -102,6 +102,9 @@ Object *Resolve(void *L, int idx, Class &cls);
 void Push(void *L, Object *object);
 // Whether a script object is one of ours.
 bool IsOurs(const void *object);
+// The script object `object` hangs from: ours keep it in `parent`, an engine
+// region at OFF_REGION_PARENT. Null for none.
+void *ParentOf(const void *object);
 // 4.3.4's CScriptObject::CreateName: "$parent" at the start of `source`
 // becomes the nearest named ancestor's name, "Top" when none.
 std::string CreateName(const char *source, const void *parent);

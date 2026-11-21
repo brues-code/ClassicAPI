@@ -160,6 +160,11 @@ void Push(void *L, Object *object) { Game::Lua::PushObject(L, object); }
 
 bool IsOurs(const void *object) { return object != nullptr && Game::Read<void **>(object, 0) == g_vtable; }
 
+void *ParentOf(const void *object) {
+    return IsOurs(object) ? static_cast<const Object *>(object)->parent
+                          : Game::Read<void *>(object, Offsets::OFF_REGION_PARENT);
+}
+
 std::string CreateName(const char *source, const void *parent) {
     constexpr const char kParent[] = "$parent";
     constexpr size_t kParentLen = sizeof(kParent) - 1;
@@ -174,7 +179,7 @@ std::string CreateName(const char *source, const void *parent) {
             name = pname;
             break;
         }
-        p = IsOurs(p) ? static_cast<const Object *>(p)->parent : Game::Read<void *>(p, Offsets::OFF_REGION_PARENT);
+        p = ParentOf(p);
     }
     return name + (source + kParentLen);
 }

@@ -35,6 +35,7 @@
 #include "Offsets.h"
 #include "baselib/Ascii.h"
 #include "frame/Layout.h"
+#include "frame/DebugName.h"
 
 #include <cmath>
 #include <cstdio>
@@ -814,6 +815,7 @@ const Game::Lua::FrameMethodEntry kAnimMethods[] = {
     {"IsObjectType", &Script_IsObjectType},
     {"GetName", &Script_GetName},
     {"GetParent", &Script_GetParent},
+    {"GetDebugName", &Frame::DebugName::Script_GetDebugName},
     {"Play", &Script_Play},
     {"Pause", &Script_Pause},
     {"Stop", &Script_Stop},

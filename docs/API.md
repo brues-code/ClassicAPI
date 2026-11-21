@@ -9254,17 +9254,23 @@ f.Icon = f:CreateTexture()
 print(f:GetDebugName())                 -- "SomeFrame"
 print(f.Icon:GetDebugName())            -- "SomeFrame.Icon"
 print(f:CreateTexture():GetDebugName()) -- "SomeFrame.1a2b3c4d"
-print(CreateFrame("Frame"):GetDebugName() == "") -- true
+print(CreateFrame("Frame"):GetDebugName()) -- "5e6f7a8b"
 ```
 
 - A region with a global name returns that name.
 - A region with no name returns the debug name of its parent, a dot, and
   the key that holds the region in the parent's table.
+- If more than one key holds the region, a key that starts with a capital
+  letter (A to Z) is used before the other keys.
 - If no key in the parent holds the region, the address of the region (in
   hex) replaces the key.
-- A region with no name and no parent returns an empty string.
+- A region with no name and no parent returns its address.
 - If `preferParentKey` is `true`, the parent-key form comes before the
-  global name, at each level of the chain.
+  global name, at each level of the chain. If no key holds a named region,
+  the result is the debug name of its parent, a comma, and the global name
+  (`"SomeFrame, OtherName"`).
+- Animation groups, animations, control points and model scene actors also
+  have this method. Their parent is the object that `:GetParent()` returns.
 
 ### `region:SetToDefaults()`
 

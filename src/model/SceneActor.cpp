@@ -167,6 +167,7 @@
 #include "cache/Record.h"
 #include "cvar/Factory.h"
 #include "dbc/Lookup.h"
+#include "frame/DebugName.h"
 #include "guid/Guid.h"
 #include "gx/Matrix.h"
 #include "item/Data.h"
@@ -3431,6 +3432,7 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
     {"IsObjectType", &Animation::Script_IsObjectType},
     {"GetName", &Animation::Script_GetName},
     {"GetParent", &Animation::Script_GetParent},
+    {"GetDebugName", &Frame::DebugName::Script_GetDebugName},
     {"HasScript", &Animation::Script_HasScript},
     {"GetScript", &Animation::Script_GetScript},
     {"SetScript", &Animation::Script_SetScript},
