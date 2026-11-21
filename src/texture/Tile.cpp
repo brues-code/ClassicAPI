@@ -59,6 +59,7 @@
 #include "texture/Atlas.h"
 #include "texture/CornerStore.h"
 #include "texture/Emit.h"
+#include "texture/Line.h"
 #include "texture/Wrap.h"
 #include "xml/FrameLoad.h"
 #include "xml/TypeLoad.h"
@@ -108,14 +109,19 @@ void Apply(void *texture) {
         if (device == nullptr)
             return; // the emit of the next batch build counts it
     }
-    float rect[4]; // bottom, left, top, right
-    if (!Frame::Layout::GetRect(texture, rect))
-        return;
-    if (!(Frame::Layout::EffectiveScale(texture) > 0.0f))
-        return;
+    // A line repeats along its length on the screen and down its thickness
+    // (3.80.2's Line slots 0x340 / 0x348), not over its rect.
+    float width = 0.0f, height = 0.0f;
+    if (!Texture::Line::TileSize(texture, width, height)) {
+        float rect[4]; // bottom, left, top, right
+        if (!Frame::Layout::GetRect(texture, rect))
+            return;
+        if (!(Frame::Layout::EffectiveScale(texture) > 0.0f))
+            return;
+        width = static_cast<float>(Frame::Layout::ToLocalUnits(texture, rect[3] - rect[1]));
+        height = static_cast<float>(Frame::Layout::ToLocalUnits(texture, rect[2] - rect[0]));
+    }
     float *coords = Game::Ptr<float>(texture, Offsets::OFF_SIMPLETEXTURE_TEXCOORDS);
-    const float width = static_cast<float>(Frame::Layout::ToLocalUnits(texture, rect[3] - rect[1]));
-    const float height = static_cast<float>(Frame::Layout::ToLocalUnits(texture, rect[2] - rect[0]));
     if (atlas != nullptr) {
         if (h)
             Count(coords, 0, width, AtlasRepeat(*atlas, 0));

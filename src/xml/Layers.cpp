@@ -34,6 +34,9 @@
 // size all load through the texture loader. It is then made a MaskTexture
 // (Texture::Mask::MakeMask), the state frame:CreateMaskTexture leaves.
 //
+// A <Line> is built the same way, then made a line with its `thickness`,
+// <StartAnchor> and <EndAnchor> (Texture::Line::LoadFromXml).
+//
 // <MaskedTextures> follow the 3.80.2 client's binder (0x1405AE3B0): `target`,
 // when present, wins over `childKey`; `target` is a global name; `childKey` is
 // a path from the mask's parent frame, keys joined by dots, where a `$parent`
@@ -48,6 +51,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "baselib/Ascii.h"
+#include "texture/Line.h"
 #include "texture/Mask.h"
 #include "xml/FrameLoad.h"
 
@@ -225,8 +229,9 @@ void __fastcall LoadLayers_h(void *frame, void *, const void *layers, void *stat
         for (const void *child = Xml::FirstChild(layer); child != nullptr;
              child = Xml::NextSibling(child)) {
             const bool isMask = Xml::TagIs(child, "MaskTexture");
+            const bool isLine = Xml::TagIs(child, "Line");
             void *region = nullptr;
-            if (isMask || Xml::TagIs(child, "Texture")) {
+            if (isMask || isLine || Xml::TagIs(child, "Texture")) {
                 region = addTexture(child, frame, status);
             } else if (Xml::TagIs(child, "FontString")) {
                 region = addFontString(child, frame, status);
@@ -238,6 +243,8 @@ void __fastcall LoadLayers_h(void *frame, void *, const void *layers, void *stat
             if (isMask) {
                 Texture::Mask::MakeMask(region);
                 masks.emplace_back(region, child);
+            } else if (isLine) {
+                Texture::Line::LoadFromXml(region, child, status);
             }
         }
     }

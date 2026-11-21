@@ -43,6 +43,11 @@ void ScaleRotateFontStringNode(void *node, float scale, float angle);
 // entire effect.
 bool GetRotation(void *region, float *angleRad, float *cxN, float *cyN);
 
+// The vertex offsets SetVertexOffset stored for `region`, in its local pixels
+// (+y up), by corner BL, TL, BR, TR: true when it has any. Texture::Line moves
+// its own corners by them, in the line's frame.
+bool VertexOffsets(const void *region, float offX[4], float offY[4]);
+
 // Where `region` draws the corners of the rect {left, right, top, bottom}
 // (rect space, y-down: top < bottom), BL, TL, BR, TR: rotated about its pivot,
 // then moved by its vertex offsets. The rect's own corners when it has neither.

@@ -58,6 +58,7 @@
 #include "frame/Layout.h"
 #include "frame/RegionDestruction.h"
 #include "texture/CornerStore.h"
+#include "texture/Line.h"
 #include "xml/FrameLoad.h"
 #include "xml/TypeLoad.h"
 
@@ -211,7 +212,10 @@ void UpdateAndApply(void *region, const Xf &xf) {
         g_xf[region] = xf;
     else
         g_xf.erase(region); // future stores stay axis-aligned
-    ApplyFromRect(region, xf); // identity xf restores the plain quad
+    if (Texture::Line::Is(region))
+        Texture::Line::Rebuild(region); // a line builds its own quad from the offsets
+    else
+        ApplyFromRect(region, xf); // identity xf restores the plain quad
 }
 
 // After the corner store: the engine wrote axis-aligned corners, and we
@@ -223,7 +227,7 @@ void OnCornersStored(void *region) {
     if (g_xf.empty())
         return;
     auto it = g_xf.find(region);
-    if (it == g_xf.end() || !it->second.active())
+    if (it == g_xf.end() || !it->second.active() || Texture::Line::Is(region))
         return;
     const float *base = Game::Ptr<const float>(region, Offsets::OFF_SIMPLETEXTURE_CORNERS);
     const float left = base[0];   // corner0 BL.x
@@ -867,6 +871,19 @@ bool GetRotation(void *region, float *angleRad, float *cxN, float *cyN) {
     *cxN = it->second.cxN;
     *cyN = it->second.cyN;
     return true;
+}
+
+bool VertexOffsets(const void *region, float offX[4], float offY[4]) {
+    auto it = g_xf.find(const_cast<void *>(region));
+    if (it == g_xf.end())
+        return false;
+    bool any = false;
+    for (int i = 0; i < 4; ++i) {
+        offX[i] = it->second.offX[i];
+        offY[i] = it->second.offY[i];
+        any = any || offX[i] != 0.0f || offY[i] != 0.0f;
+    }
+    return any;
 }
 
 } // namespace Texture::Transform

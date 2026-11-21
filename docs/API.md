@@ -444,6 +444,13 @@ build instructions.
   - [`texture:RemoveMaskTexture(mask)`](#textureremovemasktexturemask)
   - [`texture:GetNumMaskTextures()`](#texturegetnummasktextures)
   - [`texture:GetMaskTexture(index)`](#texturegetmasktextureindex)
+  - [`frame:CreateLine([name, drawLayer, templateName, subLevel])`](#framecreatelinename-drawlayer-templatename-sublevel)
+  - [`line:SetStartPoint(relativePoint [, relativeTo] [, offsetX, offsetY])` / `line:SetEndPoint(...)`](#linesetstartpointrelativepoint--relativeto--offsetx-offsety--linesetendpoint)
+  - [`line:GetStartPoint()` / `line:GetEndPoint()`](#linegetstartpoint--linegetendpoint)
+  - [`line:ClearAllPoints()`](#lineclearallpoints)
+  - [`line:SetThickness(thickness)` / `line:GetThickness()`](#linesetthicknessthickness--linegetthickness)
+  - [`line:SetHitRectThickness(thickness)` / `line:GetHitRectThickness()`](#linesethitrectthicknessthickness--linegethitrectthickness)
+  - [XML `<Line>`](#xml-line)
   - [`texture:SetColorTexture(colorR, colorG, colorB [, a])`](#texturesetcolortexturecolorr-colorg-colorb--a)
   - [`texture:SetAtlas(atlas [, useAtlasSize, filterMode, resetTexCoords])`](#texturesetatlasatlas--useatlassize-filtermode-resettexcoords)
   - [`texture:GetAtlas()`](#texturegetatlas)
@@ -10388,6 +10395,148 @@ Returns the mask at `index` (1 is the first one added), or `nil` when there is
 no mask at that index. `index` is required. A value that is not a number from
 `0` to `4294967295` raises an error. A fraction rounds down, and `0` returns
 `nil`.
+
+### `frame:CreateLine([name, drawLayer, templateName, subLevel])`
+
+Creates a Line and returns it. A Line is a texture that draws a straight band
+from one point to another. Each end follows the region that it is anchored to,
+so the line moves when that region moves.
+
+The first three arguments match `frame:CreateTexture`. `drawLayer` must be a
+layer name, and the default is `"ARTWORK"`. `subLevel` must be from `-8` to
+`7`, or the call raises `Sublevel must be between -8 and 7`. An argument of the
+wrong type raises
+`Usage: local line = self:CreateLine([name, drawLayer, templateName, subLevel])`.
+
+A new line has no ends, so it draws nothing. Set both ends with
+`line:SetStartPoint` and `line:SetEndPoint`. With `templateName`, each end that
+the template does not set goes to a corner of the frame. The start goes to
+`TOPLEFT` and the end goes to `BOTTOMRIGHT`.
+
+```lua
+local line = frame:CreateLine(nil, "ARTWORK")
+line:SetColorTexture(1, 0.8, 0, 1)
+line:SetThickness(2)
+line:SetStartPoint("RIGHT", iconA)
+line:SetEndPoint("LEFT", iconB)
+```
+
+Behavior notes:
+
+- `line:GetObjectType()` returns `"Line"`. `line:IsObjectType("Line")` and
+  `line:IsObjectType("Texture")` both return `true`.
+- A Line has the methods of a texture: color, file, atlas, texture
+  coordinates, tiling, vertex color and blend mode. It has no
+  `AddMaskTexture`, `RemoveMaskTexture`, `GetNumMaskTextures` or
+  `GetMaskTexture` methods.
+- The image runs along the line. Its left edge is at the start and its right
+  edge is at the end.
+- `SetHorizTile` repeats the image along the length of the line.
+  `SetVertTile` repeats it across the width.
+- `SetRotation` has no effect on a line.
+- `SetVertexOffset` moves a corner along the line and across it. `offsetX`
+  moves it along the line. A positive `offsetY` moves it to the right of the
+  direction from the start to the end.
+- `GetLeft`, `GetTop`, `GetRect` and the other edge methods give the
+  rectangle from the start to the end. This rectangle does not include the
+  width of the line.
+- On a line, `IsMouseOver` ignores its offset arguments. Refer to
+  `line:SetHitRectThickness`.
+
+CAUTION: Do not use `SetPoint`, `SetAllPoints` or `ClearPoint` on a line. Use
+`SetStartPoint` and `SetEndPoint`. These methods disconnect the line from its
+ends, and the line then stops following them.
+
+### `line:SetStartPoint(relativePoint [, relativeTo] [, offsetX, offsetY])` / `line:SetEndPoint(...)`
+
+Anchors one end of the line to a point of a region. `relativePoint` is a point
+name, for example `"TOPLEFT"` or `"CENTER"`. `relativeTo` is one of these:
+
+- a region, or the name of a region. A name can start with `$parent`.
+- `nil`. The end is then anchored to the screen.
+- left out. The end is then anchored to the parent of the line, and `offsetX`
+  and `offsetY` can be the second and third arguments.
+
+The offsets apply only when both are numbers. Otherwise, both are 0.
+
+```lua
+line:SetStartPoint("TOPLEFT", 10, -10)  -- 10, -10 from the top-left of the parent
+line:SetEndPoint("CENTER", UIParent)
+```
+
+These causes give an error with the form
+`<name>:SetStartPoint()(): <message>`:
+
+- `relativePoint` is not a string:
+  `Arguments: ("relativePoint" [, region or nil] [, offsetX, offsetY])`.
+- `relativePoint` is not a point name: `Unknown region point`.
+- No region has the name: `Couldn't find region named '<name>'`.
+- `relativeTo` is the line: `Trying to anchor to itself`.
+- `relativeTo` is anchored to the line: `<name> is dependent on this`.
+
+### `line:GetStartPoint()` / `line:GetEndPoint()`
+
+Returns the anchor of one end: `relativePoint, relativeTo, offsetX, offsetY`.
+`relativeTo` is `nil` when the end is anchored to the screen. When the end has
+no anchor, the method returns nothing.
+
+### `line:ClearAllPoints()`
+
+Removes the anchors of both ends. The line then draws nothing until you set
+both ends again.
+
+### `line:SetThickness(thickness)` / `line:GetThickness()`
+
+Sets or returns the width of the line. The default is 4. The width follows
+the scale of the frame, the same as a width from `SetWidth`. The method
+accepts 0 and negative values. `SetThickness` without a number raises
+`Usage: self:SetThickness(thickness)`.
+
+### `line:SetHitRectThickness(thickness)` / `line:GetHitRectThickness()`
+
+Sets or returns how far the mouse area extends past the width of the line. The
+default is 0.
+
+`line:IsMouseOver()` is `true` when the cursor is in a rectangle around the
+line. The width of this rectangle is the width of the line plus this value. The
+rectangle also extends past each end by half of its width. This value does not
+follow the scale of the frame.
+
+`SetHitRectThickness` without a number raises
+`Usage: self:SetHitRectThickness(thickness)`.
+
+### XML `<Line>`
+
+A `<Line>` goes in a `<Layer>`, the same as a `<Texture>`. It takes the
+attributes and children of `<Texture>`, and also these:
+
+- `thickness`: the width of the line.
+- `<StartAnchor>` and `<EndAnchor>`: the two ends.
+
+`<StartAnchor>` and `<EndAnchor>` take the attributes and children of
+`<Anchor>`: `point`, `relativePoint`, `relativeTo`, `relativeKey`, `x`, `y` and
+`<Offset>`. The end goes on `relativePoint` of the region. When `relativePoint`
+is not there, `point` gives it. With no `relativeTo` and no `relativeKey`, the
+end is anchored to the parent. Only the first `<StartAnchor>` and the first
+`<EndAnchor>` apply.
+
+```xml
+<Layer level="ARTWORK">
+  <Line name="$parentLink" thickness="2">
+    <Color r="1" g="0.8" b="0"/>
+    <StartAnchor relativePoint="RIGHT" relativeTo="$parentIconA"/>
+    <EndAnchor relativePoint="LEFT" relativeTo="$parentIconB" x="-4" y="0"/>
+  </Line>
+</Layer>
+```
+
+An end that the element and its templates do not set goes to a corner of the
+parent. The start goes to `TOPLEFT` and the end goes to `BOTTOMRIGHT`. A
+`<Line virtual="true">` is a template for `<Line inherits="...">` and for
+`frame:CreateLine`.
+
+A `relativeKey` must name an object that exists when the line loads. A frame
+loads its layers before its child frames, so a key cannot name a child frame.
 
 ### `texture:SetAtlas(atlas [, useAtlasSize, filterMode, resetTexCoords])`
 

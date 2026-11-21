@@ -5439,6 +5439,47 @@ enum Offsets {
     // frame's (VTBL_FRAME_GET_SCRIPT_METHOD / _IS_OBJECT_TYPE / _GET_OBJECT_TYPE).
     VTBL_SIMPLETEXTURE = 0x0081C718,
     VTBL_SIMPLETEXTURE_SLOTS = 13,
+    // CSimpleTexture's layout vtable, stored at +0x24 by the same constructor:
+    // 11 slots (benilla-re ui/regions "The layout vtable"), read from the exe:
+    // +0x00 OnFrameSizeChanged 0x00770670, +0x04 the deleting destructor thunk
+    // 0x007733C0, +0x08 the XML loader 0x0076FE20, +0x0C GetLayoutParent
+    // 0x0076C6E0, +0x10 SetLayoutScale 0x00768360 (CLayoutFrame's own), +0x14 /
+    // +0x18 SetWidth / SetHeight, +0x1C / +0x20 GetWidth / GetHeight 0x00770720 /
+    // 0x00770790, +0x24 0x0046FF60, +0x28 FUN_REGION_LAYOUT_FRAME_BY_NAME.
+    // Texture::Line gives a Line a copy with its own slots 0, 4, 0x1C and 0x20.
+    VTBL_SIMPLETEXTURE_LAYOUT = 0x0081C6EC,
+    VTBL_SIMPLETEXTURE_LAYOUT_SLOTS = 11,
+    // A bare CLayoutFrame: 0x74 bytes (benilla-re structs CLayoutFrame, 116).
+    // The constructor `void *__thiscall(this)` zeroes the points, rect, size
+    // and links, sets the scale +0x58 to 1.0 and the vtable 0x0081C400; the
+    // destructor `void __thiscall(this)` frees the points, clears the points
+    // of every dependent that names it (0x00768E20) and leaves the layout
+    // queue. CSimpleTop is built on one with no script object in front
+    // (0x00764160). Disassembled 0x00767680 / 0x00767720.
+    LAYOUT_FRAME_SIZE = 0x74,
+    FUN_LAYOUT_CONSTRUCTOR = 0x00767680,
+    FUN_LAYOUT_DESTRUCTOR = 0x00767720,
+    // CLayoutFrame::SetLayoutScale — `uint32_t __thiscall(layout, float scale,
+    // uint32_t force)`, ret 8: refuses 0, ignores a change below 2^-22 unless
+    // forced, else stores +0x58, invalidates the rect and lays the frame out
+    // (benilla-re ui/anchors "Size, scale and stored rectangle").
+    FUN_LAYOUT_SET_LAYOUT_SCALE = 0x00768360,
+    // CLayoutFrame::IsAnchoredTo — `int __thiscall(layout, void *target)`,
+    // ret 4: 1 when a point of `layout`, or of a frame a point names, through
+    // any chain, is relative to the layout `target` (disassembled 0x00768010).
+    FUN_LAYOUT_IS_ANCHORED_TO = 0x00768010,
+    // CLayoutFrame's own width / height getters, `float __thiscall(layout)`:
+    // the explicit size +0x50 / +0x54, the plain frame's slots +0x1C / +0x20
+    // (benilla-re ui/anchors "Size, scale and stored rectangle"). The
+    // texture's own pair (0x00770720 / 0x00770790) answers the image's size
+    // in its place when that is 0 (disassembled 0x00770720).
+    FUN_LAYOUT_GET_WIDTH = 0x00768420,
+    FUN_LAYOUT_GET_HEIGHT = 0x00768410,
+    // CScriptRegion::GetLayoutFrameByName — `void *__thiscall(layout, const char
+    // *name)`, ret 4: the layout part of the region `name` names, `$parent`
+    // expanded against the region (0x0076C5B0), or 0 (disassembled 0x0076C700).
+    // Slot +0x28 of a region's layout vtable; Script SetPoint's name lookup.
+    FUN_REGION_LAYOUT_FRAME_BY_NAME = 0x0076C700,
     FUN_FRAME_SET_FRAME_ALPHA = 0x0076A690,
     // CSimpleFrame::SetParent — `void __thiscall(frame, CSimpleFrame *parent)`,
     // `ret 4`; Script SetParent reaches it through vtable+0x14. No-op for the
