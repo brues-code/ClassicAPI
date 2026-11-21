@@ -4,10 +4,7 @@
 --   - Not ported: the fade and flash functions (UIFrameFade*, UIFrameFlash*,
 --     FADEFRAMES, FLASHFRAMES). 1.12's FrameXML defines them in UIParent.lua,
 --     and UIParent's OnUpdate drives them.
---   - Not ported: FrameUtil.RegisterFrameForEventCallbacks,
---     UnregisterFrameForEventCallbacks and RegisterFrameForEventCallbackFields
---     (no frame:RegisterEventCallback), and ApplyDefaultScale (no
---     GetDefaultScale).
+--   - Not ported: ApplyDefaultScale (no GetDefaultScale).
 --   - FrameUtil.SetParentMaintainRenderLayering does not carry the frame's
 --     window over. 1.12 has one window and no GetWindow/SetWindow.
 --   - IsScrollingMessageFrame, at the bottom, is from retail's
@@ -52,6 +49,25 @@ end
 function FrameUtil.RegisterFrameForUnitEvents(frame, events, ...)
 	for i, event in ipairs(events) do
 		frame:RegisterUnitEvent(event, ...);
+	end
+end
+
+function FrameUtil.RegisterFrameForEventCallbacks(frame, events)
+	for event, callback in pairs(events) do
+		frame:RegisterEventCallback(event, callback);
+	end
+end
+
+function FrameUtil.UnregisterFrameForEventCallbacks(frame, events)
+	for event, _callback in pairs(events) do
+		frame:UnregisterEventCallback(event);
+	end
+end
+
+function FrameUtil.RegisterFrameForEventCallbackFields(frame, events)
+	for event, callbackName in pairs(events) do
+		local callback = frame[callbackName];
+		frame:RegisterEventCallback(event, callback);
 	end
 end
 

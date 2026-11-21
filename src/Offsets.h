@@ -11207,6 +11207,14 @@ enum Offsets {
     // No `%b` for boolean — pass `%d` with 0/1; the engine has no native
     // bool concept here. No bounds check on eventID; pass valid indices.
     FUN_FIRE_EVENT = 0x00703F50,
+    // The minimap ping's MINIMAP_PING signal in 0x004EE330 (the routine a
+    // clicked ping and a party member's SMSG 0x1D5 both run): `push 0x165;
+    // call FUN_FIRE_EVENT` with "%s%f%f" (0x0084C7A8), the pinger's token
+    // (player, partyN or raidN; player for a GUID that matches none) and two
+    // doubles, x then y. Caller cleans 0x1C. Disassembled; benilla-re
+    // ui/minimap "The ping". Event::MinimapPing redirects it to run the event
+    // callbacks after the frames.
+    CALL_MINIMAP_PING_FIRE = 0x004EE48D,
     // Per-token unit-event broadcast. Fires unit event `eventCode` for every
     // unit token currently mapping to `*guid` (player / pet / target / party /
     // raid / npc / mouseover), via the engine's own GUID->token reverse map

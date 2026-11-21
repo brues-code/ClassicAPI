@@ -17,8 +17,8 @@
 namespace Event::Util {
 
 static int __fastcall Script_IsEventValid(void *L) {
-    if (Game::Lua::Type(L, 1) != Game::Lua::TYPE_STRING) {
-        Game::Lua::Error(L, "Usage: C_EventUtils.IsEventValid(eventName)");
+    if (!Game::Lua::IsString(L, 1)) {
+        Game::Lua::ArgError(L, 1, "Usage: local valid = C_EventUtils.IsEventValid(eventName)");
         return 0;
     }
     const char *needle = Game::Lua::ToString(L, 1);

@@ -50,6 +50,7 @@ Util\CombatLogUtil.lua
 Util\ItemLocation.lua
 Util\PlayerLocation.lua
 Util\EventUtil.lua
+Util\Event.lua
 Util\ContinuableContainer.lua
 Util\AsyncCallbackSystem.lua
 Util\Item.lua

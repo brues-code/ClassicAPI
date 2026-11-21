@@ -81,7 +81,7 @@ In the Frame rows, a name that starts with `:` is a method of the widget that th
 | [DeathInfo](docs/API.md#deathinfo) | `C_DeathInfo.GetSelfResurrectOptions`, `C_DeathInfo.UseSelfResurrectOption` |
 | [DurationUtil](docs/API.md#durationutil) | `C_DurationUtil.CreateDuration`, `C_DurationUtil.CreateDurationTextBinding` |
 | [EquipmentSet](docs/API.md#equipmentset) | `C_EquipmentSet.CanUseEquipmentSets`, `C_EquipmentSet.ClearIgnoredSlotsForSave`, `C_EquipmentSet.CreateEquipmentSet`, `C_EquipmentSet.DeleteEquipmentSet`, `C_EquipmentSet.EquipmentSetContainsLockedItems`, `C_EquipmentSet.GetEquipmentSetID`, `C_EquipmentSet.GetEquipmentSetIDs`, `C_EquipmentSet.GetEquipmentSetInfo`, `C_EquipmentSet.GetIgnoredSlots`, `C_EquipmentSet.GetItemIDs`, `C_EquipmentSet.GetItemLocations`, `C_EquipmentSet.GetNumEquipmentSets`, `C_EquipmentSet.IgnoreSlotForSave`, `C_EquipmentSet.IsSlotIgnoredForSave`, `C_EquipmentSet.ModifyEquipmentSet`, `C_EquipmentSet.PickupEquipmentSet`, `C_EquipmentSet.SaveEquipmentSet`, `C_EquipmentSet.UnignoreSlotForSave`, `C_EquipmentSet.UseEquipmentSet` |
-| [Events](docs/API.md#events) | `C_EventUtils.IsEventValid`, `GetFramesRegisteredForEvent` |
+| [Events](docs/API.md#events) | `C_EventUtils.IsCallbackEvent`, `C_EventUtils.IsEventValid`, `C_FunctionContainers.CreateCallback`, `GetFramesRegisteredForEvent`, `RegisterEventCallback`, `RegisterUnitEventCallback`, `UnregisterEventCallback`, `UnregisterUnitEventCallback`, `:RegisterEventCallback`, `:RegisterUnitEventCallback` |
 | [Expansion](docs/API.md#expansion) | `ClassicExpansionAtLeast`, `ClassicExpansionAtMost`, `GetAccountExpansionLevel`, `GetClassicExpansionLevel`, `GetExpansionLevel`, `GetMaxPlayerLevel` |
 | [Faction](docs/API.md#faction) | `C_Reputation.GetFactionDataByID`, `C_Reputation.GetFactionDataByIndex`, `C_Reputation.GetFactionStandings`, `C_Reputation.GetLastStandingChange`, `C_Reputation.GetWatchedFactionData`, `C_Reputation.IsFactionActive`, `C_Reputation.IsFactionActiveByID`, `C_Reputation.IsFactionInactive`, `C_Reputation.SetFactionActive`, `C_Reputation.SetFactionActiveByID`, `C_Reputation.SetFactionInactive`, `C_Reputation.SetFactionInactiveByID`, `C_Reputation.SetSelectedFaction`, `C_Reputation.SetSelectedFactionByID`, `C_Reputation.SetWatchedFactionByID`, `C_Reputation.ToggleFactionAtWar`, `C_Reputation.ToggleFactionAtWarByID`, `CollapseAllFactionHeaders`, `ExpandAllFactionHeaders`, `GetFactionIDByIndex`, `GetFactionInfoByID`, `GetFactionParentID` |
 | [Focus](docs/API.md#focus) | `ClearFocus`, `FocusUnit` |
@@ -505,7 +505,8 @@ functions but that consumer code still expects to find as globals —
 `CallbackRegistryMixin`, `EventRegistry`, `ColorMixin` + `CreateColor`,
 `Item` / `ItemLocation`, `MathUtil`(`Lerp` / `Clamp` / `CreateCounter`),
 `TableUtil` (`tCompare`, `MergeTable`, `SafePack`, etc.), `EventUtil`
-(`ContinueOnAddOnLoaded` and more), `FormattingUtil` (`GetMoneyString`,
+(`ContinueOnAddOnLoaded` and more), `Event` (`Event.RegisterCallback`,
+`Event.RegisterUnitCallback`), `FormattingUtil` (`GetMoneyString`,
 `FormatLargeNumber` and more), `FrameUtil`, `DataProvider`, `CircularBuffer`,
 `EasingUtil`, `ScriptAnimationUtil`, `Interpolator`, `EnumUtil`, `StringUtil`, `AnchorUtil`,
 `GridLayoutUtil`, the layout frame templates (`VerticalLayoutFrame`,

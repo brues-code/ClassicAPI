@@ -282,6 +282,11 @@ build instructions.
 
 - [Events](#events)
   - [`C_EventUtils.IsEventValid(eventName)`](#c_eventutilsiseventvalideventname)
+  - [`C_EventUtils.IsCallbackEvent(eventName)`](#c_eventutilsiscallbackeventeventname)
+  - [`RegisterEventCallback(eventName, callback)` and `UnregisterEventCallback(eventName, callback)`](#registereventcallbackeventname-callback-and-unregistereventcallbackeventname-callback)
+  - [`RegisterUnitEventCallback(eventName, callback, unit)` and `UnregisterUnitEventCallback(eventName, callback, unit)`](#registeruniteventcallbackeventname-callback-unit-and-unregisteruniteventcallbackeventname-callback-unit)
+  - [`frame:RegisterEventCallback(eventName, cb)` and `frame:RegisterUnitEventCallback(eventName, cb, unit)`](#frameregistereventcallbackeventname-cb-and-frameregisteruniteventcallbackeventname-cb-unit)
+  - [`C_FunctionContainers.CreateCallback(func)`](#c_functioncontainerscreatecallbackfunc)
   - [`GetFramesRegisteredForEvent(event)`](#getframesregisteredforeventevent)
   - [`PLAYER_ENTERING_WORLD` payload (`isInitialLogin`, `isReloadingUi`)](#player_entering_world-payload-isinitiallogin-isreloadingui)
   - [`CHAT_MSG_*` arguments `lineID` (`arg11`) and `guid` (`arg12`)](#chat_msg_-arguments-lineid-arg11-and-guid-arg12)
@@ -6652,13 +6657,131 @@ code behind feature detection (e.g. registering for events that exist in
 some client builds but not others).
 
 ```lua
-if C_EventUtils.IsEventValid("PLAYER_LOGIN") then ... end       -- true
-if C_EventUtils.IsEventValid("COMBAT_LOG_EVENT") then ... end   -- false (not a registered event)
+if C_EventUtils.IsEventValid("PLAYER_LOGIN") then ... end   -- true
+if C_EventUtils.IsEventValid("NOT_AN_EVENT") then ... end   -- false
 ```
 
 The result matches what `frame:RegisterEvent` accepts. This includes
 events that other loaded DLLs add. For example, on a Turtle WoW client
-with SuperWoWhook, `IsEventValid("UNIT_CASTEVENT")` returns `true`.
+with SuperWoWhook, `IsEventValid("UNIT_CASTEVENT")` returns `true`. A
+callback event that frames cannot register, such as
+`TOOLTIP_SHOW_ITEM_COMPARISON`, returns `false`. A value that is not a
+string causes an error.
+
+### `C_EventUtils.IsCallbackEvent(eventName)`
+
+Returns `true` when `eventName` is a callback event. The name is not
+case-sensitive. A value that is not a string causes an error.
+
+The callback events are `COMBAT_LOG_EVENT`, `COMBAT_LOG_EVENT_UNFILTERED`,
+`COMBAT_LOG_EVENT_INTERNAL_UNFILTERED`, `COMBAT_LOG_APPLY_FILTER_SETTINGS`,
+`COMBAT_LOG_REFILTER_ENTRIES`, `ENCOUNTER_STATE_CHANGED`, `MINIMAP_PING` and
+`TOOLTIP_SHOW_ITEM_COMPARISON`. Only these events accept the event-callback
+functions in this section. This client fires the callbacks of
+`COMBAT_LOG_EVENT`, `COMBAT_LOG_EVENT_UNFILTERED` and `MINIMAP_PING`. The
+other callback events accept callbacks, but they do not fire.
+
+```lua
+C_EventUtils.IsCallbackEvent("MINIMAP_PING")   -- true
+C_EventUtils.IsCallbackEvent("PLAYER_LOGIN")   -- false
+```
+
+### `RegisterEventCallback(eventName, callback)` and `UnregisterEventCallback(eventName, callback)`
+
+`RegisterEventCallback` calls `callback` each time the callback event
+fires. It returns `true`. Callbacks run after the `OnEvent` scripts of the
+frames that registered the same event.
+
+`callback` is a Lua function, or a container from
+[`C_FunctionContainers.CreateCallback`](#c_functioncontainerscreatecallbackfunc).
+The callback gets `nil` as its first argument, then the values of the
+event. It does not get the event name. An error in a callback goes to the
+error handler, as for a frame script.
+
+| Event | Values after the first argument |
+|-------|---------------------------------|
+| `COMBAT_LOG_EVENT`, `COMBAT_LOG_EVENT_UNFILTERED` | None. Call `CombatLogGetCurrentEventInfo()` in the callback. |
+| `MINIMAP_PING` | `unitToken, x, y` |
+
+These causes give an error:
+
+- an event that is not a callback event. The message is
+  `RegisterEventCallback Attempt to register unknown event "<name>"`.
+- a `callback` that is not a Lua function or a container
+  (`invalid callback`).
+
+`UnregisterEventCallback` removes a callback that `RegisterEventCallback`
+added. It always returns `true`.
+
+CAUTION: Each call with a plain function makes a new registration. Thus
+the same function, registered two times, runs two times. Also,
+`UnregisterEventCallback` with a plain function removes nothing. To remove
+a callback, register a container and unregister the same container.
+
+```lua
+local cb = C_FunctionContainers.CreateCallback(function(_, unit, x, y)
+    print(unit, "pinged at", x, y)
+end)
+RegisterEventCallback("MINIMAP_PING", cb)
+UnregisterEventCallback("MINIMAP_PING", cb)
+```
+
+A registration or removal that a callback makes takes effect after the
+current fire of the event. A reload removes all callbacks.
+
+### `RegisterUnitEventCallback(eventName, callback, unit)` and `UnregisterUnitEventCallback(eventName, callback, unit)`
+
+Register and remove a callback that runs only when the event fires for
+`unit`. They work as `RegisterEventCallback` and `UnregisterEventCallback`.
+Only `MINIMAP_PING` accepts a unit. `unit` is one unit token. Another event,
+or a value that is not a unit token, causes the unknown-event error.
+
+When `MINIMAP_PING` fires, the callbacks without a unit run first. Then the
+callbacks for the unit that sent the ping run. The unit is `player`, a
+`partyN` token or a `raidN` token.
+
+### `frame:RegisterEventCallback(eventName, cb)` and `frame:RegisterUnitEventCallback(eventName, cb, unit)`
+
+Register a callback that gets the frame as its first argument, then the
+values of the event. Both return `true`. The rules for `cb` and for the
+event are the same as for the global functions. The error message starts
+with the frame name, for example
+`MyFrame:RegisterEventCallback(): Attempt to register unknown event "<name>"`.
+
+Frames have no `UnregisterEventCallback` method. `frame:UnregisterEvent(eventName)`
+removes the frame callbacks for that event, and `frame:UnregisterAllEvents()`
+removes all of them. `frame:IsEventRegistered` does not include callbacks.
+A frame that is hidden also gets its callbacks.
+
+```lua
+local f = CreateFrame("Frame", "MyFrame")
+f:RegisterEventCallback("MINIMAP_PING", function(self, unit, x, y)
+    print(self:GetName(), unit, x, y)
+end)
+f:UnregisterEvent("MINIMAP_PING")   -- removes the callback
+```
+
+### `C_FunctionContainers.CreateCallback(func)`
+
+Returns a container for the Lua function `func`. You can register a
+container with the event-callback functions, and remove it later. `func`
+must be a Lua function. Another value causes the error
+`Usage: C_FunctionContainers.CreateCallback(func)`.
+
+A container has these methods:
+
+- `callback:Invoke(...)` calls `func` with the arguments. It returns no
+  value. An error in `func` goes to the error handler. After `Cancel`, it
+  does nothing.
+- `callback:Cancel()` releases `func`. A cancelled container stays
+  registered, but it does not run.
+- `callback:IsCancelled()` returns `true` after `Cancel`, and after a
+  reload.
+
+You can set your own fields on a container. You cannot replace a method:
+`callback.Cancel = nil` causes the error
+`Attempted to assign to read-only key Cancel`. Two values are equal only
+when they are the same container. You cannot call a container directly.
 
 ### `GetFramesRegisteredForEvent(event)`
 

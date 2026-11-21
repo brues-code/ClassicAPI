@@ -13,10 +13,25 @@
 
 #pragma once
 
+#include "AutoList.h"
+
 #include <string>
 #include <vector>
 
 namespace Frame::UnitEvent {
+
+// The unit-token table RegisterUnitEvent takes its units from, as the 3.80.2
+// client keeps it: true with the table's (lowercase) name for `s` when `s` is a
+// token, matched without regard to case.
+bool CanonicalUnitToken(const char *s, std::string *out);
+
+// Told after a frame's registrations shrink: `eventName` for
+// Frame::UnregisterEvent (the name as the caller gave it), nullptr for
+// Frame::UnregisterAllEvents. This module owns those two hooks (one MinHook per
+// address) and fans out. Declare a file-scope
+//   static const Frame::UnitEvent::AutoUnregister _sub{&OnUnregister};
+using UnregisterListener = void (*)(void *frame, const char *eventName);
+using AutoUnregister = AutoList<struct AutoUnregisterTag, UnregisterListener>;
 
 // The RegisterUnitEvent filter for one fire whose first argument is the
 // string `arg1`: false when `frame` registered `eventName` (the event-table

@@ -472,6 +472,9 @@ void __fastcall UnregisterEvent_h(void *frame, void *edx, const char *eventName)
     if (frame != nullptr && !g_filters.empty())
         EraseFilter(frame, eventName);
     g_origUnregisterEvent(frame, edx, eventName);
+    if (frame != nullptr && eventName != nullptr)
+        for (AutoUnregister *u = AutoUnregister::head; u != nullptr; u = u->next)
+            u->fn(frame, eventName);
 }
 
 // `__fastcall(frame)`; the Lua wrapper has dead `(0)` calls after lua_error, so
@@ -483,6 +486,9 @@ void __fastcall UnregisterAllEvents_h(void *frame, void *edx) {
     if (frame != nullptr && !g_filters.empty())
         g_filters.erase(frame);
     g_origUnregisterAll(frame, edx);
+    if (frame != nullptr)
+        for (AutoUnregister *u = AutoUnregister::head; u != nullptr; u = u->next)
+            u->fn(frame, nullptr);
 }
 
 // ---- registration -----------------------------------------------------------------
@@ -546,6 +552,10 @@ const Game::HookAutoRegister _hookUnregisterAll{
     reinterpret_cast<void **>(&g_origUnregisterAll)};
 
 } // namespace
+
+bool CanonicalUnitToken(const char *s, std::string *out) {
+    return s != nullptr && CanonicalToken(s, out);
+}
 
 void OnPlainRegister(const void *frame, const char *eventName) {
     if (!g_inUnitRegister && frame != nullptr && eventName != nullptr && !g_filters.empty())

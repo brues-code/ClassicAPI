@@ -42,6 +42,7 @@
 #include "combatlog/History.h"
 #include "damagemeter/Live.h"
 #include "Offsets.h"
+#include "event/Callback.h"
 #include "event/Custom.h"
 #include "group/Roster.h"
 #include "guid/Guid.h"
@@ -484,8 +485,11 @@ const Event::Custom::AutoReserve _unfiltered{"COMBAT_LOG_EVENT_UNFILTERED", &kUn
 void Send(const Entry &e) {
     const int filtered = _filtered.Slot();
     const int unfiltered = _unfiltered.Slot();
-    const bool toFiltered = Event::Custom::HasListeners(filtered);
-    const bool toUnfiltered = Event::Custom::HasListeners(unfiltered);
+    const bool toFiltered = Event::Custom::HasListeners(filtered) ||
+                            Event::Callback::HasCallbacks(Event::Callback::COMBAT_LOG_EVENT);
+    const bool toUnfiltered =
+        Event::Custom::HasListeners(unfiltered) ||
+        Event::Callback::HasCallbacks(Event::Callback::COMBAT_LOG_EVENT_UNFILTERED);
     if (!toFiltered && !toUnfiltered)
         return;
     void *L = Game::Lua::State();
@@ -495,10 +499,17 @@ void Send(const Entry &e) {
     const int count = Push(L, e);
     const Entry *outer = g_sending; // a handler's own action can log again
     g_sending = &e;
-    if (toFiltered && History::MatchesFilter(e))
+    // Frames first, then the event callbacks, which get only their owner and
+    // read the entry with CombatLogGetCurrentEventInfo (3.80.2 FUN_140bdcab0 /
+    // FUN_140bdcd40, the callbacks' nargs 1).
+    if (toFiltered && History::MatchesFilter(e)) {
         Event::Custom::FireValues(filtered, L, top + 1, count);
-    if (toUnfiltered)
+        Event::Callback::Fire(Event::Callback::COMBAT_LOG_EVENT, L, top + 1, 0);
+    }
+    if (toUnfiltered) {
         Event::Custom::FireValues(unfiltered, L, top + 1, count);
+        Event::Callback::Fire(Event::Callback::COMBAT_LOG_EVENT_UNFILTERED, L, top + 1, 0);
+    }
     g_sending = outer;
     Game::Lua::SetTop(L, top);
 }
