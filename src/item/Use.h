@@ -25,4 +25,18 @@ namespace Item::Use {
 // returns false.
 bool UseItem(const uint8_t *item, uint64_t targetGuid);
 
+// The at-cursor use (3.80.2's target "cursor"): cancel any placement already
+// up, use `item`, then commit its ground placement at the cursor
+// (`Spell::Placement::CommitAtCursor`), only when the engine reports the
+// item's spell began. Returns whether the spell went out at the cursor; an
+// item with no ground effect is still used, and returns false.
+bool UseAtCursor(const uint8_t *item);
+
+// The use at a named unit, as 3.80.2 makes it (a cast request with an
+// explicit target places a ground spell at that unit's position): `item`
+// goes to the unit `guid`, and a ground-target item is placed at its feet
+// (`Spell::Placement::FinishAtUnit`). A unit not in the object table, or
+// guid 0, is a use with no target.
+bool UseAtUnit(const uint8_t *item, uint64_t guid);
+
 } // namespace Item::Use

@@ -102,23 +102,14 @@ function SecureCmdUseItem(name, bag, slot, target)
 	if ( not item ) then
 		return;
 	end
-	if ( target == "cursor" ) then
-		-- `@cursor` names a world position, so a ground-target item places
-		-- its effect there. An item with no ground effect is used normally.
-		C_Item.UseAtCursor(item);
-	elseif ( target == "player" ) then
-		-- `@player` drops a ground-target item at your own feet. Only your
-		-- own position is offered this way; aiming one at another unit is
-		-- not something you can do by hand either. An item with no ground
-		-- effect is used on you, as before.
-		C_Item.UseAtUnit(item, "player");
-	else
-		-- Every form goes through one call, so a slot is aimed at `@unit`
-		-- just like a name is. `/use` also always means use: clicking a bag
-		-- slot sells the item at a merchant and repairs it under the repair
-		-- cursor, which a typed command should never do.
-		C_Item.UseItemByName(item, target);
-	end
+	-- Every form goes through one call, as 3.80.2's SecureCmdUseItem ends in
+	-- UseItemByName(name, target): `@cursor` places a ground-target item at
+	-- the cursor, a unit has it placed at its feet, and an item with no ground
+	-- effect is used on the unit. A slot is aimed at `@unit` just like a name
+	-- is. `/use` also always means use: clicking a bag slot sells the item at a
+	-- merchant and repairs it under the repair cursor, which a typed command
+	-- should never do.
+	C_Item.UseItemByName(item, target);
 end
 
 -- Cast one resolved spell at one normalized target. Split out of
@@ -135,18 +126,11 @@ local function SecureCmdPerformSpell(action, noToggle, target)
 			CastSpellByName(action);
 		end
 	elseif ( noToggle ) then
-		-- Same unit rules as below: your own feet take a ground-target
-		-- spell, another unit does not.
-		CastSpellNoToggle(action, target, target == "player");
-	elseif ( target == "player" ) then
-		-- A ground-target spell lands at your own feet; a normal one is
-		-- cast on you.
-		C_Spell.CastAtUnit(action, target, true);
+		CastSpellNoToggle(action, target, true);
 	else
-		-- Any other unit has the spell cast on it, but a ground-target one
-		-- is not placed there: that is aim you do not have by hand. The
-		-- reticle comes up as usual.
-		C_Spell.CastAtUnit(action, target, false);
+		-- As 3.80.2's cast request with an explicit unit: a normal spell is
+		-- cast on the unit, a ground-target one is placed at its position.
+		C_Spell.CastAtUnit(action, target, true);
 	end
 end
 

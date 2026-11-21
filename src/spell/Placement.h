@@ -38,11 +38,29 @@ void Stop();
 
 // Commits the in-flight ground placement at the cursor's world position, the
 // way the engine's own left click on the ground does (`0x492580`: pick state
-// 1 only, bound through `0x6e60f0`). Returns true when the cast went out.
-// Cancels the placement and returns false when it is not a ground one, when
-// the cursor is not on terrain, or when the spell still wants another target
-// after the bind. No placement active → false with nothing cancelled.
+// 1 only, bound through `0x6e60f0`). A ground placement's pick ignores units
+// and UI frames. Returns true when the cast went out. As 3.80.2's at-cursor
+// cast does:
+//   - nothing under the cursor cancels the cast with SPELL_FAILED_NOT_HERE
+//     ("You can't use that here");
+//   - with spellClampingEnable, a point past the spell's max range is pulled
+//     back to ground within it, and one nearer than its min range (but not
+//     nearer than spellClampingMinRange, 1.75 yd when 0) is pushed out to it.
+// Cancels the placement and returns false when it is not a ground one, or
+// when the spell still wants another target after the bind. No placement
+// active → false with nothing cancelled.
 bool CommitAtCursor();
+
+// True for the target "cursor", any case: 3.80.2's cast and use functions
+// take it as "at the cursor's ground point", not as a unit.
+bool IsCursorTarget(const char *target);
+
+// The at-cursor cast: cancel any placement already up (so the one committed
+// is this call's), dispatch the spell, then `CommitAtCursor`. A spell that is
+// not ground-targeted is cast as without a target. Returns whether the spell
+// was dispatched (in the player's or pet's spellbook).
+bool CastAtCursor(int spellID);
+bool CastAtCursorByName(const char *name);
 
 // `CommitAtCursor` with explicit world coords (x, y, z) in place of the
 // cursor raycast. Same guards and the same return.

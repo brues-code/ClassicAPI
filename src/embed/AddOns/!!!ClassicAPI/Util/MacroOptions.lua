@@ -296,8 +296,19 @@ CONDITIONS.equipped = function(target, args)
     return false;
 end
 
-CONDITIONS.cursor = function()
-    return GetCursorInfo() ~= nil;
+-- 3.80.2's [cursor] (0x141ab2e10): true for these cursor kinds only, and with
+-- arguments only when one names the kind (`[cursor:item/spell]`).
+local CURSOR_KINDS = { item = true, money = true, spell = true, merchant = true,
+                       macro = true, equipmentset = true };
+
+CONDITIONS.cursor = function(target, args)
+    local kind = GetCursorInfo();
+    if not kind or not CURSOR_KINDS[kind] then return false; end
+    if not args then return true; end
+    for i = 1, args.n do
+        if strlower(args[i]) == kind then return true; end
+    end
+    return false;
 end
 
 -- ClassicAPI extension (not a 3.3.5 conditional). [known:spellID] uses

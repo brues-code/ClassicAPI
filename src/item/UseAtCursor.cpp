@@ -52,9 +52,7 @@ int __fastcall Script_C_Item_UseAtCursor(void *L) {
         return 1;
     }
 
-    Spell::Placement::Stop();
-    const bool used = Item::Use::UseItem(item, 0);
-    Game::Lua::PushBool(L, used && Spell::Placement::CommitAtCursor());
+    Game::Lua::PushBool(L, Item::Use::UseAtCursor(item));
     return 1;
 }
 

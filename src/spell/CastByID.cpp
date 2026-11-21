@@ -19,12 +19,15 @@
 // then the pet's, and hands it to the cast path with the target's GUID. Here
 // that is `Spell::Placement::DispatchSpellCast`: the same two-book lookup by
 // exact ID into the engine's cast dispatcher, which substitutes the GUID where
-// it would the current selection. A ground-target spell enters placement as
-// it does when cast by hand. Like 4.3.4, a target token that names no unit
-// and a spell neither book holds return nothing; a dispatched cast returns
-// true.
+// it would the current selection. With no target a ground-target spell
+// enters placement as it does when cast by hand; with a unit it is placed at
+// that unit's position (`Spell::AtUnit`), and with "cursor" at the cursor, as
+// 3.80.2's cast request does for an explicit target. Like 4.3.4, a target
+// token that names no unit and a spell neither book holds return nothing; a
+// dispatched cast returns true.
 
 #include "Game.h"
+#include "spell/AtUnit.h"
 #include "spell/MacroPrimarySpell.h"
 #include "spell/Placement.h"
 #include "unit/Identity.h"
@@ -44,17 +47,29 @@ int __fastcall Script_CastSpellByID(void *L) {
     if (spellID == 0)
         return 0;
 
-    uint64_t targetGuid = 0;
     if (Game::Lua::IsString(L, 2)) {
         const char *token = Game::Lua::ToString(L, 2);
-        if (token != nullptr && *token != '\0') {
-            targetGuid = Unit::Identity::GuidForToken(token);
-            if (targetGuid == 0)
+        if (Spell::Placement::IsCursorTarget(token)) {
+            // 3.80.2: "cursor" names no unit; a ground spell lands at the
+            // cursor's ground point.
+            if (!Spell::Placement::CastAtCursor(spellID))
                 return 0;
+            Game::Lua::PushBool(L, true);
+            return 1;
+        }
+        if (token != nullptr && *token != '\0') {
+            if (Unit::Identity::GuidForToken(token) == 0)
+                return 0;
+            // 3.80.2: a cast with an explicit unit places a ground spell at
+            // that unit's position.
+            if (!Spell::AtUnit::CastByID(spellID, token))
+                return 0;
+            Game::Lua::PushBool(L, true);
+            return 1;
         }
     }
 
-    if (!Spell::Placement::DispatchSpellCast(spellID, targetGuid))
+    if (!Spell::Placement::DispatchSpellCast(spellID))
         return 0;
     Game::Lua::PushBool(L, true);
     return 1;
@@ -63,7 +78,8 @@ int __fastcall Script_CastSpellByID(void *L) {
 const Game::Doc::Field kArgs[] = {
     Game::Doc::Req("spellID", "number", "The exact spell to cast, rank included."),
     Game::Doc::Opt("target", "UnitToken", nullptr,
-                   "The unit to cast at; without it the spell goes to your current target."),
+                   "The unit to cast at, or \"cursor\" for a ground spell at the cursor; without "
+                   "it the spell goes to your current target."),
 };
 const Game::Doc::Field kRets[] = {
     Game::Doc::Opt("cast", "bool", nullptr,

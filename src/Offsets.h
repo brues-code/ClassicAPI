@@ -3776,6 +3776,9 @@ enum Offsets {
     // Vanilla SpellCastResult codes (vmangos SpellDefines.h order, matching
     // the rung reasons above).
     SPELL_FAILED_NOT_SHAPESHIFT = 0x3D,
+    // "You can't use that here" (benilla-re tables/spell_failed.tsv: the
+    // reason byte whose GlobalStrings key 0x6e23e0 returns).
+    SPELL_FAILED_NOT_HERE = 0x35,
     SPELL_FAILED_ONLY_SHAPESHIFT = 0x56,
     // CGPlayer_C::SendStandStateChange — `void __thiscall(void *player,
     // uint32_t state)`, ret 4. Sends CMSG_STANDSTATECHANGE and applies the
@@ -9711,6 +9714,12 @@ enum Offsets {
     //   - `+0x360..+0x368` (3 floats) hit world position (when type == 1)
     OFF_CLICK_INFO_TYPE = 0x350,
     OFF_CLICK_INFO_COORDS = 0x360,
+    // The pick ray of the last refresh, world space (3 floats each): the
+    // near and far points `0x481190` stores at its record (`clickInfo +
+    // 0x358`) `+0x18` and `+0x24` (`0x481321`, `0x481335`) from
+    // ScreenPointToRay (`0x4813b0`). Disassembled.
+    OFF_CLICK_INFO_RAY_NEAR = 0x370,
+    OFF_CLICK_INFO_RAY_FAR = 0x37C,
 
     // `FUN_00481F00(void *clickInfo)` — refreshes the cursor's "what
     // am I pointed at?" state on demand. Internally reads cursor
@@ -9723,6 +9732,17 @@ enum Offsets {
     // `[clickInfo+0x360..+0x368]`. Safe to call from arbitrary code
     // as long as the player is in-world.
     FUN_REFRESH_CURSOR_RAYCAST = 0x00481F00,
+
+    // The world segment trace body (`TraceWorldSegment` 0x672170 forwards to
+    // it): `uint8_t __fastcall(const float *start, const float *end, float
+    // *hit, float *t, uint32_t mask)`, `ret 0xc`. Map objects under any of
+    // 0xf000ff, terrain under 0xf00f0f; a hit lowers `*t` (pass 1.0), writes
+    // the point and returns 1. Disassembled (0x69bff0..0x69c028) against
+    // benilla-re terrain/trace#segment-trace.
+    FUN_TRACE_WORLD_SEGMENT = 0x0069BFF0,
+    // The mask the corpse ground snap passes (0x5d69eb): terrain and map
+    // objects, the ground a unit stands on.
+    TRACE_MASK_GROUND = 0x100111,
 
     // `Script_CastSpellByName` — engine's Lua wrapper for the
     // `CastSpellByName(name [, onSelf])` global. `int __fastcall(void *L)`

@@ -11728,7 +11728,11 @@ modifier/button-qualified, same precedence as `type`):
 | `menu` / `togglemenu` | — | Pops the standard unit dropdown at the cursor (whisper / inspect / trade / invite / …, the same menu `PlayerFrame` / `TargetFrame` / `PartyMemberFrame` show). |
 
 Every verb that acts on a unit uses the frame's `unit` attribute (resolved with
-the same modifier/button precedence).
+the same modifier/button precedence). For the `spell` and `item` verbs, a
+ground-target spell or item is placed at the position of the `unit`, and the
+`unit` attribute `"cursor"` places it at the cursor, as
+[`C_Spell.CastAtCursor`](#c_spellcastatcursorspellidorname) and
+[`C_Item.UseAtCursor`](#c_itemuseatcursoritem) do.
 
 **One verb per click.** Setting a `type*` attribute installs a **chained
 `OnClick` on that frame only** (nothing global). When a verb resolves, our
@@ -11939,7 +11943,7 @@ SecureCmdOptionParse("[nocombat] rest")      -- "rest" out of combat, else nil
 | `pet` / `pet:name` | you have a pet / a pet with that name or family |
 | `channeling` / `channeling:spell` | you are channeling / channeling that spell |
 | `equipped:type` | an item of that type is equipped, as [`IsEquippedItemType`](#isequippeditemtypetype) tells (`worn` is the same) |
-| `cursor` | the cursor holds an item, a spell, or money |
+| `cursor` / `cursor:kind` | the cursor holds an item, money, a spell, a merchant item, a macro or an equipment set / the cursor holds that kind: `item`, `money`, `spell`, `merchant`, `macro` or `equipmentset` |
 | `spec` / `spec:1` | always true (there is one spec) |
 | `known:spellID` / `known:name` | you know that spell |
 
@@ -15946,15 +15950,18 @@ C_Item.UseAtCursor({ bagID = 0, slotIndex = 1 })
 Returns `true` when the effect of the item lands at the cursor. Returns
 `false` when:
 
-- the cursor is not on the ground, for example over a frame or off the screen
+- nothing is under the cursor, for example the sky
 - the item has no ground target
 - the item needs another target in addition to the ground position
 - you do not carry the item, or the argument is not an item
 - the game refuses the use, for example while you are shapeshifted
 
-If the cursor is not on the ground, the reticle is cancelled and the item is
-not used, so an off-screen call does not waste a grenade. An item with no
-ground target is used normally, on your current target.
+The position is the ground under the mouse, also behind a unit or a frame.
+When nothing is under the cursor, the item is not used and you get the error
+"You can't use that here", so such a call does not waste a grenade. An item
+with no ground target is used normally, on your current target. Out-of-range
+and too-near positions move as for
+[`C_Spell.CastAtCursor`](#c_spellcastatcursorspellidorname).
 
 A reticle that is already up when you call this function is cancelled first.
 The function only places the reticle that its own call opens.
@@ -16036,7 +16043,11 @@ target for items that fire a spell (scrolls, traps, on-use targeted
 effects). For self-use items (hearthstone, potions, food) the `unit`
 argument has no effect, so passing one is harmless. Unrecognized
 strings are treated as "no target" rather than raising, matching the
-silently-no-op contract of `item`.
+silently-no-op contract of `item`. An item with a ground effect is placed at
+the position of `unit`, as with
+[`C_Item.UseAtUnit`](#c_itemuseatunititem-unit--placegroundspell). `unit` can
+also be `"cursor"`: an item with a ground effect then places it at the cursor,
+as with [`C_Item.UseAtCursor`](#c_itemuseatcursoritem).
 
 ```lua
 C_Item.UseItemByName("Hearthstone")                       -- hearth home
@@ -18315,16 +18326,13 @@ mouse, through
 [`C_Item.UseAtCursor`](#c_itemuseatcursoritem). A spell or item with no
 ground effect is cast or used normally.
 
-`[@player]` drops a ground-target spell or item at your own feet. A spell or
-item with no ground effect is cast or used on you.
-
-Your own feet and the cursor are the only two positions a ground-target
-spell or item can be aimed at this way. `[@target]` and the other units cast
-the spell on that unit when it takes a unit, and otherwise bring up the
-reticle for you to click, which is aim you already had.
+`[@unit]` places a ground-target spell or item at the position of that unit,
+for example `[@player]` at your own feet or `[@mouseover]` at the unit under
+your mouse. A spell or item with no ground effect is cast or used on the unit.
 
 ```
 /cast [@cursor] Blizzard
+/cast [@mouseover,exists][@cursor] Blizzard
 /use [@cursor] item:4390
 /use [@player] item:4390
 ```
@@ -25902,9 +25910,13 @@ The spell must be in your spellbook or in the spellbook of your pet.
   current target does not change.
 - Without `target`, the spell goes to your current target, as with
   `CastSpellByName`.
-- A ground-target spell shows the targeting circle for you to click.
-  To place it at a unit, use
+- `target` can also be `"cursor"`. A ground-target spell then lands at the
+  cursor, as with [`C_Spell.CastAtCursor`](#c_spellcastatcursorspellidorname).
+  Another spell is cast as without `target`.
+- With a unit `target`, a ground-target spell is placed at the position of
+  that unit, as with
   [`C_Spell.CastAtUnit`](#c_spellcastatunitspellidorname-unit--placegroundspell).
+  Without `target`, it shows the targeting circle for you to click.
 - A string that is not a unit token causes an "Unknown unit" error.
 
 | Case | Return |
@@ -26038,14 +26050,23 @@ you know.
 
 Returns `true` when the spell lands at the cursor. Returns `false` when:
 
-- the cursor is not on the ground, for example over a frame or off the screen
+- nothing is under the cursor, for example the sky
 - the spell has no ground target
 - the spell needs another target in addition to the ground position
 - the spell is not in your spellbook
 
-If the cursor is not on the ground, the reticle is cancelled and the spell is
-not cast. A spell with no ground target is cast normally, on your current
+The position is the ground under the mouse. A unit or a frame under the mouse
+does not stop it: the spell lands on the ground behind them. When nothing is
+under the cursor, the spell is not cast and you get the error "You can't use
+that here". A spell with no ground target is cast normally, on your current
 target.
+
+When the position is out of range, the spell lands at the farthest ground in
+range on the line from you toward the cursor. When the position is nearer
+than the spell's minimum range, the spell lands at that minimum range. The
+cvar `spellClampingEnable` (default `1`) turns this off with `0`. The cvar
+`spellClampingMinRange` (default `0`, which means 1.75 yards) sets the
+distance under which a position is not pushed out.
 
 A reticle that is already up when you call this function is cancelled first.
 The function only places the reticle that its own call opens.

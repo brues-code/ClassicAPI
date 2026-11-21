@@ -295,7 +295,12 @@ void UseItemString(const char *item, const char *unit) {
     Item::Location::ByGUIDResult found;
     if (!Item::Location::FindItemStringArg(item, &found) || found.item == nullptr)
         return;
-    Item::Use::UseItem(found.item, unit ? Unit::Identity::GuidForToken(unit) : 0);
+    // 3.80.2's item verb ends in UseItemByName(name, unit): "cursor" places a
+    // ground effect at the cursor.
+    if (Spell::Placement::IsCursorTarget(unit))
+        Item::Use::UseAtCursor(found.item);
+    else
+        Item::Use::UseAtUnit(found.item, unit ? Unit::Identity::GuidForToken(unit) : 0);
 }
 
 // ---- mouse-focus poll (drives the native mouseover slot) -------------------
@@ -661,7 +666,11 @@ bool DispatchVerb(void *L, int fi, const char *prefix, const char *suffix,
         // the caller asked for.
         int spellID;
         if (ReadModAttrInt(L, fi, prefix, "spell", suffix, &spellID)) {
-            if (unit)
+            // 3.80.2's spell verb ends in CastSpellByID / CastSpellByName with
+            // the unit, where "cursor" casts at the cursor's ground point.
+            if (Spell::Placement::IsCursorTarget(unit))
+                Spell::Placement::CastAtCursor(spellID);
+            else if (unit)
                 Spell::AtUnit::CastByID(spellID, unit);
             else
                 Spell::Placement::DispatchSpellCast(spellID);
@@ -675,7 +684,9 @@ bool DispatchVerb(void *L, int fi, const char *prefix, const char *suffix,
         char spell[128];
         if (!ReadModAttr(L, fi, prefix, "spell", suffix, spell, sizeof spell))
             return false;
-        if (unit)
+        if (Spell::Placement::IsCursorTarget(unit))
+            Spell::Placement::CastAtCursorByName(spell);
+        else if (unit)
             Spell::AtUnit::CastByName(spell, unit, /*placeGroundSpell*/ true);
         else
             Game::Lua::CallGlobalString(L, "CastSpellByName", spell);
