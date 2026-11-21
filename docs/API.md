@@ -356,6 +356,7 @@ build instructions.
   - [`UNIT_SPELL_HASTE` event](#unit_spell_haste-event)
   - [`UNIT_TARGET` event](#unit_target-event)
   - [`UNIT_TARGETABLE_CHANGED` event](#unit_targetable_changed-event)
+  - [`UNIT_VISIBILITY_CHANGED` event](#unit_visibility_changed-event)
   - [`UPDATE_CHAT_COLOR_NAME_BY_CLASS` event](#update_chat_color_name_by_class-event)
   - [`UPDATE_MOUSEOVER_UNIT` event (loss-fire fix)](#update_mouseover_unit-event-loss-fire-fix)
   - [`UPDATE_SHAPESHIFT_FORM` event](#update_shapeshift_form-event)
@@ -529,10 +530,10 @@ build instructions.
   - [`smf:AddOnDisplayRefreshedCallback(callback)`](#smfaddondisplayrefreshedcallbackcallback)
   - [`frame:IsEventRegistered(event)`](#frameiseventregisteredevent)
   - [`frame:RegisterUnitEvent(event, ...units)`](#frameregisteruniteventevent-units)
-  - [`frame:GetEffectiveAlpha()`](#framegeteffectivealpha)
   - [`frame:RegisterGUIDEvent(event, ...guids)`](#frameregisterguideventevent-guids)
   - [`frame:UnregisterGUIDEvent(event)`](#frameunregisterguideventevent)
   - [`frame:IsGUIDEventRegistered(event)`](#frameisguideventregisteredevent)
+  - [`frame:GetEffectiveAlpha()`](#framegeteffectivealpha)
   - [Frame alpha multiplies into child frames](#frame-alpha-multiplies-into-child-frames)
   - [`OnSizeChanged` sizes are in frame units](#onsizechanged-sizes-are-in-frame-units)
   - [`frame:SetAttribute` / `SetAttributeNoHandler` / `ClearAttribute` / `GetAttribute` (+ unit-frame mouseover)](#framesetattributename-value--framesetattributenohandlername-value--frameclearattributename--framegetattribute)
@@ -8568,6 +8569,41 @@ When a unit stops being selectable, the game first removes it as your
 target, your focus, and your last target. If it is a soft target, the soft
 targets are selected again. These changes occur before the event fires.
 
+### `UNIT_VISIBILITY_CHANGED` event
+
+Fires when a unit comes into the view of the client, or leaves it. This is
+a ClassicAPI extension.
+
+```
+UNIT_VISIBILITY_CHANGED: unitTarget, isVisible
+```
+
+- **`unitTarget`** (string) — the unit token, or the GUID for a frame that
+  used [`RegisterGUIDEvent`](#frameregisterguideventevent-guids). A unit that
+  has more than one token gets one event for each token.
+- **`isVisible`** (boolean) — `true` when the unit came into view, `false`
+  when it left. This is the value that `UnitIsVisible` returns when the event
+  fires.
+
+The event fires at the end of the frame, one time per unit. If a unit leaves
+and comes back in the same frame, no event fires.
+
+When a unit leaves, the event fires only for the tokens that still name it.
+For example, `partyN` names a group member out of view, but `target` stops
+naming a unit that is not in your group. To follow such a unit, register
+its GUID.
+
+A loading screen fires no event. After a loading screen, read
+`UnitIsVisible` in your `PLAYER_ENTERING_WORLD` handler.
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterGUIDEvent("UNIT_VISIBILITY_CHANGED", UnitGUID("party1target"))
+f:SetScript("OnEvent", function(self, event, guid, isVisible)
+    print(guid, isVisible and "came into view" or "left view")
+end)
+```
+
 ### `UPDATE_MOUSEOVER_UNIT` event (loss-fire fix)
 
 The stock `UPDATE_MOUSEOVER_UNIT` fires when a mouseover unit is
@@ -11975,42 +12011,6 @@ Behavior notes:
 `FrameUtil.RegisterFrameForUnitEvents(frame, events, ...units)` calls
 `RegisterUnitEvent` for each event in the `events` table.
 
-### `frame:GetEffectiveAlpha()`
-
-Returns the frame's **effective** alpha: the alpha that the frame is drawn
-with. This is its own `GetAlpha()` multiplied by the effective alpha of its
-parent, so a fade on `UIParent` fades all of its children. Alpha is stored
-in steps of 1/255: `SetAlpha(0.5)` stores `127/255 ≈ 0.498`, and each
-multiplication rounds down to a step.
-
-```lua
-UIParent:GetEffectiveAlpha()   -- 1
--- with UIParent at 0.5 and Minimap's own alpha 1:
-Minimap:GetEffectiveAlpha()    -- ~0.498 (0.5 truncates to 127/255)
-```
-
-### `OnSizeChanged` sizes are in frame units
-
-An `OnSizeChanged` handler receives the frame's new width and height in the
-units that `GetUnscaledWidth()` and `GetUnscaledHeight()` return. A frame of size 20 x 10
-gets `(20, 10)`. `arg1` and `arg2` hold the same values.
-
-```lua
-frame:SetScript("OnSizeChanged", function(self, w, h)
-    label:SetWidth(w - 8)
-end)
-```
-
-### Frame alpha multiplies into child frames
-
-A frame is drawn at its own alpha multiplied by the drawn alpha of its
-parent. Thus a child frame is never more visible than its parent.
-
-- Each frame keeps its own alpha. When the alpha of a parent changes, the
-  alpha of its children does not change.
-- A frame that you create or move into a transparent frame is also
-  transparent.
-- A `<Frame alpha="0">` hides the frames in its `<Frames>` element.
 ### `frame:RegisterGUIDEvent(event, ...guids)`
 
 Registers the frame for a unit event of the units with these GUIDs. A token
@@ -12070,6 +12070,42 @@ f:UnregisterGUIDEvent("UNIT_AURA")
 f:IsGUIDEventRegistered("UNIT_AURA")    -- false, nil
 ```
 
+### `frame:GetEffectiveAlpha()`
+
+Returns the frame's **effective** alpha: the alpha that the frame is drawn
+with. This is its own `GetAlpha()` multiplied by the effective alpha of its
+parent, so a fade on `UIParent` fades all of its children. Alpha is stored
+in steps of 1/255: `SetAlpha(0.5)` stores `127/255 ≈ 0.498`, and each
+multiplication rounds down to a step.
+
+```lua
+UIParent:GetEffectiveAlpha()   -- 1
+-- with UIParent at 0.5 and Minimap's own alpha 1:
+Minimap:GetEffectiveAlpha()    -- ~0.498 (0.5 truncates to 127/255)
+```
+
+### `OnSizeChanged` sizes are in frame units
+
+An `OnSizeChanged` handler receives the frame's new width and height in the
+units that `GetUnscaledWidth()` and `GetUnscaledHeight()` return. A frame of size 20 x 10
+gets `(20, 10)`. `arg1` and `arg2` hold the same values.
+
+```lua
+frame:SetScript("OnSizeChanged", function(self, w, h)
+    label:SetWidth(w - 8)
+end)
+```
+
+### Frame alpha multiplies into child frames
+
+A frame is drawn at its own alpha multiplied by the drawn alpha of its
+parent. Thus a child frame is never more visible than its parent.
+
+- Each frame keeps its own alpha. When the alpha of a parent changes, the
+  alpha of its children does not change.
+- A frame that you create or move into a transparent frame is also
+  transparent.
+- A `<Frame alpha="0">` hides the frames in its `<Frames>` element.
 - `GetAlpha()` returns the frame's own alpha. `GetEffectiveAlpha()`
   returns the drawn alpha.
 - The 3D model of a Model frame uses the drawn alpha of the frame.

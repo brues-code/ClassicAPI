@@ -2371,8 +2371,20 @@ enum Offsets {
     // object table: ClearTarget(guid) unless FUN_UNIT_IS_GROUP_MEMBER_OR_PET,
     // then UnregisterScript(0xFFFFFFFF). 4.3.4's version (via BreakTarget)
     // also drops the focus, and also when the unit is dueling you; 1.12's
-    // has no duel exception.
+    // has no duel exception. Vtable slot 1 (benilla-re's CGUnit_C::Release);
+    // CGPlayer_C's slot 1 (0x005E9AA0) runs it after its own release. Plain
+    // `ret` (0x005FBD51).
     FUN_UNIT_DISABLE = 0x005FBB60,
+    // CGUnit_C::Reactivate — `void __thiscall(unit)`, plain `ret` (0x005FBDF7),
+    // vtable slot 2: a released unit coming back into the object table.
+    // CGPlayer_C's slot 2 (0x005E9BC0) runs it (benilla-re
+    // objectlayer/units#lifecycle, players#release-and-reactivation).
+    FUN_UNIT_REACTIVATE = 0x005FBD60,
+    // CGUnit_C::PostInit — `void __thiscall(unit, uint32_t time, uint32_t a,
+    // uint32_t spawned)`, `ret 0xC` (0x005FBB4E): sets a new unit up once it is
+    // created. The object manager's create path (0x00465DD7) and the player's
+    // (0x005DEC09) call it (benilla-re objectlayer/units#lifecycle).
+    FUN_UNIT_POST_INIT = 0x005FB880,
     // ClearTarget — `void __fastcall(int sendPacket /*ecx*/, int /*edx*/,
     // uint32_t guidLo, uint32_t guidHi)`, RET 8: clears the target when it is
     // that GUID (or any target for 0), UnregisterScript(0x1000) on the unit,
