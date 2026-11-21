@@ -26,17 +26,30 @@ build instructions.
   - [`Enum.ActionBarSet`](#enumactionbarset)
 
 - [AddOns](#addons)
-  - [`C_AddOns.GetAddOnName(indexOrName)`](#c_addonsgetaddonnameindexorname)
-  - [`C_AddOns.GetAddOnTitle(indexOrName)`](#c_addonsgetaddontitleindexorname)
-  - [`C_AddOns.GetAddOnNotes(indexOrName)`](#c_addonsgetaddonnotesindexorname)
-  - [`C_AddOns.GetAddOnMetadata(indexOrName, variable)`](#c_addonsgetaddonmetadataindexorname-variable)
-  - [`C_AddOns.IsAddOnLoadable(indexOrName)`](#c_addonsisaddonloadableindexorname)
-  - [`C_AddOns.IsAddOnLoaded(indexOrName)`](#c_addonsisaddonloadedindexorname)
-  - [`C_AddOns.LoadAddOn(indexOrName)`](#c_addonsloadaddonindexorname)
-  - [`C_AddOns.GetAddOnSecurity(indexOrName)`](#c_addonsgetaddonsecurityindexorname)
-  - [`C_AddOns.DoesAddOnExist(indexOrName)`](#c_addonsdoesaddonexistindexorname)
-  - [`C_AddOns.GetAddOnOptionalDependencies(indexOrName)`](#c_addonsgetaddonoptionaldependenciesindexorname)
-  - [`C_AddOns.GetAddOnInterfaceVersion(indexOrName)`](#c_addonsgetaddoninterfaceversionindexorname)
+  - [`C_AddOns.GetNumAddOns()`](#c_addonsgetnumaddons)
+  - [`C_AddOns.GetAddOnInfo(name)`](#c_addonsgetaddoninfoname)
+  - [`C_AddOns.GetAddOnName(name)`](#c_addonsgetaddonnamename)
+  - [`C_AddOns.GetAddOnTitle(name)`](#c_addonsgetaddontitlename)
+  - [`C_AddOns.GetAddOnNotes(name)`](#c_addonsgetaddonnotesname)
+  - [`C_AddOns.GetAddOnMetadata(name, variable)`](#c_addonsgetaddonmetadataname-variable)
+  - [`C_AddOns.GetAddOnEnableState(name [, character])`](#c_addonsgetaddonenablestatename--character)
+  - [`C_AddOns.EnableAddOn(name [, character])`](#c_addonsenableaddonname--character)
+  - [`C_AddOns.DisableAddOn(name [, character])`](#c_addonsdisableaddonname--character)
+  - [`C_AddOns.EnableAllAddOns([character])` and `C_AddOns.DisableAllAddOns([character])`](#c_addonsenablealladdonscharacter-and-c_addonsdisablealladdonscharacter)
+  - [`C_AddOns.SaveAddOns()`](#c_addonssaveaddons)
+  - [`C_AddOns.ResetAddOns()` and `C_AddOns.ResetDisabledAddOns()`](#c_addonsresetaddons-and-c_addonsresetdisabledaddons)
+  - [`C_AddOns.IsAddOnDefaultEnabled(name)`](#c_addonsisaddondefaultenabledname)
+  - [`C_AddOns.IsAddOnLoadOnDemand(name)`](#c_addonsisaddonloadondemandname)
+  - [`C_AddOns.IsAddOnLoadable(name [, character, demandLoaded])`](#c_addonsisaddonloadablename--character-demandloaded)
+  - [`C_AddOns.IsAddOnLoaded(name)`](#c_addonsisaddonloadedname)
+  - [`C_AddOns.LoadAddOn(name)`](#c_addonsloadaddonname)
+  - [`C_AddOns.DoesAddOnHaveLoadError(name)`](#c_addonsdoesaddonhaveloaderrorname)
+  - [`C_AddOns.GetAddOnSecurity(name)`](#c_addonsgetaddonsecurityname)
+  - [`C_AddOns.DoesAddOnExist(name)`](#c_addonsdoesaddonexistname)
+  - [`C_AddOns.GetAddOnDependencies(name)` and `C_AddOns.GetAddOnOptionalDependencies(name)`](#c_addonsgetaddondependenciesname-and-c_addonsgetaddonoptionaldependenciesname)
+  - [`C_AddOns.GetAddOnInterfaceVersion(name)`](#c_addonsgetaddoninterfaceversionname)
+  - [`C_AddOns.IsAddonVersionCheckEnabled()` and `C_AddOns.SetAddonVersionCheck(enabled)`](#c_addonsisaddonversioncheckenabled-and-c_addonssetaddonversioncheckenabled)
+  - [`C_AddOns.GetScriptsDisallowedForBeta()`](#c_addonsgetscriptsdisallowedforbeta)
   - [`C_AddOns.GetAddOnLocalTable(name)`](#c_addonsgetaddonlocaltablename)
   - [Conditional and multi-flavor TOC loading](#conditional-and-multi-flavor-toc-loading)
   - [Other TOC metadata keys](#other-toc-metadata-keys)
@@ -273,6 +286,7 @@ build instructions.
   - [`PLAYER_ENTERING_WORLD` payload (`isInitialLogin`, `isReloadingUi`)](#player_entering_world-payload-isinitiallogin-isreloadingui)
   - [`CHAT_MSG_*` arguments `lineID` (`arg11`) and `guid` (`arg12`)](#chat_msg_-arguments-lineid-arg11-and-guid-arg12)
   - [`PLAYER_TOTEM_UPDATE` event](#player_totem_update-event)
+  - [`ADDONS_UNLOADING` event](#addons_unloading-event)
   - [`BAG_UPDATE_DELAYED` event](#bag_update_delayed-event)
   - [`PLAYER_EQUIPMENT_CHANGED` event](#player_equipment_changed-event)
   - [`UPDATE_INVENTORY_DURABILITY` event](#update_inventory_durability-event)
@@ -1750,51 +1764,82 @@ set.
 
 ## AddOns
 
-`C_AddOns.*` getters that splat the
-`GetAddOnInfo(arg)` 7-tuple `(name, title, notes, enabled,
-loadable, reason, security)` into single-field accessors, plus a
-getter for the addon's optional dependencies.
+The `C_AddOns` functions read and change the addons of the client.
 
-All accept either a 1-based index (`1..GetNumAddOns()`) or an
-addon directory name string.
+The functions that take `name` accept a 1-based index
+(`1..C_AddOns.GetNumAddOns()`) or an addon folder name. A name is not
+case-sensitive. An unknown name is not an error: each function then
+returns the value that its section gives.
 
-### `C_AddOns.GetAddOnName(indexOrName)`
+These arguments cause an error that contains the usage line of the
+function:
 
-Returns the addon's directory name as the engine sees it (the
-folder name on disk). For numeric input, returns the engine's
-canonical casing; for string input, echoes the input verbatim
-once existence is confirmed. Returns `nil` for missing addons.
+- an index that is less than 1 or more than the number of addons. The
+  message also gives the valid range.
+- `nil`, or a value that is not a number or a string.
+
+### `C_AddOns.GetNumAddOns()`
+
+Returns the number of addons in the addon list. Blizzard addons are not
+in the list.
+
+### `C_AddOns.GetAddOnInfo(name)`
+
+Returns six values: `name, title, notes, loadable, reason, security`.
+
+- `name`: the folder name. For an unknown name, the name as you gave it.
+- `title`, `notes`: the same values as
+  [`GetAddOnTitle`](#c_addonsgetaddontitlename) and
+  [`GetAddOnNotes`](#c_addonsgetaddonnotesname).
+- `loadable`, `reason`: the same values as
+  [`IsAddOnLoadable(name)`](#c_addonsisaddonloadablename--character-demandloaded)
+  with no other arguments.
+- `security`: the string `"SECURE"`, `"INSECURE"` or `"BANNED"`.
+
+For an unknown name, the function returns
+`name, nil, nil, false, "MISSING", "INSECURE"`. Thus the first value is
+never `nil`. To find out if an addon exists, use
+[`DoesAddOnExist`](#c_addonsdoesaddonexistname).
+
+The global `GetAddOnInfo` is a different function and keeps its seven
+values.
+
+### `C_AddOns.GetAddOnName(name)`
+
+Returns the folder name of the addon, with the case that the addon has
+on disk. Returns `nil` for an unknown name.
 
 ```lua
 C_AddOns.GetAddOnName(1)            -- "Atlas-TW"
-C_AddOns.GetAddOnName("myaddon")    -- "myaddon"
+C_AddOns.GetAddOnName("myaddon")    -- "MyAddon"
 C_AddOns.GetAddOnName("garbage")    -- nil
 ```
 
-### `C_AddOns.GetAddOnTitle(indexOrName)`
+### `C_AddOns.GetAddOnTitle(name)`
 
-Returns the `## Title:` from the addon's `.toc` file, with WoW
-color-code escapes applied. `nil` for missing addons or addons
-without a title field.
+Returns the `## Title:` of the addon TOC, with color codes applied. When
+the TOC has no title, the function returns the folder name. Returns
+`nil` for an unknown name.
 
 ```lua
 C_AddOns.GetAddOnTitle("MyAddon") -- "My Addon"
 ```
 
-### `C_AddOns.GetAddOnNotes(indexOrName)`
+### `C_AddOns.GetAddOnNotes(name)`
 
-Returns the `## Notes:` from the `.toc`. `nil` for missing
-addons or addons without notes.
+Returns the `## Notes:` of the addon TOC. Returns `nil` for an unknown
+name, or when the TOC has no notes.
 
 ```lua
 C_AddOns.GetAddOnNotes("MyAddon") -- "Shows a thing on the screen."
 ```
 
-### `C_AddOns.GetAddOnMetadata(indexOrName, variable)`
+### `C_AddOns.GetAddOnMetadata(name, variable)`
 
 Returns the value of a `##` key from the `.toc` file of an addon. The
 key is not case-sensitive. The function returns `nil` when the TOC has
-no such key, or when no addon has that name.
+no such key, or when no addon has that name. `variable` must be a
+string.
 
 The function reads these keys, and every key that starts with them:
 `Title`, `Notes`, `Author`, `Version`, `IconTexture`, `IconAtlas`,
@@ -1825,28 +1870,111 @@ C_AddOns.GetAddOnMetadata("MyAddon", "x-website")    -- the ## X-Website: value
 C_AddOns.GetAddOnMetadata("MyAddon_Options", "Group")  -- "MyAddon"
 ```
 
-### `C_AddOns.IsAddOnLoadable(indexOrName)`
+### `C_AddOns.GetAddOnEnableState(name [, character])`
 
-Returns `loadable, reason` — a real boolean and a status string
-(or `nil`).
+Returns an `Enum.AddOnEnableState` number:
 
-`reason` comes from a small status table the engine consults when
-populating `GetAddOnInfo`'s 6th return: `"DISABLED"`, `"BANNED"`,
-`"CORRUPT"`, `"INSECURE"`, `"NOT_DEMAND_LOADED"`,
-`"INTERFACE_VERSION"`, `"MISSING"`. `nil` when the addon is
-loadable. The full signature accepts optional `character`
-and `demandLoaded` arguments — those are ignored here, since there is
-no per-character addon enable state.
+| Value | `Enum.AddOnEnableState.*` | When |
+|------:|---------------------------|------|
+| `0`   | `None`                    | The addon is disabled. |
+| `1`   | `Some`                    | Only with no `character`: the addon is enabled for some characters and disabled for others. |
+| `2`   | `All`                     | The addon is enabled. |
+
+`character` is the name of a character on your realm. The name is not
+case-sensitive. When `character` is `nil`, `"0"` or `""`, the function
+reads all characters on the realm.
+
+A character that has no setting for the addon uses the state over all
+characters. When no character has a setting, the state comes from
+`## DefaultState:` in the TOC. A name that is not one of your characters
+also gets this default. An unknown addon returns `0`.
 
 ```lua
-C_AddOns.IsAddOnLoadable("MyAddon")           -- true, nil
-C_AddOns.IsAddOnLoadable("HardcoreTooltips")  -- false, "DISABLED"
-C_AddOns.IsAddOnLoadable("garbage")           -- false, nil
+C_AddOns.GetAddOnEnableState("MyAddon", UnitName("player"))  -- 2
+C_AddOns.GetAddOnEnableState("MyAddon")                       -- 1 (enabled on some characters)
 ```
 
-### `C_AddOns.IsAddOnLoaded(indexOrName)`
+### `C_AddOns.EnableAddOn(name [, character])`
 
-Returns `loadedOrLoading, loaded` — two booleans.
+Enables the addon for `character`. When `character` is `nil`, `"0"` or
+`""`, the function enables the addon for all characters on the realm.
+The change takes effect at the next reload or login.
+
+A name that is not one of your characters has no effect. The setting is
+also kept for an unknown addon name.
+
+### `C_AddOns.DisableAddOn(name [, character])`
+
+Disables the addon. It takes the same arguments as `EnableAddOn`.
+
+A Blizzard addon cannot be disabled. For a Blizzard addon, the function
+raises the error `DisableAddOn(): Cannot disable a Secure AddOn`.
+
+### `C_AddOns.EnableAllAddOns([character])` and `C_AddOns.DisableAllAddOns([character])`
+
+Enable or disable every addon in the addon list for `character`, or for
+all characters when `character` is `nil`, `"0"` or `""`. Blizzard addons
+are not in the list and do not change.
+
+### `C_AddOns.SaveAddOns()`
+
+Writes the changed enable states to disk now. A logout or a reload also
+writes them.
+
+### `C_AddOns.ResetAddOns()` and `C_AddOns.ResetDisabledAddOns()`
+
+Discard the enable-state changes that are not saved yet.
+`ResetAddOns` reads the states of all characters again from disk.
+`ResetDisabledAddOns` does this only for your current character.
+
+### `C_AddOns.IsAddOnDefaultEnabled(name)`
+
+Returns `true` when the addon is enabled for a character that has no
+setting for it. This is `false` when the TOC has
+`## DefaultState: disabled`. Returns `false` for an unknown name.
+
+### `C_AddOns.IsAddOnLoadOnDemand(name)`
+
+Returns `true` when the TOC has `## LoadOnDemand: 1`. Returns `false`
+for an unknown name.
+
+### `C_AddOns.IsAddOnLoadable(name [, character, demandLoaded])`
+
+Returns `loadable, reason`. `reason` is an empty string when `loadable`
+is `true`. When `loadable` is `false`, `reason` is one of these strings:
+
+| `reason` | Cause |
+|----------|-------|
+| `"MISSING"` | No addon has that name. |
+| `"DISABLED"` | The addon is disabled for `character`. |
+| `"BANNED"` | The addon is banned. |
+| `"CORRUPT"` | The addon is corrupt. |
+| `"INSECURE"` | The addon is not secure. |
+| `"INTERFACE_VERSION"` | The `## Interface:` of the TOC is out of date, and the addon version check is on (see [`SetAddonVersionCheck`](#c_addonsisaddonversioncheckenabled-and-c_addonssetaddonversioncheckenabled)). |
+| `"DEMAND_LOADED"` | The addon has `## LoadOnDemand: 1`, and `demandLoaded` is `false`. |
+| `"DEP_"` + a reason | A required dependency cannot load, for example `"DEP_DISABLED"`. |
+
+`character` selects whose enable state counts, as for
+[`GetAddOnEnableState`](#c_addonsgetaddonenablestatename--character).
+With all characters, an addon that is enabled for some characters counts
+as enabled. Only the state `None` gives `"DISABLED"`.
+
+`demandLoaded` is `false` by default. Set it to `true` to ask about a load
+on demand. The function does not examine if the addon is loaded. Thus a
+load-on-demand addon gives `false, "DEMAND_LOADED"` when `demandLoaded`
+is `false`, also after it has loaded.
+
+```lua
+C_AddOns.IsAddOnLoadable("MyAddon")                    -- true, ""
+C_AddOns.IsAddOnLoadable("HardcoreTooltips")           -- false, "DISABLED"
+C_AddOns.IsAddOnLoadable("Blizzard_AuctionUI")         -- false, "DEMAND_LOADED"
+C_AddOns.IsAddOnLoadable("Blizzard_AuctionUI", nil, true)  -- true, ""
+C_AddOns.IsAddOnLoadable("garbage")                    -- false, "MISSING"
+```
+
+### `C_AddOns.IsAddOnLoaded(name)`
+
+Returns `loadedOrLoading, loaded`, two booleans.
 
 ```lua
 C_AddOns.IsAddOnLoaded("MyAddon")       -- true, true
@@ -1854,15 +1982,36 @@ C_AddOns.IsAddOnLoaded("garbage")       -- false, false
 C_AddOns.IsAddOnLoaded(1)               -- true, true   (first addon by index)
 ```
 
-### `C_AddOns.LoadAddOn(indexOrName)`
+The two values are different while an addon loads. The files of an
+addon run during its load, so code at file scope sees the addon as
+loading, but not loaded:
 
-Loads a `LoadOnDemand` addon. Returns `loaded, value`:
+```lua
+-- at file scope in MyAddon.lua
+C_AddOns.IsAddOnLoaded("MyAddon")       -- true, false
+-- and when the load is complete
+C_AddOns.IsAddOnLoaded("MyAddon")       -- true, true
+```
 
-- `loaded` — `1` when the addon loaded, or was already loaded. `nil`
-  otherwise.
-- `value` — a locale-independent reason the load failed, such as
-  `"DISABLED"`, or `"UNKNOWN_ERROR"` when no specific reason is
-  available. `nil` on success.
+The same is true for all other code that runs during the load, for
+example a dependency that loads first. That code sees the addon that
+loads it as `true, false`.
+
+> An addon that asks about **itself** from its own `ADDON_LOADED`
+> handler gets `true, false`, because that event fires just before its
+> load is complete. A question about any *other* addon there gets the
+> correct answer.
+
+### `C_AddOns.LoadAddOn(name)`
+
+Loads a load-on-demand addon. Returns `loaded, value`:
+
+- `loaded`: `true` when the addon loaded, or was already loaded.
+  `false` when it did not load.
+- `value`: when the load fails, a reason that does not change with the
+  locale, such as `"DISABLED"`. `"MISSING"` for an unknown name, and
+  `"UNKNOWN_ERROR"` when no reason is known. `nil` when the addon
+  loaded.
 
 ```lua
 local loaded, reason = C_AddOns.LoadAddOn("Blizzard_AuctionUI")
@@ -1871,94 +2020,68 @@ if not loaded then
 end
 ```
 
-Test `loaded` for truth rather than comparing it to `true` — it is the
-number `1`.
+The global `LoadAddOn` keeps its `1` or `nil` as the first value.
 
-The two returns distinguish "load-in-progress" from "fully loaded", and
-they really do differ while an addon is loading. An addon's own files
-run part-way through its load, so code at file scope sees itself as
-loading but not yet loaded:
+### `C_AddOns.DoesAddOnHaveLoadError(name)`
 
-```lua
--- at file scope in MyAddon.lua
-C_AddOns.IsAddOnLoaded("MyAddon")       -- true, false
--- and once the load has finished
-C_AddOns.IsAddOnLoaded("MyAddon")       -- true, true
-```
+Returns `true` when the addon had an error while it loaded:
 
-The same holds for anything else running inside that window, such as a
-dependency loaded on the way in: it sees the addon that pulled it in as
-`true, false`.
+- a script error, also in a frame script that ran during the load
+- a file in the TOC that is missing
+- a SavedVariables file that has an error
 
-Unknown addons (numeric index past `GetNumAddOns()`, or
-string name not in the registry) return `false, false`.
+The value stays `true` until the next reload or login. An error while a
+dependency loads counts for the dependency. The name is case-sensitive:
+give the folder name with its exact case. Returns `false` for an unknown
+name.
 
-> An addon asking about **itself** from its own `ADDON_LOADED` handler
-> gets `true, false`, because that event fires just before its load call
-> returns. Asking about any *other* addon there is accurate.
+### `C_AddOns.GetAddOnSecurity(name)`
 
-### `C_AddOns.GetAddOnSecurity(indexOrName)`
-
-Returns an `Enum.AddOnSecurityStatus` integer (not a string):
+Returns an `Enum.AddOnSecurityStatus` number:
 
 | Value | `Enum.AddOnSecurityStatus.*` | When |
 |------:|------------------------------|------|
-| `0`   | `Secure`                     | Blizzard-signed addons (`Blizzard_*`). |
-| `1`   | `Insecure`                   | Every user addon loaded from `Interface/AddOns/`. The default for any registered addon not in the secure or banned override sets. |
-| `2`   | `Banned`                     | Entries the engine has explicitly disqualified — set by server addon-banlist responses, rare in practice. |
-| `3`   | `NotAvailable`               | No addon by that name / index exists. |
+| `0`   | `Secure`                     | Blizzard addons (`Blizzard_*`). |
+| `1`   | `Insecure`                   | All other addons, and an unknown name. |
+| `2`   | `Banned`                     | An addon that the server banned. |
+| `3`   | `NotAvailable`               | Not used by this client. |
 
 ```lua
 C_AddOns.GetAddOnSecurity("Blizzard_TalentUI") -- 0 (Secure)
 C_AddOns.GetAddOnSecurity("MyAddon")           -- 1 (Insecure)
-C_AddOns.GetAddOnSecurity("Nonexistent")       -- 3 (NotAvailable)
-
-if status == Enum.AddOnSecurityStatus.Secure then ...
 ```
 
-### `C_AddOns.DoesAddOnExist(indexOrName)`
+### `C_AddOns.DoesAddOnExist(name)`
 
-Returns `true` iff the engine's addon registry has a matching
-entry, `false` otherwise. Cheap existence probe used by addons
-doing soft-dependency checks.
-
-Use this function, not `GetAddOnInfo`, to test if an addon exists.
-`GetAddOnInfo` always returns its input name as the first value, so
-`GetAddOnInfo("garbage") ~= nil` is true for any string.
+Returns `true` when an addon has that name, Blizzard addons included.
+Returns `false` for an unknown name.
 
 ```lua
 C_AddOns.DoesAddOnExist("MyAddon")     -- true
 C_AddOns.DoesAddOnExist("garbage")     -- false
 ```
 
-### `C_AddOns.GetAddOnOptionalDependencies(indexOrName)`
+### `C_AddOns.GetAddOnDependencies(name)` and `C_AddOns.GetAddOnOptionalDependencies(name)`
 
-Returns the addon's `## OptionalDeps:` names as multiple return
-values, in declared order — the counterpart to the stock
-`GetAddOnDependencies` (required deps). An addon with no
-`## OptionalDeps:` field returns nothing.
-
-Arg and error handling match stock `GetAddOnDependencies`: a
-numeric index out of range (or a non-string/non-number argument)
-raises the usage error; an unknown *name* string returns nothing
-without erroring.
+Return the names in `## Dependencies:` (or `## RequiredDeps:`), or in
+`## OptionalDeps:`, as multiple values in TOC order. An addon without the
+key returns no values. An unknown name also returns no values.
 
 ```lua
 -- ## OptionalDeps: Atlas, pfQuest
 C_AddOns.GetAddOnOptionalDependencies("MyAddon")  -- "Atlas", "pfQuest"
-C_AddOns.GetAddOnOptionalDependencies("Atlas")    -- (nothing — no OptionalDeps)
+C_AddOns.GetAddOnOptionalDependencies("Atlas")    -- (no values)
 ```
 
-### `C_AddOns.GetAddOnInterfaceVersion(indexOrName)`
+### `C_AddOns.GetAddOnInterfaceVersion(name)`
 
 Returns the `## Interface:` value of the addon TOC as a number.
 
 The line can list more than one value, separated by commas or spaces.
 The function returns the client interface version when the line contains
 it. If not, it returns the largest value that is less than the client
-interface version. If there is no such value, it returns 0. Errors for bad
-arguments are the same as for `GetAddOnOptionalDependencies`. An unknown
-name returns nil.
+interface version. If there is no such value, it returns 0. An unknown
+name also returns 0.
 
 ```lua
 -- ## Interface: 11200
@@ -1971,36 +2094,47 @@ C_AddOns.GetAddOnInterfaceVersion("Old")      -- 11100
 C_AddOns.GetAddOnInterfaceVersion("Future")   -- 0
 ```
 
+### `C_AddOns.IsAddonVersionCheckEnabled()` and `C_AddOns.SetAddonVersionCheck(enabled)`
+
+The addon version check stops an addon from loading when its
+`## Interface:` is out of date. The cvar `checkAddonVersion` holds the
+setting.
+
+`IsAddonVersionCheckEnabled` returns `true` when the check is on.
+`SetAddonVersionCheck(enabled)` turns the check on or off. `enabled` is
+necessary: `nil` causes an error.
+
+### `C_AddOns.GetScriptsDisallowedForBeta()`
+
+Always returns `false`.
+
 ### `C_AddOns.GetAddOnLocalTable(name)`
 
-Returns the private table of the addon named `name`. This is the same
-table the addon's own files receive as the second value of `...`:
+Returns the private table of the addon. This is the same table that the
+files of the addon receive as the second value of `...`:
 
 ```lua
 -- inside MyAddon's files
 local addonName, addonTable = ...
 ```
 
-Another addon reads that table only when both conditions are true:
+Another addon gets that table only when both of these conditions are
+true:
 
-1. `MyAddon` is loaded, and
-2. `MyAddon`'s `.toc` file declares `## AllowAddOnTableAccess: 1`.
+1. `MyAddon` is loaded.
+2. The `.toc` file of `MyAddon` has `## AllowAddOnTableAccess: 1`.
 
-If either condition is false, the function returns `nil`. An addon
-that does not opt in keeps its table private. The check protects each
-addon's table from access it did not permit.
+If one condition is false, the function returns no value. An addon
+without this key keeps its table private.
 
 ```lua
 -- MyAddon.toc contains: ## AllowAddOnTableAccess: 1
 local t = C_AddOns.GetAddOnLocalTable("MyAddon")   -- MyAddon's table
 t.sharedValue = 5                                  -- MyAddon sees this too
 
-C_AddOns.GetAddOnLocalTable("OtherAddon")   -- nil (no opt-in directive)
-C_AddOns.GetAddOnLocalTable("DoesNotExist") -- nil (not loaded)
+C_AddOns.GetAddOnLocalTable("OtherAddon")   -- (no value: no AllowAddOnTableAccess)
+C_AddOns.GetAddOnLocalTable("DoesNotExist") -- (no value)
 ```
-
-Pass the addon name as a string. A numeric index returns `nil` — one
-addon refers to another by name, not by load order.
 
 ### Conditional and multi-flavor TOC loading
 
@@ -6627,6 +6761,21 @@ The event fires in these cases:
 
 A drop fires on the next frame. Other changes can come up to 250 ms
 later.
+
+### `ADDONS_UNLOADING` event
+
+Fires when the interface unloads, after `PLAYER_LOGOUT` and before the
+SavedVariables are written. Thus a handler can still change its
+SavedVariables. The payload is `closingClient`: `true` when the client
+quits, `false` for a reload or a logout to the character screen.
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterEvent("ADDONS_UNLOADING")
+f:SetScript("OnEvent", function(self, event, closingClient)
+    MyAddonDB.lastExit = closingClient and "quit" or "logout"
+end)
+```
 
 ### `BAG_UPDATE_DELAYED` event
 

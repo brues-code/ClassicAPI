@@ -8,6 +8,16 @@ end
 C_Container.GetContainerNumSlots = GetContainerNumSlots
 C_Container.PickupContainerItem = PickupContainerItem
 
+-- The addon list already leaves out Blizzard's addons, as 3.80.2's does, and
+-- ResetDisabledAddOns already rereads the current character's AddOns.txt.
+C_AddOns.GetNumAddOns = GetNumAddOns
+C_AddOns.ResetDisabledAddOns = ResetDisabledAddOns
+
+-- 3.80.2 answers false always.
+function C_AddOns.GetScriptsDisallowedForBeta()
+    return false
+end
+
 C_CVar.GetCVar = GetCVar
 C_CVar.GetCVarDefault = GetCVarDefault
 C_CVar.RegisterCVar = RegisterCVar

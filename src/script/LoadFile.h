@@ -35,6 +35,10 @@
 //      so a rewriter can scope itself to one caller. `path` may already be
 //      `buf` (an earlier rewriter's result); copy it out before writing `buf`.
 //   2. `AutoSuppress` — sees the final path; `true` skips the load (returns 0).
+//   3. `AutoFailure` — told the path when the engine's loader returns 0: the
+//      file is missing (0x00704C1C), fails to compile or raises at run time
+//      (the buffer runner 0x00704AE0 returns 0 at 0x00704B59 /
+//      0x00704BA1). A suppressed load is not a failure.
 //
 // Rewriters must touch disjoint call sites and suppressors disjoint paths, so
 // static-init order within a kind does not matter.
@@ -48,6 +52,10 @@ using Suppressor = bool (*)(const char *path);
 using AutoRewrite = AutoList<struct AutoRewriteTag, Rewriter>;
 
 using AutoSuppress = AutoList<struct AutoSuppressTag, Suppressor>;
+
+using FailureObserver = void (*)(const char *path);
+
+using AutoFailure = AutoList<struct AutoFailureTag, FailureObserver>;
 
 // The engine's loader (the MinHook trampoline), bypassing every subscriber.
 // Returns 0 before hooks are installed.

@@ -57,7 +57,7 @@ In the Frame rows, a name that starts with `:` is a method of the widget that th
 | Namespace | Calls |
 |-----------|-------|
 | [Action](docs/API.md#action) | `GetActionInfo`, `IsItemAction`, `IsStackableAction`, `HasBonusActionBar`, `C_ActionBar.EnableActionRangeCheck`, `C_ActionBar.GetSpell`, `C_ActionBar.GetActionLossOfControlCooldownDuration`, `C_ActionBar.GetActionLossOfControlCooldownInfo`, `C_ActionBar.GetItemActionOnEquipSpellID`, `C_ActionBar.IsStackableAction`, `C_ActionBar.IsMacroActionWithShowTooltip`, `C_ActionBar.FindSpellActionButtons`, `C_ActionBar.HasSpellActionButtons`, `C_ActionBar.IsOnBarOrSpecialBar` |
-| [AddOns](docs/API.md#addons) | `C_AddOns.DoesAddOnExist`, `C_AddOns.GetAddOnInterfaceVersion`, `C_AddOns.GetAddOnLocalTable`, `C_AddOns.GetAddOnMetadata`, `C_AddOns.GetAddOnName`, `C_AddOns.GetAddOnNotes`, `C_AddOns.GetAddOnOptionalDependencies`, `C_AddOns.GetAddOnSecurity`, `C_AddOns.GetAddOnTitle`, `C_AddOns.IsAddOnLoadable`, `C_AddOns.IsAddOnLoaded`, `C_AddOns.LoadAddOn` |
+| [AddOns](docs/API.md#addons) | `C_AddOns.DisableAddOn`, `C_AddOns.DisableAllAddOns`, `C_AddOns.DoesAddOnExist`, `C_AddOns.DoesAddOnHaveLoadError`, `C_AddOns.EnableAddOn`, `C_AddOns.EnableAllAddOns`, `C_AddOns.GetAddOnDependencies`, `C_AddOns.GetAddOnEnableState`, `C_AddOns.GetAddOnInfo`, `C_AddOns.GetAddOnInterfaceVersion`, `C_AddOns.GetAddOnLocalTable`, `C_AddOns.GetAddOnMetadata`, `C_AddOns.GetAddOnName`, `C_AddOns.GetAddOnNotes`, `C_AddOns.GetAddOnOptionalDependencies`, `C_AddOns.GetAddOnSecurity`, `C_AddOns.GetAddOnTitle`, `C_AddOns.GetNumAddOns`, `C_AddOns.GetScriptsDisallowedForBeta`, `C_AddOns.IsAddOnDefaultEnabled`, `C_AddOns.IsAddOnLoadable`, `C_AddOns.IsAddOnLoaded`, `C_AddOns.IsAddOnLoadOnDemand`, `C_AddOns.IsAddonVersionCheckEnabled`, `C_AddOns.LoadAddOn`, `C_AddOns.ResetAddOns`, `C_AddOns.ResetDisabledAddOns`, `C_AddOns.SaveAddOns`, `C_AddOns.SetAddonVersionCheck` |
 | [APIDocumentation](docs/API.md#apidocumentation) | `/classicapi` in-game browser, `C_APIDocumentation.GetSystem`, `C_APIDocumentation.GetSystems` |
 | [Animation](docs/API.md#animation) | `region:CreateAnimationGroup`, `region:GetAnimationGroups`, `region:StopAnimating`, `SetMaxAnimFramerate`, `GetMaxAnimFramerate`, `AnimationGroup` and `Animation` / `Alpha` / `Translation` / `Scale` / `Rotation` / `Path` / `ControlPoint` methods |
 | [AuctionHouse](docs/API.md#auctionhouse) | `C_AuctionHouse.PostItem`, `CanCancelAuction` |
@@ -302,6 +302,7 @@ when launching with `-console`), not as Lua functions. See the
 |-------|---------|
 | `ACTION_RANGE_CHECK_UPDATE` | `slot, isInRange, checksRange` (slots with `C_ActionBar.EnableActionRangeCheck` on) |
 | `ACTION_USABLE_CHANGED` | `changes` (a `{ slot, usable, noMana }` table for each slot that changed) |
+| `ADDONS_UNLOADING` | `closingClient` ([details](docs/API.md#addons_unloading-event)) |
 | `BAG_NEW_ITEMS_UPDATED` | *(none)* |
 | `BAG_UPDATE_DELAYED` | *(none)* |
 | `CHAT_MSG_*` | adds `lineID, guid` as `arg11, arg12` after the existing ten ([details](docs/API.md#chat_msg_-arguments-lineid-arg11-and-guid-arg12)) |

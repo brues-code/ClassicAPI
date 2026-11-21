@@ -40,7 +40,11 @@ uint32_t __fastcall Hook(const char *path, void *ctx, void *status) {
         for (AutoSuppress *s = AutoSuppress::head; s != nullptr; s = s->next)
             if (s->fn(path))
                 return 0;
-    return g_orig(path, ctx, status);
+    const uint32_t result = g_orig(path, ctx, status);
+    if (result == 0)
+        for (AutoFailure *f = AutoFailure::head; f != nullptr; f = f->next)
+            f->fn(path);
+    return result;
 }
 
 const Game::HookAutoRegister _hook{

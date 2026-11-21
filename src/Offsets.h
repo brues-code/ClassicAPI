@@ -12459,6 +12459,25 @@ enum Offsets {
     // showed in the character-select list) cannot leave it hidden AND
     // unloaded.
     FUN_ADDON_ENABLE_RESOLVE = 0x0051E470,
+    // Enable-state setter: `void __fastcall(const char *name /*ecx*/, const
+    // char *character /*edx*/, int state /*stack*/)`, RET 4. Walks the
+    // character nodes; a named character changes only its own node (name
+    // compare 0x0064A4C0, case-insensitive, at 0x0051EA73), NULL changes every
+    // node, a name with no node changes nothing. It inserts a missing entry,
+    // stores `state != 0` and marks the node changed (0x0051EB62, 0x0051EBB9).
+    // The in-game EnableAddOn / DisableAddOn pass 2 / 0 with the selected
+    // character (0x0048E6FC, 0x0048E7CC); EnableAllAddOns loops it over the
+    // index list (0x0048E730..0x0048E751, ECX name, EDX character, push 2).
+    FUN_ADDON_ENABLE_SET = 0x0051EA20,
+    // `void __fastcall(const char *character)`, plain RET: rereads the named
+    // character's node from its AddOns.txt, or every node for NULL. The in-game
+    // ResetDisabledAddOns calls it with the selected character (0x0048E837).
+    FUN_ADDON_ENABLE_LOAD = 0x0051EBE0,
+    // `void ()`, plain RET: writes each changed node to
+    // `WTF\Account\<account>\<realm>\<character>\AddOns.txt`. The world
+    // UI shutdown runs it last, after the SavedVariables (0x00490C88); the
+    // glue's SaveAddOns calls it too (0x0046D990).
+    FUN_ADDON_ENABLE_SAVE = 0x0051EF20,
 
     // `() -> const char *`: the selected character's name, the name field
     // `0x00C27D88` (+0x08 of the selected-character record `0x00C27D80`), or
@@ -12516,6 +12535,10 @@ enum Offsets {
     // LoadOnDemand byte; the load pass FUN_0051F600 skips an entry with it set
     // (0x0051F61E) and so does its progress sum (0x0051F1F9).
     OFF_ADDON_ENTRY_LOAD_ON_DEMAND = 0x2C,
+    // `## DefaultState:` byte, 1 by default, 0 for `disabled` (TOC parser
+    // 0x0051D204 / 0x0051D223). The enable-state reader answers it as 2 or 0
+    // when no character node counts (0x0051E623). (benilla-re ui/addons.)
+    OFF_ADDON_ENTRY_DEFAULT_STATE = 0x2B,
     OFF_ADDON_LOADWITH_COUNT = 0x5C,
     OFF_ADDON_LOADWITH_ARRAY = 0x60,
     OFF_ADDON_REVLOADWITH_DESC = 0x88,
@@ -14215,6 +14238,29 @@ enum Offsets {
     // SMSG_LOGOUT_COMPLETE / CANCEL_ACK / a failed SMSG_LOGOUT_RESPONSE.
     // 4.3.4's CharacterLoggingOut. Disassembled; benilla-re net/connection.
     FUN_CLIENT_CONNECTION_IS_LOGOUT_PENDING = 0x005AB0D0,
+    // Quit-requested byte: SMSG_LOGOUT_COMPLETE's handler (0x005AAEB0) tears
+    // the game down for the character screen (0x005AAECA), then reads this
+    // byte (0x005AAECF) and quits the client when it is set (jmp 0x00401560):
+    // a /quit logs out first. Disassembled.
+    OFF_CLIENT_CONNECTION_QUIT_REQUESTED = 0x1B1C,
+    // ClientDestroyGame — `void __fastcall(int, int toCharacterScreen /*edx*/,
+    // int /*stack*/)`, RET 4: the game teardown, which runs the interface
+    // shutdown (0x00491180 -> CGGameUI::Shutdown 0x00490BD0) when a world was
+    // entered. The stop handler 0x00403640 (window close, ForceQuit, `quit`)
+    // passes EDX 0; SMSG_LOGOUT_COMPLETE (0x005AAEC1), a failed character
+    // login (0x005AAD84) and the glue's disconnect handler (0x0046C5F1) pass 1.
+    // A /reload reaches CGGameUI::Shutdown from CGGameUI::Update (0x00495590)
+    // without it. Disassembled; benilla-re core/close.
+    FUN_CLIENT_DESTROY_GAME = 0x00401EE0,
+    // The stop handler's call (`push 0; xor edx,edx; xor ecx,ecx`), the only
+    // EDX-0 caller: the client is closing.
+    CALL_STOP_HANDLER_DESTROY_GAME = 0x00403646,
+    // CGGameUI::Shutdown's PLAYER_LOGOUT signal: `mov ecx,0x10F; call
+    // FUN_FIRE_EVENT_NO_ARGS` (0x00490C25), after LeaveWorldUI and before the
+    // writes of Config.wtf, the SavedVariables and AddOns.txt (0x00490C7E..
+    // 0x00490C88). Reached on every path through the function. AddOns::
+    // Unloading redirects it to fire ADDONS_UNLOADING after PLAYER_LOGOUT.
+    CALL_UI_SHUTDOWN_PLAYER_LOGOUT = 0x00490C2A,
     // The account's characters on the connected realm, as the last
     // SMSG_CHAR_ENUM listed them: count at ClientConnection+0x1AE4, records
     // at +0x1AE8, 0x110 bytes each, guid +0x00, name +0x08 (C string, cap

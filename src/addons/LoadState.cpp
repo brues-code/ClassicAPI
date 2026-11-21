@@ -76,4 +76,10 @@ bool IsLoading(const char *name) {
 
 bool AnyLoading() { return g_depth > 0; }
 
+const char *Current() {
+    if (g_depth <= 0 || g_depth > kMaxDepth)
+        return nullptr;
+    return g_stack[g_depth - 1];
+}
+
 } // namespace AddOns::LoadState

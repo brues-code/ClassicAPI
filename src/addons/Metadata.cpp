@@ -125,17 +125,16 @@ std::string AutoGroup(const uint8_t *record, const char *name) {
 
 // `C_AddOns.GetAddOnMetadata(name, variable)`.
 int __fastcall Script_GetAddOnMetadata(void *L) {
-    const uint8_t *record = Addons::ResolveRecord(L, kUsage);
+    const uint8_t *record = Addons::ResolveAddOnArg(L, kUsage, nullptr);
     if (!Game::Lua::IsString(L, 2)) {
-        Game::Lua::Error(L, kUsage);
+        Game::Lua::ArgError(L, 2, kUsage);
         return 0;
     }
     if (record == nullptr) {
         Game::Lua::PushNil(L);
         return 1;
     }
-    const char *name =
-        *reinterpret_cast<const char *const *>(record + Offsets::OFF_ADDON_ENTRY_NAME_PTR);
+    const char *name = Addons::RecordName(record);
     const char *key = Game::Lua::ToString(L, 2);
     const char *value =
         reinterpret_cast<GetMetadata_t>(Offsets::FUN_ADDON_GET_METADATA)(name, key);

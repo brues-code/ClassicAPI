@@ -33,4 +33,9 @@ bool IsLoading(const char *name);
 // True while any addon is inside the engine's per-addon load call.
 bool AnyLoading();
 
+// The innermost addon being loaded (a dependency loads inside the addon
+// that needs it), or nullptr when no load is running or the stack is deeper
+// than it tracks.
+const char *Current();
+
 } // namespace AddOns::LoadState

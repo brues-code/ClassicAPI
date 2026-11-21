@@ -96,7 +96,7 @@ void __fastcall BuildDisplay(void *packet) {
 
 // FUN_ADDON_CAN_LOAD.
 using CanLoad_t = uint8_t(__fastcall *)(const char *name, char fullCheck, int *outStatus,
-                                       int *outDep, const char *account);
+                                       int *outDep, const char *character);
 CanLoad_t CanLoad() { return reinterpret_cast<CanLoad_t>(Offsets::FUN_ADDON_CAN_LOAD); }
 
 // Real-load checks in progress, so their dependency recursion is gated too.
@@ -104,14 +104,14 @@ int g_realLoadDepth = 0;
 
 // The loader's and LoadAddOn's check: a real load.
 uint8_t __fastcall CanLoadForLoad(const char *name, char fullCheck, int *outStatus,
-                                  int *outDep, const char *account) {
+                                  int *outDep, const char *character) {
     if (const int reason = ReasonFor(name)) {
         *outStatus = reason;
         *outDep = 0;
         return 0;
     }
     ++g_realLoadDepth;
-    const uint8_t ok = CanLoad()(name, fullCheck, outStatus, outDep, account);
+    const uint8_t ok = CanLoad()(name, fullCheck, outStatus, outDep, character);
     --g_realLoadDepth;
     return ok;
 }
@@ -120,14 +120,14 @@ uint8_t __fastcall CanLoadForLoad(const char *name, char fullCheck, int *outStat
 // parent's dependency slot, so only the status is written: the parent then
 // reports `DEP_<reason>`.
 uint8_t __fastcall CanLoadForDependency(const char *name, char fullCheck, int *outStatus,
-                                        int *outDep, const char *account) {
+                                        int *outDep, const char *character) {
     if (g_realLoadDepth > 0) {
         if (const int reason = ReasonFor(name)) {
             *outStatus = reason;
             return 0;
         }
     }
-    return CanLoad()(name, fullCheck, outStatus, outDep, account);
+    return CanLoad()(name, fullCheck, outStatus, outDep, character);
 }
 
 // FUN_ADDON_FORMAT_REASON at Script_LoadAddOn's call: names the new codes,

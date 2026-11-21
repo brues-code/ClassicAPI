@@ -32,6 +32,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "storm/File.h"
+#include "addons/Registry.h"
 #include "addons/Toc.h"
 #include "luasyntax/AddonNamespace.h"
 #include "storm/Memory.h"
@@ -77,41 +78,37 @@ bool TocAllowsTableAccess(const char *name) {
     return allowed;
 }
 
-// `C_AddOns.GetAddOnLocalTable(name)` -> table, or nil.
+// `C_AddOns.GetAddOnLocalTable(name)` -> table, or nothing.
 //
-// Name (string) input only — the local table is a by-name concept (one addon
-// asking for another by name), and the namespace map is name-keyed. Numeric
-// index is not accepted (returns nil); no addon references another's table by
-// load order.
+// The argument is read as every C_AddOns function reads it (an index or a
+// name, with 3.80.2's errors). 3.80.2 returns no value, not nil, for an
+// unknown addon and for one that stored no table.
 int __fastcall Script_GetAddOnLocalTable(void *L) {
-    const char *name = Game::Lua::ToString(L, 1);
-    if (name == nullptr || *name == '\0') {
-        Game::Lua::PushNil(L);
-        return 1;
-    }
+    const uint8_t *record = Addons::ResolveAddOnArg(
+        L, "Usage: local table = C_AddOns.GetAddOnLocalTable(name)", nullptr);
+    if (record == nullptr)
+        return 0;
+    const char *name = Addons::RecordName(record);
 
     auto isLoaded = reinterpret_cast<IsLoadedFn_t>(Offsets::FUN_ADDON_IS_LOADED);
-    if (isLoaded(name) == 0) { // not loaded (covers "does not exist")
-        Game::Lua::PushNil(L);
-        return 1;
-    }
+    if (isLoaded(name) == 0) // not loaded
+        return 0;
 
-    if (!TocAllowsTableAccess(name)) { // opted out / no directive
-        Game::Lua::PushNil(L);
-        return 1;
-    }
+    if (!TocAllowsTableAccess(name)) // opted out / no directive
+        return 0;
 
     LuaSyntax::PushAddonNamespace(L, name);
     return 1;
 }
 
 const Game::Doc::Field kArgs[] = {
-    Game::Doc::Req("name", "uiAddon", "The addon's folder name; an index is not accepted."),
+    Game::Doc::Req("name", "uiAddon", "An addon index or folder name."),
 };
 const Game::Doc::Field kRets[] = {
     Game::Doc::Opt("table", "table", nullptr,
-                   "The table the addon's files receive as their second argument; nil unless "
-                   "the addon is loaded and its TOC sets ## AllowAddOnTableAccess: 1."),
+                   "The table the addon's files receive as their second argument. Nothing is "
+                   "returned unless the addon is loaded and its TOC sets "
+                   "## AllowAddOnTableAccess: 1."),
 };
 const Game::Doc::Function kGetAddOnLocalTable{
     "Returns the private table of another addon that allows access to it.", kArgs, kRets};

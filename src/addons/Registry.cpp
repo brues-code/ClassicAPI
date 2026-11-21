@@ -15,6 +15,9 @@
 
 #include "Game.h"
 
+#include <cstdio>
+#include <cstring>
+
 namespace Addons {
 
 namespace {
@@ -58,6 +61,69 @@ const uint8_t *ResolveRecord(void *L, const char *usage) {
     if (reqDesc == nullptr)
         return nullptr;
     return reqDesc - Offsets::OFF_ADDON_REQDEPS_DESC;
+}
+
+const uint8_t *ResolveAddOnArg(void *L, const char *usage, const char **outName) {
+    const char *name = nullptr;
+    const int type = Game::Lua::Type(L, 1);
+    if (type == Game::Lua::TYPE_NUMBER) {
+        const int index = static_cast<int>(Game::Lua::ToNumber(L, 1));
+        auto count = reinterpret_cast<GetAddOnCount_t>(Offsets::FUN_ADDON_GET_COUNT);
+        auto byIndex = reinterpret_cast<GetByIndex_t>(Offsets::FUN_ADDON_GET_BY_INDEX);
+        if (index >= 1 && index <= count())
+            name = static_cast<const char *>(byIndex(index - 1));
+        if (name == nullptr) {
+            char msg[512];
+            std::snprintf(msg, sizeof(msg),
+                          "Invalid index %d. AddOn index must be in the range of 1 to %d - %s",
+                          index, count(), usage);
+            Game::Lua::ArgError(L, 1, msg);
+            return nullptr;
+        }
+    } else if (type == Game::Lua::TYPE_STRING) {
+        name = Game::Lua::ToString(L, 1);
+    } else {
+        Game::Lua::ArgError(L, 1, usage);
+        return nullptr;
+    }
+    if (outName != nullptr)
+        *outName = name;
+    return FindRecord(name);
+}
+
+const uint8_t *FindRecord(const char *name) {
+    if (name == nullptr)
+        return nullptr;
+    auto resolve = reinterpret_cast<ResolveReqDeps_t>(Offsets::FUN_ADDON_RESOLVE_REQ_DEPS);
+    uint8_t *reqDesc = resolve(name);
+    if (reqDesc == nullptr)
+        return nullptr;
+    return reqDesc - Offsets::OFF_ADDON_REQDEPS_DESC;
+}
+
+const char *RecordName(const uint8_t *record) {
+    return *reinterpret_cast<const char *const *>(record + Offsets::OFF_ADDON_ENTRY_NAME_PTR);
+}
+
+const char *CharacterArg(void *L, int idx, const char *usage) {
+    const int type = Game::Lua::Type(L, idx);
+    if (type == Game::Lua::TYPE_NONE || type == Game::Lua::TYPE_NIL)
+        return nullptr;
+    if (type != Game::Lua::TYPE_STRING && type != Game::Lua::TYPE_NUMBER) {
+        Game::Lua::ArgError(L, idx, usage);
+        return nullptr;
+    }
+    const char *character = Game::Lua::ToString(L, idx);
+    if (character == nullptr)
+        return nullptr;
+    // 3.80.2 FUN_142a714f0, the parser for a string with no '-': a prefix of
+    // sixteen zeros is the zero GUID, and so is WOWGUID_NULL.
+    const size_t len = std::strlen(character);
+    if (std::strncmp(character, "0000000000000000", len < 16 ? len : 16) == 0)
+        return nullptr;
+    if (_stricmp(character, "WOWGUID_NULL") == 0)
+        return nullptr;
+    return character;
 }
 
 } // namespace Addons
