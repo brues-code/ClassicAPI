@@ -60,6 +60,16 @@
 //
 // A running melee attack is not carried to an Auto target
 // (Combat::TargetChange).
+//
+// A loose target's model is not lit. 1.12 lights every new target: the
+// setter turns on light bit 0 (CGObject_C::SetLight at 0x00493701, the only
+// call that sets it; ReleaseTarget clears it at 0x004939A7), which brightens
+// the model as the mouseover's bit 1 does. Retail and 3.80.2 light only the
+// mouseover; their target and soft highlights are model outlines, which 1.12
+// has no renderer for. So a loose target, the Force target that carries the
+// soft enemy among them, has its bit cleared right after the setter returns,
+// in the same frame and before the scene draws, and a loose target that
+// becomes locked gets the bit back (SyncLight).
 
 #include "target/Reason.h"
 
@@ -96,6 +106,18 @@ CVar::Factory::Handle g_autoLock = nullptr;
 
 bool IsLooseWhy(Why why) {
     return why == Auto || why == Force || why == InteractKey || why == AutoSpell;
+}
+
+// The target's light bit 0 by its reason: off while loose, on while locked.
+void SyncLight() {
+    using Light_t = void(__thiscall *)(void *obj, int bit);
+    const uint64_t selection = Game::Read<uint64_t>(Offsets::VAR_CURRENT_SELECTION_GUID_LO);
+    void *object = selection != 0 ? Object::ByGuid(Offsets::TYPEMASK_OBJECT, selection) : nullptr;
+    if (object == nullptr)
+        return;
+    const bool loose = IsLooseWhy(selection == g_guid ? g_reason : Chosen);
+    reinterpret_cast<Light_t>(loose ? Offsets::FUN_CGOBJECT_CLEAR_LIGHT
+                                    : Offsets::FUN_CGOBJECT_SET_LIGHT)(object, 0);
 }
 
 // The player is busy with the target: attacking it, or an auto-repeat spell
@@ -182,6 +204,7 @@ void __stdcall Select_h(uint32_t guidLo, uint32_t guidHi) {
         if (!bindsSpell && why > current) {
             g_guid = guid;
             g_reason = why;
+            SyncLight();
             reinterpret_cast<FireEvent_t>(Offsets::FUN_FIRE_EVENT_NO_ARGS)(
                 Offsets::EVENT_PLAYER_TARGET_CHANGED);
         }
@@ -208,6 +231,7 @@ void __stdcall Select_h(uint32_t guidLo, uint32_t guidHi) {
         g_reason = oldReason;
         return;
     }
+    SyncLight();
     Tab::OnSet(target, guid, why);
 }
 
@@ -371,6 +395,7 @@ void Promote(Why why) {
         return;
     g_guid = selection;
     g_reason = why;
+    SyncLight();
 }
 
 void Restore(uint64_t guid, Why why) {

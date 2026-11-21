@@ -11,11 +11,19 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// The soft-target names: retail shows a soft unit's overhead name as it shows
-// the target's, whatever the UnitName* cvars say (retail: `softenemy` past
-// nameplate range keeps its name, and its circle). `softfriend` takes the same
-// rule, by symmetry with the circles; not probed. No cvar of its own: it
-// follows SoftTargetEnemy / SoftTargetFriend.
+// The soft-target names: `softenemy`, `softfriend` and `softinteract` show
+// their overhead name as the target does, whatever the UnitName* cvars say.
+// No cvar of their own: they follow SoftTargetEnemy / SoftTargetFriend /
+// SoftTargetInteract.
+//
+// 3.80.2's name test (FUN_141378cf0, docs/notes/soft-targeting-3802.md,
+// "Soft-target visuals"): after the hidden-object checks and "a unit with a
+// nameplate or a chat bubble has no name", FUN_1405dffa0 answers true for
+// the target and the three soft GUIDs, and then the name shows unless the
+// object is the active player; only otherwise does the per-type UnitName*
+// rule run. That test runs for every object kind, so a soft-interact game
+// object shows its name there too. Not ported: 1.12 draws no overhead name
+// for a game object, so only units get it.
 //
 // 1.12's rule is CGUnit_C::ShouldShowName (0x6070A0), which the name draw
 // PLAYERNAMEDESC::UpdatePlate (0x6C6E90) asks every frame, so a new answer
@@ -31,6 +39,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "object/Resolve.h"
+#include "target/SoftInteract.h"
 #include "target/SoftUnit.h"
 #include "tick/FrameTick.h"
 #include "unit/Identity.h"
@@ -46,13 +55,14 @@ using CanSelect_t = int(__thiscall *)(void *unit);
 
 ShouldShowName_t g_origShouldShowName = nullptr;
 
-// The soft units (FrameTick), 0 when the side is off.
-uint64_t g_soft[2] = {};
+// The soft units (FrameTick): enemy, friend, interact. 0 when the side is
+// off.
+uint64_t g_soft[3] = {};
 
 // 0x6070A8-0x6070F1, the path a target takes, for a soft unit.
 int __fastcall ShouldShowName_h(void *unit, void *edx, uint32_t mask) {
     const uint64_t guid = ::Object::Guid(unit);
-    if (guid == 0 || (guid != g_soft[0] && guid != g_soft[1]))
+    if (guid == 0 || (guid != g_soft[0] && guid != g_soft[1] && guid != g_soft[2]))
         return g_origShouldShowName(unit, edx, mask);
     const auto canSelect = Game::Read<CanSelect_t>(Game::Read<void *>(unit, 0),
                                                    Offsets::OFF_CGOBJECT_VTBL_CAN_SELECT);
@@ -71,6 +81,7 @@ const Game::HookAutoRegister _hook{Offsets::FUN_CGUNIT_SHOULD_SHOW_NAME,
 void OnFrameTick() {
     g_soft[0] = SoftUnit::Get(SoftUnit::Side::Enemy);
     g_soft[1] = SoftUnit::Get(SoftUnit::Side::Friend);
+    g_soft[2] = SoftInteract::Get();
 }
 
 const Tick::FrameTick::AutoSubscribe _tick{&OnFrameTick};

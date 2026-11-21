@@ -144,10 +144,7 @@ local function RegisterInteractKey()
 	AddNumberBox(category, "SoftTargetInteractRange", CLASSICAPI_INTERACT_RANGE, CLASSICAPI_RANGE_TOOLTIP);
 	AddCVarCheckbox(category, "SoftTargetInteractRangeIsHard", CLASSICAPI_STRICT_INTERACT_RANGE, CLASSICAPI_STRICT_INTERACT_RANGE_TOOLTIP);
 
-	local interactIcon, interactIconInitializer = Settings.SetupCVarCheckbox(category, "SoftTargetIconInteract", CLASSICAPI_INTERACT_ICON, CLASSICAPI_INTERACT_ICON_TOOLTIP);
-	-- The object icon is drawn only while the interact icon is on.
-	local gameObjectIcon = AddCVarCheckbox(category, "SoftTargetIconGameObject", CLASSICAPI_GAME_OBJECT_ICON, CLASSICAPI_GAME_OBJECT_ICON_TOOLTIP);
-	gameObjectIcon:SetParentInitializer(interactIconInitializer, function() return interactIcon:GetValue(); end);
+	AddCVarCheckbox(category, "SoftTargetIconInteract", CLASSICAPI_INTERACT_ICON, CLASSICAPI_INTERACT_ICON_TOOLTIP);
 	AddCVarCheckbox(category, "SoftTargetNameplateInteract", CLASSICAPI_ALWAYS_SHOW_NAMEPLATE, CLASSICAPI_INTERACT_NAMEPLATE_TOOLTIP);
 
 	-- Retail's "Show Target Tooltip" (Accessibility): one box for the enemy and interact tooltips.

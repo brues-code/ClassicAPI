@@ -28037,20 +28037,38 @@ the GUID of that object. Functions that read unit data, such as
 | `SoftTargetInteractRange` | `10` | The maximum distance in yards. A soft object farther away is removed. |
 | `SoftTargetInteractRangeIsHard` | `0` | `0`: an object that you can interact with now is picked also when it is past the range. `1`: the range always applies. |
 
+**The circle and the name.** When the picked object is a unit, it shows
+the soft circle and its name, the same as `"softenemy"`. A game object
+shows neither. For the details, see the circles and the names of
+[soft enemy and soft friend](#soft-enemy-and-soft-friend-softenemy--softfriend--anyenemy--anyfriend).
+
 **The icon.** When `SoftTargetIconInteract` is `1`, an icon shows over the
-picked object. For a game object, such as a mailbox, a chest or a node,
-`SoftTargetIconGameObject` must also be `1`. The icon is the cursor
-image that the mouse shows over the object (see
+picked object. The icon is the cursor image that the mouse shows over the
+object (see
 [`SetUnitCursorTexture`](#setunitcursortexturetexture-unit--style--includelowpriority)).
-For a unit, the icon is above its name. For a game object, the icon is
-above the top of the object. When you are too far away, the icon is
-the grey "Unable" form. The icon is hidden when the object is off the screen.
+When you are too far away, the icon is the grey "Unable" form. When the
+unit has a nameplate, the icon is on the nameplate. In all other cases,
+the icon is above the name of the unit, or above the top of a game object.
+A raid target marker over the unit replaces the icon. The icon is hidden
+when the object is off the screen.
+
+An icon on a nameplate is `SoftTargetNameplateSize` pixels square. Any
+other icon is `SoftTargetWorldtextSize` screen pixels square at all
+distances. When `SoftTargetWorldtextNearScale` is more than `1`, a near
+icon is larger. At `SoftTargetWorldtextNearDist` yards from the camera,
+the size is multiplied by `SoftTargetWorldtextNearScale`. At
+`SoftTargetWorldtextFarDist` yards and more, the size is multiplied by
+`1`. When an icon appears, it grows from half size to full size in
+approximately a tenth of a second.
 
 | cvar | default | values |
 |---|---|---|
-| `SoftTargetIconInteract` | `0` | `1` shows the icon, `0` hides it. |
-| `SoftTargetIconGameObject` | `0` | `1` shows the icon over a game object, `0` hides it. The icon also needs `SoftTargetIconInteract`. |
-| `SoftTargetNameplateSize` | `19` | The size of the icon, and of the soft enemy and soft friend icons. |
+| `SoftTargetIconInteract` | `1` | `1` shows the icon, `0` hides it. |
+| `SoftTargetNameplateSize` | `19` | The size in pixels of an icon on a nameplate. `0` hides the icons on nameplates. This also applies to the soft enemy and soft friend icons. |
+| `SoftTargetWorldtextSize` | `32` | The size in screen pixels of an icon that is not on a nameplate. This also applies to the soft enemy and soft friend icons. |
+| `SoftTargetWorldtextNearScale` | `1` | The size multiplier for a near icon. `1` or less gives all icons the same size. |
+| `SoftTargetWorldtextNearDist` | `4` | The distance in yards where the full near multiplier applies. |
+| `SoftTargetWorldtextFarDist` | `40` | The distance in yards where the multiplier is `1`. |
 
 **The tooltip.** The game tooltip can show a soft target without the
 mouse over it. It shows the first of these whose setting is on: the soft
@@ -28222,15 +28240,19 @@ with `"target"` and one time with `"softenemy"`. `"anyenemy"` and
 | `TargetEnemyAttacker` | `1` | `1`: a unit becomes your target when its melee attack hits you, or when it starts to cast a spell at you and cannot help you. This occurs when you have no target or one that the game set. `0`: being attacked never sets your target. While you attack, a running attack does not move to it. This setting is saved for each character. |
 | `TargetAutoLock` | `1` | `1`: a target that the game sets (`TargetEnemyAttacker`, `C_PlayerInteractionManager.InteractUnit` on a unit token) is locked. `0`: it is loose. This setting is saved for each character. |
 
-**The circles.** A selection circle shows under `"softenemy"` and under
-`"softfriend"`. It has the same color as the circle under your target, but
-it is smaller and dimmer. When the soft unit is also your target, the unit shows only
-one circle. A loose target, for example the forced target, shows the soft
-circle. A locked target shows the target circle. `ObjectSelectionCircle` `0` hides the soft circles with
-the target circle.
+**The circles.** A soft circle shows under `"softenemy"`, under
+`"softfriend"` and under a `"softinteract"` unit. The soft circle is an
+even ring over a filled disc. It is smaller and fainter than the circle
+under your target, and its color is paler. When a soft unit is also your
+target, the unit shows only one circle. A loose target, for example the
+forced target, shows the soft circle. A locked target shows the target
+circle. `ObjectSelectionCircle` `0` hides the soft circles with the target
+circle. A soft unit and a loose target do not light up. The model of a
+locked target lights up, the same as when the mouse is over a model.
 
-**The names.** The name of `"softenemy"` and of `"softfriend"` shows above
-the unit, the same as the name of your target. When the `UnitName` cvars
+**The names.** The names of `"softenemy"`, `"softfriend"` and a
+`"softinteract"` unit show above the unit, the same as the name of your
+target. When the `UnitName` cvars
 hide the names of other units, the soft unit names also show. When a soft
 unit has a nameplate, the nameplate shows and the name does not, the same as
 for your target.
@@ -28238,13 +28260,12 @@ for your target.
 **The icons.** When `SoftTargetIconEnemy` is `1`, an icon shows above the
 name of `"softenemy"`. When `SoftTargetIconFriend` is `1`, an icon shows
 above the name of `"softfriend"`. The icon is the cursor image that the
-mouse shows over the unit, the same as the
+mouse shows over the unit. It has the same place and the same size as the
 [soft interact icon](#soft-interact-softinteract--anyinteract). A unit
 gets one icon, also when it is more than one soft unit.
 When the mouse shows only the normal pointer over the unit, for example
 over a party member, the icon is low priority. A low-priority icon shows
 only when `SoftTargetLowPriorityIcons` is `1`.
-`SoftTargetNameplateSize` sets the size of the icons.
 
 | cvar | default | values |
 |---|---|---|

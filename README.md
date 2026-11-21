@@ -254,8 +254,7 @@ its ClassicAPI tab.
 | | `SoftTargetInteractArc` | `0` | Where the object can be: `0` straight ahead of the camera, `1` within 30° of it, `2` any direction. |
 | | `SoftTargetInteractRange` | `10` | Maximum distance in yards. |
 | | `SoftTargetInteractRangeIsHard` | `0` | `1` always applies the range. `0` also picks an object past it that you can use now. |
-| | `SoftTargetIconInteract` | `0` | `1` shows an icon over the soft-interact object. |
-| | `SoftTargetIconGameObject` | `0` | `1` also shows that icon over game objects. |
+| | `SoftTargetIconInteract` | `1` | `1` shows an icon over the soft-interact object. |
 | [Soft enemy / friend](docs/API.md#soft-enemy-and-soft-friend-softenemy--softfriend--anyenemy--anyfriend) | `SoftTargetEnemy` / `SoftTargetFriend` | `1` / `0` | Turns `softenemy` / `softfriend` on: `2` keyboard and mouse, `3` always, `0` / `1` off. |
 | | `SoftTargetEnemyArc` / `SoftTargetFriendArc` | `0` | The same values as `SoftTargetInteractArc`. |
 | | `SoftTargetEnemyRange` / `SoftTargetFriendRange` | `45` | Maximum distance in yards. |
@@ -264,7 +263,9 @@ its ClassicAPI tab.
 | | `SoftTargetForce` | `1` | A loose target follows `softenemy` (`1`) or `softfriend` (`2`). `0` keeps it. |
 | | `SoftTargetIconEnemy` / `SoftTargetIconFriend` | `0` | `1` shows an icon over `softenemy` / `softfriend`. |
 | | `SoftTargetLowPriorityIcons` | `0` | `1` also shows the normal pointer as an icon. |
-| | `SoftTargetNameplateSize` | `19` | Size of all soft-target icons. |
+| | `SoftTargetNameplateSize` | `19` | Size of the soft-target icons on nameplates. |
+| | `SoftTargetWorldtextSize` | `32` | Size in screen pixels of the other soft-target icons. |
+| | `SoftTargetWorldtextNearScale` / `SoftTargetWorldtextNearDist` / `SoftTargetWorldtextFarDist` | `1` / `4` / `40` | A near icon is `NearScale` times larger at `NearDist` yards, and normal size at `FarDist` yards. `1` keeps one size. |
 | [Localization](docs/API.md#breakuplargenumbers-cvar) | `breakUpLargeNumbers` | `1` | `1` puts a separator between each group of three digits in `BreakUpLargeNumbers`. `0` writes no separator. |
 | [Cooldown](docs/API.md#createframecooldown--name-parent-template) | `countdownForCooldowns` | `0` | `1` shows the time left as numbers on cooldown frames. |
 | `ScriptAnimationUtil` | `ShakeStrengthUI` | `1` | Scales how far `ScriptAnimationUtil.ShakeFrame` moves a frame. `0` turns the shake off. |

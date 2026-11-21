@@ -2234,6 +2234,24 @@ enum Offsets {
     // liquid surface (0x0060A7BF).
     VAR_NAME_HEIGHT_FACTOR = 0x0080C5D0,
     VAR_TWO_THIRDS = 0x0080ABFC,
+    // CGUnit_C::GetNamePosition — `void __thiscall(unit, float out[3])`,
+    // ret 4 (0x0060868D): the point above, before the plate lift. Called by
+    // GetNamePlateScreenPos (0x0060F7FD) and the name draw (0x006C6F00).
+    FUN_UNIT_GET_NAME_POSITION = 0x00608640,
+    // The unit's name record (PLAYERNAMEDESC *), stored by the name-record
+    // create at 0x00607021; benilla-re playername/plates "Name record
+    // layout": +0x08 the name text handle (0 while the name is hidden; the
+    // plate update destroys it), +0x30 the name block height (lines x the
+    // plate scale). The plate update raises the text by the block height
+    // (0x006C7071) and the raid marker by one more plate scale when the name
+    // shows (0x006C70D8).
+    OFF_UNIT_NAME_DESC = 0xC7C,
+    OFF_NAMEDESC_TEXT = 0x08,
+    OFF_NAMEDESC_BLOCK_HEIGHT = 0x30,
+    // IsDeadOrGhost — `bool __thiscall(unit)`: health 0 or below, or a
+    // player with PLAYER_FLAGS 0x10. The plate update draws no raid marker
+    // for such a unit (0x006C70C2). benilla-re symbols, verified.
+    FUN_UNIT_IS_DEAD_OR_GHOST = 0x00605F30,
     // GetNamePosition's attachments (0x00608640): PlayerName on the unit's
     // model, PlayerNameMounted when the unit is mounted (its model is then
     // the mount's).
