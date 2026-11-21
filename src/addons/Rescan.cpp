@@ -60,6 +60,16 @@
 // ran (SavedVariables written from the OLD entry's SV lists, loaded
 // bytes cleared), and the load pass hasn't — nothing holds entry state.
 //
+// It also runs from the glue registration pass (`GlueModuleAutoRegister`,
+// every glue boot), so a return to character select shows the addons on
+// disk, as 3.80.2 rebuilds its registry at every glue Resume
+// (FUN_141390DB0 → FUN_141AF9AE0) as well as at every world UI init.
+// 1.12 builds its registry only at account login (DefaultServerLogin →
+// 0x0051C740), so the first glue boot, before any login, finds no
+// registry and the gate below skips it. No addon is loaded on the glue
+// screen (CGGameUI::Shutdown ran the unload pass), so the eviction window
+// holds there too.
+//
 // Excluded from the evict path (everything else is fair game):
 //   - the embedded addons — `Addons::Embedded` owns their entries
 //     (registered first + filter byte);
@@ -392,8 +402,8 @@ void RebuildDisplayArray() {
 
 void Run() {
     // Registry populated (login scan ran) — always true by the first
-    // in-world LoadScriptFunctions, but it is the state the steps below
-    // mutate, so gate explicitly. No gate on the index being built: the
+    // in-world LoadScriptFunctions, false at the first glue boot before
+    // any account login, and it is the state the steps below mutate. No gate on the index being built: the
     // unload pass clears it whenever it wrote a new SV file, and the
     // clear below is safe either way.
     if (*reinterpret_cast<const uint8_t *>(
@@ -471,6 +481,7 @@ void Run() {
 }
 
 const Game::ModuleAutoRegister _autoreg{&Run};
+const Game::GlueModuleAutoRegister _glueAutoreg{&Run};
 
 } // namespace
 
