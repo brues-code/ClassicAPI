@@ -530,6 +530,9 @@ build instructions.
   - [`frame:IsEventRegistered(event)`](#frameiseventregisteredevent)
   - [`frame:RegisterUnitEvent(event, ...units)`](#frameregisteruniteventevent-units)
   - [`frame:GetEffectiveAlpha()`](#framegeteffectivealpha)
+  - [`frame:RegisterGUIDEvent(event, ...guids)`](#frameregisterguideventevent-guids)
+  - [`frame:UnregisterGUIDEvent(event)`](#frameunregisterguideventevent)
+  - [`frame:IsGUIDEventRegistered(event)`](#frameisguideventregisteredevent)
   - [Frame alpha multiplies into child frames](#frame-alpha-multiplies-into-child-frames)
   - [`OnSizeChanged` sizes are in frame units](#onsizechanged-sizes-are-in-frame-units)
   - [`frame:SetAttribute` / `SetAttributeNoHandler` / `ClearAttribute` / `GetAttribute` (+ unit-frame mouseover)](#framesetattributename-value--framesetattributenohandlername-value--frameclearattributename--framegetattribute)
@@ -12008,6 +12011,65 @@ parent. Thus a child frame is never more visible than its parent.
 - A frame that you create or move into a transparent frame is also
   transparent.
 - A `<Frame alpha="0">` hides the frames in its `<Frames>` element.
+### `frame:RegisterGUIDEvent(event, ...guids)`
+
+Registers the frame for a unit event of the units with these GUIDs. A token
+does not have to name the unit. Use it for a unit that has no token, for
+example the target of `party1`. This is a ClassicAPI extension.
+
+The frame's `OnEvent` runs one time for each event of such a unit. The first
+argument is the GUID as `UnitGUID` returns it, also when a token names the
+unit. `UnitHealth(guid)` and the other unit functions accept this GUID.
+
+Returns `true` if the call registered the frame or changed its GUIDs. Returns
+`false` if the frame was already registered with the same GUIDs.
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterGUIDEvent("UNIT_HEALTH", UnitGUID("party1target"))
+f:SetScript("OnEvent", function(self, event, guid)
+    print(UnitName(guid), UnitHealth(guid))
+end)
+```
+
+Behavior notes:
+
+- Each call replaces the GUIDs of the frame for the event.
+- The call reads GUIDs up to the first argument that is not a string. It
+  ignores a string that is not a GUID. If no GUID is valid, the call raises a
+  usage error.
+- You can give GUIDs only for unit events, the same events that
+  `RegisterUnitEvent` takes units for. Other events raise
+  `Attempt to register unknown event "<event>"`.
+- A GUID registration is separate from `RegisterEvent` and
+  `RegisterUnitEvent`. A frame can have both for one event. Then the frame
+  receives the event for each token that matches, and one more time for the
+  GUID.
+- `IsEventRegistered` and `UnregisterEvent` do not include GUID
+  registrations. `UnregisterAllEvents` removes them.
+- A unit event that other code fires with a GUID as its first argument does
+  not reach a GUID registration.
+- A unit fires most of its events only while it is in view. Group members
+  also fire their health and power events out of view.
+
+### `frame:UnregisterGUIDEvent(event)`
+
+Removes the GUID registration of the frame for `event`. If the frame has no
+GUID registration for `event`, the call does nothing.
+
+### `frame:IsGUIDEventRegistered(event)`
+
+Returns `true` if the frame has a GUID registration for `event`, else
+`false`. The GUIDs follow the boolean, in the order that they were given. If
+there is no registration, the second return is `nil`.
+
+```lua
+f:RegisterGUIDEvent("UNIT_AURA", UnitGUID("target"))
+f:IsGUIDEventRegistered("UNIT_AURA")    -- true, "0xF130..."
+f:UnregisterGUIDEvent("UNIT_AURA")
+f:IsGUIDEventRegistered("UNIT_AURA")    -- false, nil
+```
+
 - `GetAlpha()` returns the frame's own alpha. `GetEffectiveAlpha()`
   returns the drawn alpha.
 - The 3D model of a Model frame uses the drawn alpha of the frame.

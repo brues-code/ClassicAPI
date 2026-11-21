@@ -12,8 +12,9 @@
 // its own name, so the engine's UNIT_AURA stays exactly as it is.
 //
 // Once per frame, from the world tick, each unit whose auras changed fires
-// once per unit token it has (`Unit::Identity::TokensForGUID`), the way the
-// engine fires UNIT_AURA. The change set is `Aura::Instance`'s.
+// once per unit token it has, the way the engine fires UNIT_AURA, and once to
+// the frames that registered its GUID (`Unit::Signal`). The change set is
+// `Aura::Instance`'s.
 //
 // The payload is built to cost no garbage. It carries instance IDs only —
 // never AuraData; a handler reads the auras it cares about with
@@ -29,7 +30,7 @@
 #include "aura/Instance.h"
 #include "event/Custom.h"
 #include "tick/WorldTick.h"
-#include "unit/Identity.h"
+#include "unit/Signal.h"
 
 #include <cstdint>
 
@@ -111,27 +112,19 @@ void SetList(void *L, const char *key, int &ref, const uint32_t *ids, int count)
 }
 
 void Fire(const Aura::Instance::Delta &d) {
-    char tokens[Unit::Identity::kMaxUnitTokens][32];
-    const int n = Unit::Identity::TokensForGUID(d.guid, tokens, Unit::Identity::kMaxUnitTokens);
-    void *L = Game::Lua::State();
-    if (n == 0 || L == nullptr)
-        return;
-    const int top = Game::Lua::GetTop(L);
-    for (int i = 0; i < n; ++i) {
-        // Refilled for each token: a handler may have changed the tables.
-        Game::Lua::PushString(L, tokens[i]);
+    // Refilled for each fire: a handler may have changed the tables.
+    Unit::Signal::FireValues(d.guid, _evt.Slot(), [&](void *L) {
         PushTable(L, g_infoRef);
         Game::Lua::SetFieldBool(L, "isFullUpdate", d.fullUpdate);
         SetList(L, "addedAuraInstanceIDs", g_addedRef, d.added, d.addedCount);
         SetList(L, "updatedAuraInstanceIDs", g_updatedRef, d.updated, d.updatedCount);
         SetList(L, "removedAuraInstanceIDs", g_removedRef, d.removed, d.removedCount);
-        Event::Custom::FireValues(_evt.Slot(), L, top + 1, 2);
-        Game::Lua::SetTop(L, top);
-    }
+        return 1;
+    });
 }
 
 void OnWorldTick() {
-    const bool listening = Event::Custom::HasListeners(_evt.Slot());
+    const bool listening = Unit::Signal::HasListeners(_evt.Slot());
     Aura::Instance::SetRecording(listening);
     if (listening)
         Aura::Instance::Drain(&Fire);

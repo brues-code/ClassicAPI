@@ -58,6 +58,7 @@
 #include "Offsets.h"
 #include "dbc/Lookup.h"
 #include "event/Custom.h"
+#include "unit/Signal.h"
 
 #include <cstdint>
 #include <cstring>
@@ -69,7 +70,7 @@ namespace {
 // Helpers ────────────────────────────────────────────────────────────
 
 void FireUnitFactionPlayer() {
-    Event::Custom::Fire(Offsets::EVENT_UNIT_FACTION, "%s", "player");
+    Unit::Signal::FirePlayer(Offsets::EVENT_UNIT_FACTION, "%s");
 }
 
 uint8_t ReadRepSlotFlags(int repListID) {

@@ -43,8 +43,8 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "event/Custom.h"
-#include "unit/Identity.h"
 #include "unit/Power.h"
+#include "unit/Signal.h"
 
 #include <cstdint>
 
@@ -69,19 +69,11 @@ using Register_t = void(__fastcall *)(int bank, uint32_t fieldOffset, uint32_t s
 using Unregister_t = void(__fastcall *)(int bank, uint32_t fieldOffset, const void *callback,
                                         void *userArg);
 
-// Fires each of `slots` with (token, powerToken) once per token of the unit,
-// event by event as 4.3.4's handler signals them.
+// Fires each of `slots` with (unit, powerToken) for the unit, event by event
+// as 4.3.4's handler signals them.
 void Signal(uint64_t guid, const char *type, const int *slots, int count) {
-    bool listened = false;
     for (int i = 0; i < count; ++i)
-        listened = listened || Event::Custom::HasListeners(slots[i]);
-    if (!listened)
-        return;
-    char tokens[Unit::Identity::kMaxUnitTokens][32];
-    const int n = Unit::Identity::TokensForGUID(guid, tokens, Unit::Identity::kMaxUnitTokens);
-    for (int i = 0; i < count; ++i)
-        for (int t = 0; t < n; ++t)
-            Event::Custom::Fire(slots[i], "%s%s", tokens[t], type);
+        ::Unit::Signal::Fire(guid, slots[i], "%s%s", type);
 }
 
 uint64_t Guid(uint32_t lo, uint32_t hi) { return (static_cast<uint64_t>(hi) << 32) | lo; }

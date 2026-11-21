@@ -20,9 +20,10 @@
 namespace Unit::TokenEvents {
 
 // Re-evaluates whether the engine watches `guid`'s unit for ClassicAPI's
-// tokens (TokensOf's list). The owner of a token calls it after the token is
-// given to or taken from a unit; 0 and units out of range are no-ops (a unit
-// coming into range is evaluated by the engine itself).
+// tokens (TokensOf's list) or a GUID registration (Frame::GuidEvent). The
+// owner of a token or registration calls it after giving or taking it; 0 and
+// units out of range are no-ops (a unit coming into range is evaluated by the
+// engine itself).
 void Refresh(uint64_t guid);
 
 // The ClassicAPI tokens `guid` has right now — nameplateN, targettarget,

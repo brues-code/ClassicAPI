@@ -52,6 +52,11 @@
 // would fire them a second time. ClassicAPI's own unit events reach
 // the same tokens: Unit::Identity::TokensForGUID merges TokensOf's list with
 // the engine's into 3.80.2's order.
+//
+// GUIDs. A unit some frame registered by GUID (Frame::GuidEvent) keeps the
+// registration bit too, token or not, and every event the two sites fire for
+// it then goes to those frames once more, with the GUID as the unit
+// (Unit::Signal).
 
 #include "TokenEvents.h"
 
@@ -60,6 +65,7 @@
 #include "Offsets.h"
 #include "debug/Log.h"
 #include "event/Custom.h"
+#include "frame/GuidEvent.h"
 #include "nameplate/Walk.h"
 #include "object/Resolve.h"
 #include "target/Reason.h"
@@ -70,6 +76,7 @@
 #include "unit/Focus.h"
 #include "unit/Identity.h"
 #include "unit/RaidTarget.h"
+#include "unit/Signal.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -218,7 +225,8 @@ void __fastcall Recompute_h(void *unit) {
         return;
     const uint32_t mask = Game::Read<uint32_t>(unit, Offsets::OFF_CGUNIT_SCRIPT_REGISTRATION);
     const bool has = (mask & Offsets::UNIT_SCRIPT_REG_TOKENS) != 0;
-    const bool want = HasTokens(::Object::Guid(unit));
+    const uint64_t guid = ::Object::Guid(unit);
+    const bool want = HasTokens(guid) || Frame::GuidEvent::Watched(guid);
     if (want && !has)
         reinterpret_cast<ScriptBits_t>(static_cast<uintptr_t>(Offsets::FUN_UNIT_SCRIPT_REGISTER))(
             unit, Offsets::UNIT_SCRIPT_REG_TOKENS);
@@ -261,13 +269,14 @@ void __fastcall CombatFeedbackSite(const uint64_t *guid, const char *action, int
         guid, action, amount, school, hitInfo);
     TokenList tokens;
     const int n = TokensOf(g, tokens, kMaxTokens);
-    if (n == 0)
+    if (n == 0 && !Frame::GuidEvent::Has(Offsets::UNIT_EVENT_UNIT_COMBAT, g))
         return;
     const char *modifier = CombatModifier(amount, hitInfo);
     const auto *fmt = reinterpret_cast<const char *>(Offsets::VAR_STR_UNIT_COMBAT_FORMAT);
     for (int i = 0; i < n; ++i)
         Event::Custom::Fire(Offsets::UNIT_EVENT_UNIT_COMBAT, fmt, tokens[i], action, modifier,
                             amount, school);
+    ::Unit::Signal::FireGuid(g, Offsets::UNIT_EVENT_UNIT_COMBAT, action, modifier, amount, school);
 }
 
 // Direct `E8` / `E9` rel32 instructions in `.text` that reach `target`.
@@ -336,6 +345,7 @@ void __fastcall Broadcast(const uint64_t *guid, uint32_t eventId) {
     const int n = TokensOf(g, tokens, kMaxTokens);
     for (int i = 0; i < n; ++i)
         Event::Custom::Fire(static_cast<int>(eventId), "%s", tokens[i]);
+    ::Unit::Signal::FireGuid(g, static_cast<int>(eventId));
     for (const AutoObserve *o = AutoObserve::head; o != nullptr; o = o->next)
         o->fn(g, eventId);
 }

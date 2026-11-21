@@ -197,14 +197,16 @@ constexpr const char *kUnitEvents[] = {
     "UNIT_AURA_DELTA", "UNIT_AREA_CHANGED",
 };
 
-bool IsUnitEvent(const char *eventName) {
+const char *UnitEventName(const char *eventName) {
     for (const char *e : kUnitEvents)
         if (Ascii::EqualCI(eventName, e))
-            return true;
-    return false;
+            return e;
+    return nullptr;
 }
 
 // One filtered registration — the unit list 3.80.2 keeps on the event's
+bool IsUnitEvent(const char *eventName) { return UnitEventName(eventName) != nullptr; }
+
 // listener entry for this frame. `event` is the CANONICAL name copied from the
 // event-table entry, so the fire-time compare against the dispatcher-set
 // `_G.event` (which is that same entry name) is a plain strcmp.
@@ -560,6 +562,10 @@ bool CanonicalUnitToken(const char *s, std::string *out) {
 }
 
 void OnPlainRegister(const void *frame, const char *eventName) {
+const char *CanonicalUnitEvent(const char *eventName) {
+    return eventName != nullptr ? UnitEventName(eventName) : nullptr;
+}
+
     if (!g_inUnitRegister && frame != nullptr && eventName != nullptr && !g_filters.empty())
         EraseFilter(frame, eventName);
 }

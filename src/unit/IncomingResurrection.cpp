@@ -51,6 +51,7 @@
 #include "spell/Lookup.h"
 #include "tick/WorldTick.h"
 #include "unit/Identity.h"
+#include "unit/Signal.h"
 #include "spell/CastPacket.h"
 
 #include <cstddef>
@@ -81,12 +82,7 @@ struct Entry {
 
 std::vector<Entry> g_entries;
 
-void Signal(uint64_t unit) {
-    const int slot = kChanged.Slot();
-    if (!Event::Custom::HasListeners(slot))
-        return;
-    Unit::Identity::ForEachToken(unit, [&](const char *token) { Event::Custom::Fire(slot, "%s", token); });
-}
+void Signal(uint64_t unit) { ::Unit::Signal::Fire(unit, kChanged.Slot(), "%s"); }
 
 // Ends `caster`'s resurrection: of `spellID`, or any for 0.
 void End(uint64_t caster, int spellID) {

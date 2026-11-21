@@ -33,6 +33,10 @@
 //   - A fire goes out once for every token that names the GUID then, to the
 //     frames whose filter takes that token (all of them for a plain
 //     registration).
+//   - ClassicAPI's: the GUIDs frames registered with RegisterGUIDEvent are
+//     checked too, and a fire also goes out to those frames, with the GUID as
+//     the unit (Unit::Signal). A GUID no token filter asked for fires to
+//     them alone.
 //   - The answers are cleared when the world is torn down (0x141AE2B70 from
 //     0x141691B50). Here they are cleared while the player is not in the world
 //     (VAR_IN_WORLD), which is so behind every loading screen.

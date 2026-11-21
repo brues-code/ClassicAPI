@@ -20,6 +20,7 @@
 #include "spell/Lookup.h"
 #include "time/Clock.h"
 #include "unit/Identity.h"
+#include "unit/Signal.h"
 
 #include <cstdio>
 #include <cstdint>
@@ -166,16 +167,17 @@ void BuildCastGuid(char *out, size_t n, int type, int spellID, int castUID) {
 void Fire(const Event::Custom::AutoReserve &event, int spellID, int guidNum,
           int type = 3) {
     const int slot = event.Slot();
-    if (!Event::Custom::HasListeners(slot))
+    if (!Unit::Signal::HasListeners(slot, Unit::Identity::PlayerGuid()))
         return;
     const uint8_t *rec = Spell::Lookup::RecordForID(spellID);
     if (rec == nullptr)
         return;
     char castGuid[48];
     BuildCastGuid(castGuid, sizeof(castGuid), type, spellID, guidNum);
-    Event::Custom::Fire(slot, "%s%s%d%s%s", "player", castGuid, spellID,
-                        OrEmpty(Spell::Lookup::Name(rec)),
-                        OrEmpty(Spell::Lookup::Rank(rec)));
+    const char *name = OrEmpty(Spell::Lookup::Name(rec));
+    const char *rank = OrEmpty(Spell::Lookup::Rank(rec));
+    Unit::Signal::FirePlayer(slot, "%s%s%d%s%s", static_cast<const char *>(castGuid), spellID,
+                             name, rank);
 }
 
 // SENT is the one event whose shape differs from the rest, matching modern:
@@ -184,16 +186,18 @@ void Fire(const Event::Custom::AutoReserve &event, int spellID, int guidNum,
 // the cast packet, or "" for self / no-target casts.
 void FireSent(int spellID, int guidNum, const char *target) {
     const int slot = kSent.Slot();
-    if (!Event::Custom::HasListeners(slot))
+    if (!Unit::Signal::HasListeners(slot, Unit::Identity::PlayerGuid()))
         return;
     const uint8_t *rec = Spell::Lookup::RecordForID(spellID);
     if (rec == nullptr)
         return;
     char castGuid[48];
     BuildCastGuid(castGuid, sizeof(castGuid), /*type=*/3, spellID, guidNum);
-    Event::Custom::Fire(slot, "%s%s%s%d%s%s", "player", target ? target : "",
-                        castGuid, spellID, OrEmpty(Spell::Lookup::Name(rec)),
-                        OrEmpty(Spell::Lookup::Rank(rec)));
+    const char *to = target ? target : "";
+    const char *name = OrEmpty(Spell::Lookup::Name(rec));
+    const char *rank = OrEmpty(Spell::Lookup::Rank(rec));
+    Unit::Signal::FirePlayer(slot, "%s%s%s%d%s%s", to, static_cast<const char *>(castGuid),
+                             spellID, name, rank);
 }
 
 // Fire a RETICLE event `(unitTarget, castGUID, spellID, spellName, rank)`.
@@ -206,14 +210,14 @@ void FireSent(int spellID, int guidNum, const char *target) {
 // rank are our usual extension tail.
 void FireReticle(const Event::Custom::AutoReserve &event, int spellID) {
     const int slot = event.Slot();
-    if (!Event::Custom::HasListeners(slot))
+    if (!Unit::Signal::HasListeners(slot, Unit::Identity::PlayerGuid()))
         return;
     const uint8_t *rec = Spell::Lookup::RecordForID(spellID);
     if (rec == nullptr)
         return;
-    Event::Custom::Fire(slot, "%s%s%d%s%s", "player", "", spellID,
-                        OrEmpty(Spell::Lookup::Name(rec)),
-                        OrEmpty(Spell::Lookup::Rank(rec)));
+    const char *name = OrEmpty(Spell::Lookup::Name(rec));
+    const char *rank = OrEmpty(Spell::Lookup::Rank(rec));
+    Unit::Signal::FirePlayer(slot, "%s%s%d%s%s", "", spellID, name, rank);
 }
 
 // spellID whose reticle we last reported active (0 = no reticle up).
@@ -434,30 +438,26 @@ const Spell::CastPacket::AutoSent _sendSub{&OnSend};
 
 // ---- Remote (non-player) unit cast events ------------------------------
 
-// Fire `eventName` for EVERY unit token currently mapping to `casterGuid`.
-// The listener gate + DBC name/rank lookup + castGUID build happen once, then
-// the payload is fanned out per token (`target` / `focus` / `nameplateN` /
-// `party` / `raid` / `mouseover`). Same `(unit, castGUID, spellID, spellName,
+// Fire `eventName` for EVERY unit token currently mapping to `casterGuid`,
+// and for the frames that registered its GUID (Unit::Signal). The listener
+// gate + DBC name/rank lookup + castGUID build happen once, then the payload
+// is fanned out per token (`target` / `focus` / `nameplateN` / `party` /
+// `raid`). Same `(unit, castGUID, spellID, spellName,
 // rank)` shape as the player events, just with a non-"player" unit.
 void FireRemote(const Event::Custom::AutoReserve &event, uint64_t casterGuid,
                 int spellID, int guidNum) {
     const int slot = event.Slot();
-    if (!Event::Custom::HasListeners(slot))
+    if (!Unit::Signal::HasListeners(slot, casterGuid))
         return;
     const uint8_t *rec = Spell::Lookup::RecordForID(spellID);
     if (rec == nullptr)
-        return;
-    char tokens[Unit::Identity::kMaxUnitTokens][32];
-    const int n = Unit::Identity::TokensForGUID(casterGuid, tokens, Unit::Identity::kMaxUnitTokens);
-    if (n == 0)
         return;
     char castGuid[48];
     BuildCastGuid(castGuid, sizeof(castGuid), /*type=*/3, spellID, guidNum);
     const char *name = OrEmpty(Spell::Lookup::Name(rec));
     const char *rank = OrEmpty(Spell::Lookup::Rank(rec));
-    for (int i = 0; i < n; ++i)
-        Event::Custom::Fire(slot, "%s%s%d%s%s", tokens[i], castGuid, spellID,
-                            name, rank);
+    Unit::Signal::Fire(casterGuid, slot, "%s%s%d%s%s", static_cast<const char *>(castGuid),
+                       spellID, name, rank);
 }
 
 // One tracked cast per remote caster (a unit can't cast two at once), fired
@@ -666,16 +666,16 @@ void OnPlayerChannelUpdate(int spellID) {
 }
 
 bool InterruptibleWatched() {
-    return Event::Custom::HasListeners(kInterruptible.Slot()) ||
-           Event::Custom::HasListeners(kNotInterruptible.Slot());
+    return Unit::Signal::HasListeners(kInterruptible.Slot()) ||
+           Unit::Signal::HasListeners(kNotInterruptible.Slot());
 }
 
 void OnInterruptibleChanged(uint64_t casterGuid, bool notInterruptible) {
     const int slot = (notInterruptible ? kNotInterruptible : kInterruptible).Slot();
-    if (casterGuid == 0 || !Event::Custom::HasListeners(slot))
+    if (casterGuid == 0)
         return;
     // Every token naming the unit, as 4.3.4's Script_SendUnitSignal does.
-    Unit::Identity::ForEachToken(casterGuid, [&](const char *token) { Event::Custom::Fire(slot, "%s", token); });
+    Unit::Signal::Fire(casterGuid, slot, "%s");
 }
 
 // ---- Remote unit entry points ------------------------------------------

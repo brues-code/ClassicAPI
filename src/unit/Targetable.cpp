@@ -46,7 +46,7 @@
 #include "tick/FrameTick.h"
 #include "unit/FlagsChanged.h"
 #include "unit/Focus.h"
-#include "unit/Identity.h"
+#include "unit/Signal.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -96,11 +96,8 @@ void OnFrameTick() {
     std::vector<uint64_t> fire;
     fire.swap(g_pending); // a handler can queue the next drain's entries
     const int slot = kChanged.Slot();
-    if (!Event::Custom::HasListeners(slot))
-        return;
     for (const uint64_t guid : fire)
-        Unit::Identity::ForEachToken(guid,
-                                     [&](const char *token) { Event::Custom::Fire(slot, "%s", token); });
+        Unit::Signal::Fire(guid, slot, "%s");
 }
 
 const Tick::FrameTick::AutoSubscribe _tick{&OnFrameTick};

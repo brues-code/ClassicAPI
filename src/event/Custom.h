@@ -17,6 +17,8 @@
 #include "Offsets.h"
 #include "storm/List.h"
 
+#include <vector>
+
 namespace Event::Custom {
 
 // Reserve an event name to be claimed in the engine's event table at
@@ -154,6 +156,15 @@ template <typename Fn> void ForEachListener(int slot, Fn fn) {
 // pops them. No-op for `slot < 0` or an event nobody listens to. 4.3.4's
 // equivalent is `FrameScript_SignalEvent(id, L, count)`.
 void FireValues(int slot, void *L, int firstArgIdx, int nargs);
+
+// FireValues for a listener list of our own instead of the event's subscriber
+// chain: each of `frames`, in order, runs its OnEvent with the payload and
+// `event` set as FireValues sets them, unless `listening(frame, ctx)` turns it
+// down at its turn (a handler before it may have dropped or destroyed it). No
+// RegisterUnitEvent filter applies. No-op for a slot past the live table.
+using Listening = bool (*)(void *frame, void *ctx);
+void FireValuesTo(int slot, void *L, int firstArgIdx, int nargs,
+                  const std::vector<void *> &frames, Listening listening, void *ctx);
 
 // Dispatches a custom event via the engine's printf-style event
 // dispatcher at `FUN_FIRE_EVENT` (`0x00703F50`). `format` is a

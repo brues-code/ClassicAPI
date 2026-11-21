@@ -432,41 +432,72 @@ bool HasListeners(int slot) {
     return Storm::IsNode(head);
 }
 
-void FireValues(int slot, void *L, int firstArgIdx, int nargs) {
-    // A signal, listened to or not (3.3.5's FrameScript_SignalEvent counts first).
-    Profile::ScriptTime::CountSignal();
-    if (L == nullptr || !HasListeners(slot))
-        return;
+namespace {
+
+// The FUN_FIRE_EVENT (0x00703F50) frame of a dispatch: saves `event`, sets it to
+// the name of the event in `slot`, runs `walk(name)`, then restores `event`.
+// The saved value lives on the stack. Nothing runs for a slot past the live
+// table or one with no name.
+template <class Walk> void Dispatch(int slot, void *L, Walk walk) {
     using namespace Game::Lua;
-    const uint8_t *entry = Game::Read<uint8_t *>(Offsets::VAR_EVENT_TABLE_BASE_PTR) +
-                           slot * Offsets::EVENT_ENTRY_STRIDE;
-    const char *name = Game::Read<const char *>(entry, Offsets::OFF_EVENT_ENTRY_NAME);
+    auto *base = Game::Read<uint8_t *>(Offsets::VAR_EVENT_TABLE_BASE_PTR);
+    const int count = Game::Read<int>(Offsets::VAR_EVENT_TABLE_COUNT);
+    if (base == nullptr || slot < 0 || slot >= count)
+        return;
+    const char *name =
+        Game::Read<const char *>(base + slot * Offsets::EVENT_ENTRY_STRIDE, Offsets::OFF_EVENT_ENTRY_NAME);
     if (name == nullptr || CheckStack(L, 4) == 0)
         return;
-    // 0x00703F50: save `event`, set it to the event's name, run each
-    // listener's OnEvent slot (frame + 0xC) reading the next node before the
-    // call, then restore `event`. The saved value lives on the stack.
     const int top = GetTop(L);
     PushString(L, "event");
     RawGet(L, GLOBALS_INDEX); // [.. oldEvent]
     PushString(L, "event");
     PushString(L, name);
     SetTable(L, GLOBALS_INDEX);
-    // A string arg1 meets RegisterUnitEvent filters, which the engine's
-    // dispatches meet at the runner this walk never calls.
-    const char *unit = nargs > 0 && Type(L, firstArgIdx) == TYPE_STRING
-                           ? ToString(L, firstArgIdx)
-                           : nullptr;
-    ForEachListener(slot, [&](uint8_t *frame) {
-        if (unit == nullptr || Frame::UnitEvent::Accepts(frame, name, unit))
-            Frame::ScriptArgs::RunSlotWithValues(
-                L, reinterpret_cast<const uint32_t *>(frame + Offsets::OFF_FRAME_ONEVENT_SLOT),
-                frame, firstArgIdx, nargs);
-    });
+    walk(name);
     PushString(L, "event");
     PushValue(L, top + 1);
     SetTable(L, GLOBALS_INDEX);
     SetTop(L, top);
+}
+
+void RunOnEvent(void *L, uint8_t *frame, int firstArgIdx, int nargs) {
+    Frame::ScriptArgs::RunSlotWithValues(
+        L, reinterpret_cast<const uint32_t *>(frame + Offsets::OFF_FRAME_ONEVENT_SLOT), frame,
+        firstArgIdx, nargs);
+}
+
+} // namespace
+
+void FireValues(int slot, void *L, int firstArgIdx, int nargs) {
+    // A signal, listened to or not (3.3.5's FrameScript_SignalEvent counts first).
+    Profile::ScriptTime::CountSignal();
+    if (L == nullptr || !HasListeners(slot))
+        return;
+    // 0x00703F50: run each listener's OnEvent slot (frame + 0xC), reading the
+    // next node before the call.
+    Dispatch(slot, L, [&](const char *name) {
+        // A string arg1 meets RegisterUnitEvent filters, which the engine's
+        // dispatches meet at the runner this walk never calls.
+        const char *unit = nargs > 0 && Game::Lua::Type(L, firstArgIdx) == Game::Lua::TYPE_STRING
+                               ? Game::Lua::ToString(L, firstArgIdx)
+                               : nullptr;
+        ForEachListener(slot, [&](uint8_t *frame) {
+            if (unit == nullptr || Frame::UnitEvent::Accepts(frame, name, unit))
+                RunOnEvent(L, frame, firstArgIdx, nargs);
+        });
+    });
+}
+
+void FireValuesTo(int slot, void *L, int firstArgIdx, int nargs,
+                  const std::vector<void *> &frames, Listening listening, void *ctx) {
+    if (L == nullptr || frames.empty())
+        return;
+    Dispatch(slot, L, [&](const char *) {
+        for (void *frame : frames)
+            if (listening(frame, ctx))
+                RunOnEvent(L, static_cast<uint8_t *>(frame), firstArgIdx, nargs);
+    });
 }
 
 void FireIdSuccess(int eventID, int id, bool success) {

@@ -25,6 +25,11 @@ namespace Frame::UnitEvent {
 // token, matched without regard to case.
 bool CanonicalUnitToken(const char *s, std::string *out);
 
+// The unit-event list's spelling of `eventName` (matched without regard to
+// case), or null when it is no unit event: the events RegisterUnitEvent takes
+// units for.
+const char *CanonicalUnitEvent(const char *eventName);
+
 // Told after a frame's registrations shrink: `eventName` for
 // Frame::UnregisterEvent (the name as the caller gave it), nullptr for
 // Frame::UnregisterAllEvents. This module owns those two hooks (one MinHook per

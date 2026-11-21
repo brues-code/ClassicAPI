@@ -16,8 +16,12 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "baselib/Ascii.h"
+#include "frame/GuidEvent.h"
 #include "frame/UnitEvent.h"
 #include "unit/Identity.h"
+#include "unit/Signal.h"
+
+#include <utility>
 
 namespace Unit::PolledEvent {
 
@@ -34,25 +38,34 @@ void Poller::Tick() {
         return;
     }
     const int slot = reserve_.Slot();
-    if (!Event::Custom::HasListeners(slot))
-        return;
-    void *L = Game::Lua::State();
-    if (L == nullptr)
+    if (!::Unit::Signal::HasListeners(slot))
         return;
 
-    // The tokens first: firing runs scripts, which can change the listeners.
+    // The units first: firing runs scripts, which can change the listeners.
     tokens_.clear();
     Event::Custom::ForEachListener(slot, [&](uint8_t *frame) {
         if (const std::vector<std::string> *units = Frame::UnitEvent::Units(frame, name_))
             for (const std::string &unit : *units)
                 Want(unit);
     });
+    // Each GUID once, and whether a token asked for it: a GUID only a GUID
+    // registration names fires to those frames alone.
+    std::vector<std::pair<uint64_t, bool>> units;
+    const auto add = [&](uint64_t guid, bool byToken) {
+        for (auto &u : units)
+            if (u.first == guid) {
+                u.second = u.second || byToken;
+                return;
+            }
+        units.emplace_back(guid, byToken);
+    };
+    for (const std::string &token : tokens_)
+        if (const uint64_t guid = Unit::Identity::GuidForToken(token.c_str()); guid != 0)
+            add(guid, true);
+    for (const uint64_t guid : Frame::GuidEvent::Guids(slot))
+        add(guid, false);
 
-    const int top = Game::Lua::GetTop(L);
-    for (const std::string &token : tokens_) {
-        const uint64_t guid = Unit::Identity::GuidForToken(token.c_str());
-        if (guid == 0)
-            continue;
+    for (const auto &[guid, byToken] : units) {
         const bool answer = check_(guid);
         const auto [it, first] = answers_.try_emplace(guid, answer);
         if (!first) {
@@ -60,12 +73,14 @@ void Poller::Tick() {
                 continue;
             it->second = answer;
         }
-        Unit::Identity::ForEachToken(guid, [&](const char *unitToken) {
-            Game::Lua::PushString(L, unitToken);
+        const auto push = [&](void *L) {
             Game::Lua::PushBool(L, answer);
-            Event::Custom::FireValues(slot, L, top + 1, 2);
-            Game::Lua::SetTop(L, top);
-        });
+            return 1;
+        };
+        if (byToken)
+            ::Unit::Signal::FireValues(guid, slot, push);
+        else
+            ::Unit::Signal::FireGuidValues(guid, slot, push);
     }
 }
 

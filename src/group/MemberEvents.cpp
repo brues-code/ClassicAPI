@@ -67,8 +67,8 @@
 #include "event/Custom.h"
 #include "group/Roster.h"
 #include "net/PacketDispatch.h"
-#include "unit/Identity.h"
 #include "unit/PowerEvents.h"
+#include "unit/Signal.h"
 
 #include <cstdint>
 #include <vector>
@@ -110,18 +110,9 @@ using RebuildRaid_t = void(__fastcall *)(const uint64_t *guids, const uint32_t *
                                          const uint8_t *online, uint32_t count);
 
 void SignalConnection(uint64_t guid, bool connected) {
-    const int slot = kConnection.Slot();
-    if (!Event::Custom::HasListeners(slot))
-        return;
-    void *L = Game::Lua::State();
-    if (L == nullptr)
-        return;
-    const int top = Game::Lua::GetTop(L);
-    Unit::Identity::ForEachToken(guid, [&](const char *token) {
-        Game::Lua::PushString(L, token);
+    Unit::Signal::FireValues(guid, kConnection.Slot(), [&](void *L) {
         Game::Lua::PushBool(L, connected);
-        Event::Custom::FireValues(slot, L, top + 1, 2);
-        Game::Lua::SetTop(L, top);
+        return 1;
     });
 }
 
@@ -153,12 +144,7 @@ void OnPacket(uint32_t opcode, Net::CDataStore *packet) {
 
 const Net::PacketDispatch::AutoSubscribe _packetSub{&OnPacket};
 
-void SignalArea(uint64_t guid) {
-    const int slot = kArea.Slot();
-    if (!Event::Custom::HasListeners(slot))
-        return;
-    Unit::Identity::ForEachToken(guid, [&](const char *token) { Event::Custom::Fire(slot, "%s", token); });
-}
+void SignalArea(uint64_t guid) { Unit::Signal::Fire(guid, kArea.Slot(), "%s"); }
 
 void SignalChanges(const uint64_t *guid, uint32_t changes, const uint8_t *oldRec,
                    const uint8_t *newRec, Source source) {

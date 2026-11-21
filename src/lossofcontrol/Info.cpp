@@ -55,6 +55,7 @@
 #include "tick/WorldTick.h"
 #include "time/Clock.h"
 #include "unit/Identity.h"
+#include "unit/Signal.h"
 
 #include <cctype>
 #include <cstdint>
@@ -355,7 +356,7 @@ void OnWorldTick() {
                 continue;
             const int index = Insert(e);
             changed = true;
-            Event::Custom::Fire(_reserveAdded.Slot(), "%s%d", "player", index + 1);
+            Unit::Signal::FirePlayer(_reserveAdded.Slot(), "%s%d", index + 1);
             continue;
         }
 
@@ -373,11 +374,11 @@ void OnWorldTick() {
         const int index = Insert(e);
         changed = true;
         if (!Reached(old.endMs, e.endMs))
-            Event::Custom::Fire(_reserveAdded.Slot(), "%s%d", "player", index + 1);
+            Unit::Signal::FirePlayer(_reserveAdded.Slot(), "%s%d", index + 1);
     }
 
     if (changed)
-        Event::Custom::Fire(_reserveUpdate.Slot(), "%s", "player");
+        Unit::Signal::FirePlayer(_reserveUpdate.Slot(), "%s");
 }
 
 static const Tick::WorldTick::AutoSubscribe _tick{&OnWorldTick};

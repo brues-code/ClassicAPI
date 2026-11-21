@@ -18,6 +18,7 @@
 #include "net/PacketWriter.h"
 #include "time/Clock.h"
 #include "unit/Identity.h"
+#include "unit/Signal.h"
 #include "object/Resolve.h"
 
 #include <cstdint>
@@ -69,7 +70,7 @@ void SetRunning(bool running) {
     const bool changed = running || g_running;
     g_running = running;
     if (changed)
-        Event::Custom::Fire(_timerUpdate.Slot(), "%s", "player");
+        Unit::Signal::FirePlayer(_timerUpdate.Slot(), "%s");
 }
 
 using DisplayError_t = void(__cdecl *)(uint32_t id);
