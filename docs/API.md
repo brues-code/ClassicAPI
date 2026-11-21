@@ -802,6 +802,8 @@ build instructions.
   - [`table.count(tbl)`](#tablecounttbl)
   - [`table.create(arraySizeHint [, nodeSizeHint])`](#tablecreatearraysizehint--nodesizehint)
   - [`C_TableUtil.FindIndexedMismatch(t1, t2)`](#c_tableutilfindindexedmismatcht1-t2)
+  - [`table.freeze(tbl)`](#tablefreezetbl)
+  - [`table.isfrozen(tbl)`](#tableisfrozentbl)
   - [`table.maxn(t)`](#tablemaxnt)
   - [`table.removemulti(t [, pos [, count]])`](#tableremovemultit--pos--count)
   - [Stale table lengths (5.1 healing)](#stale-table-lengths-51-healing)
@@ -18785,6 +18787,37 @@ C_TableUtil.FindIndexedMismatch({ 1, 2, 3 }, { 1, 2, 3 }) -- nil
 C_TableUtil.FindIndexedMismatch({ 1, 2, 3 }, { 1, 5, 3 }) -- 2
 C_TableUtil.FindIndexedMismatch({ 1, 2 }, { 1, 2, 3 })    -- 3
 ```
+
+### `table.freeze(tbl)`
+
+Makes `tbl` read-only and returns it. A frozen table stays frozen.
+
+After the call:
+
+- An assignment `tbl[k] = v` gives the error "attempted to perform indexed
+  assignment on a frozen table".
+- If the metatable of `tbl` has a `__newindex` field, each assignment goes to
+  `__newindex` and does not give an error. This is also true for keys that
+  already exist.
+- `rawset`, `table.insert`, `table.remove`, `table.sort`, `table.wipe`, and
+  other functions that write to the table give the same error. These
+  functions do not use `__newindex`.
+- `setmetatable(tbl, ...)` gives the error "attempted to replace metatable of
+  a frozen table".
+- Reads and iteration work as before.
+
+Code from an addon can freeze only a table that the same addon made. For a
+table that another addon or the default UI made, the function gives an error.
+
+```lua
+local t = table.freeze({ 1, 2, 3 })
+print(t[2])                            -- 2
+print(pcall(function() t[4] = 4 end))  -- false, "...a frozen table"
+```
+
+### `table.isfrozen(tbl)`
+
+Returns `true` if `table.freeze` froze `tbl`. Otherwise returns `false`.
 
 ### `table.maxn(t)`
 

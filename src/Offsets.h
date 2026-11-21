@@ -10636,13 +10636,31 @@ enum Offsets {
     // null check — 5.0's default-metatable sentinel is never NULL). Every
     // other type hardcodes &nilobject: this is the ONE line where 5.1
     // reads the per-type slot `G(L)->mt[ttype(o)]` instead. Callers (7):
-    // luaD_tryfuncTM 0x006F6370, index/newindex non-table continuations
-    // 0x006F7EE0 / 0x006F7F40, call_binTM 0x006F8670 (x2), call_orderTM
+    // luaD_tryfuncTM 0x006F6370, the index non-table continuation 0x006F7EE0,
+    // luaV_settable's non-table branch 0x006F7FD7, call_binTM 0x006F8670 (x2), call_orderTM
     // 0x006F8210 (x2) — all fallbacks for values with no native
     // operation, so cold. Prologue PUSH EBP / MOV EBP,ESP / MOV ECX,[ECX+
     // 0x10] — MinHook-relocatable. Co-hooked by LuaSyntax::StringMethods
     // to give strings 5.1's shared metatable.
     FUN_LUAT_GETTMBYOBJ = 0x006F7BD0,
+    // `luaV_settable(L, t, key, val)` — stock 5.0, the store behind `t[k] = v`.
+    // __fastcall(L /*ecx*/, const TValue *t /*edx*/, TValue *key /*stack*/,
+    // TValue *val /*stack*/), RET 8. Table: luaH_set (inserts the key FIRST),
+    // then store unless the slot was nil and fasttm(TM_NEWINDEX) exists;
+    // else luaT_gettmbyobj(t, 1); nil → "index" typeerror 0x006FC620;
+    // function → callTM; else t = tm, at most 100 times ("loop in settable").
+    // Callers (3): lua_settable 0x006F3E94, luaV_execute OP_SETGLOBAL /
+    // OP_SETTABLE 0x006F8A62 / 0x006F8B08. Disassembled.
+    FUN_LUAV_SETTABLE = 0x006F7F40,
+    // `callTM(L, f, p1, p2, p3)` — pushes f, p1, p2, p3 and luaD_call's f
+    // with no results. __fastcall(L /*ecx*/, f /*edx*/, p1, p2, p3 /*stack*/),
+    // RET 0xC (luaV_settable's __newindex call at 0x006F802C). Disassembled.
+    FUN_LUA_CALLTM = 0x006F8040,
+    // `luaG_runerror(L, fmt, ...)` — __cdecl, never returns. Prefixes
+    // "chunk:line:" when the running function is Lua, then raises. luaV_settable
+    // calls it for "loop in settable" (0x006F800E), setnodevector for
+    // "table overflow" (0x006FA5EF). Disassembled.
+    FUN_LUAG_RUNERROR = 0x006FC870,
     // `luaH_getstr(Table *t, TString *key)` — raw hash lookup of an
     // interned string key. __fastcall(t /*ecx*/, key /*edx*/), returns
     // const TValue* (eax; &nilobject on a miss). Node stride 0x28, key tt
