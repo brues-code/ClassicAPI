@@ -36,6 +36,8 @@ constexpr uint8_t GROUP_LOADING = 0x01;
 constexpr uint8_t GROUP_PENDING_FINISH = 0x02;
 constexpr uint8_t GROUP_PAUSED = 0x04;
 constexpr uint8_t GROUP_STOPPING = 0x08;
+// SetIgnoreFramerateThrottle (a 4.3.4 method 3.80.2 does not have, kept for
+// addons that call it): progress steps on every frame.
 constexpr uint8_t GROUP_IGNORE_THROTTLE = 0x10;
 
 // Script indexes (Class::scriptNames order).
@@ -54,14 +56,21 @@ class Group : public Object {
 
     bool IsDone() const;
     bool IsPlaying() const { return loopState != STATE_NONE && !(flags & GROUP_PAUSED); }
-    bool Play(bool reverse);
+    // 3.80.2's Play (0x1405A7130): `offset` seconds of update run at once.
+    bool Play(bool reverse, float offset);
     void Pause();
     void Stop(bool requested);
     void Finish();
+    // RemoveAnimations: stop, then detach every animation and release it.
+    void RemoveAnimations();
+    // The direction the group was started in (3.80.2's +0x81: Play's
+    // `reverse`, flipped by a BOUNCE loop, not by Play's in-place flip).
+    // IsReverse, GetLoopState and OnLoop read it.
+    bool StartedReverse() const { return loopState != STATE_NONE && startedReverse; }
     bool OnUpdate(float elapsedSec);
-    int GetMaxAnimOrder() const;
     bool HasAlphaAnim() const;
     bool HasPositionAnim() const;
+    bool HasTexCoordAnim() const;
 
     // Later clients' setToFinalAlpha: when the group finishes, its alpha
     // animations' targets keep the alpha they end on (KeepAnimAlpha).
@@ -77,7 +86,9 @@ class Group : public Object {
 
     LoopType loopType = LOOP_NONE;
     float duration = 0.0f;
-    float initialOffsetX = 0.0f, initialOffsetY = 0.0f; // layout units
+    // SetAnimationSpeedMultiplier: each animation's step is dt x this.
+    float speedMultiplier = 1.0f;
+    bool startedReverse = false;
     LoopState loopState = STATE_NONE;
     uint8_t flags = 0;
     int currentOrder = -1;
@@ -94,9 +105,26 @@ class Group : public Object {
     bool AdvanceLoopState(float elapsedSec, float remaining);
     bool DoGroupUpdateWork(float elapsedSec);
     void ResetAnims();
+    // Play on a playing group in the other direction: turn around where it is.
+    void FlipDirection();
 };
 
-enum AnimKind { KIND_ANIMATION, KIND_ALPHA, KIND_TRANSLATION, KIND_SCALE, KIND_ROTATION, KIND_PATH };
+enum AnimKind {
+    KIND_ANIMATION,
+    KIND_ALPHA,
+    KIND_TRANSLATION,
+    KIND_SCALE,
+    KIND_ROTATION,
+    KIND_PATH,
+    // The 3.80.2 client's other five (CSimpleVertexColorAnim, CSimpleFlipBookAnim,
+    // CSimpleTextureCoordTranslationAnim, CSimpleLineTranslationAnim,
+    // CSimpleLineScaleAnim).
+    KIND_VERTEX_COLOR,
+    KIND_FLIPBOOK,
+    KIND_TEXCOORD,
+    KIND_LINE_TRANSLATION,
+    KIND_LINE_SCALE,
+};
 
 class Anim : public Object {
   public:
@@ -106,9 +134,17 @@ class Anim : public Object {
     static Class s_scaleClass;       // "Scale"
     static Class s_rotationClass;    // "Rotation"
     static Class s_pathClass;        // "Path"
-    // The class of a CreateAnimation / XML type name; Animation for any
-    // other (4.3.4's CreateAnimation falls back to it).
+    static Class s_vertexColorClass; // "VertexColor"
+    static Class s_flipBookClass;    // "FlipBook"
+    static Class s_texCoordClass;    // "TextureCoordTranslation"
+    static Class s_lineTranslationClass; // "LineTranslation", a Translation
+    static Class s_lineScaleClass;   // "LineScale", a Scale
+    // The class of a CreateAnimation type name, any case; Animation for any
+    // other (3.80.2's factory 0x1405A76A0). Texture coordinates are
+    // "TextureCoord" here.
     static AnimKind KindOf(const char *typeName);
+    // The same for an XML element, where they are <TextureCoordTranslation>.
+    static AnimKind KindOfTag(const char *tag);
 
     Anim(Group *group, AnimKind kind, const char *name);
     ~Anim();
@@ -120,7 +156,14 @@ class Anim : public Object {
     void Pause();
     void Stop(bool requested);
     bool IsDelaying() const;
-    bool OnUpdate(float elapsedSec, float &consumed);
+    // `elapsedSec` is the step (scaled by the group's speed); OnUpdate gets
+    // `rawSec`, the frame's.
+    bool OnUpdate(float elapsedSec, float rawSec, float &consumed);
+    // The direction turned in place: elapsed and progress mirrored.
+    void Mirror();
+    // RemoveAnimations: the animation leaves its group and is freed at the
+    // next UI frame, when no script of it is running.
+    static void Release(Anim *anim);
     void Apply(float progress);
     void SetStartDelay(float delay, bool notify);
     void SetEndDelay(float delay, bool notify);
@@ -142,7 +185,7 @@ class Anim : public Object {
     float progress = 0.0f;
     float smoothProgress = 0.0f;
     float orderPadding = 0.0f;
-    int order = -1;
+    int order = 0; // 0..99; a new animation is at 0 (3.80.2's constructor)
     uint8_t flags = 0;
     int playState = 0; // 0 stopped, 1 playing, 2 paused
     int loopState = STATE_NONE;
@@ -158,25 +201,38 @@ class Anim : public Object {
     // Resolves targetName or targetKey into target, when either is set.
     void ResolveTarget();
 
-    // Alpha: m_change, -255..255, or (alphaFromTo) the absolute fromAlpha /
-    // toAlpha, 0..1, that later clients replaced it with.
+    // Alpha: the alpha it fades from and to, as bytes (3.80.2's +0xA0 / +0xA1),
+    // or, after SetChange (4.3.4's, kept for addons that call it), a change
+    // of -255..255 added to the stored alpha.
+    uint8_t fromAlpha = 0, toAlpha = 0;
+    bool alphaRelative = false;
     int16_t change = 0;
-    bool alphaFromTo = false;
-    float fromAlpha = 0.0f, toAlpha = 0.0f;
     // Translation: the offset; Scale: the scale and origin; Rotation: the
     // angle and origin. Offsets in layout units, as 4.3.4 keeps them.
     float offsetX = 0.0f, offsetY = 0.0f;
-    // Scale: from and to, 1 by default. 4.3.4's m_scaleChange (1 - scale)
-    // is the case from = 1; later clients added the from scale.
+    // Scale: from and to, 1 by default. Without SetScaleFrom / SetScaleTo
+    // (scaleFromTo off) it scales from 1 to scaleTo, 4.3.4's m_scaleChange.
     float scaleFromX = 1.0f, scaleFromY = 1.0f;
     float scaleToX = 1.0f, scaleToY = 1.0f;
+    bool scaleFromTo = false;
     float radians = 0.0f;
     int originPoint = 4; // FRAMEPOINT_CENTER
     float originX = 0.0f, originY = 0.0f;
+    // VertexColor: the colours it blends from and to, BGRA, opaque white by
+    // default.
+    uint32_t startColor = 0xFFFFFFFF, endColor = 0xFFFFFFFF;
+    // FlipBook: the sprite sheet's grid, its frame count (rows x columns
+    // when 0) and a cell's size in pixels (the grid's when 0).
+    uint32_t flipRows = 0, flipColumns = 0, flipFrames = 0, flipFrameWidth = 0, flipFrameHeight = 0;
+    // TextureCoordTranslation: what is added to the texture coordinates.
+    float texOffsetU = 0.0f, texOffsetV = 0.0f;
+    // Whether the start delay is running (3.80.2's Alpha and FlipBook draw
+    // nothing then).
+    bool InStartDelay() const;
 
     // Path (CSimplePathAnim, Path.cpp): the control points it owns in link
     // order (m_controlPoints), the same sorted by order (m_sortedPoints),
-    // and m_curve (false NONE, true SMOOTH).
+    // and the curve type (false NONE, true SMOOTH).
     std::vector<ControlPoint *> controlPoints;
     std::vector<ControlPoint *> sortedPoints;
     bool curve = false;

@@ -59,9 +59,12 @@ build instructions.
 
 - [Animation](#animation)
   - [`region:CreateAnimationGroup([name [, templateName]])`](#regioncreateanimationgroupname--templatename)
+  - [Arguments and errors](#arguments-and-errors)
   - [AnimationGroup](#animationgroup)
   - [Animation](#animation-1)
   - [Animation types: `Alpha`, `Translation`, `Scale`, `Rotation`](#animation-types-alpha-translation-scale-rotation)
+  - [Animation types: `VertexColor`, `FlipBook`, `TextureCoordTranslation`](#animation-types-vertexcolor-flipbook-texturecoordtranslation)
+  - [Animation types: `LineTranslation`, `LineScale`](#animation-types-linetranslation-linescale)
   - [`Path` and `ControlPoint`](#path-and-controlpoint)
   - [`<Animations>` in XML](#animations-in-xml)
   - [`SetMaxAnimFramerate(framesPerSec)` / `GetMaxAnimFramerate()`](#setmaxanimframerateframespersec--getmaxanimframerate)
@@ -2409,59 +2412,112 @@ region and, for a frame, of every frame, texture and font string inside it.
 ```lua
 local group = frame:CreateAnimationGroup()
 local fade = group:CreateAnimation("Alpha")
-fade:SetChange(-1)            -- down to alpha 0
+fade:SetFromAlpha(1)
+fade:SetToAlpha(0)
 fade:SetDuration(0.5)
 fade:SetSmoothing("OUT")
 group:SetScript("OnFinished", function(self) frame:Hide() end)
 group:Play()
 ```
 
+### Arguments and errors
+
+The methods of groups, animations and control points check their
+arguments. A wrong argument raises `bad argument #n to 'Method' (usage)`,
+where `usage` is the method's usage text, for example
+`Usage: self:SetLooping(loopType)`. A number that is not finite raises
+`must be a finite number - usage`. A number out of range raises
+`outside of expected range a to b - usage`. Methods that take a whole
+number drop the fraction.
+
 ### AnimationGroup
 
-`Play([reverse])`, `Pause`, `Stop`, `Finish`, `IsPlaying`, `IsPaused`,
-`IsDone`, `IsPendingFinish`, `GetProgress`, `GetDuration`,
-`SetLooping("NONE" | "REPEAT" | "BOUNCE")`, `GetLooping`, `GetLoopState`,
-`GetMaxOrder`, `SetInitialOffset(x, y)` / `GetInitialOffset`,
-`SetIgnoreFramerateThrottle` / `GetIgnoreFramerateThrottle`,
-`SetToFinalAlpha(setToFinalAlpha)` / `IsSetToFinalAlpha`,
-`CreateAnimation([type [, name [, templateName]]])`, `GetAnimations`, and
-`SetScript` / `GetScript` / `HookScript` / `HasScript` for `OnLoad`,
-`OnPlay`, `OnPause`, `OnStop(self, requested)`,
+| Method | Description |
+|---|---|
+| `Play([reverse, offset])` | Starts the group. `offset` runs that many seconds of the group at once, right after `OnPlay`. |
+| `Restart([reverse, offset])` | Stops the group, then plays it. |
+| `SetPlaying(play)` | `true` plays the group from the start. `false` stops it. |
+| `Pause()`, `Stop()`, `Finish()` | `Finish` lets the current loop end, then the group stops. |
+| `IsPlaying()`, `IsPaused()`, `IsDone()`, `IsPendingFinish()`, `IsReverse()` | `IsReverse` returns the direction that the group started in. |
+| `GetProgress()`, `GetElapsed()`, `GetDuration()` | |
+| `SetAnimationSpeedMultiplier(multiplier)` / `GetAnimationSpeedMultiplier()` | 1 by default. |
+| `SetLooping(loopType)` / `GetLooping()`, `GetLoopState()` | `"NONE"`, `"REPEAT"` or `"BOUNCE"`. |
+| `SetToFinalAlpha(setToFinalAlpha)` / `IsSetToFinalAlpha()` | |
+| `SetIgnoreFramerateThrottle(ignore)` / `GetIgnoreFramerateThrottle()` | `true` makes the progress step on every frame. Refer to `SetMaxAnimFramerate`. |
+| `CreateAnimation([animationType, name, templateName])`, `GetAnimations()`, `RemoveAnimations()` | |
+
+The scripts are `OnLoad`, `OnPlay`, `OnPause`, `OnStop(self, requested)`,
 `OnFinished(self, requested)`, `OnLoop(self, loopState)` and
-`OnUpdate(self, elapsed)`.
+`OnUpdate(self, elapsed)`. Use `SetScript`, `GetScript`, `HookScript` and
+`HasScript`.
+
+`Play` has these results:
+
+- A paused group continues from where it is. `reverse` has no effect.
+- A group that plays in the same direction does not change.
+- A group that plays in the other direction turns around where it is. It
+  does not start again, and `OnPlay` does not run. A group that loops does
+  not turn around.
 
 When a group ends, its progress goes back to 0. After the end, `IsDone`
 returns false. To find out when a group ends, use `OnFinished`.
-
-After `SetToFinalAlpha(true)`, each `Alpha` animation of the group keeps
-the alpha that it ends on when the group finishes. This includes a group
-that ends after `Finish`. `Stop` puts the stored alpha back.
 
 Animations with the same order play together, and the orders play one
 after another. An order lasts as long as its longest
 `startDelay + duration + endDelay`. `BOUNCE` plays every other loop
 backwards.
 
+`SetAnimationSpeedMultiplier` changes how fast the animations move. 2 is
+twice as fast, and 0 stops them. A negative value moves them backwards.
+`GetElapsed` is in the changed time. `OnUpdate` gets the time of the frame.
+
+`RemoveAnimations` stops the group, with `requested` false. Then it removes
+every animation from the group and destroys it.
+
+After `SetToFinalAlpha(true)`, each `Alpha` animation of the group keeps
+the alpha that it ends on when the group finishes. This includes a group
+that ends after `Finish`. `Stop` puts the stored alpha back.
+
 ### Animation
 
-`group:CreateAnimation(type)` takes `"Animation"` (timing and scripts
-only), `"Alpha"`, `"Translation"`, `"Scale"`, `"Rotation"` or `"Path"`. Any other
-type makes an `"Animation"`. An animation made in Lua joins the highest
-order the group already has.
+`group:CreateAnimation(animationType)` takes one of the type names in the
+next table. Letter case has no effect. Any other name makes an
+`"Animation"`, which has only timing and scripts. A new animation has
+order 0.
 
-Every animation has `Play`, `Pause`, `Stop`, `IsPlaying`, `IsPaused`,
-`IsStopped`, `IsDelaying`, `IsDone`, `GetElapsed`, `GetProgress`,
-`GetProgressWithDelay`, `GetSmoothProgress` / `SetSmoothProgress`,
-`SetDuration` / `GetDuration`, `SetStartDelay` / `GetStartDelay`,
-`SetEndDelay` / `GetEndDelay`, `SetOrder` / `GetOrder` (1 to 100),
-`SetSmoothing("NONE" | "IN" | "OUT" | "IN_OUT")` / `GetSmoothing`,
-`SetParent(group [, order])`, `GetRegionParent`, and the group's scripts
-except `OnLoop`.
+| `animationType` | `GetObjectType()` |
+|---|---|
+| `"Animation"`, `"Alpha"`, `"Translation"`, `"Scale"`, `"Rotation"`, `"Path"` | The same name. |
+| `"VertexColor"`, `"FlipBook"` | The same name. |
+| `"TextureCoord"` | `"TextureCoordTranslation"` |
+| `"LineTranslation"`, `"LineScale"` | The same name. `IsObjectType("Translation")` or `IsObjectType("Scale")` is also true. |
 
+CAUTION: `CreateAnimation("TextureCoordTranslation")` makes an
+`"Animation"`, not a texture coordinate animation. Use `"TextureCoord"`.
+
+| Method | Description |
+|---|---|
+| `Play()`, `Pause()`, `Stop()`, `Restart()`, `SetPlaying(play)` | These change only the animation, not its group. `Pause` pauses the group too. |
+| `IsPlaying()`, `IsPaused()`, `IsStopped()`, `IsDelaying()`, `IsDone()` | |
+| `GetElapsed()`, `GetProgress()`, `GetSmoothProgress()` / `SetSmoothProgress(progress)` | |
+| `SetDuration(durationSec [, recomputeGroupDuration])` / `GetDuration()` | |
+| `SetStartDelay(delaySec [, recomputeGroupDuration])` / `GetStartDelay()` | |
+| `SetEndDelay(delaySec [, recomputeGroupDuration])` / `GetEndDelay()` | |
+| `SetOrder(newOrder)` / `GetOrder()` | 0 to 99. |
+| `SetSmoothing(weights)` / `GetSmoothing()` | `"NONE"`, `"IN"`, `"OUT"`, `"IN_OUT"` or `"OUT_IN"`. |
+| `SetParent(parent [, order])`, `GetRegionParent()` | `parent` is a group or the name of a group. |
+
+- A negative duration or delay becomes 0. The group's duration changes
+  too, unless `recomputeGroupDuration` is `false`.
+- `SetOrder` has no effect on an animation that has no group. A value out
+  of range becomes 0 or 99.
 - Smoothing follows a cosine curve: `IN` starts slow, `OUT` ends slow and
-  `IN_OUT` does both.
+  `IN_OUT` does both. `GetSmoothing` returns `"IN_OUT"` for `"OUT_IN"`.
+  `SetSmoothing("NONE")` does not remove a smoothing that you set before.
 - Progress steps at most 30 times a second, unless the group ignores the
   framerate throttle.
+- The scripts are those of the group, except `OnLoop`. An animation's
+  `OnFinished` gets no `requested` argument.
 
 An animation changes the region of its group, or the target that you set.
 The target must be that region, or a frame, texture or font string inside
@@ -2469,13 +2525,13 @@ it:
 
 | Method | Target |
 |---|---|
-| `SetTarget(region)` | The region. |
+| `SetTarget(region)` | The region. Another object raises `Error setting target <name>`. |
 | `SetTargetName(name)` | The region with that global name. `name` can start with `$parent`. |
 | `SetChildKey(childKey)` | The region at `region[childKey]`, where `region` is the region of the group. |
 | `SetTargetKey(key)` | The region at the key path. `$parent` steps from the animation to its group, then to the region of the group, then to the parent of that region. The other parts are keys. |
 | `SetTargetParent()` | The region of the group. |
 
-- Each method returns `true` if it finds a region now.
+- Each method returns `true`.
 - A name or a key is looked up again each time that the animation plays.
 - `GetTarget()` returns the target, or the region of the group if there
   is no target.
@@ -2489,34 +2545,31 @@ glow:SetChildKey("Glow")                    -- same as SetTargetKey("$parent.$pa
 
 | Type | Methods |
 |---|---|
-| `Alpha` | `SetChange(change)` / `GetChange()`, `change` from -1 to 1; `SetFromAlpha(alpha)` / `GetFromAlpha()`, `SetToAlpha(alpha)` / `GetToAlpha()`, from 0 to 1 |
-| `Translation` | `SetOffset(x, y)` / `GetOffset()` |
+| `Alpha` | `SetFromAlpha(normalizedAlpha)` / `GetFromAlpha()`, `SetToAlpha(normalizedAlpha)` / `GetToAlpha()`, from 0 to 1; `SetChange(change)` / `GetChange()`, from -1 to 1 |
+| `Translation` | `SetOffset(offsetX, offsetY)` / `GetOffset()` |
 | `Scale` | `SetScale(x, y)` / `GetScale()`, `SetScaleFrom(x, y)` / `GetScaleFrom()`, `SetScaleTo(x, y)` / `GetScaleTo()`, `SetOrigin(point, x, y)` / `GetOrigin()` |
-| `Rotation` | `SetDegrees` / `GetDegrees`, `SetRadians` / `GetRadians`, `SetOrigin(point, x, y)` / `GetOrigin()` |
+| `Rotation` | `SetDegrees(angle)` / `GetDegrees()`, `SetRadians(angle)` / `GetRadians()`, `SetOrigin(point, x, y)` / `GetOrigin()` |
 
 `Alpha` changes the region's alpha while its group plays:
 
 - When a group with an `Alpha` animation starts, the region's alpha is
   stored. On a frame, the alpha of every frame, texture and font string
   inside it is stored too.
-- On each update the alpha goes back to the stored value, and then each
-  `Alpha` animation adds `change × progress`. While the group plays,
-  `GetAlpha` returns the animated value.
+- On each update, the alpha becomes `from + (to - from) × progress`. A
+  value that you do not set is 0. While the group plays, `GetAlpha`
+  returns the animated value.
+- The alpha values are kept in 256 steps, so `SetFromAlpha(0.5)` reads
+  back as about 0.498. A value out of range becomes 0 or 1.
 - When the last group with an `Alpha` animation on the region, or on a
   frame around it, stops or finishes, the stored alpha comes back.
 - A value you set with `SetAlpha` while the group plays is replaced on the
   next update.
-
-`SetFromAlpha` and `SetToAlpha` give an alpha that does not depend on the
-stored value:
-
-- On each update, the alpha becomes `from + (to - from) × progress`.
-- When you set one of the two values, the animation uses them. The value
-  that you do not set is 0. `SetChange` makes the animation add a change
-  again.
-- When more than one such animation applies to one region, the last one
+- When more than one `Alpha` animation applies to one region, the last one
   wins. An earlier order keeps its end value until the current order
   replaces it.
+- `SetChange(change)` makes the animation add `change × progress` to the
+  stored alpha. `SetFromAlpha` or `SetToAlpha` sets the animation back to
+  `from` and `to`.
 
 ```lua
 local fadeIn = group:CreateAnimation("Alpha")
@@ -2538,16 +2591,20 @@ fadeIn:SetToAlpha(1)
 - When the last group with a `Translation`, `Scale` or `Rotation` animation
   stops or finishes, the drawing goes back to its place.
 
-`SetScaleFrom` sets the scale at the start of a `Scale` animation, and
-`SetScaleTo` sets the scale at the end. Both are 1 by default. `SetScale`
-sets the end, the same as `SetScaleTo`, but it keeps `x` and `y` at 0.001
-or more.
+`Scale` has two modes:
+
+- `SetScale(x, y)` scales from 1 to `x, y`. In this mode, `GetScaleFrom`
+  returns `0, 0`.
+- `SetScaleFrom(x, y)` and `SetScaleTo(x, y)` set the scale at the start
+  and at the end. Each is 1 by default. In this mode, `GetScale` returns
+  `0, 0`.
+- Each value is 0.001 or more.
 
 `Scale` and `Rotation` change the drawing in the same way:
 
 - On a texture, they scale or turn it around the origin from `SetOrigin`. The
-  default origin is the center. The origin offset follows the direction of
-  the texture's bottom edge.
+  default origin is the center. The origin offset is in UI pixels, and it
+  follows the direction of the texture's bottom edge.
 - A positive angle turns counter-clockwise.
 - More than one animation adds up in the order they apply. For example, a
   `Rotation` after a `Translation` turns around the moved texture.
@@ -2557,6 +2614,67 @@ or more.
   or `Rotation` animation applies to one font string, the last one wins.
 - Scaled text is stretched. It is not drawn again at the larger font size.
 
+### Animation types: `VertexColor`, `FlipBook`, `TextureCoordTranslation`
+
+| Type | Methods |
+|---|---|
+| `VertexColor` | `SetStartColor(color)` / `GetStartColor()`, `SetEndColor(color)` / `GetEndColor()` |
+| `FlipBook` | `SetFlipBookRows(rows)`, `SetFlipBookColumns(columns)`, `SetFlipBookFrames(frames)`, `SetFlipBookFrameWidth(width)`, `SetFlipBookFrameHeight(height)`, and a `Get` method for each |
+| `TextureCoordTranslation` | `SetOffset(offsetU, offsetV)` / `GetOffset()` |
+
+`VertexColor` changes the vertex color of a texture, a line or a font
+string from the start color to the end color:
+
+- `color` is a table with all four of `r`, `g`, `b` and `a`, for example
+  from `CreateColor`. A missing field raises the usage error. Each value
+  becomes a value from 0 to 1.
+- Both colors are opaque white by default. The getters return a new
+  `ColorMixin` color.
+- The animation replaces the color and the alpha of the region. It shows
+  the start color during the start delay.
+- The color stays after the animation ends. A gradient on the region is
+  removed.
+- On a frame, the animation has no effect.
+
+`FlipBook` shows one cell of a sprite sheet at a time on a texture or a
+line:
+
+- The sheet is `rows` × `columns` cells. The cells go from left to right,
+  then from top to bottom.
+- `frames` is the number of cells to show. When it is 0, it is
+  `rows × columns`.
+- `frameWidth` and `frameHeight` give the size of a cell in pixels of the
+  image. When one of them is 0, a cell is the image divided by the grid.
+- On a texture that shows an atlas, the cells divide the atlas piece.
+- With 0 rows or 0 columns, the animation shows nothing. It shows nothing
+  during the start delay either.
+- The last cell stays after the animation ends.
+
+`TextureCoordTranslation` moves the texture coordinates of a texture or a
+line by `offset × progress`. On a frame, it moves the texture coordinates
+of every texture inside it. The coordinates go back when the group ends.
+A pair of offsets that is almost 0 becomes 0.
+
+```lua
+local sheet = group:CreateAnimation("FlipBook")
+sheet:SetFlipBookRows(4)
+sheet:SetFlipBookColumns(4)
+sheet:SetDuration(1)
+group:SetLooping("REPEAT")
+```
+
+### Animation types: `LineTranslation`, `LineScale`
+
+These types change a Line (refer to `frame:CreateLine`). They have the
+methods of `Translation` and of `Scale`.
+
+- `LineTranslation` moves the line in its own frame. `offsetX` goes along
+  the line, toward its start. `offsetY` goes across it.
+- `LineScale` scales the line in its own frame. `x` is along the line and
+  `y` is across it.
+- On a frame, the animations change every line inside it. Other regions
+  have no change.
+
 ### `Path` and `ControlPoint`
 
 A `Path` moves the region through its control points. Each point is an
@@ -2565,7 +2683,7 @@ offset from where the region is, in the same units as a `Translation`.
 ```lua
 local path = group:CreateAnimation("Path")
 path:SetDuration(2)
-path:SetCurve("SMOOTH")
+path:SetCurveType("SMOOTH")
 path:CreateControlPoint():SetOffset(50, 20)
 path:CreateControlPoint():SetOffset(100, 0)
 ```
@@ -2574,18 +2692,19 @@ path:CreateControlPoint():SetOffset(100, 0)
 - The points are spread evenly over the animation: with 4 points, the
   region is at point 1 at a quarter of the progress, at point 2 at half,
   and so on.
-- `SetCurve("NONE")` (the default) moves in straight lines between the
-  points. `SetCurve("SMOOTH")` moves along a smooth curve through them.
+- `SetCurveType("NONE")` (the default) moves in straight lines between the
+  points. `SetCurveType("SMOOTH")` moves along a smooth curve through them.
 - The drawing moves as with a `Translation`: the rect of the region does
   not move, and the drawing goes back to its place when the group ends.
 
 | Object | Methods |
 |---|---|
-| `Path` | `SetCurve("NONE" \| "SMOOTH")` / `GetCurve()`, `CreateControlPoint([name [, templateName [, order]]])`, `GetControlPoints()`, `GetMaxOrder()` |
-| `ControlPoint` | `SetOffset(x, y)` / `GetOffset()`, `SetOrder(order)` / `GetOrder()`, `SetParent(path [, order])`, `GetParent()`, `GetName()`, `GetObjectType()`, `IsObjectType(type)` |
+| `Path` | `SetCurveType(curveType)` / `GetCurveType()`, also as `SetCurve` / `GetCurve`; `CreateControlPoint([name, templateName, order])`, `GetControlPoints()`, `GetMaxControlPointOrder()` |
+| `ControlPoint` | `SetOffset(offsetX, offsetY)` / `GetOffset()`, `SetOrder(order)` / `GetOrder()`, `SetParent(path [, order])`, `GetParent()`, `GetName()`, `GetObjectType()`, `IsObjectType(type)` |
 
-- The points go in the order of their `order`, from 1 to 100. A point
+- The points go in the order of their `order`, from 0 to 99. A point
   without an order goes after the last one.
+- `GetMaxControlPointOrder` returns -1 when the path has no points.
 - If you give a point an order that another point already has, the new
   point takes it, and the other points move up by one.
 - `SetParent` moves a point to another path. The point keeps its order.
@@ -2596,7 +2715,7 @@ path:CreateControlPoint():SetOffset(100, 0)
 <Frame name="MyFrame">
     <Animations>
         <AnimationGroup parentKey="Pulse" looping="BOUNCE">
-            <Alpha change="-0.5" duration="0.4" smoothing="IN_OUT"/>
+            <Alpha fromAlpha="1" toAlpha="0.5" duration="0.4" smoothing="IN_OUT"/>
             <Scripts>
                 <OnFinished>MyFrame_OnPulseDone(self)</OnFinished>
             </Scripts>
@@ -2608,19 +2727,26 @@ path:CreateControlPoint():SetOffset(100, 0)
 An `<Animations>` block on a frame, texture or font string builds its
 groups before the frame's `OnLoad`, and each group's `OnLoad` runs when it
 is built. Groups read `name`, `inherits`, `parentKey`, `parentArray`,
-`looping`, `initialOffsetX` / `initialOffsetY` and `setToFinalAlpha`.
-`parentArray` adds the group to a list on its region, as it does for a
-frame or a texture. Animations read
-`name`, `inherits`, `parentKey`, `target`, `targetKey`, `childKey`,
-`duration`, `startDelay`, `endDelay`, `order`, `smoothing`, and their type's
-own attributes:
+`looping` and `setToFinalAlpha`. `parentArray` adds the group to a list on
+its region, as it does for a frame or a texture. Animations read `name`,
+`inherits`, `parentKey`, `target`, `targetKey`, `childKey`, `duration`,
+`startDelay`, `endDelay`, `order`, `smoothing`, and their type's own
+attributes:
 
-| Type | Attributes |
+| Element | Attributes and children |
 |---|---|
-| `Alpha` | `change`, or `fromAlpha` / `toAlpha` |
-| `Translation` | `offsetX` / `offsetY` |
-| `Scale` | `scaleX` / `scaleY`, `fromScaleX` / `fromScaleY` / `toScaleX` / `toScaleY`, `<Origin>` |
-| `Rotation` | `degrees` / `radians`, `<Origin>` |
+| `<Alpha>` | `fromAlpha` / `toAlpha` |
+| `<Translation>`, `<LineTranslation>` | `offsetX` / `offsetY` |
+| `<Scale>`, `<LineScale>` | `scaleX` / `scaleY`, `fromScaleX` / `fromScaleY` / `toScaleX` / `toScaleY`, `<Origin>` |
+| `<Rotation>` | `degrees` / `radians`, `<Origin>` |
+| `<VertexColor>` | `<StartColor>` / `<EndColor>`, color elements |
+| `<FlipBook>` | `flipBookRows`, `flipBookColumns`, `flipBookFrames`, `flipBookFrameWidth`, `flipBookFrameHeight` |
+| `<TextureCoordTranslation>` | `offsetU` / `offsetV` |
+
+- `order` is 0 to 99. A value out of range is reported and becomes 0 or
+  99.
+- `flipBookRows="0"` or `flipBookColumns="0"` is reported, and the value
+  does not change.
 
 ```xml
 <Frame name="MyButtonGlow">
@@ -2653,7 +2779,7 @@ and `offsetX` / `offsetY`.
 - A virtual `<AnimationGroup>`, animation element or `<ControlPoint>` at
   the top level of a file is a template for `inherits` and for the
   `templateName` arguments.
-- Animations without an `order` play one after another.
+- Animations without an `order` have order 0, and they play together.
 - `<Scripts>` bodies see `self` and their script's arguments (`elapsed`,
   `requested`, `loopState`). A script element can name a global function
   with `function=`.

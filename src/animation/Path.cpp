@@ -21,6 +21,7 @@
 // SMOOTH curve a Catmull-Rom spline. The offset goes through the same
 // AddAnimTranslation as a Translation.
 
+#include "animation/Args.h"
 #include "animation/Classes.h"
 #include "animation/Region.h"
 #include "animation/Xml.h"
@@ -33,6 +34,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 
 namespace Animation {
@@ -290,14 +292,16 @@ void Anim::ApplyPath(float progress) {
         Region::AddAnimTranslation(region, target, -x, -y);
 }
 
-// ---- Lua methods ---------------------------------------------------------------------
+/// ---- Lua methods (3.80.2's Path table 0x14458F7A0, ControlPoint 0x14458EBA0) ----------
+//
+// Orders are as stored, 0..99, with no shift.
 
 namespace {
 
 Anim *PathSelf(void *L) { return static_cast<Anim *>(Resolve(L, 1, Anim::s_pathClass)); }
 ControlPoint *PointSelf(void *L) { return static_cast<ControlPoint *>(Resolve(L, 1, ControlPoint::s_class)); }
 
-// LoadXML.cpp's s_curveTypes.
+// The curve types, NONE and SMOOTH, any case.
 bool StringToCurve(const char *text, bool &curve) {
     if (Ascii::EqualCI(text, "NONE")) {
         curve = false;
@@ -310,20 +314,18 @@ bool StringToCurve(const char *text, bool &curve) {
     return false;
 }
 
-int __fastcall Script_SetCurve(void *L) {
+int __fastcall Script_SetCurveType(void *L) {
     Anim *path = PathSelf(L);
     if (path == nullptr)
         return 0;
-    if (!Game::Lua::IsString(L, 2)) {
-        Game::Lua::Error(L, "Usage: %s:SetCurve(\"curveType\")", path->DisplayName());
-        return 0;
-    }
-    if (!StringToCurve(Game::Lua::ToString(L, 2), path->curve))
-        Game::Lua::Error(L, "%s:SetCurve(): Unknown curve type specified", path->DisplayName());
+    constexpr char kUsage[] = "Usage: self:SetCurveType(curveType)";
+    const char *text = Args::String(L, 2, kUsage);
+    if (text != nullptr && !StringToCurve(text, path->curve))
+        Args::Fail(L, 2, kUsage);
     return 0;
 }
 
-int __fastcall Script_GetCurve(void *L) {
+int __fastcall Script_GetCurveType(void *L) {
     Anim *path = PathSelf(L);
     if (path == nullptr)
         return 0;
@@ -331,11 +333,12 @@ int __fastcall Script_GetCurve(void *L) {
     return 1;
 }
 
-int __fastcall Script_GetMaxOrder(void *L) {
+// The last point's order, -1 with no points.
+int __fastcall Script_GetMaxControlPointOrder(void *L) {
     Anim *path = PathSelf(L);
     if (path == nullptr)
         return 0;
-    Game::Lua::PushNumber(L, path->GetMaxControlPointOrder() + 1);
+    Game::Lua::PushNumber(L, path->GetMaxControlPointOrder());
     return 1;
 }
 
@@ -355,29 +358,40 @@ int __fastcall Script_GetControlPoints(void *L) {
     return count;
 }
 
+// CreateControlPoint([name, templateName, order]). A point made without an
+// order goes after the last one. 3.80.2 gives it the last point's own order
+// (0x1405B2E68), and a point that shares an order here takes the other's
+// place (RegisterSplineControlPoint), so ours stays one past it.
 int __fastcall Script_CreateControlPoint(void *L) {
     Anim *path = PathSelf(L);
     if (path == nullptr)
         return 0;
-    const char *name = Game::Lua::IsString(L, 2) ? Game::Lua::ToString(L, 2) : nullptr;
+    constexpr char kUsage[] = "Usage: local point = self:CreateControlPoint([name, templateName, order])";
+    bool ok;
+    const char *name = Args::OptString(L, 2, kUsage, ok);
+    if (!ok)
+        return 0;
+    const char *inherits = Args::OptString(L, 3, kUsage, ok);
+    if (!ok)
+        return 0;
+    int order = -1;
+    if (!Args::Missing(L, 4) && !Args::Integer(L, 4, kUsage, order))
+        return 0;
     const void *templateNode = nullptr;
-    if (Game::Lua::Type(L, 3) == Game::Lua::TYPE_STRING) {
-        const char *inherits = Game::Lua::ToString(L, 3);
+    if (inherits != nullptr) {
         templateNode = Xml::Template(inherits);
         if (templateNode == nullptr) {
-            Game::Lua::Error(L, "%s:CreateControlPoint(): Couldn't find inherited node \"%s\"", path->DisplayName(),
-                             inherits);
+            char message[Game::Lua::kClientErrorSize];
+            std::snprintf(message, sizeof message, "Couldn't find inherited node \"%s\"", inherits);
+            Game::Lua::RaiseClientMethodError(L, path->Name(), "CreateControlPoint", message);
             return 0;
         }
     }
     ControlPoint *point = new ControlPoint(path, name);
     if (templateNode != nullptr)
         Xml::LoadControlPoint(point, templateNode, nullptr);
-    if (Game::Lua::IsNumber(L, 4))
-        point->SetOrder(static_cast<int>(Game::Lua::ToNumber(L, 4)) - 1, false, false);
-    // The decompiled CreateControlPoint passes the highest order itself,
-    // which takes the last point's place and reverses points made one after
-    // another; one past it, as SetParent does, puts the point last.
+    if (order != -1)
+        point->SetOrder(order, false, false);
     if (point->order == -1)
         point->SetOrder(path->GetMaxControlPointOrder() + 1, false, true);
     path->NotifyControlPointAdded(point);
@@ -389,40 +403,49 @@ int __fastcall Script_PointSetParent(void *L) {
     ControlPoint *point = PointSelf(L);
     if (point == nullptr)
         return 0;
-    if (Game::Lua::Type(L, 2) == Game::Lua::TYPE_NIL) {
-        Game::Lua::Error(L, "%s:SetParent(): Cannot set a 'nil' parent for control points", point->DisplayName());
+    const char *name = point->Name();
+    if (Args::Missing(L, 2)) {
+        Game::Lua::RaiseClientMethodError(L, name, "SetParent", "Cannot set a 'nil' parent");
         return 0;
     }
     const uintptr_t pathType = reinterpret_cast<uintptr_t>(&Anim::s_pathClass.typeId);
+    char message[Game::Lua::kClientErrorSize];
     Anim *path = nullptr;
-    if (Game::Lua::IsString(L, 2)) {
+    if (Game::Lua::Type(L, 2) == Game::Lua::TYPE_TABLE) {
+        void *object = Game::Lua::ResolveObject(L, 2);
+        if (object == nullptr || !IsOurs(object) || !Game::Lua::IsA(object, pathType)) {
+            std::snprintf(message, sizeof message, "Invalid object for SetParent() call. (%s)",
+                          object != nullptr && IsOurs(object) ? static_cast<Object *>(object)->DisplayName()
+                          : object != nullptr                 ? Game::Lua::ObjectDisplayName(object)
+                                                              : "<unnamed>");
+            Game::Lua::RaiseClientMethodError(L, name, "SetParent", message);
+            return 0;
+        }
+        path = static_cast<Anim *>(object);
+    } else if (Game::Lua::IsString(L, 2)) {
         // CScriptObject::GetScriptObjectByName(name, Path).
-        Game::Lua::PushString(L, Game::Lua::ToString(L, 2));
+        const char *parentName = Game::Lua::ToString(L, 2);
+        Game::Lua::PushString(L, parentName);
         Game::Lua::RawGet(L, Game::Lua::GLOBALS_INDEX);
         void *object = Game::Lua::Type(L, -1) == Game::Lua::TYPE_TABLE ? Game::Lua::ResolveObject(L, -1) : nullptr;
         Game::Lua::SetTop(L, -2);
         if (object != nullptr && IsOurs(object) && Game::Lua::IsA(object, pathType))
             path = static_cast<Anim *>(object);
-    } else if (Game::Lua::Type(L, 2) == Game::Lua::TYPE_TABLE) {
-        void *object = Game::Lua::ResolveObject(L, 2);
-        if (object == nullptr) {
-            Game::Lua::Error(L, "%s:SetParent(): Couldn't find 'this' in parent object", point->DisplayName());
+        if (path == nullptr) {
+            std::snprintf(message, sizeof message, "Couldn't find object named '%s'", parentName);
+            Game::Lua::RaiseClientMethodError(L, name, "SetParent", message);
             return 0;
         }
-        if (!IsOurs(object) || !Game::Lua::IsA(object, pathType)) {
-            Game::Lua::Error(L, "%s:SetParent(): Wrong parent object type, expected Path", point->DisplayName());
-            return 0;
-        }
-        path = static_cast<Anim *>(object);
-    }
-    if (path == nullptr) {
-        Game::Lua::Error(L, "%s:SetParent(): Couldn't find Path named '%s'", point->DisplayName(),
-                         Game::Lua::IsString(L, 2) ? Game::Lua::ToString(L, 2) : "");
+    } else {
+        Game::Lua::RaiseClientMethodError(L, name, "SetParent", "Invalid object for SetParent() call. (<unnamed>)");
         return 0;
     }
     const int oldOrder = point->order;
-    if (Game::Lua::IsNumber(L, 3)) {
-        point->SetOrder(static_cast<int>(Game::Lua::ToNumber(L, 3)) - 1, false, false);
+    if (!Args::Missing(L, 3)) {
+        int order;
+        if (!Args::Integer(L, 3, "Usage: self:SetParent(parent [, order])", order))
+            return 0;
+        point->SetOrder(order, false, false);
     } else {
         int value = point->order;
         if (value == -1)
@@ -434,16 +457,16 @@ int __fastcall Script_PointSetParent(void *L) {
     return 0;
 }
 
+// UI units, two numbers; a near-zero offset is zero (ControlPoint::SetOffset).
 int __fastcall Script_PointSetOffset(void *L) {
     ControlPoint *point = PointSelf(L);
     if (point == nullptr)
         return 0;
-    if (!Game::Lua::IsNumber(L, 2) || !Game::Lua::IsNumber(L, 3)) {
-        Game::Lua::Error(L, "Usage: %s:SetOffset(x, y)", point->DisplayName());
+    constexpr char kUsage[] = "Usage: self:SetOffset(offsetX, offsetY)";
+    float x, y;
+    if (!Args::RawNumber(L, 2, kUsage, x) || !Args::RawNumber(L, 3, kUsage, y))
         return 0;
-    }
-    point->SetOffset(Game::PixelToInternal(static_cast<float>(Game::Lua::ToNumber(L, 2))),
-                     Game::PixelToInternal(static_cast<float>(Game::Lua::ToNumber(L, 3))));
+    point->SetOffset(Game::PixelToInternal(x), Game::PixelToInternal(y));
     return 0;
 }
 
@@ -458,13 +481,9 @@ int __fastcall Script_PointGetOffset(void *L) {
 
 int __fastcall Script_PointSetOrder(void *L) {
     ControlPoint *point = PointSelf(L);
-    if (point == nullptr)
-        return 0;
-    if (!Game::Lua::IsNumber(L, 2)) {
-        Game::Lua::Error(L, "Usage: %s:SetOrder(order)", point->DisplayName());
-        return 0;
-    }
-    point->SetOrder(static_cast<int>(Game::Lua::ToNumber(L, 2)) - 1, true, false);
+    int order;
+    if (point != nullptr && Args::Integer(L, 2, "Usage: self:SetOrder(order)", order))
+        point->SetOrder(order, true, false);
     return 0;
 }
 
@@ -472,16 +491,19 @@ int __fastcall Script_PointGetOrder(void *L) {
     ControlPoint *point = PointSelf(L);
     if (point == nullptr)
         return 0;
-    Game::Lua::PushNumber(L, point->order + 1);
+    Game::Lua::PushNumber(L, point->order);
     return 1;
 }
 
 const Game::Lua::FrameMethodEntry kPathMethods[] = {
-    {"SetCurve", &Script_SetCurve},
-    {"GetCurve", &Script_GetCurve},
-    {"GetControlPoints", &Script_GetControlPoints},
     {"CreateControlPoint", &Script_CreateControlPoint},
-    {"GetMaxOrder", &Script_GetMaxOrder},
+    {"GetControlPoints", &Script_GetControlPoints},
+    {"GetCurveType", &Script_GetCurveType},
+    {"GetMaxControlPointOrder", &Script_GetMaxControlPointOrder},
+    {"SetCurveType", &Script_SetCurveType},
+    // 4.3.4's names, kept for addons that call them.
+    {"GetCurve", &Script_GetCurveType},
+    {"SetCurve", &Script_SetCurveType},
 };
 
 // CScriptObject's methods, then CSimpleControlPoint's.

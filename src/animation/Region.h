@@ -34,10 +34,11 @@ void NotifyEnd(void *region, Group *group);
 // CScriptRegion::PreOnAnimUpdate: put the animated state back to its base
 // before the animations apply themselves for this update.
 void PreOnAnimUpdate(void *region);
-// CScriptRegion::AddAnimAlpha(target, alpha) on the group's region.
+// Alpha's SetChange (4.3.4's CScriptRegion::AddAnimAlpha) on the group's
+// region: the stored alpha plus `alpha`.
 void AddAnimAlpha(void *region, void *target, int16_t alpha);
-// Later clients' absolute alpha (Alpha fromAlpha / toAlpha): the same target
-// rule as AddAnimAlpha, but the alpha becomes `alpha` instead of growing.
+// Alpha's fromAlpha / toAlpha on the group's region: a frame target below
+// the region takes it, and its alpha becomes `alpha`.
 void SetAnimAlpha(void *region, void *target, uint8_t alpha);
 // AnimationGroup setToFinalAlpha: the alpha that `target` (the group's
 // `region` when null) shows now becomes the one the group's end restores.
@@ -51,6 +52,20 @@ void AddAnimScale(void *region, void *target, int origin, float offsetX, float o
 // CScriptRegion::AddAnimRotation(target, origin, offset, radians),
 // counter-clockwise.
 void AddAnimRotation(void *region, void *target, int origin, float offsetX, float offsetY, float radians);
+// The 3.80.2 client's other animation types, on the animation's target or
+// the group's `region`. VertexColor: the region's colour becomes `bgra` and
+// stays (a frame ignores it).
+void SetAnimVertexColor(void *region, void *target, uint32_t bgra);
+// FlipBook: the texture shows the cell for `progress` and keeps it.
+void SetAnimFlipBookFrame(void *region, void *target, uint32_t rows, uint32_t columns, uint32_t frames,
+                          uint32_t frameWidth, uint32_t frameHeight, float progress);
+// TextureCoordTranslation: (u, v) added to the stored coordinates of every
+// texture it reaches (a frame passes it down).
+void AddAnimTexCoord(void *region, void *target, float u, float v);
+// LineTranslation / LineScale: a Line's corners moved or scaled in the
+// line's own frame (a frame passes them down; other regions ignore them).
+void AddAnimLineTranslation(void *region, void *target, float x, float y);
+void AddAnimLineScale(void *region, void *target, int origin, float offsetX, float offsetY, float x, float y);
 // A font string's glyphs were just baked (the draw builder): turn and scale
 // them by its animation, and remember what they were baked with.
 void FontStringBaked(void *node, void *fontString);

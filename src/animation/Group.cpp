@@ -17,6 +17,7 @@
 // group finishes (Finish included), and Stop still restores the alpha. No
 // source on disk says what a later client's Stop does with the flag.
 
+#include "animation/Args.h"
 #include "animation/Classes.h"
 #include "animation/Region.h"
 
@@ -66,12 +67,6 @@ void Group::Finish() {
         flags |= GROUP_PENDING_FINISH;
 }
 
-int Group::GetMaxAnimOrder() const {
-    if (animLists.empty())
-        return -1;
-    return animLists.back().front()->order;
-}
-
 bool Group::HasAlphaAnim() const {
     for (const Anim *anim : animations)
         if (anim->kind == KIND_ALPHA)
@@ -79,9 +74,27 @@ bool Group::HasAlphaAnim() const {
     return false;
 }
 
+// The kinds that move a region's drawn corners or its string's position.
 bool Group::HasPositionAnim() const {
     for (const Anim *anim : animations)
-        if (anim->kind != KIND_ALPHA)
+        switch (anim->kind) {
+        case KIND_TRANSLATION:
+        case KIND_SCALE:
+        case KIND_ROTATION:
+        case KIND_PATH:
+        case KIND_LINE_TRANSLATION:
+        case KIND_LINE_SCALE:
+            return true;
+        default:
+            break;
+        }
+    return false;
+}
+
+// TextureCoordTranslation: the texture coordinates are stored and put back.
+bool Group::HasTexCoordAnim() const {
+    for (const Anim *anim : animations)
+        if (anim->kind == KIND_TEXCOORD)
             return true;
     return false;
 }
@@ -213,19 +226,8 @@ void Group::SortAnimations() {
     }
     for (std::vector<Anim *> &list : animLists)
         list.clear();
-    int nextOrder = 0;
-    for (Anim *anim : animations) {
-        int order = anim->order;
-        if (order == -1) {
-            order = nextOrder++;
-            anim->order = order < 0 ? 0 : order;
-        } else {
-            nextOrder = order + 1;
-        }
-        if (nextOrder > 99)
-            nextOrder = 0;
-        AddAnimListNode(RegisterAnimList(order), anim);
-    }
+    for (Anim *anim : animations)
+        AddAnimListNode(RegisterAnimList(anim->order), anim);
     while (!animLists.empty() && animLists.back().empty())
         animLists.pop_back();
 }
@@ -284,6 +286,7 @@ bool Group::AdvanceLoopState(float /*elapsedSec*/, float /*remaining*/) {
             return true;
         if (loopType == LOOP_BOUNCE) {
             loopState = static_cast<LoopState>(!reverse + 1);
+            startedReverse = !startedReverse; // 3.80.2's BOUNCE flips +0x81
             currentOrder -= step;
         } else {
             currentOrder = first;
@@ -292,7 +295,8 @@ bool Group::AdvanceLoopState(float /*elapsedSec*/, float /*remaining*/) {
         progress = 0.0f;
         ResetAnims();
         if (HasScript(G_ONLOOP)) {
-            Game::Lua::PushString(Game::Lua::State(), LoopStateToString(loopState));
+            Game::Lua::PushString(Game::Lua::State(),
+                                  LoopStateToString(startedReverse ? STATE_REVERSE : STATE_FORWARD));
             RunScript(G_ONLOOP, 1);
         }
         if (loopState == STATE_NONE || (flags & GROUP_PAUSED))
@@ -304,6 +308,12 @@ bool Group::AdvanceLoopState(float /*elapsedSec*/, float /*remaining*/) {
     return false;
 }
 
+// 3.80.2's update (FUN_1405A8220 / FUN_1405B15A0): the frame's step is
+// clamped to 0..60 s, each animation advances by it times the speed
+// multiplier, and the group's elapsed time adds the largest scaled step.
+// OnUpdate scripts get the frame's step. The step's real time is the scaled
+// step over the multiplier; a multiplier that is not positive moves the
+// animations once and ends the update.
 bool Group::DoGroupUpdateWork(float elapsedSec) {
     float remaining = elapsedSec < 0.0f ? 0.0f : (elapsedSec >= 60.0f ? 60.0f : elapsedSec);
     while (true) {
@@ -321,13 +331,13 @@ bool Group::DoGroupUpdateWork(float elapsedSec) {
         const std::vector<Anim *> list = animLists[currentOrder];
         for (Anim *anim : list) {
             float consumed;
-            finished = anim->OnUpdate(remaining, consumed) && finished;
+            finished = anim->OnUpdate(remaining * speedMultiplier, remaining, consumed) && finished;
             if (consumed > maxConsumed)
                 maxConsumed = consumed;
         }
 
         if (!(flags & GROUP_PAUSED) && loopState != STATE_NONE) {
-            remaining -= maxConsumed;
+            remaining = speedMultiplier > 0.0f ? remaining - maxConsumed / speedMultiplier : 0.0f;
             elapsed += maxConsumed;
             progress = elapsed < duration ? elapsed / duration : 1.0f;
             if (finished && AdvanceLoopState(elapsedSec, remaining))
@@ -369,19 +379,25 @@ bool Group::OnUpdate(float elapsedSec) {
     return IsDone();
 }
 
-bool Group::Play(bool reverse) {
+// 3.80.2's Play: a paused group resumes where it is (`reverse` ignored); a
+// playing one already going that way, or looping, is left alone; a playing
+// one going the other way turns around in place, with no OnPlay.
+bool Group::Play(bool reverse, float offset) {
     if (animations.empty())
         return false;
-    if (loopState != STATE_NONE && !(flags & GROUP_PAUSED))
-        return true;
     if (flags & GROUP_PAUSED) {
         flags &= ~GROUP_PAUSED;
+    } else if (loopState != STATE_NONE) {
+        if (reverse != (loopState == STATE_REVERSE) && loopType == LOOP_NONE)
+            FlipDirection();
+        return true;
     } else {
         flags &= 0xF0;
         loopState = STATE_NONE;
         currentOrder = reverse ? 0x7FFF : -1;
         elapsed = 0.0f;
         progress = 0.0f;
+        startedReverse = reverse;
     }
     RunScript(G_ONPLAY, 0);
     const int count = static_cast<int>(animLists.size());
@@ -401,8 +417,44 @@ bool Group::Play(bool reverse) {
             anim->Play();
         Region::NotifyBegin(RegionObject(), this);
     }
-    OnUpdate(0.0f);
+    if (loopState != STATE_NONE && !(flags & GROUP_PAUSED))
+        OnUpdate(offset);
     return true;
+}
+
+// Every animation turns: the current order's mirror where they are, the
+// others start over in the new direction when their order comes. The orders
+// before the current one stay at their end, as the update draws them.
+void Group::FlipDirection() {
+    const LoopState next = loopState == STATE_REVERSE ? STATE_FORWARD : STATE_REVERSE;
+    loopState = next;
+    elapsed = duration - elapsed;
+    if (elapsed < 0.0f)
+        elapsed = 0.0f;
+    progress = duration > 0.0f && elapsed < duration ? elapsed / duration : 1.0f;
+    for (int i = 0; i < static_cast<int>(animLists.size()); ++i) {
+        for (Anim *anim : animLists[i]) {
+            anim->loopState = next;
+            if (i == currentOrder) {
+                anim->Mirror();
+            } else {
+                anim->playState = 0;
+                anim->elapsed = 0.0f;
+                anim->progressWithDelay = 0.0f;
+                anim->progress = 0.0f;
+            }
+        }
+    }
+}
+
+void Group::RemoveAnimations() {
+    Stop(false);
+    const std::vector<Anim *> removed = std::move(animations);
+    animations.clear();
+    animLists.clear();
+    ComputeDuration();
+    for (Anim *anim : removed)
+        Anim::Release(anim);
 }
 
 void Group::PostLoadXML() {
@@ -476,16 +528,51 @@ const char *SmoothWeightsToString(float in, float out) {
     return "UNKNOWN";
 }
 
-// ---- Lua methods (CSimpleAnimGroup_Scripts.cpp) -------------------------------
+// ---- Lua methods (CSimpleAnimGroup_Scripts.cpp, 3.80.2's table 0x14458F9B0) -----
+//
+// Arguments are read as 3.80.2's generated bindings read them (Args.h).
 
 namespace {
 
 Group *Self(void *L) { return static_cast<Group *>(Resolve(L, 1, Group::s_class)); }
 
+constexpr char kPlayUsage[] = "Usage: self:Play([reverse, offset])";
+constexpr char kRestartUsage[] = "Usage: self:Restart([reverse, offset])";
+
+// Play's and Restart's [reverse, offset]: false and 0 by default.
+bool PlayArgs(void *L, const char *usage, bool &reverse, float &offset) {
+    reverse = Args::OptBool(L, 2, false);
+    offset = 0.0f;
+    return Args::OptNumber(L, 3, usage, offset);
+}
 
 int __fastcall Script_Play(void *L) {
-    if (Group *g = Self(L))
-        g->Play(Game::Lua::ToFlag(L, 2));
+    Group *g = Self(L);
+    bool reverse;
+    float offset;
+    if (g != nullptr && PlayArgs(L, kPlayUsage, reverse, offset))
+        g->Play(reverse, offset);
+    return 0;
+}
+int __fastcall Script_Restart(void *L) {
+    Group *g = Self(L);
+    bool reverse;
+    float offset;
+    if (g == nullptr || !PlayArgs(L, kRestartUsage, reverse, offset))
+        return 0;
+    g->Stop(true);
+    g->Play(reverse, offset);
+    return 0;
+}
+int __fastcall Script_SetPlaying(void *L) {
+    Group *g = Self(L);
+    bool play;
+    if (g == nullptr || !Args::Bool(L, 2, "Usage: self:SetPlaying(play)", play))
+        return 0;
+    if (play)
+        g->Play(false, 0.0f);
+    else
+        g->Stop(true);
     return 0;
 }
 int __fastcall Script_Pause(void *L) {
@@ -503,62 +590,65 @@ int __fastcall Script_Finish(void *L) {
         g->Finish();
     return 0;
 }
-int __fastcall Script_GetProgress(void *L) {
+int __fastcall Script_RemoveAnimations(void *L) {
+    if (Group *g = Self(L))
+        g->RemoveAnimations();
+    return 0;
+}
+
+template <typename Fn> int PushNumberOf(void *L, Fn fn) {
     Group *g = Self(L);
     if (g == nullptr)
         return 0;
-    Game::Lua::PushNumber(L, g->elapsed / g->duration);
+    Game::Lua::PushNumber(L, fn(g));
     return 1;
 }
-int __fastcall Script_IsDone(void *L) {
+template <typename Fn> int PushBoolOf(void *L, Fn fn) {
     Group *g = Self(L);
     if (g == nullptr)
         return 0;
-    Game::Lua::PushBool(L, g->IsDone());
+    Game::Lua::PushBool(L, fn(g));
     return 1;
 }
-int __fastcall Script_IsPlaying(void *L) {
-    Group *g = Self(L);
-    if (g == nullptr)
-        return 0;
-    Game::Lua::PushBool(L, g->IsPlaying());
-    return 1;
+
+// No zero guard: a group with no duration gives NaN, as 3.80.2's.
+int __fastcall Script_GetProgress(void *L) { return PushNumberOf(L, [](Group *g) { return g->elapsed / g->duration; }); }
+int __fastcall Script_GetElapsed(void *L) { return PushNumberOf(L, [](Group *g) { return g->elapsed; }); }
+int __fastcall Script_GetDuration(void *L) { return PushNumberOf(L, [](Group *g) { return g->duration; }); }
+int __fastcall Script_GetAnimationSpeedMultiplier(void *L) {
+    return PushNumberOf(L, [](Group *g) { return g->speedMultiplier; });
 }
+int __fastcall Script_IsDone(void *L) { return PushBoolOf(L, [](Group *g) { return g->IsDone(); }); }
+int __fastcall Script_IsPlaying(void *L) { return PushBoolOf(L, [](Group *g) { return g->IsPlaying(); }); }
 int __fastcall Script_IsPaused(void *L) {
-    Group *g = Self(L);
-    if (g == nullptr)
-        return 0;
-    Game::Lua::PushBool(L, (g->flags & GROUP_PAUSED) != 0);
-    return 1;
+    return PushBoolOf(L, [](Group *g) { return (g->flags & GROUP_PAUSED) != 0; });
 }
 int __fastcall Script_IsPendingFinish(void *L) {
-    Group *g = Self(L);
-    if (g == nullptr)
-        return 0;
-    Game::Lua::PushBool(L, (g->flags & GROUP_PENDING_FINISH) != 0);
-    return 1;
+    return PushBoolOf(L, [](Group *g) { return (g->flags & GROUP_PENDING_FINISH) != 0; });
 }
-int __fastcall Script_GetDuration(void *L) {
+int __fastcall Script_IsReverse(void *L) { return PushBoolOf(L, [](Group *g) { return g->StartedReverse(); }); }
+int __fastcall Script_IsSetToFinalAlpha(void *L) { return PushBoolOf(L, [](Group *g) { return g->setToFinalAlpha; }); }
+
+// No range check: 0 and negative multipliers are accepted, as 3.80.2's.
+int __fastcall Script_SetAnimationSpeedMultiplier(void *L) {
     Group *g = Self(L);
-    if (g == nullptr)
-        return 0;
-    Game::Lua::PushNumber(L, g->duration);
-    return 1;
+    float value;
+    if (g != nullptr &&
+        Args::Number(L, 2, "Usage: self:SetAnimationSpeedMultiplier(animationSpeedMultiplier)", value))
+        g->speedMultiplier = value;
+    return 0;
 }
 int __fastcall Script_SetLooping(void *L) {
     Group *g = Self(L);
     if (g == nullptr)
         return 0;
-    if (!Game::Lua::IsString(L, 2)) {
-        Game::Lua::Error(L, "Usage: %s:SetLooping(\"loopType\")", g->DisplayName());
-        return 0;
-    }
     LoopType type;
-    if (StringToLoopType(Game::Lua::ToString(L, 2), type)) {
-        g->loopType = type;
+    // A string; a number is not one here (3.80.2's FUN_140AB2EA0).
+    if (Game::Lua::Type(L, 2) != Game::Lua::TYPE_STRING || !StringToLoopType(Game::Lua::ToString(L, 2), type)) {
+        Args::Fail(L, 2, "Usage: self:SetLooping(loopType)");
         return 0;
     }
-    Game::Lua::Error(L, "%s:SetLooping(): Unknown loop type specified", g->DisplayName());
+    g->loopType = type;
     return 0;
 }
 int __fastcall Script_GetLooping(void *L) {
@@ -572,43 +662,30 @@ int __fastcall Script_GetLoopState(void *L) {
     Group *g = Self(L);
     if (g == nullptr)
         return 0;
-    Game::Lua::PushString(L, LoopStateToString(g->loopState));
+    const int state = g->loopState == STATE_NONE ? STATE_NONE : (g->startedReverse ? STATE_REVERSE : STATE_FORWARD);
+    Game::Lua::PushString(L, LoopStateToString(state));
     return 1;
 }
-int __fastcall Script_GetMaxOrder(void *L) {
+int __fastcall Script_SetToFinalAlpha(void *L) {
     Group *g = Self(L);
-    if (g == nullptr)
-        return 0;
-    Game::Lua::PushNumber(L, g->GetMaxAnimOrder() + 1);
-    return 1;
-}
-int __fastcall Script_SetInitialOffset(void *L) {
-    Group *g = Self(L);
-    if (g == nullptr)
-        return 0;
-    if (!Game::Lua::IsNumber(L, 2) || !Game::Lua::IsNumber(L, 3)) {
-        Game::Lua::Error(L, "Usage: %s:SetInitialOffset(x, y)", g->DisplayName());
-        return 0;
-    }
-    const float x = Game::PixelToInternal(static_cast<float>(Game::Lua::ToNumber(L, 2)));
-    const float y = Game::PixelToInternal(static_cast<float>(Game::Lua::ToNumber(L, 3)));
-    // 4.3.4's SetInitialOffset: a near-zero offset is zero.
-    if (x * x + y * y <= 0.00000023841858f) {
-        g->initialOffsetX = 0.0f;
-        g->initialOffsetY = 0.0f;
-    } else {
-        g->initialOffsetX = x;
-        g->initialOffsetY = y;
-    }
+    bool keep;
+    if (g != nullptr && Args::Bool(L, 2, "Usage: self:SetToFinalAlpha(setToFinalAlpha)", keep))
+        g->setToFinalAlpha = keep;
     return 0;
 }
-int __fastcall Script_GetInitialOffset(void *L) {
+// Set/GetIgnoreFramerateThrottle: 4.3.4's, kept for addons that call them.
+int __fastcall Script_SetIgnoreFramerateThrottle(void *L) {
     Group *g = Self(L);
     if (g == nullptr)
         return 0;
-    Game::Lua::PushNumber(L, Game::InternalToPixel(g->initialOffsetX));
-    Game::Lua::PushNumber(L, Game::InternalToPixel(g->initialOffsetY));
-    return 2;
+    if (Game::Lua::ToFlag(L, 2))
+        g->flags |= GROUP_IGNORE_THROTTLE;
+    else
+        g->flags &= ~GROUP_IGNORE_THROTTLE;
+    return 0;
+}
+int __fastcall Script_GetIgnoreFramerateThrottle(void *L) {
+    return PushBoolOf(L, [](Group *g) { return (g->flags & GROUP_IGNORE_THROTTLE) != 0; });
 }
 int __fastcall Script_GetAnimations(void *L) {
     Group *g = Self(L);
@@ -623,35 +700,6 @@ int __fastcall Script_GetAnimations(void *L) {
         Push(L, anim);
     return count;
 }
-int __fastcall Script_SetIgnoreFramerateThrottle(void *L) {
-    Group *g = Self(L);
-    if (g == nullptr)
-        return 0;
-    if (Game::Lua::ToFlag(L, 2))
-        g->flags |= GROUP_IGNORE_THROTTLE;
-    else
-        g->flags &= ~GROUP_IGNORE_THROTTLE;
-    return 0;
-}
-int __fastcall Script_GetIgnoreFramerateThrottle(void *L) {
-    Group *g = Self(L);
-    if (g == nullptr)
-        return 0;
-    Game::Lua::PushFlag(L, g->flags & GROUP_IGNORE_THROTTLE);
-    return 1;
-}
-int __fastcall Script_SetToFinalAlpha(void *L) {
-    if (Group *g = Self(L))
-        g->setToFinalAlpha = Game::Lua::ToFlag(L, 2);
-    return 0;
-}
-int __fastcall Script_IsSetToFinalAlpha(void *L) {
-    Group *g = Self(L);
-    if (g == nullptr)
-        return 0;
-    Game::Lua::PushBool(L, g->setToFinalAlpha);
-    return 1;
-}
 
 const Game::Lua::FrameMethodEntry kMethods[] = {
     {"GetObjectType", &Script_GetObjectType},
@@ -662,32 +710,36 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
     {"GetParentKey", &Frame::ParentKey::Script_GetParentKey},
     {"SetParentKey", &Frame::ParentKey::Script_SetParentKey},
     {"ClearParentKey", &Frame::ParentKey::Script_ClearParentKey},
-    {"Play", &Script_Play},
-    {"Pause", &Script_Pause},
-    {"Stop", &Script_Stop},
+    {"CreateAnimation", &Script_CreateAnimation},
     {"Finish", &Script_Finish},
+    {"GetAnimationSpeedMultiplier", &Script_GetAnimationSpeedMultiplier},
+    {"GetAnimations", &Script_GetAnimations},
+    {"GetDuration", &Script_GetDuration},
+    {"GetElapsed", &Script_GetElapsed},
+    {"GetIgnoreFramerateThrottle", &Script_GetIgnoreFramerateThrottle},
+    {"GetLoopState", &Script_GetLoopState},
+    {"GetLooping", &Script_GetLooping},
     {"GetProgress", &Script_GetProgress},
+    {"GetScript", &Script_GetScript},
+    {"HasScript", &Script_HasScript},
+    {"HookScript", &Script_HookScript},
     {"IsDone", &Script_IsDone},
-    {"IsPlaying", &Script_IsPlaying},
     {"IsPaused", &Script_IsPaused},
     {"IsPendingFinish", &Script_IsPendingFinish},
-    {"GetDuration", &Script_GetDuration},
-    {"SetLooping", &Script_SetLooping},
-    {"GetLooping", &Script_GetLooping},
-    {"GetLoopState", &Script_GetLoopState},
-    {"GetMaxOrder", &Script_GetMaxOrder},
-    {"SetInitialOffset", &Script_SetInitialOffset},
-    {"GetInitialOffset", &Script_GetInitialOffset},
-    {"GetAnimations", &Script_GetAnimations},
-    {"CreateAnimation", &Script_CreateAnimation},
-    {"HasScript", &Script_HasScript},
-    {"GetScript", &Script_GetScript},
-    {"SetScript", &Script_SetScript},
-    {"HookScript", &Script_HookScript},
-    {"SetIgnoreFramerateThrottle", &Script_SetIgnoreFramerateThrottle},
-    {"GetIgnoreFramerateThrottle", &Script_GetIgnoreFramerateThrottle},
-    {"SetToFinalAlpha", &Script_SetToFinalAlpha},
+    {"IsPlaying", &Script_IsPlaying},
+    {"IsReverse", &Script_IsReverse},
     {"IsSetToFinalAlpha", &Script_IsSetToFinalAlpha},
+    {"Pause", &Script_Pause},
+    {"Play", &Script_Play},
+    {"RemoveAnimations", &Script_RemoveAnimations},
+    {"Restart", &Script_Restart},
+    {"SetAnimationSpeedMultiplier", &Script_SetAnimationSpeedMultiplier},
+    {"SetIgnoreFramerateThrottle", &Script_SetIgnoreFramerateThrottle},
+    {"SetLooping", &Script_SetLooping},
+    {"SetPlaying", &Script_SetPlaying},
+    {"SetScript", &Script_SetScript},
+    {"SetToFinalAlpha", &Script_SetToFinalAlpha},
+    {"Stop", &Script_Stop},
 };
 
 } // namespace

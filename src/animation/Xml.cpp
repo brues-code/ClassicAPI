@@ -38,6 +38,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <string>
+#include <utility>
 
 namespace Animation::Xml {
 
@@ -179,12 +180,17 @@ void LoadAnimChildren(Group *group, const void *node, void *status) {
         const char *tag = ::Xml::Tag(child);
         if (tag == nullptr || ::Xml::TagIs(child, "Scripts"))
             continue;
-        // 4.3.4 knows Animation, Translation, Rotation, Scale, Path and Alpha.
-        if (!::Xml::TagIs(child, "Animation") && !::Xml::TagIs(child, "Translation") &&
-            !::Xml::TagIs(child, "Rotation") && !::Xml::TagIs(child, "Scale") && !::Xml::TagIs(child, "Alpha") &&
-            !::Xml::TagIs(child, "Path"))
+        // 3.80.2's element switch (FUN_1405A65E0): 4.3.4's six and its five.
+        static const char *const kTags[] = {"Animation",   "Translation",     "Rotation",
+                                            "Scale",       "Alpha",           "Path",
+                                            "VertexColor", "FlipBook",        "TextureCoordTranslation",
+                                            "LineScale",   "LineTranslation"};
+        bool known = false;
+        for (const char *t : kTags)
+            known = known || ::Xml::TagIs(child, t);
+        if (!known)
             continue;
-        Anim *anim = new Anim(group, Anim::KindOf(tag), ::Xml::Attr(child, "name"));
+        Anim *anim = new Anim(group, Anim::KindOfTag(tag), ::Xml::Attr(child, "name"));
         anim->flags |= 1;
         LoadAnim(anim, child, status);
     }
@@ -241,18 +247,6 @@ void LoadGroupNode(Group *group, const void *node, void *status) {
     }
     if (const char *keep = ::Xml::Attr(node, "setToFinalAlpha"); keep != nullptr && *keep != '\0')
         group->setToFinalAlpha = Game::StringToFlag(keep);
-    float x = 0.0f, y = 0.0f;
-    FloatAttr(node, "initialOffsetX", x);
-    FloatAttr(node, "initialOffsetY", y);
-    x = Game::PixelToInternal(x);
-    y = Game::PixelToInternal(y);
-    if (x * x + y * y <= 0.00000023841858f) {
-        group->initialOffsetX = 0.0f;
-        group->initialOffsetY = 0.0f;
-    } else {
-        group->initialOffsetX = x;
-        group->initialOffsetY = y;
-    }
     LoadScripts(group, node);
     LoadKeyValues(group, node, status);
     LoadAnimChildren(group, node, status);
@@ -266,8 +260,9 @@ void LoadAnim(Anim *anim, const void *node, void *status) {
     float x = 0.0f, y = 0.0f;
     switch (anim->kind) {
     case KIND_ALPHA:
-        break; // CSimpleAlphaAnim::LoadXML reads `change` after the base.
-    case KIND_TRANSLATION: {
+        break; // the alpha is read after the base
+    case KIND_TRANSLATION:
+    case KIND_LINE_TRANSLATION: {
         // CSimpleTranslationAnim::LoadXML sets the offset, 0 for a missing axis.
         FloatAttr(node, "offsetX", x);
         FloatAttr(node, "offsetY", y);
@@ -283,7 +278,41 @@ void LoadAnim(Anim *anim, const void *node, void *status) {
         if (FloatAttr(node, "radians", y))
             anim->radians = y;
         break;
-    case KIND_SCALE: {
+    case KIND_TEXCOORD: {
+        // 3.80.2's 0x1405B1BE0: both, 0 for a missing one, a near-zero pair 0.
+        FloatAttr(node, "offsetU", x);
+        FloatAttr(node, "offsetV", y);
+        const bool zero = x * x + y * y <= 0.00000023841858f;
+        anim->texOffsetU = zero ? 0.0f : x;
+        anim->texOffsetV = zero ? 0.0f : y;
+        break;
+    }
+    case KIND_FLIPBOOK: {
+        // strtoul, so 0x is hex; a 0 grid is reported and not stored.
+        const std::pair<const char *, uint32_t Anim::*> values[] = {{"flipBookRows", &Anim::flipRows},
+                                                                    {"flipBookColumns", &Anim::flipColumns},
+                                                                    {"flipBookFrames", &Anim::flipFrames},
+                                                                    {"flipBookFrameWidth", &Anim::flipFrameWidth},
+                                                                    {"flipBookFrameHeight", &Anim::flipFrameHeight}};
+        for (const auto &[attr, field] : values) {
+            const char *v = ::Xml::Attr(node, attr);
+            if (v == nullptr || *v == 0)
+                continue;
+            const uint32_t value = static_cast<uint32_t>(std::strtoul(v, nullptr, 0));
+            const bool grid = field == &Anim::flipRows || field == &Anim::flipColumns;
+            if (grid && value == 0) {
+                char message[256];
+                std::snprintf(message, sizeof message, "%s: Invalid %s value: %u. Value must be greater than 0.",
+                              anim->DisplayName(), attr, value);
+                ::Xml::Warn(status, "%s", message);
+                continue;
+            }
+            anim->*field = value;
+        }
+        break;
+    }
+    case KIND_SCALE:
+    case KIND_LINE_SCALE: {
         float sx = 1.0f, sy = 1.0f;
         if (FloatAttr(node, "scaleX", sx) && sx < 0.001f)
             ::Xml::Warn(status, "%s: Invalid scaleX value: %s. Value must be at least 0.001.", anim->DisplayName(),
@@ -293,11 +322,14 @@ void LoadAnim(Anim *anim, const void *node, void *status) {
                         ::Xml::Attr(node, "scaleY"));
         anim->scaleToX = sx >= 0.001f ? sx : 0.001f;
         anim->scaleToY = sy >= 0.001f ? sy : 0.001f;
-        // Later clients' from and to scale, each axis when given.
-        FloatAttr(node, "fromScaleX", anim->scaleFromX);
-        FloatAttr(node, "fromScaleY", anim->scaleFromY);
-        FloatAttr(node, "toScaleX", anim->scaleToX);
-        FloatAttr(node, "toScaleY", anim->scaleToY);
+        // Later clients' from and to scale, each axis when given; any of
+        // them turns from / to on.
+        const bool fx = FloatAttr(node, "fromScaleX", anim->scaleFromX);
+        const bool fy = FloatAttr(node, "fromScaleY", anim->scaleFromY);
+        const bool tx = FloatAttr(node, "toScaleX", anim->scaleToX);
+        const bool ty = FloatAttr(node, "toScaleY", anim->scaleToY);
+        if (fx || fy || tx || ty)
+            anim->scaleFromTo = true;
         break;
     }
     default:
@@ -343,40 +375,50 @@ void LoadAnim(Anim *anim, const void *node, void *status) {
         else
             ::Xml::Warn(status, "%s: Invalid smoothing value: %s", anim->DisplayName(), smoothing);
     }
+    // 3.80.2's 0x1405B0ED0: the order as written, 0..99; its message names
+    // 1 and 100 for the same check.
     if (const char *order = ::Xml::Attr(node, "order"); order != nullptr && *order != '\0') {
-        const int value = std::atoi(order) - 1;
-        if (value < 0 || value > 99)
-            ::Xml::Warn(status, "%s: Invalid order value: %s. Order must be between 1 and 100.", anim->DisplayName(),
-                        order);
+        const int value = std::atoi(order);
+        if (value < 0 || value > 99) {
+            char message[256];
+            std::snprintf(message, sizeof message, "%s: Invalid order value: %d. Order must be between %d and %d.",
+                          anim->DisplayName(), value, 1, 100);
+            ::Xml::Warn(status, "%s", message);
+        }
         anim->order = value < 0 ? 0 : (value > 99 ? 99 : value);
     }
     LoadScripts(anim, node);
     LoadKeyValues(anim, node, status);
 
     // The subclasses' reads after the base.
-    // CSimpleAlphaAnim::LoadXML sets the change, 0 when it is missing.
+    // fromAlpha / toAlpha, 0..1, kept as bytes.
     if (anim->kind == KIND_ALPHA) {
-        x = 0.0f;
-        if (FloatAttr(node, "change", x) && (x < -1.0f || x > 1.0f)) {
-            ::Xml::Warn(status, "%s: Invalid change value: %s. Value must be between -1 and 1, inclusive.",
-                        anim->DisplayName(), ::Xml::Attr(node, "change"));
-            x = 0.0f;
-        }
-        anim->change = static_cast<int16_t>((x < -1.0f ? -1.0f : (x >= 1.0f ? 1.0f : x)) * 255.0f);
-        if (::Xml::Attr(node, "change") != nullptr)
-            anim->alphaFromTo = false;
-        // Later clients' absolute alpha: either end turns it on.
-        if (FloatAttr(node, "fromAlpha", x)) {
-            anim->fromAlpha = x < 0.0f ? 0.0f : (x > 1.0f ? 1.0f : x);
-            anim->alphaFromTo = true;
-        }
-        if (FloatAttr(node, "toAlpha", x)) {
-            anim->toAlpha = x < 0.0f ? 0.0f : (x > 1.0f ? 1.0f : x);
-            anim->alphaFromTo = true;
+        const std::pair<const char *, uint8_t Anim::*> ends[] = {{"fromAlpha", &Anim::fromAlpha},
+                                                                 {"toAlpha", &Anim::toAlpha}};
+        for (const auto &[attr, end] : ends) {
+            if (!FloatAttr(node, attr, x))
+                continue;
+            if (x < 0.0f || x > 1.0f) {
+                char message[256];
+                std::snprintf(message, sizeof message,
+                              "%s: Invalid %s value: %f. Value must be between %d and %d, inclusive.",
+                              anim->DisplayName(), attr, x, 0, 1);
+                ::Xml::Warn(status, "%s", message);
+            }
+            x = x < 0.0f ? 0.0f : (x > 1.0f ? 1.0f : x);
+            anim->*end = static_cast<uint8_t>(static_cast<int>(x * 255.0f));
+            anim->alphaRelative = false;
         }
     }
-    if (anim->kind == KIND_SCALE || anim->kind == KIND_ROTATION)
+    if (anim->kind == KIND_SCALE || anim->kind == KIND_LINE_SCALE || anim->kind == KIND_ROTATION)
         LoadOrigin(anim, node);
+    // VertexColor: <StartColor> / <EndColor>, each a colour element.
+    if (anim->kind == KIND_VERTEX_COLOR) {
+        if (const void *c = FindChild(node, "StartColor"))
+            ::Xml::ReadColor(c, anim->startColor, status);
+        if (const void *c = FindChild(node, "EndColor"))
+            ::Xml::ReadColor(c, anim->endColor, status);
+    }
     // CSimplePathAnim::LoadXML: the curve, then <ControlPoints>.
     if (anim->kind == KIND_PATH) {
         if (const char *curve = ::Xml::Attr(node, "curve"); curve != nullptr && *curve != '\0') {
