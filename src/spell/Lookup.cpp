@@ -17,6 +17,7 @@
 #include "Offsets.h"
 #include "baselib/Ascii.h"
 #include "dbc/Lookup.h"
+#include "item/Icon.h"
 
 namespace Spell::Lookup {
 
@@ -54,6 +55,35 @@ const char *IconPath(const uint8_t *spellRecord, bool active) {
                             Offsets::OFF_SPELLICON_PATH);
 }
 
+uint32_t CreatedItemID(const uint8_t *spellRecord) {
+    if (spellRecord == nullptr ||
+        Game::Read<int>(spellRecord, Offsets::OFF_SPELL_RECORD_EFFECT) !=
+            Offsets::SPELL_EFFECT_CREATE_ITEM)
+        return 0;
+    return Game::Read<uint32_t>(spellRecord, Offsets::OFF_SPELL_RECORD_EFFECT_ITEM_TYPE);
+}
+
+// SpellIcon.dbc row 1, `Interface\Icons\Temp`: the placeholder icon of 970 of
+// the 1733 SPELL_ATTR_TRADESPELL spells in Spell.dbc. 969 of those make an
+// item with effect 0 = CREATE_ITEM, as do 438 more Temp spells that are not
+// recipes (Create Fervor Potion, Filling) (parsed from DBFilesClient\Spell.dbc).
+constexpr uint32_t SPELL_ICON_TEMP = 1;
+
+bool HasPlaceholderIcon(const uint8_t *spellRecord) {
+    return spellRecord != nullptr &&
+           Game::Read<uint32_t>(spellRecord, Offsets::OFF_SPELL_RECORD_ICON_ID) ==
+               SPELL_ICON_TEMP;
+}
+
+const char *CreatedItemIconPath(const uint8_t *spellRecord) {
+    if (!HasPlaceholderIcon(spellRecord))
+        return nullptr;
+    static char path[260];
+    return Item::Icon::PathForItemIDOrRequest(CreatedItemID(spellRecord), path, sizeof path)
+               ? path
+               : nullptr;
+}
+
 const char *DisplayIconPath(const uint8_t *spellRecord) {
     if (spellRecord == nullptr)
         return nullptr;
@@ -70,6 +100,8 @@ const char *DisplayIconPath(const uint8_t *spellRecord) {
                 static_cast<uintptr_t>(Offsets::FUN_RANGED_ICON_PATH))())
             return ranged;
     }
+    if (const char *created = CreatedItemIconPath(spellRecord))
+        return created;
     return IconPath(spellRecord, false);
 }
 

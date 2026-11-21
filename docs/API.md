@@ -25518,7 +25518,7 @@ Table fields:
 | Field        | Type    | Notes |
 |--------------|---------|-------|
 | `name`       | string  | Localized name |
-| `iconID`     | string  | Icon **path** (e.g. `"Interface\\Icons\\Spell_Fire_FlameBolt"`). See note below. For Attack and Auto Shot, the weapon icon — see [`C_Spell.GetSpellTexture`](#c_spellgetspelltexturespellid). |
+| `iconID`     | string  | Icon **path** (e.g. `"Interface\\Icons\\Spell_Fire_FlameBolt"`). See note below. For Attack and Auto Shot, the weapon icon. For a recipe with the placeholder icon, the icon of the item it makes. See [`C_Spell.GetSpellTexture`](#c_spellgetspelltexturespellid). |
 | `originalIconID` | string | The spell's own icon **path**. |
 | `castTime`   | number  | Your cast time in milliseconds, with talents and cast speed; 0 for an instant or passive spell |
 | `minRange`   | number  | Your minimum range in yards, with talents; 0 for a melee spell |
@@ -25574,6 +25574,10 @@ The two values are different only for these spells:
   `Interface\Buttons\Spell-Reset`.
 - Auto Shot and the wand's Shoot show the icon of the ranged weapon, if one
   is equipped.
+- Many recipes have the placeholder icon `Interface\Icons\Temp`. A spell
+  with that icon that makes an item shows the icon of the item. If the item
+  is not in the item cache yet, the first call returns the placeholder icon
+  and requests the item. Later calls return the icon of the item.
 
 `GetSpellInfo` and `C_Spell.GetSpellInfo` (`iconID`, `originalIconID`)
 follow the same rule.

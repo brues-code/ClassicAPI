@@ -127,12 +127,34 @@ int FindSpellbookSlot(int spellID, int *outBookType);
 // fallback to the base icon when the active one is 0.
 const char *IconPath(const uint8_t *spellRecord, bool active);
 
-// The icon the engine shows for the spell: the spellbook's getter
-// (0x004B3F50) by record. Attack gives the main-hand weapon's icon (or the
-// form's, or Spell-Reset); a ranged auto-repeat spell gives the ranged
-// weapon's icon when one is equipped; every other spell gives
-// `IconPath(record, false)`. The weapon paths live in engine static buffers
-// that the next call overwrites, so push or copy the result at once.
+// The item the spell makes: EffectItemType[0] when effect 0 is CREATE_ITEM,
+// else 0. This is the test 3.3.5's GetTrainerServiceItemLink (0x00596290) and
+// 4.3.4's IsDressableItem (0x008DA910) make. 1.12's GetTradeSkillIcon
+// (0x004FDAE0) reads EffectItemType[0] with no effect test, which holds only
+// for recipes: other spells keep spell-mod class masks there (175 Temp
+// APPLY_AURA spells carry 1, 4, 16, …). For every SPELL_ATTR_TRADESPELL
+// spell in Spell.dbc the two reads agree.
+uint32_t CreatedItemID(const uint8_t *spellRecord);
+
+// True when the spell's icon is the placeholder SpellIcon row 1,
+// `Interface\Icons\Temp`.
+bool HasPlaceholderIcon(const uint8_t *spellRecord);
+
+// For a spell with the placeholder icon that makes an item
+// (`CreatedItemID`): that item's icon, the icon the engine's tradeskill
+// list gives the recipe (GetTradeSkillIcon). nullptr for any other spell,
+// and for an item not yet in the item cache, which is then asked for so a
+// later call has its icon. The path lives in a static buffer that the next
+// call overwrites, so push or copy the result at once.
+const char *CreatedItemIconPath(const uint8_t *spellRecord);
+
+// The icon shown for the spell. The spellbook's getter (0x004B3F50) by
+// record: Attack gives the main-hand weapon's icon (or the form's, or
+// Spell-Reset); a ranged auto-repeat spell gives the ranged weapon's icon
+// when one is equipped. Then a placeholder-icon spell that makes an item
+// gives `CreatedItemIconPath`. Every other spell gives
+// `IconPath(record, false)`. The weapon and item paths live in static
+// buffers that the next call overwrites, so push or copy the result at once.
 const char *DisplayIconPath(const uint8_t *spellRecord);
 
 // Resolves a Lua row index (1-based, as a script passes it) into the

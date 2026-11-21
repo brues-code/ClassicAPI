@@ -67,16 +67,11 @@ int __fastcall Script_GetTrainerServiceItemLink(void *L) {
             Offsets::VAR_TRAINER_SERVICES, Offsets::VAR_TRAINER_SERVICE_COUNT,
             Game::Lua::ToNumber(L, 1)));
         const uint8_t *recipe = trainerSpell != nullptr ? TaughtSpell(trainerSpell) : nullptr;
-        if (recipe != nullptr &&
-            Game::Read<int>(recipe, Offsets::OFF_SPELL_RECORD_EFFECT) ==
-                Offsets::SPELL_EFFECT_CREATE_ITEM) {
-            const uint32_t itemID =
-                Game::Read<uint32_t>(recipe, Offsets::OFF_SPELL_RECORD_EFFECT_ITEM_TYPE);
-            char link[256];
-            if (itemID != 0 && Item::Link::BasicFromItemID(itemID, link, sizeof link)) {
-                Game::Lua::PushString(L, link);
-                return 1;
-            }
+        const uint32_t itemID = Spell::Lookup::CreatedItemID(recipe);
+        char link[256];
+        if (itemID != 0 && Item::Link::BasicFromItemID(itemID, link, sizeof link)) {
+            Game::Lua::PushString(L, link);
+            return 1;
         }
     }
     Game::Lua::PushNil(L);

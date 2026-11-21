@@ -16,6 +16,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "dbc/Lookup.h"
+#include "item/Data.h"
 #include "item/Record.h"
 
 #include <cstdio>
@@ -40,6 +41,17 @@ bool PathForItemID(uint32_t itemID, char *out, size_t outSize) {
         return false;
     out[0] = '\0';
     const uint8_t *record = Item::PeekRecord(itemID);
+    if (record == nullptr)
+        return false;
+    return PathForDisplayInfoID(
+        Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_DISPLAY_INFO_ID), out, outSize);
+}
+
+bool PathForItemIDOrRequest(uint32_t itemID, char *out, size_t outSize) {
+    if (out == nullptr || outSize == 0)
+        return false;
+    out[0] = '\0';
+    const uint8_t *record = itemID != 0 ? Item::Data::RecordOrRequest(itemID) : nullptr;
     if (record == nullptr)
         return false;
     return PathForDisplayInfoID(

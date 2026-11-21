@@ -77,7 +77,6 @@
 #include "Offsets.h"
 #include "aura/Source.h"
 #include "duration/Object.h"
-#include "item/Data.h"
 #include "item/Icon.h"
 #include "net/PacketDispatch.h"
 #include "net/PacketReader.h"
@@ -302,55 +301,23 @@ const char *SpellIconPath(const uint8_t *rec) {
     return (path != nullptr) ? path : "";
 }
 
-// SpellIcon.dbc row 1, `Interface\Icons\Temp`: the placeholder icon of 970 of
-// the 1733 SPELL_ATTR_TRADESPELL spells in Spell.dbc. 969 of those make an
-// item with effect 0 = CREATE_ITEM (parsed from DBFilesClient\Spell.dbc).
-// Most other Temp spells a player casts are item uses (on-use spell slots in
-// WDB\itemcache.wdb): ENCHANT_ITEM armor kits, belt buckles, scopes and
+// Pushes the cast-info `textureID`. A spell with the placeholder icon
+// `Interface\Icons\Temp` shows, in this order: the icon of the item the cast
+// came from (`castItemID`), else the icon of the item the spell makes
+// (Spell::Lookup::CreatedItemIconPath, as GetSpellInfo shows it), else Temp.
+// Most Temp spells a player casts from an item make none (on-use spell slots
+// in WDB\itemcache.wdb): ENCHANT_ITEM armor kits, belt buckles, scopes and
 // shield spikes, ENCHANT_ITEM_TEMP sharpening stones, weightstones and oils,
 // and quest or PvP items (Opening, Recall).
-constexpr uint32_t SPELL_ICON_TEMP = 1;
-
-// The item a spell's first CREATE_ITEM effect makes, or 0.
-uint32_t CreatedItem(const uint8_t *rec) {
-    for (int i = 0; i < Offsets::SPELL_RECORD_EFFECT_COUNT; ++i) {
-        if (Game::Read<int32_t>(rec, Offsets::OFF_SPELL_RECORD_EFFECT + i * 4) !=
-            Offsets::SPELL_EFFECT_CREATE_ITEM)
-            continue;
-        const int32_t item =
-            Game::Read<int32_t>(rec, Offsets::OFF_SPELL_RECORD_EFFECT_ITEM_TYPE + i * 4);
-        if (item > 0)
-            return static_cast<uint32_t>(item);
-    }
-    return 0;
-}
-
-// The icon path of item `itemID` into `out`. False for 0, and for an item not
-// yet in the cache, which is then queried so a later read has its icon.
-bool ItemIconPath(uint32_t itemID, char *out, size_t outSize) {
-    if (itemID == 0)
-        return false;
-    if (Item::Icon::PathForItemID(itemID, out, outSize))
-        return true;
-    Item::Data::WarmCache(itemID);
-    return false;
-}
-
-// Pushes the cast-info `textureID`. A spell whose icon is the Temp
-// placeholder shows, in this order: the icon of the item the cast came from
-// (`castItemID`: the armor kit or sharpening stone used), else the icon
-// of the item the spell makes — the icon the engine's own tradeskill list
-// gives the recipe (GetTradeSkillIcon is the created item's icon), else Temp.
 void PushCastIcon(void *L, const uint8_t *rec, uint32_t castItemID) {
-    if (Game::Read<uint32_t>(rec, Offsets::OFF_SPELL_RECORD_ICON_ID) == SPELL_ICON_TEMP) {
-        char path[260];
-        if (ItemIconPath(castItemID, path, sizeof path) ||
-            ItemIconPath(CreatedItem(rec), path, sizeof path)) {
-            Game::Lua::PushString(L, path);
-            return;
-        }
+    char path[260];
+    if (Spell::Lookup::HasPlaceholderIcon(rec) &&
+        Item::Icon::PathForItemIDOrRequest(castItemID, path, sizeof path)) {
+        Game::Lua::PushString(L, path);
+        return;
     }
-    Game::Lua::PushString(L, SpellIconPath(rec));
+    const char *created = Spell::Lookup::CreatedItemIconPath(rec);
+    Game::Lua::PushString(L, created != nullptr ? created : SpellIconPath(rec));
 }
 
 // Pushes UnitCastingInfo's 11-tuple from a tracked cast, or nothing (nil)

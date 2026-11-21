@@ -75,7 +75,7 @@ uint32_t RecipeItem(const char *link) {
         (Game::Read<uint32_t>(spell, Offsets::OFF_SPELL_RECORD_ATTRIBUTES) &
          Offsets::SPELL_ATTR_TRADESPELL) == 0)
         return 0;
-    return Game::Read<uint32_t>(spell, Offsets::OFF_SPELL_RECORD_EFFECT_ITEM_TYPE);
+    return Spell::Lookup::CreatedItemID(spell);
 }
 
 } // namespace

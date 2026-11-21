@@ -30,4 +30,9 @@ bool PathForDisplayInfoID(uint32_t displayInfoID, char *out, size_t outSize);
 // cached. Passive: never warms the cache.
 bool PathForItemID(uint32_t itemID, char *out, size_t outSize);
 
+// PathForItemID for a reader that will look again: an item not yet cached
+// is asked for (Item::Data::RecordOrRequest), so a later call has its icon.
+// False for itemID 0 and for an item not cached yet.
+bool PathForItemIDOrRequest(uint32_t itemID, char *out, size_t outSize);
+
 } // namespace Item::Icon
