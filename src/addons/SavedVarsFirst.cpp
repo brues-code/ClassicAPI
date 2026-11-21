@@ -28,7 +28,7 @@
 //   per-char: WTF\Account\<account>\<realm>\<character>\SavedVariables\<Name>.lua,
 //             falling back to WTF\Account\<account>\<character>\SavedVariables\<Name>.lua
 // (account = *VAR_ACCOUNT_NAME_PTR, realm = FUN_GET_REALM_NAME,
-// character = FUN_GET_LOGIN_ACCOUNT_NAME) — then call the original so the
+// character = FUN_GET_SELECTED_CHARACTER_NAME) — then call the original so the
 // files run with SV present. `FUN_LUA_LOAD_FILE` no-ops on a missing file, and
 // `FUN_FILE_EXISTS` picks the same per-char variant the engine would.
 //
@@ -182,7 +182,7 @@ void LoadSavedVarsEarly(const char *addonName, bool hasAccount, bool hasPerChar)
     if (!hasPerChar)
         return;
     const char *character = reinterpret_cast<NameFn>(
-        static_cast<uintptr_t>(Offsets::FUN_GET_LOGIN_ACCOUNT_NAME))();
+        static_cast<uintptr_t>(Offsets::FUN_GET_SELECTED_CHARACTER_NAME))();
     if (character == nullptr || *character == '\0')
         return;
     const char *realm = reinterpret_cast<NameFn>(

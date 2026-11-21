@@ -454,18 +454,18 @@ void __cdecl AddonScan_h() {
 // `FUN_ADDON_ENABLE_RESOLVE` — per-character enable resolver. We
 // co-hook it to force-enable the embedded addons regardless of
 // DefaultState or any stale WTF disable-override, so hiding them from
-// the addon list can never leave one stuck off. Returns 2 ("enabled for
-// all"); the load-pass gate only tests `!= 0`. Every other addon falls
+// the addon list can never leave one stuck off. Returns 2 ("all
+// enabled"); the load check only tests `!= 0`. Every other addon falls
 // through to the original untouched. See the Offsets.h note for the ABI.
 using AddonEnableResolve_t =
-    uint32_t(__fastcall *)(const char *name, const char *account, char resolveAll);
+    uint32_t(__fastcall *)(const char *name, const char *character, char fallback);
 AddonEnableResolve_t AddonEnableResolve_o = nullptr;
 
-uint32_t __fastcall AddonEnableResolve_h(const char *name, const char *account,
-                                         char resolveAll) {
+uint32_t __fastcall AddonEnableResolve_h(const char *name, const char *character,
+                                         char fallback) {
     if (name != nullptr && IndexOfAddon(name) >= 0)
         return 2;
-    return AddonEnableResolve_o(name, account, resolveAll);
+    return AddonEnableResolve_o(name, character, fallback);
 }
 
 const Game::HookAutoRegister _hookFileRead{

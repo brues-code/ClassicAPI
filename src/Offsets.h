@@ -11949,7 +11949,7 @@ enum Offsets {
     // `realmName` CVar value reader — no-arg, `-> const char *` (last-connected
     // realm's display name; lazily registers the cvar). The realm segment of
     // the per-character SavedVariables path. (The character segment is
-    // FUN_GET_LOGIN_ACCOUNT_NAME, whose label is a misnomer — it returns the
+    // FUN_GET_SELECTED_CHARACTER_NAME, whose label is a misnomer — it returns the
     // 0x00C27D88 buffer, NULL until a character is logged in.)
     FUN_GET_REALM_NAME = 0x005AB7D0,
 
@@ -12355,7 +12355,7 @@ enum Offsets {
     //     ⇒ the addon is loaded.
     //
     //   CAN_LOAD `__fastcall(entry, char fullCheck=1, int *outStatus,
-    //                        int *outDepHandle, const char *accountName) → byte`
+    //                        int *outDepHandle, const char *character) → byte`
     //     Recursive load-check that resolves all forward `## Dependencies`.
     //     On `0` return, writes one of 8 status codes into `*outStatus`
     //     (see `VAR_ADDON_LOADABLE_REASON_TABLE` for the index→string
@@ -12442,27 +12442,33 @@ enum Offsets {
     CALL_ADDON_INFO_BUILD_DISPLAY = 0x005B4282,
     FUN_ADDON_GET_SECURITY_INDEX = 0x0051E990,
 
-    // Per-character enable-state resolver — the inner check
-    // `FUN_ADDON_CAN_LOAD` (`0x0051E780`) consults to decide whether an
-    // addon is enabled: `__fastcall(const char *name /*ecx*/,
-    // const char *account /*edx*/, char resolveAll /*stack*/) -> uint`.
-    // Returns 0 = disabled (load pass then skips the addon, reason
-    // DISABLED), non-zero = enabled (2 = "enabled for all"). Walks the
-    // per-character override list at `0x00BE1BD8`; with no override it
-    // falls back to the entry's DefaultState byte (`+0x2b`):
-    // `-(uint)(entry[+0x2b] != 0) & 2`. `Addons::Embedded` co-hooks this
-    // to force-enable the embedded `!!!ClassicAPI` unconditionally — so a
-    // stale WTF disable-override (from back when the addon was still
-    // shown in the character-select list) can't leave it hidden AND
-    // unloaded. Cold: runs only during the login/reload load pass, once
-    // per addon.
+    // Per-character enable-state reader: `__fastcall(const char *name /*ecx*/,
+    // const char *character /*edx*/, char fallback /*stack*/) -> uint`,
+    // 2 enabled, 1 mixed, 0 disabled. 1.12 keeps one node of `name: flag`
+    // entries per character on the realm, read from
+    // `WTF\Account\<account>\<realm>\<character>\AddOns.txt` (else the
+    // account-level `AddOns.txt`), in the list at `0x00BE1BD8`. A named
+    // character counts only its own node; NULL counts every node. A node
+    // without an entry counts only with `fallback`, as enabled when the
+    // all-character state is 2, or 1 with DefaultState set. Nothing counted
+    // answers DefaultState (`+0x2b`) as 2 or 0. `FUN_ADDON_CAN_LOAD` calls it
+    // with fallback 1 (DISABLED on 0), and so does Script_GetAddOnInfo
+    // (0x0048E44B). (benilla-re systems/ui/addons.md "Reading the enable
+    // state".) `Addons::Embedded` co-hooks it to force-enable the embedded
+    // `!!!ClassicAPI`, so a stale WTF disable entry (from back when the addon
+    // showed in the character-select list) cannot leave it hidden AND
+    // unloaded.
     FUN_ADDON_ENABLE_RESOLVE = 0x0051E470,
 
-    // Returns a pointer to the inline-stored login account name buffer
-    // at `0x00C27D88`, or NULL if no character is logged in yet.
-    // `Script_GetAddOnInfo` feeds this into the loadable + enabled
-    // checks; same convention.
-    FUN_GET_LOGIN_ACCOUNT_NAME = 0x005ABDC0,
+    // `() -> const char *`: the selected character's name, the name field
+    // `0x00C27D88` (+0x08 of the selected-character record `0x00C27D80`), or
+    // NULL when it is empty: `neg al; sbb eax,eax; and eax,0xc27d88`. This is
+    // the character the engine's in-game addon functions pass to the
+    // enable-state reader and setter (EnableAddOn 0x0048E6FC, ResetDisabled-
+    // AddOns 0x0048E837) and the per-character SavedVariables path uses.
+    // NOT the account name (that is `VAR_ACCOUNT_NAME_PTR`). (benilla-re
+    // systems/net/connection.md.)
+    FUN_GET_SELECTED_CHARACTER_NAME = 0x005ABDC0,
 
     // Two parallel `const char *[]` tables in `.data` covering every
     // string `Script_GetAddOnInfo`'s returns 6 + 7 can produce.

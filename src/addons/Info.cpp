@@ -42,8 +42,8 @@ using EntryByteFn_t = uint8_t(__fastcall *)(const uint8_t *entry);
 using GetSecurityIndex_t = uint32_t(__fastcall *)(const uint8_t *entry);
 using CanLoadFn_t = uint8_t(__fastcall *)(const uint8_t *entry, char fullCheck,
                                           int *outStatus, int *outDepHandle,
-                                          const char *accountName);
-using GetAccountName_t = const char *(*)();
+                                          const char *character);
+using GetCharacterName_t = const char *(*)();
 // Hash-lookup by name → the matched record's RequiredDeps descriptor
 // (`record + 0x48`), NULL on miss. We use it only to recover the
 // record base; see `Script_GetAddOnOptionalDependencies`.
@@ -94,12 +94,12 @@ bool AddOnExistsByName(const char *name) {
     if (name == nullptr || *name == '\0')
         return false;
     auto canLoad = reinterpret_cast<CanLoadFn_t>(Offsets::FUN_ADDON_CAN_LOAD);
-    auto getAccount = reinterpret_cast<GetAccountName_t>(
-        Offsets::FUN_GET_LOGIN_ACCOUNT_NAME);
+    auto getCharacter = reinterpret_cast<GetCharacterName_t>(
+        Offsets::FUN_GET_SELECTED_CHARACTER_NAME);
     int status = 0;
     int depHandle = 0;
     canLoad(reinterpret_cast<const uint8_t *>(name), /*fullCheck=*/1,
-            &status, &depHandle, getAccount());
+            &status, &depHandle, getCharacter());
     return status != 1;
 }
 
@@ -158,10 +158,11 @@ int __fastcall Script_GetAddOnNotes(void *L) {
 }
 
 // `C_AddOns.IsAddOnLoadable(indexOrName [, character, demandLoaded])`
-// — returns `(loadable, reason)`. Modern signature has two optional
-// args (`character`, `demandLoaded`) that we currently ignore;
-// vanilla 1.12 has no per-character addon enable state and no
-// demand-load distinction the engine exposes.
+// — returns `(loadable, reason)`. It does not read the two optional args
+// yet. 1.12 has both: the load check takes the character whose enable
+// state it reads (here always the selected character) and a demand flag
+// that adds NOT_DEMAND_LOADED for an addon without `## LoadOnDemand`
+// (here always 1, as Script_GetAddOnInfo and LoadAddOn pass it).
 //
 // `loadable` is a real boolean; `reason` is the status string from
 // the engine's reason table (e.g. `"INSECURE"`, `"DISABLED"`,
@@ -193,13 +194,13 @@ int __fastcall Script_IsAddOnLoadable(void *L) {
     }
 
     auto canLoad = reinterpret_cast<CanLoadFn_t>(Offsets::FUN_ADDON_CAN_LOAD);
-    auto getAccount = reinterpret_cast<GetAccountName_t>(
-        Offsets::FUN_GET_LOGIN_ACCOUNT_NAME);
+    auto getCharacter = reinterpret_cast<GetCharacterName_t>(
+        Offsets::FUN_GET_SELECTED_CHARACTER_NAME);
 
     int status = 0;
     int depHandle = 0;
     const uint8_t ok = canLoad(entry, /*fullCheck=*/1,
-                               &status, &depHandle, getAccount());
+                               &status, &depHandle, getCharacter());
 
     Game::Lua::PushBoolean(L, ok);
 
