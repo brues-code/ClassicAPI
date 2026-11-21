@@ -383,7 +383,7 @@ int __fastcall Script_CreateControlPoint(void *L) {
         if (templateNode == nullptr) {
             char message[Game::Lua::kClientErrorSize];
             std::snprintf(message, sizeof message, "Couldn't find inherited node \"%s\"", inherits);
-            Game::Lua::RaiseClientMethodError(L, path->Name(), "CreateControlPoint", message);
+            Game::Lua::RaiseClientPendingError(L, path->Name(), "CreateControlPoint", message);
             return 0;
         }
     }
@@ -418,7 +418,7 @@ int __fastcall Script_PointSetParent(void *L) {
                           object != nullptr && IsOurs(object) ? static_cast<Object *>(object)->DisplayName()
                           : object != nullptr                 ? Game::Lua::ObjectDisplayName(object)
                                                               : "<unnamed>");
-            Game::Lua::RaiseClientMethodError(L, name, "SetParent", message);
+            Game::Lua::RaiseClientPendingError(L, name, "SetParent", message);
             return 0;
         }
         path = static_cast<Anim *>(object);
@@ -437,7 +437,7 @@ int __fastcall Script_PointSetParent(void *L) {
             return 0;
         }
     } else {
-        Game::Lua::RaiseClientMethodError(L, name, "SetParent", "Invalid object for SetParent() call. (<unnamed>)");
+        Game::Lua::RaiseClientPendingError(L, name, "SetParent", "Invalid object for SetParent() call. (<unnamed>)");
         return 0;
     }
     const int oldOrder = point->order;

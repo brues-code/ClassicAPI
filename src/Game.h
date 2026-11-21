@@ -529,6 +529,17 @@ void FormatClientMethodError(char (&out)[kClientErrorSize], const char *name, co
                              const char *message);
 void RaiseClientMethodError(void *L, const char *name, const char *fn, const char *message);
 
+// An error through 3.80.2's pending-error formatter (0x1405AC380) as its
+// reporter (0x1405AC990) raises it: `message`, then "\nLua Taint: <word>"
+// while the running code is tainted, else "\nNo Lua Taint". 1.12's taint is
+// the context word (VAR_FRAMESCRIPT_EXEC_CONTEXT; see Offsets.h), only read
+// here. Prefixed as FormatClientMethodError does when `fn` is set, verbatim
+// when it is null; cut at 199 characters. 0x1405AC570 (the method-error
+// setter FormatClientMethodError copies) adds no taint line.
+void FormatClientPendingError(char (&out)[kClientErrorSize], const char *name, const char *fn,
+                              const char *message);
+void RaiseClientPendingError(void *L, const char *name, const char *fn, const char *message);
+
 // Same resolve, then the type gate every engine frame method applies to its
 // `self` before touching it: `lua_type == table`, resolve to the object, then
 // the `IsA(typeId)` vmethod at vtable+0x10. `ResolveObject` alone is not

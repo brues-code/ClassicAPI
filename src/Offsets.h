@@ -83,8 +83,16 @@ enum Offsets {
     // floors the depth back to 0. `Bindings::Api` mirrors this when it runs an
     // override command outside the engine's own dispatch. Verified in that
     // disassembly.
+    // 1.12's taint: 0 while FrameXML runs, the addon's name pointer for addon
+    // code, VAR_MACRO_EXEC_CONTEXT's value for macros and /run (the macro
+    // runner 0x0048B9BB sets it with the depth). FUN_CURSOR_EDIT_ALLOWED
+    // refuses under any nonzero word: MACRO_ACTION_FORBIDDEN when it equals
+    // the macro context, else ADDON_ACTION_FORBIDDEN with the word as its
+    // `%s` (0x00494AC6). So the word is always a C string or 0.
     VAR_FRAMESCRIPT_EXEC_CONTEXT = 0x00CEEAC0,
     VAR_FRAMESCRIPT_EXEC_CONTEXT_DEPTH = 0x00CEEAC4,
+    // The macro context: holds 0x00882748, the binary's shared "" literal.
+    VAR_MACRO_EXEC_CONTEXT = 0x0083DE24,
 
     // The binding manager — 4.3.4's CGUIBindings, minus its modified clicks.
     // `*VAR_BINDINGS_MANAGER`, a 0xDC-byte object made by FUN_004B6050 (FrameXML

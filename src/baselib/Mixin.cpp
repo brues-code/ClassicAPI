@@ -11,69 +11,93 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// `Mixin(object, ...)` and `CreateFromMixins(...)` — the FrameXML table-mixin
-// primitives. Modern WoW provides these as engine C functions (in TableUtil);
-// we do the same rather than leaving them in the !!!ClassicAPI addon so they
-// exist whenever the DLL is injected, even if the addon is disabled. The
-// composite `CreateAndInitFromMixin` (which calls a Lua `:Init` method) stays
-// Lua-side in the addon, mirroring retail's Mixin.lua.
+// `Mixin(object, ...)` and `CreateFromMixins(...)` as the 3.80.2 client has
+// them: engine C functions (0x140C6A530 / 0x140C695B0, registered with the
+// frame-script globals by 0x140C6B070), here in the DLL so they exist even
+// with the addon disabled. `CreateAndInitFromMixin` (it calls a Lua `:Init`)
+// stays Lua in the addon.
 //
-// Behaviour matches the canonical Lua implementation exactly:
-//   Mixin(object, ...)      -- shallow-copy every key/value from each table
-//                              argument onto `object`; returns `object`.
-//   CreateFromMixins(...)   -- Mixin({}, ...); returns the new table.
-// Non-table extra arguments are skipped (the Lua form guards nil the same way).
+//   Mixin(object, ...)     every argument must be a table, and there must be
+//                          at least one; each mixin's pairs are copied raw onto
+//                          object (0x140A60290), a later one winning; returns
+//                          object.
+//   CreateFromMixins(...)  every argument must be a table; the new table's
+//                          hash part is the largest mixin's node capacity
+//                          (1 << lsizenode), at least 16 and at most 256; the
+//                          copy as Mixin's; returns the new table.
+//
+// A bad call is the usage text through the pending-error formatter
+// (0x1405AC380, so it ends with the taint line), raised verbatim
+// (0x1405AC990 with no function name).
 
 #include "baselib/Mixin.h"
 
 #include "Game.h"
+#include "table/Border.h"
 
 namespace BaseLib::Mixin {
 
-// Shallow-copy every pair from the table at `srcIdx` onto the table at
-// `dstIdx` (both absolute, positive stack indices). Stack-balanced.
 void Into(void *L, int dstIdx, int srcIdx) {
     Game::Lua::PushNil(L);
+    const int key = Game::Lua::GetTop(L);
     while (Game::Lua::Next(L, srcIdx) != 0) {
-        // stack top: ..., key (-2), value (-1). Copy both so the originals
-        // survive for the next Next() iteration.
-        Game::Lua::PushValue(L, -2); // key copy
-        Game::Lua::PushValue(L, -2); // value copy
-        Game::Lua::SetTable(L, dstIdx); // dst[key] = value; pops the two copies
-        Game::Lua::SetTop(L, -2);       // pop value, leave key for Next()
+        Game::Lua::PushValue(L, key);     // key copy
+        Game::Lua::PushValue(L, key + 1); // value copy
+        Game::Lua::RawSet(L, dstIdx);     // pops both copies
+        Game::Lua::SetTop(L, key);        // pop the value, keep the key for Next()
     }
 }
 
 namespace {
 
+constexpr const char *kMixinUsage = "Usage: local outObject = Mixin(object, ...)";
+constexpr const char *kCreateUsage = "Usage: local object = CreateFromMixins(...)";
+constexpr int kMinNodes = 16;
+constexpr int kMaxNodes = 256;
+
+bool AllTables(void *L, int top) {
+    for (int i = 1; i <= top; ++i)
+        if (Game::Lua::Type(L, i) != Game::Lua::TYPE_TABLE)
+            return false;
+    return true;
+}
+
 int __fastcall Script_Mixin(void *L) {
     const int top = Game::Lua::GetTop(L);
-    if (top < 1 || Game::Lua::Type(L, 1) != Game::Lua::TYPE_TABLE) {
-        Game::Lua::Error(L, "Usage: Mixin(object, ...)");
-        return 0; // unreachable
+    if (top == 0 || !AllTables(L, top)) {
+        Game::Lua::RaiseClientPendingError(L, nullptr, nullptr, kMixinUsage);
+        return 0;
     }
     for (int i = 2; i <= top; ++i)
-        if (Game::Lua::Type(L, i) == Game::Lua::TYPE_TABLE)
-            Into(L, 1, i);
-    Game::Lua::PushValue(L, 1); // return object
+        Into(L, 1, i);
+    Game::Lua::SetTop(L, 1);
     return 1;
 }
 
 int __fastcall Script_CreateFromMixins(void *L) {
     const int top = Game::Lua::GetTop(L);
-    Game::Lua::NewTable(L); // new object at index top + 1
-    const int objIdx = top + 1;
+    if (!AllTables(L, top)) {
+        Game::Lua::RaiseClientPendingError(L, nullptr, nullptr, kCreateUsage);
+        return 0;
+    }
+    int nodes = 0;
+    for (int i = 1; i <= top; ++i) {
+        const int capacity =
+            1 << Game::Read<uint8_t>(Table::Border::TableAt(L, i), Offsets::OFF_LUA_TABLE_LSIZENODE);
+        if (capacity > nodes)
+            nodes = capacity;
+    }
+    nodes = nodes < kMinNodes ? kMinNodes : (nodes > kMaxNodes ? kMaxNodes : nodes);
+    Game::Lua::CreateTable(L, 0, nodes);
+    const int object = top + 1;
     for (int i = 1; i <= top; ++i)
-        if (Game::Lua::Type(L, i) == Game::Lua::TYPE_TABLE)
-            Into(L, objIdx, i);
-    Game::Lua::SetTop(L, objIdx); // the new table is the sole result
+        Into(L, object, i);
     return 1;
 }
 
 const Game::Doc::Field kMixinArgs[] = {
     Game::Doc::Req("object", "table", "The table that receives the fields."),
-    Game::Doc::Vararg("table", "The mixins; a later one wins when two have the same key, and a "
-                               "value that is not a table is skipped."),
+    Game::Doc::Vararg("table", "The mixins; a later one wins when two have the same key."),
 };
 const Game::Doc::Field kMixinRets[] = {
     Game::Doc::Req("object", "table", "The same table as the object argument."),
@@ -82,8 +106,7 @@ const Game::Doc::Function kMixin{"Copies every field of each mixin onto object."
                                  kMixinArgs, kMixinRets, "FrameScriptGlobals"};
 
 const Game::Doc::Field kCreateFromMixinsArgs[] = {
-    Game::Doc::Vararg("table", "The mixins; a later one wins when two have the same key, and a "
-                               "value that is not a table is skipped."),
+    Game::Doc::Vararg("table", "The mixins; a later one wins when two have the same key."),
 };
 const Game::Doc::Field kCreateFromMixinsRets[] = {
     Game::Doc::Req("object", "table"),

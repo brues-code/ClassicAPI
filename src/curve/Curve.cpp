@@ -32,9 +32,9 @@
 // the result by rounding, low byte, unclamped: a Cubic overshoot wraps.
 //
 // ERRORS. Argument errors are the generated readers' (lua/Arg.h). A method's
-// own error is "<class>:<Method>(): <message>\nNo Lua Taint" (the pending
-// error formatter 0x1405AC380 always adds the taint line; this client has no
-// taint). The point and colour tables are mixin tables (lua/MixinTable.h).
+// own error is "<class>:<Method>(): <message>" plus the taint line the pending
+// error formatter 0x1405AC380 adds (Game::Lua::FormatClientPendingError). The
+// point and colour tables are mixin tables (lua/MixinTable.h).
 // C_CurveUtil's three Evaluate* are not wrapped in a pcall there, so their
 // argument errors name the function and carry the caller's position
 // (Arg::RaiseNamed).
@@ -246,7 +246,7 @@ bool ReadColor(void *L, int slot, const char *usage, uint32_t &out, Arg::Error &
 
 // The method's own error, into `e`.
 bool MethodError(Arg::Error &e, const char *className, const char *method, const char *message) {
-    std::snprintf(e.text, sizeof e.text, "%s:%s(): %s\nNo Lua Taint", className, method, message);
+    Game::Lua::FormatClientPendingError(e.text, className, method, message);
     e.arg = 0;
     return false;
 }

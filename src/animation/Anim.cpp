@@ -600,7 +600,7 @@ int __fastcall Script_SetParent(void *L) {
         if (object == nullptr || !IsOurs(object) || !Game::Lua::IsA(object, groupType)) {
             std::snprintf(message, sizeof message, "Invalid object for SetParent() call. (%s)",
                           object != nullptr ? DisplayNameOf(object) : "<unnamed>");
-            Game::Lua::RaiseClientMethodError(L, name, "SetParent", message);
+            Game::Lua::RaiseClientPendingError(L, name, "SetParent", message);
             return 0;
         }
         group = static_cast<Group *>(object);
@@ -619,7 +619,7 @@ int __fastcall Script_SetParent(void *L) {
             return 0;
         }
     } else {
-        Game::Lua::RaiseClientMethodError(L, name, "SetParent", "Invalid object for SetParent() call. (<unnamed>)");
+        Game::Lua::RaiseClientPendingError(L, name, "SetParent", "Invalid object for SetParent() call. (<unnamed>)");
         return 0;
     }
     const int oldOrder = a->order;
@@ -670,7 +670,7 @@ int __fastcall Script_SetTarget(void *L) {
     if (IsOurs(object) || !Game::Lua::IsA(object, Offsets::VAR_REGION_LUA_TYPE_ID)) {
         char message[Game::Lua::kClientErrorSize];
         std::snprintf(message, sizeof message, "Error setting target %s", DisplayNameOf(object));
-        Game::Lua::RaiseClientMethodError(L, a->Name(), "SetTarget", message);
+        Game::Lua::RaiseClientPendingError(L, a->Name(), "SetTarget", message);
         return 0;
     }
     a->targetName[0] = '\0';
@@ -1223,7 +1223,7 @@ int __fastcall Script_CreateAnimation(void *L) {
         if (templateNode == nullptr) {
             char message[Game::Lua::kClientErrorSize];
             std::snprintf(message, sizeof message, "Couldn't find inherited node \"%s\"", inherits);
-            Game::Lua::RaiseClientMethodError(L, group->Name(), "CreateAnimation", message);
+            Game::Lua::RaiseClientPendingError(L, group->Name(), "CreateAnimation", message);
             return 0;
         }
     }

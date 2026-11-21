@@ -730,7 +730,7 @@ int __fastcall Script_CreateLine(void *L) {
         }
         const int level = static_cast<int8_t>(subLevel);
         if (level < -8 || level > 7) {
-            Game::Lua::RaiseClientMethodError(L, Game::Lua::ObjectName(frame), "CreateLine",
+            Game::Lua::RaiseClientPendingError(L, Game::Lua::ObjectName(frame), "CreateLine",
                                               "Sublevel must be between -8 and 7");
             return 0;
         }

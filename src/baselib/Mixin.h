@@ -15,8 +15,9 @@
 
 namespace BaseLib::Mixin {
 
-// dst[k] = v for every field of the table at `srcIdx` — Mixin()'s copy.
-// Both indices must be absolute.
+// Raw dst[k] = v for every field of the table at `srcIdx`: 3.80.2's mixin
+// copy (0x140A60290: lua_next + lua_rawset), which Mixin, CreateFromMixins,
+// C mixin returns and XML mixin= all use. Both indices must be absolute.
 void Into(void *L, int dstIdx, int srcIdx);
 
 } // namespace BaseLib::Mixin

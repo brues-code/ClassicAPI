@@ -14819,10 +14819,10 @@ hooksecurefunc(GameTooltip, "SetInventoryItem", function(self, unit, slot)
 end)
 ```
 
-The "secure" label refers to taint-propagation behavior for
-protected-frame manipulation. There is no taint system here, so the
-function is equivalent to a plain "after-hook" — the name is kept for
-API parity.
+The hook does not spread its taint. The original function runs with its own
+taint, and the hook runs with the taint of the code that installed it. As a
+result, a hooked function that does a protected action (for example, a jump)
+still works when the default UI calls it.
 
 - All of the original's return values reach the caller, however many
   there are.
@@ -18806,8 +18806,9 @@ After the call:
   a frozen table".
 - Reads and iteration work as before.
 
-Code from an addon can freeze only a table that the same addon made. For a
-table that another addon or the default UI made, the function gives an error.
+Code from an addon can freeze only a table that the same addon made. Code from
+a macro or `/run` can freeze only a table that macro code made. For other
+tables, the function gives an error. The default UI can freeze all tables.
 
 ```lua
 local t = table.freeze({ 1, 2, 3 })
@@ -18886,13 +18887,17 @@ old behavior:
 
 ### `Mixin(object, ...)` / `CreateFromMixins(...)`
 
-The FrameXML table-mixin primitives, provided as engine C functions.
+- **`Mixin(object, ...)`** copies each key and value of each mixin onto
+  `object`, and returns `object`. If two mixins have the same key, the later
+  mixin wins. The copy does not use the `__newindex` metamethod of `object`.
+- **`CreateFromMixins(...)`** returns a new table with the keys and values of
+  all the mixins.
 
-- **`Mixin(object, ...)`** — shallow-copies every key/value from each table
-  argument onto `object` (later arguments win on key collisions) and returns
-  `object`. Non-table arguments are skipped.
-- **`CreateFromMixins(...)`** — `Mixin({}, ...)`: returns a new table seeded
-  from the given mixins.
+All arguments must be tables, and `Mixin` must have at least one. For other
+calls, the function gives the error "Usage: local outObject = Mixin(object,
+...)" or "Usage: local object = CreateFromMixins(...)". The second line of
+the error shows the taint of the calling code: "Lua Taint: <name>" or "No Lua
+Taint".
 
 ```lua
 local Greeter = {}
@@ -18901,14 +18906,6 @@ local obj = CreateFromMixins(Greeter)
 obj.name = "Bob"
 obj:Hello()   -- "hi, Bob"
 ```
-
-ClassicAPI provides these as C functions (rather than leaving them in the
-`!!!ClassicAPI` addon) so they exist
-whenever the DLL is injected — even if the addon is disabled. The composite
-`CreateAndInitFromMixin(mixin, ...)` (which calls a `:Init` method) remains a
-Lua helper in the addon. The taint-based `SecureMixin` family is intentionally
-omitted — there is no execution taint system, so there is nothing for it to
-guard.
 
 ### `string.match` / `string.gmatch`
 

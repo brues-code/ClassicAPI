@@ -602,7 +602,7 @@ int __fastcall Script_AddMaskTexture(void *L) {
         return 0;
     }
     if (Add(base, mask) == AddResult::Full)
-        Game::Lua::RaiseClientMethodError(L, Game::Lua::ObjectName(base), "AddMaskTexture",
+        Game::Lua::RaiseClientPendingError(L, Game::Lua::ObjectName(base), "AddMaskTexture",
                                           "Texture already has the maximum number of mask textures (3)");
     return 0;
 }

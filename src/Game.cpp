@@ -231,6 +231,28 @@ void RaiseClientMethodError(void *L, const char *name, const char *fn, const cha
     Error(L, "%s", text);
 }
 
+void FormatClientPendingError(char (&out)[kClientErrorSize], const char *name, const char *fn,
+                              const char *message) {
+    // Only the first 199 characters of the result survive, so the pending
+    // text needs no more room than that.
+    char pending[kClientErrorSize];
+    const char *taint = Game::Read<const char *>(Offsets::VAR_FRAMESCRIPT_EXEC_CONTEXT);
+    if (taint != nullptr)
+        std::snprintf(pending, sizeof pending, "%s\nLua Taint: %s", message, taint);
+    else
+        std::snprintf(pending, sizeof pending, "%s\nNo Lua Taint", message);
+    if (fn == nullptr)
+        std::snprintf(out, sizeof out, "%s", pending);
+    else
+        FormatClientMethodError(out, name, fn, pending);
+}
+
+void RaiseClientPendingError(void *L, const char *name, const char *fn, const char *message) {
+    char text[kClientErrorSize];
+    FormatClientPendingError(text, name, fn, message);
+    Error(L, "%s", text);
+}
+
 const char *ObjectDisplayName(void *object) {
     const char *name = ObjectName(object);
     return name != nullptr ? name

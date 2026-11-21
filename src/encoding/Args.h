@@ -66,11 +66,10 @@ inline bool Enum(void *L, int idx, int maxValue, const char *usage, int *out) {
     return true;
 }
 
-// An error a function body reports, as 3.80.2's 0x1405AC990 raises it:
-// "<function>(): <message>". 3.80.2 adds a taint line, which 1.12 has no
-// counterpart for.
+// An error a function body reports, as 3.80.2 raises it: 0x1405AC380 stores
+// the message with its taint line, 0x1405AC990 prefixes "<function>(): ".
 inline void Raise(void *L, const char *function, const char *message) {
-    Game::Lua::Error(L, "%s(): %s", function, message);
+    Game::Lua::RaiseClientPendingError(L, nullptr, function, message);
 }
 
 } // namespace Encoding::Args

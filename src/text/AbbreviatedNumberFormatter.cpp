@@ -34,8 +34,8 @@
 // AddBreakpoint names #3 and an entry of SetBreakpoints #4. A read breakpoint
 // must then have breakpoint, significandDivisor and fractionDivisor above zero
 // (0x141B926D0, 0x141B91E00), else "AbbreviatedNumberFormatter:<Method>():
-// Invalid ...\nNo Lua Taint" (the pending-error formatter 0x1405AC380 always
-// adds the taint line, and this client has no taint); the check's power-of-ten
+// Invalid ..." plus the taint line the pending-error formatter 0x1405AC380
+// adds (Game::Lua::FormatClientPendingError); the check's power-of-ten
 // bit is masked off by both callers.
 // AddBreakpoint (0x140B0FB80) inserts after every breakpoint with the same or
 // a larger breakpoint. SetBreakpoints (0x140B10890) reads and checks every
@@ -134,7 +134,7 @@ bool Check(const AbbreviationBreakpoint &b, const char *method, Arg::Error &e) {
     const char *message = Invalid(b);
     if (message == nullptr)
         return true;
-    std::snprintf(e.text, sizeof e.text, "AbbreviatedNumberFormatter:%s(): %s\nNo Lua Taint", method, message);
+    Game::Lua::FormatClientPendingError(e.text, "AbbreviatedNumberFormatter", method, message);
     return false;
 }
 
