@@ -27987,8 +27987,8 @@ Host/OS-level helpers that aren't tied to a game domain.
 ### `GetPhysicalScreenSize()`
 
 Returns `(widthPixels, heightPixels)`: the size of the game window in
-pixels. In a window, this is the size of the window, and it changes when
-you resize the window. `PixelUtil` uses this function to convert pixels to
+pixels. The values are always whole numbers. In a window, this is the size
+of the window, and it changes when you resize the window. `PixelUtil` uses this function to convert pixels to
 UI units (`768.0 / physicalHeight`). With this conversion, addons can put
 frames on whole pixels, so borders stay sharp at all UI scales.
 

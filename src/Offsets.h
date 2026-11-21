@@ -879,7 +879,10 @@ enum Offsets {
     VAR_TEXT_RASTER_Y = 0x00C2B9A0,
     VAR_TEXT_RASTER_X = 0x00C2B9A4,
     // GxCapsWindowSize — `__fastcall(float rect[4])`: the graphics device's
-    // live render-window rectangle (device vtable +0x5C), the source the
+    // draw rectangle (device vtable +0x5C, both backends 0x005A1A30 /
+    // 0x005A0180 copy CGxDevice::DrawRect +0x1EC) — the window rectangle,
+    // except while a render target is bound (SetRenderTarget 0x00592230 sets
+    // it to the target's size). The source the
     // two globals above are read from by GxuFontUpdateViewport
     // (0x005C2B50). Layout {y0, x0, y1, x1}: width = r[3] - r[1], height =
     // r[2] - r[0] — the font code's fallback writes {0, 0, 480, 640}, and
@@ -15143,6 +15146,25 @@ enum Offsets {
     // the per-stage applies clamp against (FUN_005a29d0/FUN_005a2b40).
     VAR_GX_DEVICE = 0x00C0ED38,
     OFF_GXDEV_STAGE_CAP = 0x23C,
+    // The window rectangle, float[4] {y0, x0, y1, x1} (CGxDevice::WindowRect
+    // 0x00592330). CGxDevice::SetWindowRects (0x005922F0) stores it, and the
+    // draw rectangle +0x1EC beside it, on every resize (D3D HandleWindowEvent
+    // 0x0059A20D); SetRenderTarget (0x00592230) puts the draw rectangle back
+    // to it when no target is bound. Base-class field, both backends.
+    OFF_GXDEV_WINDOW_RECT = 0x1DC,
+    // The device's CGxFormat, 0x38 bytes copied in by CGxDevice::DeviceSetFormat
+    // (0x00591FD0, `rep movsd` of 14 dwords to +0x204), which first raises a
+    // size below 320x240 to that minimum. Base-class field, both backends.
+    OFF_GXDEV_FORMAT = 0x204,
+    // u8: windowed. D3D BuildPresentParameters (0x00599790) tests it to pick
+    // the back-buffer size: windowed takes __ftol(draw rect [3]) x
+    // __ftol(draw rect [2]) and sets Windowed = 1; full screen takes the
+    // format's width x height below.
+    OFF_GXFORMAT_WINDOWED = 0x07,
+    // int32 width / height (0x0059982D: BackBufferWidth = [fmt+0x10],
+    // BackBufferHeight = [fmt+0x14]).
+    OFF_GXFORMAT_WIDTH = 0x10,
+    OFF_GXFORMAT_HEIGHT = 0x14,
     // ---- Unit portrait bake (BakePortrait 0x00524F60, benilla ui/portraits)
     // Every entry below is a call the bake makes, read off its disassembly;
     // calling convention from the call site. `Model::Portrait` replays the

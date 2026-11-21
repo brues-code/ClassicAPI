@@ -11,40 +11,51 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// `GetPhysicalScreenSize()` → (widthPixels, heightPixels) — the size of
-// the game's render window in pixels. FrameXML's `PixelUtil` hangs its
-// pixel↔UI-unit conversion off it (`768.0 / physicalHeight`), which is
-// what lets addons snap frames to whole pixels.
+// `GetPhysicalScreenSize()` → (widthPixels, heightPixels) — the size of the
+// back buffer the game renders into. FrameXML's `PixelUtil` hangs its
+// pixel↔UI-unit conversion off it (`768.0 / physicalHeight`), which is what
+// lets addons snap frames to whole pixels.
 //
-// The size comes from the graphics device: GxCapsWindowSize
-// (FUN_GX_CAPS_WINDOW_SIZE), the live render-window rectangle. It is the
-// engine's own answer to "how many pixels is the screen" — its font code
-// rasterizes text at exactly this size (GxuFontUpdateViewport), and it
-// follows a resized window, unlike the configured `gxResolution` CVar.
+// 3.80.2 (FUN_141b6ddb0) returns its swapchain's back-buffer size; when that
+// is 0 wide, the window's client size; with no swapchain, the size the
+// swapchain is to be created with. Always whole numbers.
 //
-// An empty rectangle (no device yet) gives 640x480, the font code's own
-// fallback.
+// 1.12 has no swapchain object, so this reads the back-buffer size the way
+// the device sizes its back buffer (D3D BuildPresentParameters 0x00599790):
+// windowed, the window rectangle's right and bottom edges truncated
+// (__ftol); full screen, the format's size. The window rectangle is what
+// SetWindowRects stores on each resize, so this follows a resized window.
+// An empty rectangle falls back to the format's size, the size the device
+// was asked for — 3.80.2's last fallback.
+//
+// The window rectangle, not GxCapsWindowSize: that returns the draw
+// rectangle, which is a render target's size while one is bound.
 
 #include "Game.h"
 #include "Offsets.h"
+
+#include <cstdint>
 
 namespace Screen::Info {
 
 namespace {
 
-using GxCapsWindowSize_t = void(__fastcall *)(float *rect);
-
 int __fastcall Script_GetPhysicalScreenSize(void *L) {
-    float rect[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-    reinterpret_cast<GxCapsWindowSize_t>(Offsets::FUN_GX_CAPS_WINDOW_SIZE)(rect);
-    double width = rect[3] - rect[1];
-    double height = rect[2] - rect[0];
-    if (width == 0.0 || height == 0.0) {
-        width = 640.0;
-        height = 480.0;
+    const auto *dev = Game::Read<const uint8_t *>(Offsets::VAR_GX_DEVICE);
+    const uint8_t *format = dev + Offsets::OFF_GXDEV_FORMAT;
+    int width = 0;
+    int height = 0;
+    if (Game::Read<uint8_t>(format, Offsets::OFF_GXFORMAT_WINDOWED) != 0) {
+        const auto *rect = reinterpret_cast<const float *>(dev + Offsets::OFF_GXDEV_WINDOW_RECT);
+        width = static_cast<int>(rect[3]);
+        height = static_cast<int>(rect[2]);
     }
-    Game::Lua::PushNumber(L, width);
-    Game::Lua::PushNumber(L, height);
+    if (width == 0) {
+        width = Game::Read<int32_t>(format, Offsets::OFF_GXFORMAT_WIDTH);
+        height = Game::Read<int32_t>(format, Offsets::OFF_GXFORMAT_HEIGHT);
+    }
+    Game::Lua::PushNumber(L, static_cast<double>(width));
+    Game::Lua::PushNumber(L, static_cast<double>(height));
     return 2;
 }
 
