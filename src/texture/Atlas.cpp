@@ -552,13 +552,33 @@ int __fastcall GetTexCoord_h(void *L) {
 // recycled region, which is a different question and the reason this module
 // needs no region-constructor hook.
 //
+// Retail holds the addon's coordinates apart from the atlas rect, so they outlive
+// the atlas: SetTexture(file) shows the file through them, and a later SetAtlas
+// keeps them. Here the engine's one set of coordinates holds the composed rect,
+// so dropping the atlas writes the addon's own back. Left in place, the next
+// SetAtlas would read the old rect as the addon's and compose it a second time
+// (a pooled icon going atlas -> SetTexture(nil) -> atlas shows a corner of the
+// sheet), and a file set now would show only the old rect's part of itself.
+// The C setter keeps the Lua stack intact for the handler that runs after it.
+//
 // SetAtlas records its entry only after its own SetTexture call, so this running
-// first costs it nothing.
+// first costs it nothing: the coordinates it writes back are the ones SetAtlas
+// already kept, and it composes over them.
 ScriptFn_t g_setTextureOriginal = nullptr;
 
+using SetCorners_t = void(__fastcall *)(void *texture, void *edx, const float *corners);
+
 int __fastcall SetTexture_h(void *L) {
-    if (!g_applied.empty())
-        g_applied.erase(Game::Lua::ResolveObject(L, 1));
+    if (!g_applied.empty()) {
+        void *region = Game::Lua::ResolveObject(L, 1);
+        if (const Applied *entry = LiveEntry(region)) {
+            float user[8];
+            for (int i = 0; i < 8; ++i)
+                user[i] = entry->user[i];
+            g_applied.erase(region);
+            reinterpret_cast<SetCorners_t>(Offsets::FUN_SIMPLETEXTURE_SET_TEXCOORD_CORNERS)(region, nullptr, user);
+        }
+    }
     return g_setTextureOriginal(L);
 }
 
