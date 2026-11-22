@@ -52,8 +52,8 @@ void ShowNotEquippable();
 
 // SetItemTransmogInfo's arguments from stack index 2: the info's item
 // (appearanceID) and enchant (illusionID), and the hand an inventory slot of
-// 16 or 17 names. Quiet: retail's callers show the error. False, after a Lua
-// usage error naming the frame `name`, when index 2 is not a table.
+// 16 or 17 names. Quiet: retail's callers show the error. False, after the
+// argument error at index 2 with `usage`, when index 2 is not a table.
 bool ReadTransmogInfo(void *L, const char *usage, Request &request);
 
 // One slot as an ItemTransmogInfoMixin table of (item, secondary, enchant),

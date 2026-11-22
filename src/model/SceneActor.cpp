@@ -206,6 +206,10 @@ float ClampScale(float v) { return v > 0.01f ? v : 0.01f; }
 // here (CreateActor raises first, TemplateRecursive).
 constexpr int kMaxTemplateDepth = 32;
 
+// 3.80.2's AnimationData end (0x74A, 1866): SetAnimation and AttachToMount
+// take an animation below it (0x140C57A50, 0x140C51FA0).
+constexpr uint32_t kAnimationEnd = 0x74A;
+
 // The movement flags that keep a state kit's animation off a unit
 // (ApplyEffectAnimation's `and edi,0x20000f` at 0x005FDE9C): a move in any
 // of the four directions, or swimming.
@@ -390,7 +394,7 @@ void ApplyKit(Actor &actor) {
         return;
     actor.kitWorldEffect = planted;
     actor.kitWorldDone = false;
-    std::memcpy(actor.kitWorldPosition, actor.position, sizeof actor.kitWorldPosition);
+    std::memcpy(actor.kitWorldPosition, actor.Origin().p, sizeof actor.kitWorldPosition);
     // Turned by the owner's facing and scaled by its scale, 1 for a scale at
     // or below 0 (0x00620A90).
     actor.kitWorldYaw = actor.ShownYaw();
@@ -2422,7 +2426,6 @@ Actor *RiderArg(void *L, const Actor *mount, const char *usage) {
 // rider it cannot seat answers false.
 int __fastcall Script_AttachToMount(void *L) {
     constexpr char kUsage[] = "Usage: local success = self:AttachToMount(rider, animation [, spellKitVisualID])";
-    constexpr double kAnimationEnd = 0x74A;
     Actor *mount = Self(L);
     if (mount == nullptr)
         return 0;
@@ -3470,7 +3473,6 @@ int __fastcall Script_IsVisible(void *L) {
 // and the offset are luaL_optnumber's (1 and 0 when absent, an argument
 // error when not a number).
 int __fastcall Script_SetAnimation(void *L) {
-    constexpr uint32_t kAnimationEnd = 0x74A;
     Actor *actor = Self(L);
     if (actor == nullptr)
         return 0;

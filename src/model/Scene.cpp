@@ -91,7 +91,8 @@
 // XML: `drawLayer`, `fogNear` and `fogFar` (raw, as 3.80.2's loader
 // 0x14194CAC0 copies them) and the first <FogColor> (FUN_XML_READ_COLOR),
 // after the frame's own loader, and <ViewInsets>. Retail's <Actors> child is
-// not read; no retail UI uses it. Not ported: desaturation.
+// not read; no retail UI uses it. SetDesaturation gives each actor the scene
+// has now its strength (model/Desaturation.cpp draws it).
 //
 // View insets and translation (retail screenshots, 2026-11-06): the camera's
 // picture is built over the frame's rect less the insets, moved by the
@@ -1487,7 +1488,7 @@ int __fastcall Script_TakeActor(void *L) {
     void *frame = Self(L);
     if (frame == nullptr)
         return 0;
-    auto *actor = static_cast<Actor *>(Animation::Resolve(L, 2, Actor::s_class));
+    auto *actor = static_cast<Actor *>(Animation::Resolve(L, 2, Actor::s_class, false));
     if (actor == nullptr || actor->SceneFrame() == frame)
         return 0;
     void *old = actor->SceneFrame();
