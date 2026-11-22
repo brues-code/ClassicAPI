@@ -4635,3 +4635,37 @@ Open:
 - Our choices where retail's rule is C-side: session boundaries and names,
   creatures grouped by creature ID, Expired = sessions dropped since reset,
   interrupts/dispels listed under the stopped/removed spell.
+
+## 112. Batched item queries (CMSG_ITEM_QUERY_MULTIPLE) — needs a server change, parked
+
+Only worth doing for a server that answers `CMSG_ITEM_QUERY_MULTIPLE`
+(0x057). Every vmangos-family core we support registers it `STATUS_NEVER`
+(tortoise-wow `Protocol/Opcodes.cpp`; Octo is the same code base), and most
+of them never will, so the one-id-per-packet queue in
+[src/cache/QueryLoad.cpp](src/cache/QueryLoad.cpp) stays the default path
+either way. Batching would plug into the queue's send step (the background
+lanes; see the uncapped queue that followed issue #152).
+
+Client side, verified in the 1.12 binary:
+- The answer is fully handled. `SMSG_ITEM_QUERY_MULTIPLE_RESPONSE` (0x059)
+  → `HandleItemQueryResponseMultiple` (0x555160) → the item cache parser
+  0x55BDB0 with `single = false`: a `uint8` count, then per record an
+  `int32` id (high bit = not found) and the normal item record. Callbacks
+  run per id exactly as for a single answer: `(userData, 1)` on success,
+  then the list is freed; `(userData, 0)` on a refusal, then the entry is
+  deleted.
+- The request was planned and never wired: the item cache constructor
+  stores 0x57 at `cache+0x34` (`0x55b160`) and nothing reads it back
+  (benilla-re `dbcache/overview`). The stock client never sends 0x057, so
+  the request format would be ours: `uint8 count` + `count × uint32 id`.
+
+Server side (proposal, drafted 2026-11-22): register 0x057 as
+`STATUS_LOGGEDIN` / `PACKET_PROCESS_DB_QUERY` like `CMSG_ITEM_QUERY_SINGLE`,
+answer with one 0x059 built the way `World::SendUpdateMultipleItems`
+already builds it (found: id + the `HandleItemQuerySingleOpcode` body;
+missing: `id | 0x80000000`), cap a request at about 32 ids, skip
+duplicates.
+
+Our side when a server has it: send up to 32 ids per packet from the
+background queue; if a batch goes unanswered, fall back to single
+queries for the session. No config switch — detect it from the answer.
