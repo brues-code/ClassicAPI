@@ -1,4 +1,4 @@
--- Verbatim backport of retail's Blizzard_SharedXML/Shared/ModelSceneCameras/OrbitCameraMixin.lua.
+-- Verbatim backport of the 3.80.2 client's Blizzard_SharedXML/Shared/ModelSceneCameras/OrbitCameraMixin.lua.
 
 --[[
 	OrbitCameraMixin - A simple camera that can orbit a target point at a fixed distance.
@@ -490,13 +490,13 @@ end
 
 function OrbitCameraMixin:OnUpdate(elapsed) -- override
 	if self:IsLeftMouseButtonDown() then
-		local deltaX, deltaY = InputUtil.GetCursorDelta(GetAppropriateTopLevelParent());
+		local deltaX, deltaY = GetScaledCursorDelta();
 		self:HandleMouseMovement(self.buttonModes.leftX, deltaX * self:GetDeltaModifierForCameraMode(self.buttonModes.leftX), not self.buttonModes.leftXinterpolate);
 		self:HandleMouseMovement(self.buttonModes.leftY, -deltaY * self:GetDeltaModifierForCameraMode(self.buttonModes.leftY), not self.buttonModes.leftYinterpolate);
 	end
 
 	if self:IsRightMouseButtonDown() then
-		local deltaX, deltaY = InputUtil.GetCursorDelta(GetAppropriateTopLevelParent());
+		local deltaX, deltaY = GetScaledCursorDelta();
 		self:HandleMouseMovement(self.buttonModes.rightX, deltaX * self:GetDeltaModifierForCameraMode(self.buttonModes.rightX), not self.buttonModes.rightXinterpolate);
 		self:HandleMouseMovement(self.buttonModes.rightY, -deltaY * self:GetDeltaModifierForCameraMode(self.buttonModes.rightY), not self.buttonModes.rightYinterpolate);
 	end

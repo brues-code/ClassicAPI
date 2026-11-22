@@ -159,7 +159,8 @@ void Start(Actor &actor) {
 void Spawn(Actor &actor) {
     void *frame = actor.SceneFrame();
     const float radius = actor.areaRadius;
-    const float *centre = actor.position;
+    const Actor::Point origin = actor.Origin();
+    const float *centre = origin.p;
     const float u = Draw();
     float direction[4] = {};
     Direction(direction);
@@ -243,11 +244,11 @@ void Update(Actor &actor, float sceneSec) {
     else if (!wanted && emitter.running)
         Stop(actor);
     if (emitter.running) {
-        const bool held = IsPaused(actor.SceneFrame()) || actor.paused || actor.globalPaused;
+        const bool held = actor.paused || actor.globalPaused;
         if (held)
             StopLoop(emitter, 0.0f);
         else if (emitter.soundID > 0 && emitter.loopSound == nullptr)
-            emitter.loopSound = Sounds::Loop(actor.SceneFrame(), emitter.soundID, actor.position);
+            emitter.loopSound = Sounds::Loop(actor.SceneFrame(), emitter.soundID, actor.Origin().p);
         if (emitter.path != nullptr) {
             emitter.accumulator += static_cast<double>(sceneSec) * emitter.rate;
             while (emitter.accumulator >= 1.0) {
@@ -293,7 +294,7 @@ void Place(Actor &actor) {
         if (shard->started)
             M2::SetBaseTRS(shard->model, shard->position, 0.0f, axisZ, scales);
     if (actor.areaEmitter.loopSound != nullptr)
-        Sounds::Move(actor.SceneFrame(), actor.areaEmitter.loopSound, actor.position);
+        Sounds::Move(actor.SceneFrame(), actor.areaEmitter.loopSound, actor.Origin().p);
 }
 
 void Drop(Actor &actor) {

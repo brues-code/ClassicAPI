@@ -42,7 +42,7 @@ BW.DropChest = function(x, y, z)
 	chest.x = x + TUNING.CHEST_AWAY * math.cos(angle);
 	chest.y = y + TUNING.CHEST_AWAY * math.sin(angle);
 	chest.z = FloorAt(chest.x, chest.y, z);
-	chest.actor:SetPosition(chest.x, chest.y, chest.z);
+	BW.PlaceActor(chest.actor, chest.x, chest.y, chest.z);
 	chest.actor:SetYaw(angle);
 	chest.actor:SetAnimation(ANIM_CLOSED);
 	chest.actor:SetGroundReticle(TUNING.CHEST_REACH);

@@ -70,18 +70,7 @@ void ApplyNode(void *L, int index, const void *node, void *status, const char *o
             applyTemplate(inherits);
     }
 
-    const char *mixins = Attr(node, "mixin");
-    if (mixins == nullptr || *mixins == '\0')
-        return;
-    Inherits::ForEach(mixins, [&](const char *name) {
-        Game::Lua::PushString(L, name);
-        Game::Lua::GetTable(L, Game::Lua::GLOBALS_INDEX); // [mixin]
-        if (Game::Lua::Type(L, -1) == Game::Lua::TYPE_TABLE)
-            BaseLib::Mixin::Into(L, index, Game::Lua::GetTop(L));
-        else
-            Warn(status, "%s: Couldn't find mixin %s", owner, name);
-        Game::Lua::SetTop(L, -2);
-    });
+    ApplyOwn(L, index, node, status, owner);
 }
 
 bool HasMixinInChain(const void *node, bool listInherits, int depth) {
@@ -106,6 +95,21 @@ bool HasMixinInChain(const void *node, bool listInherits, int depth) {
 }
 
 } // namespace
+
+void ApplyOwn(void *L, int index, const void *node, void *status, const char *owner) {
+    const char *mixins = Attr(node, "mixin");
+    if (mixins == nullptr || *mixins == '\0')
+        return;
+    Inherits::ForEach(mixins, [&](const char *name) {
+        Game::Lua::PushString(L, name);
+        Game::Lua::GetTable(L, Game::Lua::GLOBALS_INDEX); // [mixin]
+        if (Game::Lua::Type(L, -1) == Game::Lua::TYPE_TABLE)
+            BaseLib::Mixin::Into(L, index, Game::Lua::GetTop(L));
+        else
+            Warn(status, "%s: Couldn't find mixin %s", owner, name);
+        Game::Lua::SetTop(L, -2);
+    });
+}
 
 void ApplyChain(void *L, int index, const void *node, void *status, const char *owner,
                 bool listInherits) {

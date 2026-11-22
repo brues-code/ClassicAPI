@@ -51,8 +51,8 @@
 
 #include "Game.h"
 #include "Offsets.h"
-#include "debug/Log.h"
 #include "gx/Device.h"
+#include "gx/PixelShader.h"
 #include "xml/FrameLoad.h"
 #include "xml/TypeLoad.h"
 
@@ -69,9 +69,6 @@ constexpr int kFull = kLevels - 1;
 
 // --- engine entry points ----------------------------------------------------
 
-using ShaderCreate_t = void(__fastcall *)(int type, void **outSlot, const char *path);
-using ArrayGrow_t = void(__thiscall *)(void *desc, uint32_t newCap);
-using CompilePs_t = void(__thiscall *)(void *device, void *shader);
 using SetShader_t = void(__thiscall *)(void *region, void *shader);
 using GetUiPixelShader_t = void *(__fastcall *)(int index);
 
@@ -182,86 +179,27 @@ void *ShaderForLevel(int level) {
     const int profile = Profile();
     if (profile < 0)
         return nullptr;
-    void *dev = Device();
-    // The device is lost (a failed Present; fullscreen alt-tab) until the engine
-    // resets it. The compile gate is this same flag, so a build now can only
-    // fail — report unavailable for this call and retry on the next one; only a
-    // rejection by a live device is latched below.
-    if (Game::Read<int>(dev, Offsets::OFF_GXDEVD3D_ALIVE) == 0)
-        return nullptr;
 
-    // The engine's loader: registers the node in the device's shader table
-    // (dedup by path), tries the file, compiles what it finds. Our path has no
-    // file, so the node comes back registered and empty.
+    const uint32_t *blob = profile >= 4 ? kPs20 : kPs11;
+    const uint32_t count = profile >= 4 ? kPs20Count : kPs11Count;
+    uint32_t tokens[kMaxTokens];
+    std::memcpy(tokens, blob, count * sizeof(uint32_t));
+    const float amount = static_cast<float>(level) / static_cast<float>(kFull);
+    uint32_t bits;
+    std::memcpy(&bits, &amount, sizeof bits);
+    for (int i = 0; i < kAmountTokenCount; ++i)
+        tokens[kAmountTokenFirst + i] = bits;
+
     char path[80];
-    std::snprintf(path, sizeof path, "Shaders\\Pixel\\ClassicAPI\\Desaturate_ps%d_%03d.bls",
-                  profile, level);
-    void *node = nullptr;
-    reinterpret_cast<ShaderCreate_t>(Offsets::FUN_GX_SHADER_CREATE)(Offsets::GXSHADER_TYPE_PIXEL,
-                                                                    &node, path);
-    if (node == nullptr) {
-        Debug::Log::Printf("[desat] level %d: the shader loader returned no node for %s", level,
-                           path);
+    std::snprintf(path, sizeof path, "Shaders\\Pixel\\ClassicAPI\\Desaturate_ps%d_%03d.bls", profile, level);
+    // A lost device reports unavailable for this call and retries on the next;
+    // only a rejection by a live device is latched.
+    Gx::PixelShader::Result result;
+    void *node = Gx::PixelShader::Build(path, tokens, count, "desat", result);
+    if (result == Gx::PixelShader::Result::Rejected)
         g_failed[level] = true;
-        return nullptr;
-    }
-
-    // Empty node: supply the bytecode the file would have carried, in the field
-    // state the parser leaves (code array grown by the engine's own grow, size,
-    // code type, valid), then compile the way the loader does. A node that
-    // already has code was a dedup hit or a real file at our path — use it as is.
-    if (Game::Read<uint32_t>(node, Offsets::OFF_GXSHADER_CODE_SIZE) == 0) {
-        const uint32_t *blob = profile >= 4 ? kPs20 : kPs11;
-        const uint32_t count = profile >= 4 ? kPs20Count : kPs11Count;
-        uint32_t tokens[kMaxTokens];
-        std::memcpy(tokens, blob, count * sizeof(uint32_t));
-        const float amount = static_cast<float>(level) / static_cast<float>(kFull);
-        uint32_t bits;
-        std::memcpy(&bits, &amount, sizeof bits);
-        for (int i = 0; i < kAmountTokenCount; ++i)
-            tokens[kAmountTokenFirst + i] = bits;
-
-        const uint32_t bytes = count * sizeof(uint32_t);
-        reinterpret_cast<ArrayGrow_t>(Offsets::FUN_GX_ARRAY_GROW_BYTES)(
-            Game::Ptr<uint8_t>(node, Offsets::OFF_GXSHADER_CODE_DESC), bytes);
-        uint8_t *data = Game::Read<uint8_t *>(node, Offsets::OFF_GXSHADER_CODE_DATA);
-        if (data == nullptr) {
-            Debug::Log::Printf("[desat] level %d: the code-array grow returned no buffer", level);
-            g_failed[level] = true;
-            return nullptr;
-        }
-        std::memcpy(data, tokens, bytes);
-        Game::Ref<uint32_t>(node, Offsets::OFF_GXSHADER_CODE_SIZE) = bytes;
-        Game::Ref<int>(node, Offsets::OFF_GXSHADER_CODE_TYPE) = Offsets::GXSHADER_CODE_D3D;
-        Game::Ref<int>(node, Offsets::OFF_GXSHADER_VALID) = 1;
-        reinterpret_cast<CompilePs_t>(Offsets::FUN_GX_D3D_COMPILE_PIXEL_SHADER)(dev, node);
-
-        // The engine swallows CreatePixelShader's HRESULT. On a failed compile
-        // ask the device directly with the same bytes, so the log carries the
-        // reason (D3DERR_INVALIDCALL 0x8876086C = the validator rejected it).
-        if (Game::Read<void *>(node, Offsets::OFF_GXSHADER_D3D_OBJECT) == nullptr) {
-            using CreatePs_t = long(__stdcall *)(void *device, const uint32_t *code, void **out);
-            using Release_t = unsigned long(__stdcall *)(void *object);
-            void *d3d = Game::Read<void *>(dev, Offsets::OFF_GXDEVD3D_DEVICE9);
-            long hr = 0;
-            if (d3d != nullptr) {
-                void **vtbl = *reinterpret_cast<void ***>(d3d);
-                void *ps = nullptr;
-                hr = reinterpret_cast<CreatePs_t>(vtbl[106])(d3d, tokens, &ps);
-                if (ps != nullptr)
-                    reinterpret_cast<Release_t>(vtbl[2])(ps);
-            }
-            Debug::Log::Printf("[desat] level %d: CreatePixelShader rejected the %s program (hr=0x%08lX)",
-                               level, profile >= 4 ? "ps_2_0" : "ps_1_1", hr);
-        }
-    }
-
-    if (Game::Read<int>(node, Offsets::OFF_GXSHADER_VALID) == 0 ||
-        Game::Read<void *>(node, Offsets::OFF_GXSHADER_D3D_OBJECT) == nullptr) {
-        g_failed[level] = true; // the node stays inert in the table; never handed out
-        return nullptr;
-    }
-    g_levels[level] = node;
+    if (node != nullptr)
+        g_levels[level] = node;
     return node;
 }
 

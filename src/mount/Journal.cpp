@@ -15,7 +15,7 @@
 // `C_MountJournal.GetMountFromItem(itemID)` -> mountID | nil
 // `C_MountJournal.GetMountInfoExtraByID(mountID)` -> creatureDisplayInfoID,
 //     description, source, isSelfMount, mountTypeID, uiModelSceneID, animID,
-//     spellVisualKitID, disablePlayerMountPreview
+//     spellVisualKitID (disablePlayerMountPreview is documented, never pushed)
 //
 // Retail's mount ID indexes its Mount table. 1.12 has no such table, so here
 // a mount's ID IS its spell ID: GetMountFromSpell(458) returns 458. That
@@ -52,10 +52,10 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "creature/Info.h"
-#include "item/Arg.h"
 #include "item/Data.h"
 #include "item/Record.h"
 #include "item/Spell.h"
+#include "lua/Arg.h"
 #include "spell/Arg.h"
 #include "spell/Description.h"
 #include "spell/Lookup.h"
@@ -111,34 +111,49 @@ uint32_t MountDisplayID(const uint8_t *record) {
     return Game::Read<uint32_t>(creature, Offsets::OFF_CREATURE_DISPLAYID);
 }
 
-int __fastcall Script_GetMountFromSpell(void *L) {
-    const int spellID = Spell::Arg::ResolveSpellID(L, 1);
-    if (MountRecord(spellID) == nullptr)
-        return 0;
-    Game::Lua::PushNumber(L, static_cast<double>(spellID));
+// The mount ID, or nil (3.80.2's optional pusher 0x140AA6BE0 pushes one value
+// either way).
+int PushMountID(void *L, int spellID) {
+    if (MountRecord(spellID) != nullptr)
+        Game::Lua::PushNumber(L, static_cast<double>(spellID));
+    else
+        Game::Lua::PushNil(L);
     return 1;
 }
 
+int __fastcall Script_GetMountFromSpell(void *L) { return PushMountID(L, Spell::Arg::ResolveSpellID(L, 1)); }
+
+// 3.80.2 (0x140D448A0): an int32 item ID (FUN_140A91460, raised in the
+// function's own name), the spell the item teaches. A 1.12 mount item casts
+// its mount spell on use, so that is the spell here. An item not cached yet
+// is not a mount until it is.
 int __fastcall Script_GetMountFromItem(void *L) {
-    const int itemID = Item::Arg::ResolveItemID(L, 1);
-    if (itemID <= 0)
-        return 0;
-    const uint8_t *item = Item::PeekRecord(static_cast<uint32_t>(itemID));
-    if (item == nullptr) {
-        Item::Data::WarmCache(static_cast<uint32_t>(itemID));
+    Game::Lua::Arg::Error error;
+    int32_t itemID = 0;
+    if (!Game::Lua::Arg::Int32(L, 1, "Usage: local mountID = C_MountJournal.GetMountFromItem(itemID)", itemID,
+                               false, &error)) {
+        Game::Lua::Arg::RaiseNamed(L, error);
         return 0;
     }
-    const int spellID = Item::Spell::FindOnUseSpellIDInRecord(item);
-    if (MountRecord(spellID) == nullptr)
-        return 0;
-    Game::Lua::PushNumber(L, static_cast<double>(spellID));
-    return 1;
+    const uint8_t *item = itemID > 0 ? Item::PeekRecord(static_cast<uint32_t>(itemID)) : nullptr;
+    if (item == nullptr && itemID > 0)
+        Item::Data::WarmCache(static_cast<uint32_t>(itemID));
+    return PushMountID(L, item != nullptr ? Item::Spell::FindOnUseSpellIDInRecord(item) : 0);
 }
 
+// 3.80.2 (0x140D451F0) pushes eight values: disablePlayerMountPreview is in
+// the documentation but never pushed.
 int __fastcall Script_GetMountInfoExtraByID(void *L) {
-    if (!Game::Lua::IsNumber(L, 1))
+    Game::Lua::Arg::Error error;
+    int32_t mountID = 0;
+    if (!Game::Lua::Arg::Int32(L, 1,
+                               "Usage: local creatureDisplayInfoID, description, source, isSelfMount, mountTypeID, "
+                               "uiModelSceneID, animID, spellVisualKitID, disablePlayerMountPreview = "
+                               "C_MountJournal.GetMountInfoExtraByID(mountID)",
+                               mountID, false, &error)) {
+        Game::Lua::Arg::RaiseNamed(L, error);
         return 0;
-    const int mountID = static_cast<int>(Game::Lua::ToNumber(L, 1));
+    }
     const uint8_t *record = MountRecord(mountID);
     if (record == nullptr)
         return 0;
@@ -166,8 +181,7 @@ int __fastcall Script_GetMountInfoExtraByID(void *L) {
     Game::Lua::PushNumber(L, static_cast<double>(uiModelSceneID));
     Game::Lua::PushNumber(L, static_cast<double>(kSeatAnimation));
     Game::Lua::PushNumber(L, 0);    // spellVisualKitID
-    Game::Lua::PushBool(L, false);  // disablePlayerMountPreview
-    return 9;
+    return 8;
 }
 
 // --- Documentation ----------------------------------------------------------
@@ -184,7 +198,7 @@ const Game::Doc::Function kGetMountFromSpell{
     kGetMountFromSpellArgs, kGetMountFromSpellRets};
 
 const Game::Doc::Field kGetMountFromItemArgs[] = {
-    Game::Doc::Req("itemID", "number", "An item ID or item link."),
+    Game::Doc::Req("itemID", "number"),
 };
 const Game::Doc::Field kGetMountFromItemRets[] = {
     Game::Doc::Opt("mountID", "number", nullptr,
@@ -210,7 +224,7 @@ const Game::Doc::Field kGetMountInfoExtraByIDRets[] = {
     Game::Doc::Req("uiModelSceneID", "number", "The model scene that shows the mount."),
     Game::Doc::Req("animID", "number", "The animation the rider plays while mounted."),
     Game::Doc::Req("spellVisualKitID", "number", "Always 0."),
-    Game::Doc::Req("disablePlayerMountPreview", "bool", "Always false."),
+    Game::Doc::Opt("disablePlayerMountPreview", "bool", nullptr, "Never returned."),
 };
 const Game::Doc::Function kGetMountInfoExtraByID{
     "Returns the display and preview details of a mount, or nothing for an ID that is not "

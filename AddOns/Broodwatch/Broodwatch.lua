@@ -531,7 +531,7 @@ local function Step(dt)
 				gem.x = gem.x + (hx - gem.x) * step;
 				gem.y = gem.y + (hy - gem.y) * step;
 				gem.z = gem.z + (hz + 1 - gem.z) * step;
-				gem.actor:SetPosition(gem.x, gem.y, gem.z);
+				BW.PlaceActor(gem.actor, gem.x, gem.y, gem.z);
 			end
 		end
 	end

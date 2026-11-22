@@ -31,9 +31,9 @@ local function Build()
 		vent.x, vent.y, vent.z = row[1], row[2], row[3];
 		vent.radius = TUNING.VENT_RADIUS * row[5];
 		vent.actor:SetModelByPath(row[6] and VENT_MIRROR_PATH or VENT_PATH);
-		vent.actor:SetPosition(vent.x, vent.y, vent.z);
-		vent.actor:SetYaw(row[4]);
 		vent.actor:SetScale(row[5]);
+		BW.PlaceActor(vent.actor, vent.x, vent.y, vent.z);
+		vent.actor:SetYaw(row[4]);
 		vent.actor:Show();
 		tinsert(vents, vent);
 	end

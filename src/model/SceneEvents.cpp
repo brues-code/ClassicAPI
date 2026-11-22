@@ -151,7 +151,7 @@ bool CVarOn(const char *name) { return CVar::Factory::GetInt(CVar::Factory::Find
 // A unit's animation sounds play at the unit (heard from the scene camera).
 void Play(const Actor &actor, int32_t soundID) {
     if (soundID > 0)
-        Sounds::Play(actor.SceneFrame(), soundID, actor.position);
+        Sounds::Play(actor.SceneFrame(), soundID, actor.Origin().p);
 }
 
 void PlayStand(const Actor &actor, const uint8_t *soundData) {

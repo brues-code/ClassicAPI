@@ -13,7 +13,7 @@
 
 #pragma once
 
-// The argument readers of the 3.80.2 client's generated animation bindings
+// The argument readers of the 3.80.2 client's generated frame-method bindings
 // (the table in its section 2.0: FUN_140A6DF60 finite float, FUN_140A91460
 // int, FUN_140A6CB40 bool, FUN_140A6DC70 string, FUN_140A92C90 vector2). A
 // bad argument raises luaL_argerror at its slot with the method's usage
@@ -27,7 +27,7 @@
 #include <cmath>
 #include <cstdio>
 
-namespace Animation::Args {
+namespace Game::Lua::MethodArg {
 
 inline bool Missing(void *L, int idx) { return Game::Lua::Type(L, idx) <= Game::Lua::TYPE_NIL; }
 
@@ -68,6 +68,24 @@ inline bool OptNumber(void *L, int idx, const char *usage, float &out) {
 inline bool RawNumber(void *L, int idx, const char *usage, float &out) {
     if (!Game::Lua::IsNumber(L, idx))
         return Fail(L, idx, usage);
+    out = static_cast<float>(Game::Lua::ToNumber(L, idx));
+    return true;
+}
+
+// luaL_optnumber: `fallback` when the argument is nil or missing, else a
+// number, or the argument error "number expected, got <type>".
+inline bool OptLuaNumber(void *L, int idx, float fallback, float &out) {
+    if (Missing(L, idx)) {
+        out = fallback;
+        return true;
+    }
+    if (!Game::Lua::IsNumber(L, idx)) {
+        char message[96];
+        std::snprintf(message, sizeof message, "number expected, got %s",
+                      Game::Lua::TypeName(L, Game::Lua::Type(L, idx)));
+        Game::Lua::ArgError(L, idx, message);
+        return false;
+    }
     out = static_cast<float>(Game::Lua::ToNumber(L, idx));
     return true;
 }
@@ -118,4 +136,4 @@ inline const char *OptString(void *L, int idx, const char *usage, bool &ok) {
     return s;
 }
 
-} // namespace Animation::Args
+} // namespace Game::Lua::MethodArg

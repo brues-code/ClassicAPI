@@ -5606,6 +5606,9 @@ enum Offsets {
     // calls vtable +0x8C (the rescale). Frame:SetScale (0x00775140) calls it
     // with force 0 after rejecting a negative scale (Ghidra).
     FUN_FRAME_SET_SCALE = 0x0076AC10,
+    // The frame's own scale (float), what SetFrameScale stores and Script
+    // Frame:GetScale (0x00775080) pushes: `fld [frame + 0xB8]` at 0x0077511F.
+    OFF_FRAME_SCALE = 0xB8,
     // 4.3.4's disabled bit: CSimpleFrame::RunOnEnableScript sets it for a
     // disabled Button or EditBox, and EditBox:IsEnabled reads it.
     FRAME_FLAG_DISABLED = 0x400,
@@ -7190,6 +7193,10 @@ enum Offsets {
     // KitEffectDecayCallback (0x005FF1D0) plays it again until the effect's
     // end time, which a state kit leaves at 0, so it holds until the aura goes.
     ANIM_HOLD = 158,
+    // AnimationData.dbc row 91, "Mount": the seat pose the world's Mount
+    // (0x00607A00) plays on a rider, and what 3.80.2's AttachToMount plays for
+    // an animation of 0 (0x140C521F6 writes 0x5B).
+    ANIM_MOUNT = 91,
     // A family A game object handler's animation per state (+0x10, 0 to 12):
     // the u32 table at 0x008607E4 that PlayAnimatedHandlerState (0x005F3930)
     // indexes, holding 145, 147, 148, 149, 146, 150, 151, 152, 153 to 156 and
@@ -15254,6 +15261,23 @@ enum Offsets {
     FUN_M2SCENE_COPY_MODEL = 0x00707400,
     // M2SceneDraw — `__thiscall(scene, pass)`; the bake draws 0 then 1.
     FUN_M2SCENE_DRAW = 0x00708900,
+    // The draw state M2SceneDraw keeps on its stack (0x335C bytes, set up by
+    // M2DrawStateInitialize 0x0070B0E0) and hands each element draw in ecx:
+    // the model cache, the element and its model instance (M2SceneDrawList
+    // 0x0070B360 stores the element at +0x3300 and its instance at +0x3310).
+    OFF_M2DRAWSTATE_CACHE = 0x44,
+    OFF_M2DRAWSTATE_MODEL = 0x3310,
+    // The cache's 32 Model2 pixel programs (Shaders\Pixel\Model2.bls, loaded
+    // by M2CacheInitialize 0x00706510 when M2UsePixelShaders is granted). The
+    // batch draw binds [+0x1030][element +0x3C] with GxRs 0x3F, else null.
+    OFF_M2CACHE_PIXEL_SHADERS = 0x1030,
+    M2_PIXEL_PROGRAM_COUNT = 32,
+    // M2DrawBatch — `__fastcall(drawState)`, element kind 0: textures,
+    // lighting, material, shaders, then one GxPrimRenderOne. Its only call is
+    // M2SceneDrawList's kind-0 case; the batch's draw is its only GxPrimRenderOne.
+    FUN_M2_DRAW_BATCH = 0x0070CB30,
+    CALL_M2_DRAW_LIST_BATCH = 0x0070B627,
+    CALL_M2_DRAW_BATCH_RENDER = 0x0070CF57,
     // The scene's clock, uint32 milliseconds: M2SceneAdvance (0x007074B0,
     // `__thiscall(scene, ms)`, nothing for 0) passes +0x0C + ms to SetTime
     // (0x00707490), which stores it here. A Model frame's update (slot 14,
@@ -16482,7 +16506,7 @@ enum Offsets {
     OFF_GXSHADER_CODE_DATA = 0x5C,
     GXSHADER_TYPE_PIXEL = 1,
     GXSHADER_CODE_D3D = 2,
-    GXRS_PIXEL_SHADER = 0x3F,                  // pointer-form selector (0x40 = vertex shader); doc only — the engine's draw binds it
+    GXRS_PIXEL_SHADER = 0x3F,                  // pointer-form selector (0x40 = vertex shader); GxRsGetInt reads the bound object
     FUN_LUA_TO_BOOLEAN_LOOSE = 0x006F1C10,     // __fastcall(L, idx, default): nil→0, boolean, number→int, "1/t/y…"→1, "0/f/n…"→0, "enabled"→1, "disabled"→0, other→default. Called through Game::Lua::ToFlag (4.3.4 StringToBOOL(L, idx, default))
 
     // --- Texture memory accounting: the zero-dimension hang -------------------

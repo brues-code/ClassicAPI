@@ -154,9 +154,8 @@
 // registers every virtual top-level node whatever its tag), loaded the way an
 // animation group is: the mixins of the whole inherits chain first, then each
 // node from the base up: parentKey / parentArray on the scene, `alpha`,
-// `scale`, `file`, <Scripts> and <KeyValues>; then OnLoad. `fileID` and
-// `desaturation` load nothing: 1.12 has no file IDs and no model
-// desaturation.
+// `scale`, `file`, `desaturation`, <Scripts> and <KeyValues>; then OnLoad.
+// `fileID` loads nothing: 1.12 has no file IDs.
 
 #include "model/Scene.h"
 
@@ -173,8 +172,10 @@
 #include "gx/Matrix.h"
 #include "item/Data.h"
 #include "item/Record.h"
+#include "model/Desaturation.h"
 #include "model/DisplayInfo.h"
 #include "model/M2.h"
+#include "lua/MethodArg.h"
 #include "model/SceneMover.h"
 #include "model/VisualKit.h"
 #include "object/Resolve.h"
@@ -194,6 +195,20 @@
 namespace Model::Scene {
 
 namespace {
+
+namespace MethodArg = Game::Lua::MethodArg;
+
+// SetScale's floor (0x140C5A1E0, DAT_14415B718), the XML scale's too
+// (0x141948350).
+float ClampScale(float v) { return v > 0.01f ? v : 0.01f; }
+
+// Deeper than any real inherits chain; a template that inherits itself stops
+// here (CreateActor raises first, TemplateRecursive).
+constexpr int kMaxTemplateDepth = 32;
+
+// 3.80.2's AnimationData end (0x74A, 1866): SetAnimation and AttachToMount
+// take an animation below it (0x140C57A50, 0x140C51FA0).
+constexpr uint32_t kAnimationEnd = 0x74A;
 
 // The movement flags that keep a state kit's animation off a unit
 // (ApplyEffectAnimation's `and edi,0x20000f` at 0x005FDE9C): a move in any
@@ -307,6 +322,13 @@ static_assert(sizeof(kScripts) / sizeof(kScripts[0]) <= Animation::kMaxScripts);
 // bone's track stops, but for HandsClosed, which holds a weapon's grip.
 // First, as the unit's handler (0x005FC920) does before it tests the reason:
 // a cast animation that ends or is replaced releases the queued missiles.
+//
+// 3.80.2's callback (0x141949B20) runs OnAnimFinished (script 0x43) right
+// here for reason 0. 1.12 queues these ends in the scene advance and drains
+// them in the paint's animate pass, mid-draw, where no Lua may run, so the
+// end is flagged and the update walk runs the script next frame. The body
+// track stands for 3.80.2's one end per model, and the walk plays the
+// animation again, as the character pane's callback (0x005062A0) does.
 void __fastcall OnAnimDone(void *model, uint32_t keyBone, uint32_t animID, uint32_t reason,
                            uint32_t /*overshoot*/, uint32_t userLow, uint32_t /*userHigh*/) {
     auto *actor = reinterpret_cast<Actor *>(static_cast<uintptr_t>(userLow));
@@ -372,7 +394,7 @@ void ApplyKit(Actor &actor) {
         return;
     actor.kitWorldEffect = planted;
     actor.kitWorldDone = false;
-    std::memcpy(actor.kitWorldPosition, actor.position, sizeof actor.kitWorldPosition);
+    std::memcpy(actor.kitWorldPosition, actor.Origin().p, sizeof actor.kitWorldPosition);
     // Turned by the owner's facing and scaled by its scale, 1 for a scale at
     // or below 0 (0x00620A90).
     actor.kitWorldYaw = actor.ShownYaw();
@@ -475,6 +497,7 @@ void ReleaseModel(Actor &actor) {
     M2::SetVisible(actor.model, false);
     M2::Detach(actor.model); // a rider leaves its mount
     Model::DisplayInfo::DestroyDresser(actor.dresser);
+    Model::Desaturation::Set(actor.model, 0.0f);
     M2::Release(actor.model);
     actor.model = nullptr;
     actor.dresser = nullptr;
@@ -549,14 +572,30 @@ Actor::~Actor() {
     World::FreeAmbience(ambience);
 }
 
+void Actor::Pause(bool held, bool affectsGlobalPause) {
+    paused = held;
+    if (affectsGlobalPause)
+        globalPaused = held;
+    heldPositionMs = -1;
+}
+
 void Actor::Vacate() {
     ClearModel();
     ReleaseModel(*this);
 }
 
+void Actor::Release() {
+    if (model == nullptr)
+        return;
+    ReleaseModel(*this);
+    auraVisuals.clear(); // a released actor goes back to its pool bare
+    paused = globalPaused = false; // the pause is the model's
+    heldPositionMs = -1;
+}
+
 void Actor::SetModel(void *newModel, const char *path, const uint8_t *newDressRecord,
                      const Model::DisplayInfo::Body *newBody) {
-    Vacate();
+    Release();
     if (newModel == nullptr)
         return;
     model = newModel;
@@ -571,18 +610,23 @@ void Actor::SetModel(void *newModel, const char *path, const uint8_t *newDressRe
     Model::DisplayInfo::LightChildren(SceneFrame(), model);
     portraitDirty = portrait != nullptr;
     ApplyAlpha();
+    Model::Desaturation::Set(model, desaturation);
     ApplyHighlight();
     // The new model sizes the name again.
     nameDirty = true;
     InstallName(*this);
     PlayAnimation();
-    // Last: the script may clear or replace the model.
+    // 3.80.2's order: a model that has loaded runs OnModelLoaded inside
+    // SetModel, then the setter fires OnModelLoading. Last: the scripts may
+    // clear or replace the model.
+    FinishLoad();
     RunScript(S_ONMODELLOADING, 0);
 }
 
+// A unit without a model, or a copy that fails, leaves the old model, as
+// 3.80.2's setters do.
 bool Actor::SetUnitModel(uint64_t guid) {
     using CloseHand_t = void(__fastcall *)(void *model, uint32_t hand);
-    Vacate();
     void *unit = guid != 0 ? ::Object::ByGuid(Offsets::TYPEMASK_UNIT, guid) : nullptr;
     void *source = unit != nullptr ? Game::Read<void *>(unit, Offsets::OFF_CGOBJECT_MODEL) : nullptr;
     if (source == nullptr)
@@ -592,6 +636,7 @@ bool Actor::SetUnitModel(uint64_t guid) {
     void *copy = M2::CopyWithoutItems(Model::Pane::Scene(SceneFrame()), source);
     if (copy == nullptr)
         return false;
+    Release();
     unitGuid = guid;
     const auto *descriptor = ::Object::Fields(unit);
     // PostInit (0x005FB880): the race's splash.
@@ -856,11 +901,10 @@ int Actor::TryOnItem(const Model::TryOn::Request &request) {
     return reason;
 }
 
+// ClearModel (0x140C55AA0): the model let go, then OnModelCleared, with a
+// model or without.
 void Actor::ClearModel() {
-    if (model == nullptr)
-        return;
-    ReleaseModel(*this);
-    auraVisuals.clear(); // a released actor goes back to its pool bare
+    Release();
     RunScript(S_ONMODELCLEARED, 0);
 }
 
@@ -1082,28 +1126,46 @@ void Actor::SetSpellVisualKit(uint32_t kitID, bool oneShot) {
 
 namespace {
 
-// LoadXml re-enters LoadNode for each inherited template; the mixins of the
-// whole chain go in once, first (Xml::Mixin).
-void LoadNode(Actor &actor, const void *node, void *status) {
+// The script object's load (0x1405BD170): each template of the inherits
+// chain, base first, then the node, mixes in its own mixins and then its
+// KeyValues. A template gives nothing else.
+void LoadObject(Actor &actor, const void *node, void *status, int depth) {
+    if (depth > kMaxTemplateDepth)
+        return;
     if (const char *inherits = ::Xml::Attr(node, "inherits"); inherits != nullptr && *inherits != '\0') {
         if (const void *base = ::Xml::Template(inherits))
-            LoadNode(actor, base, status);
+            LoadObject(actor, base, status, depth + 1);
         else
             ::Xml::Warn(status, "Couldn't find inherited node: %s", inherits);
     }
+    if (void *L = Game::Lua::State()) {
+        const int top = Game::Lua::GetTop(L);
+        Animation::Push(L, &actor);
+        ::Xml::Mixin::ApplyOwn(L, top + 1, node, status, actor.DisplayName());
+        Game::Lua::SetTop(L, top);
+    }
+    Animation::Xml::LoadKeyValues(&actor, node, status);
+}
+
+// The actor's own load (0x141948350), from the node alone: the file, the
+// scale (at least 0.01), the alpha (0..1), then its scripts.
+void LoadNode(Actor &actor, const void *node) {
     Animation::Xml::BindParentKey(actor.SceneFrame(), &actor, ::Xml::Attr(node, "parentKey"));
     Animation::Xml::BindParentArray(actor.SceneFrame(), &actor, ::Xml::Attr(node, "parentArray"));
+    if (const char *file = ::Xml::Attr(node, "file"); file != nullptr && *file != '\0') {
+        if (void *model = M2::CreateModel(Model::Pane::Scene(actor.SceneFrame()), file))
+            actor.SetModel(model, file, nullptr);
+    }
     float value = 0.0f;
+    if (::Xml::FloatAttr(node, "scale", value))
+        actor.scale = ClampScale(value);
     if (::Xml::FloatAttr(node, "alpha", value)) {
         actor.alpha = value < 0.0f ? 0.0f : (value > 1.0f ? 1.0f : value);
         actor.ApplyAlpha();
     }
-    if (::Xml::FloatAttr(node, "scale", value))
-        actor.scale = value;
-    if (const char *file = ::Xml::Attr(node, "file"); file != nullptr && *file != '\0')
-        actor.SetModel(M2::CreateModel(Model::Pane::Scene(actor.SceneFrame()), file), file, nullptr);
+    if (::Xml::FloatAttr(node, "desaturation", value))
+        actor.SetDesaturation(value);
     Animation::Xml::LoadScripts(&actor, node);
-    Animation::Xml::LoadKeyValues(&actor, node, status);
 }
 
 // CGUnit_C::EmitWaterRipple (0x005FA760) for the actor's body: each update,
@@ -1308,13 +1370,8 @@ void ResetFacings(Actor &actor) {
 } // namespace
 
 void Actor::LoadXml(const void *node, void *status) {
-    if (void *L = Game::Lua::State()) {
-        const int top = Game::Lua::GetTop(L);
-        Animation::Push(L, this);
-        ::Xml::Mixin::ApplyChain(L, top + 1, node, status, DisplayName(), false);
-        Game::Lua::SetTop(L, top);
-    }
-    LoadNode(*this, node, status);
+    LoadObject(*this, node, status, 0);
+    LoadNode(*this, node);
     RunScript(S_ONLOAD, 0);
 }
 
@@ -1332,6 +1389,12 @@ void Actor::ApplyAlpha() {
         shownAlpha = static_cast<float>((Game::Read<float>(Offsets::VAR_THREE) - (x + x)) * x * x);
     }
     M2::SetAlpha(model, shownAlpha);
+}
+
+void Actor::SetDesaturation(float amount) {
+    desaturation = amount < 0.0f ? 0.0f : (amount > 1.0f ? 1.0f : amount);
+    if (model != nullptr)
+        Model::Desaturation::Set(model, desaturation);
 }
 
 // SetLight's colour (0x00614550) while a bit is set, else ClearLight's black
@@ -1468,10 +1531,85 @@ void Actor::BakePortrait() {
         portraitDirty = false;
 }
 
+namespace {
+
+bool ValidBox(const float (&box)[6]) { return box[0] <= box[3] && box[1] <= box[4] && box[2] <= box[5]; }
+
+// The active box (0x14194AC40), for a model whose file has loaded: its
+// collision box while preferModelCollisionBounds is set and the model has
+// one (3.80.2 tests the model's collision bit; 1.12 gives a model without
+// collision an empty box), else the bounds of the animation it plays. False
+// when the box is not valid.
+bool ActiveBox(const Actor &actor, float (&box)[6]) {
+    if (actor.preferModelCollisionBounds) {
+        M2::GetCollisionBox(actor.model, box);
+        if (ValidBox(box) && (box[0] != box[3] || box[1] != box[4] || box[2] != box[5]))
+            return true;
+    }
+    M2::GetSequenceBounds(actor.model, actor.animation,
+                          actor.variation < 0 ? 0u : static_cast<uint32_t>(actor.variation), box);
+    return ValidBox(box);
+}
+
+} // namespace
+
+bool Actor::FinishLoad() {
+    if (model == nullptr || loaded)
+        return false;
+    bool ready = M2::IsLoaded(model, 0, 0);
+    if (ready && dresser == nullptr && (dressRecord != nullptr || body)) {
+        // A dress the engine rejects shows the model undressed, as a
+        // unit with no compositor shows.
+        dresser = dressRecord != nullptr ? Model::DisplayInfo::CreateDresser(model, dressRecord)
+                                         : Model::DisplayInfo::CreateDresser(model, *body);
+        if (dresser == nullptr) {
+            dressRecord = nullptr;
+            body.reset();
+        } else {
+            Model::DisplayInfo::LightChildren(SceneFrame(), model);
+        }
+    }
+    if (ready && dresser != nullptr && !Model::DisplayInfo::PumpDresser(dresser))
+        ready = false;
+    if (!ready || !M2::IsLoaded(model, 0, 1))
+        return false;
+    loaded = true;
+    PutOnWaiting(*this);
+    const std::vector<HeldRequest> held = std::move(pendingHeld);
+    pendingHeld.clear();
+    for (const HeldRequest &h : held)
+        HoldItem(h.invSlot, h.lane, h.display);
+    ApplyKit(*this);
+    AuraVisuals::Show(*this);
+    for (const auto &[kitID, oneShot] : pendingKits) {
+        if (const uint8_t *kit = Model::VisualKit::Record(kitID)) {
+            Model::VisualKit::Apply(SceneFrame(), model, kit, oneShot);
+            Shakes::PlayKit(*this, kit);
+        }
+    }
+    pendingKits.clear();
+    // The pick an unloaded model could not take (PlayAnimation keeps
+    // it pending at +0xD64).
+    Locomotion::Repick(*this);
+    GameObjects::Play(*this);
+    if (areaEffect != nullptr)
+        SizeSpellArea(*this);
+    // The centre useCenterForOrigin stands at, once per load (an
+    // invalid box gives 0).
+    float box[6];
+    const bool valid = ActiveBox(*this, box);
+    for (int i = 0; i < 3; ++i) {
+        const float centre = (box[i] + box[i + 3]) * 0.5f;
+        originCentre[i] = valid && std::fabs(centre) < FLT_MAX ? centre : 0.0f;
+    }
+    RunScript(S_ONMODELLOADED, 0);
+    return true;
+}
+
 void Actor::Update(float elapsedSec, float sceneSec) {
     if (mover != nullptr) {
         Advance(*this);
-        std::memcpy(position, mover->position, sizeof position);
+        StandAt(mover->position);
         yaw = mover->facing;
         pitch = Mover::ModelPitch(*mover);
         MarkTwistBones(*this);
@@ -1481,45 +1619,7 @@ void Actor::Update(float elapsedSec, float sceneSec) {
         EmitRipple(*this, false);
     }
     if (model != nullptr && !loaded) {
-        bool ready = M2::IsLoaded(model, 0, 0);
-        if (ready && dresser == nullptr && (dressRecord != nullptr || body)) {
-            // A dress the engine rejects shows the model undressed, as a
-            // unit with no compositor shows.
-            dresser = dressRecord != nullptr ? Model::DisplayInfo::CreateDresser(model, dressRecord)
-                                             : Model::DisplayInfo::CreateDresser(model, *body);
-            if (dresser == nullptr) {
-                dressRecord = nullptr;
-                body.reset();
-            } else {
-                Model::DisplayInfo::LightChildren(SceneFrame(), model);
-            }
-        }
-        if (ready && dresser != nullptr && !Model::DisplayInfo::PumpDresser(dresser))
-            ready = false;
-        if (ready && M2::IsLoaded(model, 0, 1)) {
-            loaded = true;
-            PutOnWaiting(*this);
-            const std::vector<HeldRequest> held = std::move(pendingHeld);
-            pendingHeld.clear();
-            for (const HeldRequest &h : held)
-                HoldItem(h.invSlot, h.lane, h.display);
-            ApplyKit(*this);
-            AuraVisuals::Show(*this);
-            for (const auto &[kitID, oneShot] : pendingKits) {
-                if (const uint8_t *kit = Model::VisualKit::Record(kitID)) {
-                    Model::VisualKit::Apply(SceneFrame(), model, kit, oneShot);
-                    Shakes::PlayKit(*this, kit);
-                }
-            }
-            pendingKits.clear();
-            // The pick an unloaded model could not take (PlayAnimation keeps
-            // it pending at +0xD64).
-            Locomotion::Repick(*this);
-            GameObjects::Play(*this);
-            if (areaEffect != nullptr)
-                SizeSpellArea(*this);
-            RunScript(S_ONMODELLOADED, 0);
-        }
+        FinishLoad();
     } else {
         if (!pendingTryOns.empty())
             PutOnWaiting(*this);
@@ -1642,7 +1742,7 @@ void Actor::Place() {
     if (model == nullptr)
         return;
     const float scales[3] = {scale, scale, scale};
-    M2::SetBaseTRS(model, position, ShownYaw(), axisZ, scales);
+    M2::SetBaseTRS(model, Origin().p, ShownYaw(), axisZ, scales);
     float *matrix = M2::BaseMatrix(model);
     if (pitch != 0.0f)
         Gx::Rotate(matrix, pitch, axisY);
@@ -1650,12 +1750,9 @@ void Actor::Place() {
         Gx::Rotate(matrix, roll, axisX);
     if (!loaded || !(useCenterForOrigin[0] || useCenterForOrigin[1] || useCenterForOrigin[2]))
         return;
-    float box[6];
-    M2::GetSequenceBounds(model, animation, variation < 0 ? 0u : static_cast<uint32_t>(variation),
-                          box);
     float offset[3];
     for (int i = 0; i < 3; ++i)
-        offset[i] = useCenterForOrigin[i] ? -(box[i] + box[i + 3]) * 0.5f : 0.0f;
+        offset[i] = useCenterForOrigin[i] ? -originCentre[i] : 0.0f;
     Gx::Translate(matrix, offset);
 }
 
@@ -1666,13 +1763,14 @@ namespace {
 Actor *Self(void *L) { return static_cast<Actor *>(Animation::Resolve(L, 1, Actor::s_class)); }
 
 // Shows a creature display, dressed by its CreatureDisplayInfoExtra record.
+// A display without a model leaves the old one (0x1419489E0).
 bool ShowCreatureDisplay(Actor &actor, uint32_t displayID) {
     const char *path = nullptr;
-    actor.Vacate();
     void *model = Model::DisplayInfo::CreateDisplayModel(Model::Pane::Scene(actor.SceneFrame()),
                                                          displayID, &path);
     if (model == nullptr)
         return false;
+    actor.Release();
     actor.displayID = displayID;
     actor.displayScale =
         Game::Read<float>(Model::DisplayInfo::Record(displayID), Offsets::OFF_CREATUREDISPLAYINFO_SCALE);
@@ -1683,11 +1781,14 @@ bool ShowCreatureDisplay(Actor &actor, uint32_t displayID) {
 
 int __fastcall Script_SetModelByCreatureDisplayID(void *L) {
     Actor *actor = Self(L);
+    int displayID = 0;
     if (actor == nullptr ||
-        !NumberArgs(L, 2, 1, actor->DisplayName(),
-                    "SetModelByCreatureDisplayID(creatureDisplayID)"))
+        !MethodArg::Integer(L, 2,
+                            "Usage: local success = self:SetModelByCreatureDisplayID(creatureDisplayID [, "
+                            "useActivePlayerCustomizations])",
+                            displayID))
         return 0;
-    Game::Lua::PushBool(L, ShowCreatureDisplay(*actor, static_cast<uint32_t>(Game::Lua::ToNumber(L, 2))));
+    Game::Lua::PushBool(L, ShowCreatureDisplay(*actor, static_cast<uint32_t>(displayID)));
     return 1;
 }
 
@@ -1701,8 +1802,7 @@ int __fastcall Script_SetModelByCharacterAppearance(void *L) {
     if (actor == nullptr)
         return 0;
     if (Game::Lua::Type(L, 2) != Game::Lua::TYPE_TABLE) {
-        Game::Lua::Error(L, "Usage: %s:SetModelByCharacterAppearance(appearance)", actor->DisplayName());
-        return 0;
+        return MethodArg::Fail(L, 2, "Usage: local success = self:SetModelByCharacterAppearance(appearance)");
     }
     auto field = [L](const char *key) {
         const double value = Game::Lua::GetFieldNumber(L, 2, key);
@@ -1725,7 +1825,6 @@ int __fastcall Script_SetModelByCharacterAppearance(void *L) {
     body.emblem.background = emblem("emblemBackgroundColor");
     const uint32_t displayID = Model::DisplayInfo::BodyDisplay(body);
     const char *path = nullptr;
-    actor->Vacate();
     void *model = displayID != 0 ? Model::DisplayInfo::CreateDisplayModel(
                                        Model::Pane::Scene(actor->SceneFrame()), displayID, &path)
                                  : nullptr;
@@ -1733,6 +1832,7 @@ int __fastcall Script_SetModelByCharacterAppearance(void *L) {
         Game::Lua::PushBool(L, false);
         return 1;
     }
+    actor->Release();
     actor->displayID = displayID;
     actor->displayScale =
         Game::Read<float>(Model::DisplayInfo::Record(displayID), Offsets::OFF_CREATUREDISPLAYINFO_SCALE);
@@ -1753,12 +1853,10 @@ int __fastcall Script_SetModelByUnitCreatureDisplayID(void *L) {
     if (actor == nullptr)
         return 0;
     if (!Game::Lua::IsString(L, 2)) {
-        Game::Lua::Error(L, "Usage: %s:SetModelByUnitCreatureDisplayID(unit)", actor->DisplayName());
-        return 0;
+        return MethodArg::Fail(L, 2, "Usage: local success = self:SetModelByUnitCreatureDisplayID(unit)");
     }
     void *unit = Game::ResolveUnitToken(Game::Lua::ToString(L, 2));
     if (unit == nullptr) {
-        actor->ClearModel();
         Game::Lua::PushBool(L, false);
         return 1;
     }
@@ -1772,14 +1870,14 @@ int __fastcall Script_SetModelByPath(void *L) {
     Actor *actor = Self(L);
     if (actor == nullptr)
         return 0;
-    if (!Game::Lua::IsString(L, 2)) {
-        Game::Lua::Error(L, "Usage: %s:SetModelByPath(asset)", actor->DisplayName());
-        return 0;
-    }
+    if (!Game::Lua::IsString(L, 2))
+        return MethodArg::Fail(L, 2, "Usage: local success = self:SetModelByPath(asset [, useMips])");
     const char *path = Game::Lua::ToString(L, 2);
-    // A WMO is not an M2; the scene shows one (SetWorldModel).
+    // A WMO is not an M2; the scene shows one (SetWorldModel). A path that
+    // makes no model leaves the old one (0x140C58CF0).
     void *model = World::IsWmoPath(path) ? nullptr : M2::CreateModel(Model::Pane::Scene(actor->SceneFrame()), path);
-    actor->SetModel(model, path, nullptr);
+    if (model != nullptr)
+        actor->SetModel(model, path, nullptr);
     Game::Lua::PushBool(L, model != nullptr);
     return 1;
 }
@@ -1793,8 +1891,8 @@ int __fastcall Script_SetModelBySpellArea(void *L) {
     if (actor == nullptr)
         return 0;
     if (Game::Lua::IsNumber(L, 2) == 0 || Game::Lua::IsNumber(L, 3) == 0 || !(FloatArg(L, 3) > 0.0f)) {
-        Game::Lua::Error(L, "Usage: %s:SetModelBySpellArea(spellID, radius)", actor->DisplayName());
-        return 0;
+        return MethodArg::Fail(L, Game::Lua::IsNumber(L, 2) != 0 ? 3 : 2,
+                               "Usage: local success = self:SetModelBySpellArea(spellID, radius)");
     }
     using GetVisual_t = const uint8_t *(__fastcall *)(const uint8_t *spell);
     const auto *spell = Spell::Lookup::RecordForID(static_cast<int>(Game::Lua::ToNumber(L, 2)));
@@ -1806,9 +1904,9 @@ int __fastcall Script_SetModelBySpellArea(void *L) {
             : nullptr;
     const char *path = effect != nullptr ? Game::Read<const char *>(effect, Offsets::OFF_SPELLVISUALEFFECTNAME_FILE) : nullptr;
     const float radius = FloatArg(L, 3);
-    actor->Vacate();
     void *model = path != nullptr && *path != '\0' ? M2::CreateModel(Model::Pane::Scene(actor->SceneFrame()), path) : nullptr;
     if (model != nullptr) {
+        actor->Release();
         actor->areaEffect = effect;
         actor->areaRadius = radius;
         actor->areaVisual = visual;
@@ -1826,14 +1924,14 @@ int __fastcall Script_SetModelBySpellArea(void *L) {
 int __fastcall Script_SetModelByGameObjectDisplayID(void *L) {
     Actor *actor = Self(L);
     if (actor == nullptr ||
-        !NumberArgs(L, 2, 1, actor->DisplayName(), "SetModelByGameObjectDisplayID(gameObjectDisplayID)"))
+        !NumberArgs(L, 2, 1, "Usage: self:SetModelByGameObjectDisplayID(gameObjectDisplayID)"))
         return 0;
     const char *path = GameObjects::ModelPath(static_cast<uint32_t>(Game::Lua::ToNumber(L, 2)));
-    actor->Vacate();
     void *model = path != nullptr && !World::IsWmoPath(path)
                       ? M2::CreateModel(Model::Pane::Scene(actor->SceneFrame()), path)
                       : nullptr;
-    actor->SetModel(model, path, nullptr);
+    if (model != nullptr)
+        actor->SetModel(model, path, nullptr);
     Game::Lua::PushBool(L, model != nullptr);
     return 1;
 }
@@ -1843,7 +1941,7 @@ int __fastcall Script_SetModelByGameObjectDisplayID(void *L) {
 // it came from, the open, close or destroy animation first.
 int __fastcall Script_SetGameObjectState(void *L) {
     Actor *actor = Self(L);
-    if (actor == nullptr || !NumberArgs(L, 2, 1, actor->DisplayName(), "SetGameObjectState(state [, previousState])"))
+    if (actor == nullptr || !NumberArgs(L, 2, 1, "Usage: self:SetGameObjectState(state [, previousState])"))
         return 0;
     const int previous = Game::Lua::IsNumber(L, 3) ? static_cast<int>(Game::Lua::ToNumber(L, 3)) : -1;
     GameObjects::SetState(*actor, static_cast<uint32_t>(Game::Lua::ToNumber(L, 2)), previous);
@@ -1854,7 +1952,7 @@ int __fastcall Script_SetGameObjectState(void *L) {
 // Actor::creatureID, attacking and moving.
 int __fastcall Script_SetCreatureID(void *L) {
     Actor *actor = Self(L);
-    if (actor == nullptr || !NumberArgs(L, 2, 1, actor->DisplayName(), "SetCreatureID(creatureID)"))
+    if (actor == nullptr || !NumberArgs(L, 2, 1, "Usage: self:SetCreatureID(creatureID)"))
         return 0;
     const double id = Game::Lua::ToNumber(L, 2);
     actor->creatureID = id > 0.0 ? static_cast<uint32_t>(id) : 0;
@@ -1896,8 +1994,7 @@ int __fastcall Script_SetPortraitTexture(void *L) {
         return 0;
     void *region = Game::Lua::ResolveTexture(L, 2, false);
     if (region == nullptr) {
-        Game::Lua::Error(L, "Usage: %s:SetPortraitTexture(texture)", actor->DisplayName());
-        return 0;
+        return MethodArg::Fail(L, 2, "Usage: self:SetPortraitTexture(texture)");
     }
     if (actor->portrait == nullptr)
         actor->portrait = Model::Portrait::AcquireLive();
@@ -1909,24 +2006,20 @@ int __fastcall Script_SetPortraitTexture(void *L) {
 }
 
 int __fastcall Script_PlaySwing(void *L) {
-    constexpr char kUsage[] = "PlaySwing(victim, result [, critical, offHand])";
+    constexpr char kUsage[] = "Usage: self:PlaySwing(victim, result [, critical, offHand])";
     Actor *attacker = Self(L);
     if (attacker == nullptr)
         return 0;
     Actor *victim = nullptr;
     if (Game::Lua::Type(L, 2) > Game::Lua::TYPE_NIL) {
-        victim = static_cast<Actor *>(Animation::Resolve(L, 2, Actor::s_class));
-        if (victim == nullptr) {
-            Game::Lua::Error(L, "Usage: %s:%s", attacker->DisplayName(), kUsage);
-            return 0;
-        }
+        victim = static_cast<Actor *>(Animation::Resolve(L, 2, Actor::s_class, false));
+        if (victim == nullptr)
+            return MethodArg::Fail(L, 2, kUsage);
         if (victim->SceneFrame() != attacker->SceneFrame())
             victim = nullptr;
     }
-    if (!Game::Lua::IsString(L, 3)) {
-        Game::Lua::Error(L, "Usage: %s:%s", attacker->DisplayName(), kUsage);
-        return 0;
-    }
+    if (!Game::Lua::IsString(L, 3))
+        return MethodArg::Fail(L, 3, kUsage);
     struct Word {
         const char *name;
         Actor::SwingResult result;
@@ -1953,9 +2046,9 @@ int __fastcall Script_SetModelByUnit(void *L) {
     if (actor == nullptr)
         return 0;
     if (!Game::Lua::IsString(L, 2)) {
-        Game::Lua::Error(L, "Usage: %s:SetModelByUnit(unit [, sheatheWeapons, autoDress, hideWeapons])",
-                         actor->DisplayName());
-        return 0;
+        return MethodArg::Fail(L, 2,
+                               "Usage: local success = self:SetModelByUnit(unit [, sheatheWeapons, autoDress, "
+                               "hideWeapons, usePlayerNativeForm, holdBowString, customRaceID])");
     }
     actor->sheathed = Game::Lua::ToBoolean(L, 3) != 0;
     actor->autoDress = Game::Lua::Type(L, 4) <= Game::Lua::TYPE_NIL || Game::Lua::ToBoolean(L, 4) != 0;
@@ -1974,11 +2067,16 @@ int __fastcall Script_GetModelUnitGUID(void *L) {
     return 1;
 }
 
-// Builds the copy again from the unit, dressed.
+// Dress (0x140C52870): nothing without a unit. The active player is dressed
+// again from what it wears; any other unit's model is built again dressed,
+// with hideWeapons off (the SetModelByUnit worker 0x1419485B0 with autoDress
+// 1, hideWeapons 0). Here both build the copy again.
 int __fastcall Script_Dress(void *L) {
     Actor *actor = Self(L);
     if (actor == nullptr || actor->unitGuid == 0)
         return 0;
+    if (actor->unitGuid != Unit::Identity::PlayerGuid())
+        actor->hideWeapons = false;
     const bool autoDress = actor->autoDress;
     actor->autoDress = true;
     actor->SetUnitModel(actor->unitGuid);
@@ -1998,40 +2096,32 @@ int __fastcall Script_Undress(void *L) {
     return 0;
 }
 
+// UndressSlot (0x140C55500 -> 0x141AD42E0): armor and the hands; the ranged
+// slot, the neck, the rings and the trinkets are left.
 int __fastcall Script_UndressSlot(void *L) {
     Actor *actor = Self(L);
-    if (actor == nullptr || !NumberArgs(L, 2, 1, actor->DisplayName(),
-                                        "UndressSlot(inventorySlot)"))
+    if (actor == nullptr || !NumberArgs(L, 2, 1, "Usage: self:UndressSlot(inventorySlots)"))
         return 0;
     const int invSlot = static_cast<int>(Game::Lua::ToNumber(L, 2));
-    if (invSlot == Offsets::INVSLOT_RANGED) {
-        ClearRanged(*actor);
+    if (invSlot == Offsets::INVSLOT_RANGED)
         return 0;
-    }
     Outfit::UndressSlot(actor->model, actor->dresser, actor->lanes, invSlot);
     Outfit::TrimWorn(actor->dresser, actor->lanes, actor->worn);
     return 0;
 }
 
+// DressPlayerSlot (0x140C52A30): only on an actor that shows the active
+// player, and never the ranged slot.
 int __fastcall Script_DressPlayerSlot(void *L) {
     Actor *actor = Self(L);
-    if (actor == nullptr || !NumberArgs(L, 2, 1, actor->DisplayName(),
-                                        "DressPlayerSlot(invSlot)"))
+    if (actor == nullptr || !NumberArgs(L, 2, 1, "Usage: self:DressPlayerSlot(invSlot)"))
         return 0;
-    void *unit = actor->unitGuid != 0 ? ::Object::ByGuid(Offsets::TYPEMASK_UNIT, actor->unitGuid)
-                                      : nullptr;
+    if (actor->unitGuid == 0 || actor->unitGuid != Unit::Identity::PlayerGuid())
+        return 0;
+    void *unit = ::Object::ByGuid(Offsets::TYPEMASK_UNIT, actor->unitGuid);
     const int invSlot = static_cast<int>(Game::Lua::ToNumber(L, 2));
-    if (invSlot == Offsets::INVSLOT_RANGED) {
-        if (actor->model == nullptr || unit == nullptr)
-            return 0;
-        TakeOffRanged(*actor);
-        Outfit::ReadRanged(unit, actor->unitGuid, actor->ranged, actor->rangedDisplay,
-                           actor->worn[Offsets::INVSLOT_RANGED - 1]);
-        if (actor->rangedDrawn)
-            HangRanged(*actor, false);
-        Model::DisplayInfo::LightChildren(actor->SceneFrame(), actor->model);
+    if (invSlot == Offsets::INVSLOT_RANGED)
         return 0;
-    }
     Outfit::DressSlot(actor->model, actor->dresser, actor->armorReady, actor->lanes,
                       actor->weapons, unit, actor->unitGuid, invSlot, actor->MeleeSheathed(),
                       actor->hideWeapons);
@@ -2054,15 +2144,21 @@ int __fastcall Script_DressPlayerSlot(void *L) {
     return 0;
 }
 
+// GetItemTransmogInfo (0x140C52F20): an int32 slot; nothing for a slot that
+// is not one, or that wears nothing (no entry, which undressing erases).
 int __fastcall Script_GetItemTransmogInfo(void *L) {
     Actor *actor = Self(L);
-    if (actor == nullptr || !NumberArgs(L, 2, 1, actor->DisplayName(),
-                                        "GetItemTransmogInfo(inventorySlots)"))
+    int invSlot = 0;
+    if (actor == nullptr ||
+        !MethodArg::Integer(L, 2, "Usage: local itemTransmogInfo = self:GetItemTransmogInfo(inventorySlots)",
+                            invSlot))
         return 0;
-    const int invSlot = static_cast<int>(Game::Lua::ToNumber(L, 2));
     if (actor->model == nullptr || invSlot < 1 || invSlot > Outfit::kInventorySlots)
         return 0;
-    TryOn::PushTransmogInfo(L, actor->worn[invSlot - 1]);
+    const Outfit::Appearance &slot = actor->worn[invSlot - 1];
+    if (slot.item == 0 && slot.enchant == 0)
+        return 0;
+    TryOn::PushTransmogInfo(L, slot);
     return 1;
 }
 
@@ -2070,40 +2166,50 @@ int __fastcall Script_GetItemTransmogInfoList(void *L) {
     Actor *actor = Self(L);
     if (actor == nullptr)
         return 0;
-    TryOn::PushTransmogInfoList(L, actor->worn);
+    TryOn::PushTransmogInfoList(L, actor->worn, true);
     return 1;
 }
 
 // TryOn with the info's item and enchant; `inventorySlots` names the hand a
-// weapon goes in. No appearance changes nothing. The caller shows the error.
+// weapon goes in. 3.80.2 (0x140C542E0 -> 0x141AD1C60) answers only Success
+// or NotEquippable: an item still loading is put on when it arrives and
+// answers Success now. No appearance changes nothing. The caller shows the
+// error.
 int __fastcall Script_SetItemTransmogInfo(void *L) {
     Actor *actor = Self(L);
     if (actor == nullptr)
         return 0;
     TryOn::Request request;
-    if (!TryOn::ReadTransmogInfo(L, actor->DisplayName(), request))
+    if (!TryOn::ReadTransmogInfo(
+            L, "Usage: local result = self:SetItemTransmogInfo(transmogInfo [, inventorySlots, ignoreChildItems])",
+            request))
         return 0;
-    Game::Lua::PushNumber(L, request.itemID == 0 ? TryOn::kNotEquippable
-                                                 : actor->TryOnItem(request));
+    const int reason = request.itemID == 0 ? TryOn::kNotEquippable : actor->TryOnItem(request);
+    Game::Lua::PushNumber(L, reason == TryOn::kSuccess || reason == TryOn::kDataPending ? TryOn::kSuccess
+                                                                                         : TryOn::kNotEquippable);
     return 1;
 }
 
-// The slots TryOnReason's arms accept: a hand or the ranged slot on any
-// model, armor on one that takes it.
+// IsSlotAllowed / IsSlotVisible (0x140C53A60, 0x140C53CE0; slot bit
+// 0x140350520): only the armor slots that have a bit (head, shoulder, shirt,
+// chest, waist, legs, feet, wrist, hands, back, tabard), on a model with a
+// character record; every other slot, the hands and the ranged slot too, is
+// false. 1.12 has no slot masks, so a model that takes armor allows them all.
 bool SlotAllowed(const Actor &actor, int invSlot) {
-    return actor.model != nullptr &&
-           (invSlot == Offsets::INVSLOT_RANGED ||
-            Outfit::SlotAllowed(invSlot, actor.Dresses() && actor.armorReady));
+    return actor.model != nullptr && Outfit::ArmorSlot(invSlot) && actor.Dresses() && actor.armorReady;
 }
 
+template <const char *Usage>
 int __fastcall Script_IsSlotAllowed(void *L) {
     Actor *actor = Self(L);
-    if (actor == nullptr || !NumberArgs(L, 2, 1, actor->DisplayName(),
-                                        "IsSlotAllowed(inventorySlots)"))
+    if (actor == nullptr || !NumberArgs(L, 2, 1, Usage))
         return 0;
     Game::Lua::PushBool(L, SlotAllowed(*actor, static_cast<int>(Game::Lua::ToNumber(L, 2))));
     return 1;
 }
+
+constexpr char kUsageIsSlotAllowed[] = "Usage: local allowed = self:IsSlotAllowed(inventorySlots)";
+constexpr char kUsageIsSlotVisible[] = "Usage: local visible = self:IsSlotVisible(inventorySlots)";
 
 int __fastcall Script_TryOn(void *L) {
     Actor *actor = Self(L);
@@ -2121,10 +2227,11 @@ int __fastcall Script_TryOn(void *L) {
 
 int __fastcall Script_SetSheathed(void *L) {
     Actor *actor = Self(L);
-    if (actor == nullptr)
+    bool sheathed = false;
+    if (actor == nullptr || !MethodArg::Bool(L, 2, "Usage: self:SetSheathed(sheathed [, hidden])", sheathed))
         return 0;
-    actor->sheathed = Game::Lua::ToBoolean(L, 2) != 0;
-    actor->hideWeapons = Game::Lua::ToBoolean(L, 3) != 0;
+    actor->sheathed = sheathed;
+    actor->hideWeapons = MethodArg::OptBool(L, 3, false);
     actor->SheatheRanged();
     actor->ApplyWeapons();
     return 0;
@@ -2135,7 +2242,7 @@ int __fastcall Script_SetSheathed(void *L) {
 // items in hand, 2 the ranged weapon in hand and the melee items sheathed.
 int __fastcall Script_SetSheatheState(void *L) {
     Actor *actor = Self(L);
-    if (actor == nullptr || !NumberArgs(L, 2, 1, actor->DisplayName(), "SetSheatheState(state)"))
+    if (actor == nullptr || !NumberArgs(L, 2, 1, "Usage: self:SetSheatheState(state)"))
         return 0;
     const int state = static_cast<int>(Game::Lua::ToNumber(L, 2));
     if (state == Offsets::SHEATH_STATE_RANGED) {
@@ -2155,9 +2262,9 @@ int __fastcall Script_SetSheatheState(void *L) {
 // empties the slot.
 int __fastcall Script_SetHeldItem(void *L) {
     constexpr char kUsage[] =
-        "SetHeldItem(inventorySlot [, itemDisplayID, itemClass, itemSubclass, inventoryType, sheatheType])";
+        "Usage: self:SetHeldItem(inventorySlot [, itemDisplayID, itemClass, itemSubclass, inventoryType, sheatheType])";
     Actor *actor = Self(L);
-    if (actor == nullptr || !NumberArgs(L, 2, 1, actor->DisplayName(), kUsage))
+    if (actor == nullptr || !NumberArgs(L, 2, 1, kUsage))
         return 0;
     const int slot = static_cast<int>(Game::Lua::ToNumber(L, 2));
     if (slot != Offsets::INVSLOT_MAINHAND && slot != Offsets::INVSLOT_OFFHAND && slot != Offsets::INVSLOT_RANGED)
@@ -2192,14 +2299,18 @@ int __fastcall Script_GetSheathed(void *L) {
 // 1.12 ranged weapon hangs in hand), so other slots change nothing.
 int __fastcall Script_SetSheathedCategory(void *L) {
     Actor *actor = Self(L);
-    if (actor == nullptr || !NumberArgs(L, 2, 2, actor->DisplayName(),
-                                        "SetSheathedCategory(inventorySlots, category)"))
+    constexpr char kUsage[] = "Usage: self:SetSheathedCategory(inventorySlots, category)";
+    if (actor == nullptr || !NumberArgs(L, 2, 2, kUsage))
         return 0;
+    // The category reader (0x140BB8930): an integer from 0 to 3.
+    const double category = Game::Lua::ToNumber(L, 3);
+    if (!(category >= 0.0 && category <= 3.0) || category != std::trunc(category))
+        return MethodArg::Fail(L, 3, kUsage);
     const int invSlot = static_cast<int>(Game::Lua::ToNumber(L, 2));
     if (invSlot != Offsets::INVSLOT_MAINHAND && invSlot != Offsets::INVSLOT_OFFHAND)
         return 0;
     const int lane = Outfit::LaneOfInvSlot(invSlot);
-    actor->sheatheCategory[lane] = static_cast<uint32_t>(Game::Lua::ToNumber(L, 3));
+    actor->sheatheCategory[lane] = static_cast<uint32_t>(category);
     if (actor->model != nullptr) {
         actor->ApplySheatheCategory(actor->model, lane);
         Model::DisplayInfo::LightChildren(actor->SceneFrame(), actor->model);
@@ -2208,23 +2319,55 @@ int __fastcall Script_SetSheathedCategory(void *L) {
 }
 
 // The unit's own categories in place of SetSheathedCategory's: a 1.12 unit
-// has none, so each hand takes its item's own sheath point.
+// has none, so each hand takes its item's own sheath point. A required bool,
+// only stored (0x140C556E0): the next model hangs by it.
 int __fastcall Script_UseUnitSheatheCategory(void *L) {
     Actor *actor = Self(L);
-    if (actor == nullptr)
+    bool use = false;
+    if (actor == nullptr || !MethodArg::Bool(L, 2, "Usage: self:UseUnitSheatheCategory(useCategory)", use))
         return 0;
-    actor->useUnitSheatheCategory = Game::Lua::ToBoolean(L, 2) != 0;
-    if (actor->model != nullptr) {
-        actor->ApplySheatheCategory(actor->model, 0);
-        actor->ApplySheatheCategory(actor->model, 1);
-        Model::DisplayInfo::LightChildren(actor->SceneFrame(), actor->model);
-    }
+    actor->useUnitSheatheCategory = use;
     return 0;
 }
 
 int __fastcall Script_SetAutoDress(void *L) {
-    if (Actor *actor = Self(L))
-        actor->autoDress = Game::Lua::ToBoolean(L, 2) != 0;
+    Actor *actor = Self(L);
+    bool autoDress = false;
+    if (actor != nullptr && MethodArg::Bool(L, 2, "Usage: self:SetAutoDress(autoDress)", autoDress))
+        actor->autoDress = autoDress;
+    return 0;
+}
+
+// The transmog flags (+0x139 useTransmogSkin, +0x13A useTransmogChoices,
+// +0x13B obeyHideInTransmogFlag): a required bool, stored and read. 1.12 has
+// no transmog collection for them to steer.
+template <bool Actor::*Field, const char *Usage>
+int __fastcall SetTransmogFlag(void *L) {
+    Actor *actor = Self(L);
+    bool value = false;
+    if (actor != nullptr && MethodArg::Bool(L, 2, Usage, value))
+        actor->*Field = value;
+    return 0;
+}
+
+template <bool Actor::*Field>
+int __fastcall GetTransmogFlag(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr)
+        return 0;
+    Game::Lua::PushBool(L, actor->*Field);
+    return 1;
+}
+
+constexpr char kUsageSetUseTransmogSkin[] = "Usage: self:SetUseTransmogSkin(use)";
+constexpr char kUsageSetUseTransmogChoices[] = "Usage: self:SetUseTransmogChoices(use)";
+constexpr char kUsageSetObeyHideInTransmogFlag[] = "Usage: self:SetObeyHideInTransmogFlag(obey)";
+
+// ResetNextHandSlot (0x140C53F60) sets the hand the next one-hander goes in
+// from whether the main hand holds one. Our try-on reads that at every
+// try-on (Outfit's HandFor), so there is nothing to reset.
+int __fastcall Script_ResetNextHandSlot(void *L) {
+    Self(L);
     return 0;
 }
 
@@ -2237,14 +2380,15 @@ int __fastcall Script_GetAutoDress(void *L) {
 }
 
 // Holds the actor's animation at its current frame; the scene keeps running.
+// 3.80.2 keeps the pause on the model (0x140C54810, 0x140C534F0): nothing
+// without one, and a new model plays (Release clears it).
 int __fastcall Script_SetPaused(void *L) {
     Actor *actor = Self(L);
-    if (actor == nullptr)
+    bool paused = false;
+    if (actor == nullptr || !MethodArg::Bool(L, 2, "Usage: self:SetPaused(paused [, affectsGlobalPause])", paused))
         return 0;
-    actor->paused = Game::Lua::ToBoolean(L, 2) != 0;
-    if (Game::Lua::Type(L, 3) <= Game::Lua::TYPE_NIL || Game::Lua::ToBoolean(L, 3) != 0)
-        actor->globalPaused = actor->paused;
-    actor->heldPositionMs = -1;
+    if (actor->model != nullptr)
+        actor->Pause(paused, MethodArg::OptBool(L, 3, true));
     return 0;
 }
 
@@ -2252,8 +2396,8 @@ int __fastcall Script_GetPaused(void *L) {
     Actor *actor = Self(L);
     if (actor == nullptr)
         return 0;
-    Game::Lua::PushBool(L, actor->paused);
-    Game::Lua::PushBool(L, actor->globalPaused);
+    Game::Lua::PushBool(L, actor->model != nullptr && actor->paused);
+    Game::Lua::PushBool(L, actor->model != nullptr && actor->globalPaused);
     return 2;
 }
 
@@ -2267,55 +2411,66 @@ int __fastcall Script_IsGeoReady(void *L) {
 
 // The rider argument of the mount methods.
 Actor *RiderArg(void *L, const Actor *mount, const char *usage) {
-    Actor *rider = static_cast<Actor *>(Animation::Resolve(L, 2, Actor::s_class));
+    Actor *rider = static_cast<Actor *>(Animation::Resolve(L, 2, Actor::s_class, false));
     if (rider == nullptr)
-        Game::Lua::Error(L, "Usage: %s:%s", mount->DisplayName(), usage);
+        MethodArg::Fail(L, 2, usage);
     return rider;
 }
 
 // Mount's seating (0x00607A00): the rider on attachment 0, then the seat
-// animation. A rider already seated moves to this mount.
+// animation. A rider already seated moves to this mount. 3.80.2's
+// (0x140C51FA0): the animation a number below 1866 (0x74A), 0 standing for
+// 91 (Mount); the kit always set, 0 clearing the rider's. It answers true
+// whenever the rider and both models exist; 1.12 can seat only a rider of
+// the same scene whose model the mount can hold (M2::CanAttach), so a
+// rider it cannot seat answers false.
 int __fastcall Script_AttachToMount(void *L) {
-    constexpr char kUsage[] = "AttachToMount(rider, animation [, spellKitVisualID])";
+    constexpr char kUsage[] = "Usage: local success = self:AttachToMount(rider, animation [, spellKitVisualID])";
     Actor *mount = Self(L);
     if (mount == nullptr)
         return 0;
     Actor *rider = RiderArg(L, mount, kUsage);
-    if (rider == nullptr || !NumberArgs(L, 3, 1, mount->DisplayName(), kUsage))
+    if (rider == nullptr || !NumberArgs(L, 3, 1, kUsage))
         return 0;
-    const bool seated = rider->SceneFrame() == mount->SceneFrame() &&
-                        M2::CanAttach(rider->model, mount->model);
+    const double animation = std::trunc(Game::Lua::ToNumber(L, 3));
+    if (!(animation >= 0.0 && animation < kAnimationEnd))
+        return MethodArg::Fail(L, 3, kUsage);
+    int kit = 0;
+    if (!MethodArg::Missing(L, 4) && !MethodArg::Integer(L, 4, kUsage, kit))
+        return 0;
+    const bool seated = rider->model != nullptr && mount->model != nullptr &&
+                        rider->SceneFrame() == mount->SceneFrame() && M2::CanAttach(rider->model, mount->model);
     if (seated) {
         M2::Detach(rider->model);
         M2::Attach(rider->model, mount->model, 0);
-        rider->animation = static_cast<uint32_t>(Game::Lua::ToNumber(L, 3));
+        rider->animation = animation != 0.0 ? static_cast<uint32_t>(animation) : Offsets::ANIM_MOUNT;
         rider->PlayAnimation();
-        if (Game::Lua::IsNumber(L, 4) && Game::Lua::ToNumber(L, 4) != 0.0)
-            rider->SetSpellVisualKit(static_cast<uint32_t>(Game::Lua::ToNumber(L, 4)), false);
+        rider->SetSpellVisualKit(static_cast<uint32_t>(kit), false);
     }
     Game::Lua::PushBool(L, seated);
     return 1;
 }
 
+// DetachFromMount (0x140C52620): the rider off whatever it sits on, true when
+// the rider and both models exist.
 int __fastcall Script_DetachFromMount(void *L) {
     Actor *mount = Self(L);
     if (mount == nullptr)
         return 0;
-    Actor *rider = RiderArg(L, mount, "DetachFromMount(rider)");
+    Actor *rider = RiderArg(L, mount, "Usage: local success = self:DetachFromMount(rider)");
     if (rider == nullptr)
         return 0;
-    const bool seated = mount->model != nullptr && rider->model != nullptr &&
-                        M2::Parent(rider->model) == mount->model;
-    if (seated)
+    const bool detached = mount->model != nullptr && rider->model != nullptr;
+    if (detached)
         M2::Detach(rider->model);
-    Game::Lua::PushBool(L, seated);
+    Game::Lua::PushBool(L, detached);
     return 1;
 }
 
 // The mount display's scale over the rider's +0x98, which 1.12 keeps at 1.0.
 int __fastcall Script_CalculateMountScale(void *L) {
     Actor *mount = Self(L);
-    if (mount == nullptr || RiderArg(L, mount, "CalculateMountScale(rider)") == nullptr)
+    if (mount == nullptr || RiderArg(L, mount, "Usage: local scale = self:CalculateMountScale(rider)") == nullptr)
         return 0;
     Game::Lua::PushNumber(L, mount->displayScale);
     return 1;
@@ -2328,7 +2483,7 @@ int __fastcall Script_CalculateMountScale(void *L) {
 int __fastcall Script_GetAttachmentPosition(void *L) {
     Actor *actor = Self(L);
     if (actor == nullptr ||
-        !NumberArgs(L, 2, 1, actor->DisplayName(), "GetAttachmentPosition(attachmentID)"))
+        !NumberArgs(L, 2, 1, "Usage: self:GetAttachmentPosition(attachmentID)"))
         return 0;
     for (void *m = actor->model; m != nullptr; m = M2::Parent(m))
         if (!M2::IsLoaded(m, 0, 0))
@@ -2347,16 +2502,14 @@ int __fastcall Script_GetAttachmentPosition(void *L) {
 // animation. An id the parent's model lacks hangs the child at the parent's
 // origin (EnsureAnimated's unresolved leg).
 int __fastcall Script_AttachToActor(void *L) {
-    constexpr char kUsage[] = "AttachToActor(parent, attachmentID)";
+    constexpr char kUsage[] = "Usage: self:AttachToActor(parent, attachmentID)";
     Actor *child = Self(L);
     if (child == nullptr)
         return 0;
-    Actor *parent = static_cast<Actor *>(Animation::Resolve(L, 2, Actor::s_class));
-    if (parent == nullptr) {
-        Game::Lua::Error(L, "Usage: %s:%s", child->DisplayName(), kUsage);
-        return 0;
-    }
-    if (!NumberArgs(L, 3, 1, child->DisplayName(), kUsage))
+    Actor *parent = static_cast<Actor *>(Animation::Resolve(L, 2, Actor::s_class, false));
+    if (parent == nullptr)
+        return MethodArg::Fail(L, 2, kUsage);
+    if (!NumberArgs(L, 3, 1, kUsage))
         return 0;
     const bool attached = child->SceneFrame() == parent->SceneFrame() &&
                           M2::CanAttach(child->model, parent->model);
@@ -2371,9 +2524,9 @@ int __fastcall Script_AttachToActor(void *L) {
 // The cast, from this actor at the target (another actor of the scene, or
 // none: the caster itself). See model/SceneSpell.cpp.
 int __fastcall Script_PlaySpellVisual(void *L) {
-    constexpr char kUsage[] = "PlaySpellVisual(spellID [, target [, castTimeMs [, channelTimeMs]]])";
+    constexpr char kUsage[] = "Usage: self:PlaySpellVisual(spellID [, target [, castTimeMs [, channelTimeMs]]])";
     Actor *caster = Self(L);
-    if (caster == nullptr || !NumberArgs(L, 2, 1, caster->DisplayName(), kUsage))
+    if (caster == nullptr || !NumberArgs(L, 2, 1, kUsage))
         return 0;
     Actor *target = nullptr;
     // A list of actors is one cast at all of them: the first is the target,
@@ -2387,12 +2540,10 @@ int __fastcall Script_PlaySpellVisual(void *L) {
                 Game::Lua::SetTop(L, -2);
                 break;
             }
-            auto *actor = static_cast<Actor *>(Animation::Resolve(L, Game::Lua::GetTop(L), Actor::s_class));
+            auto *actor = static_cast<Actor *>(Animation::Resolve(L, Game::Lua::GetTop(L), Actor::s_class, false));
             Game::Lua::SetTop(L, -2);
-            if (actor == nullptr) {
-                Game::Lua::Error(L, "Usage: %s:%s", caster->DisplayName(), kUsage);
-                return 0;
-            }
+            if (actor == nullptr)
+                return MethodArg::Fail(L, 3, kUsage);
             if (actor->SceneFrame() != caster->SceneFrame())
                 continue;
             if (target == nullptr)
@@ -2403,17 +2554,15 @@ int __fastcall Script_PlaySpellVisual(void *L) {
         if (target == nullptr)
             return 0;
     } else if (Game::Lua::Type(L, 3) > Game::Lua::TYPE_NIL) {
-        target = static_cast<Actor *>(Animation::Resolve(L, 3, Actor::s_class));
-        if (target == nullptr) {
-            Game::Lua::Error(L, "Usage: %s:%s", caster->DisplayName(), kUsage);
-            return 0;
-        }
+        target = static_cast<Actor *>(Animation::Resolve(L, 3, Actor::s_class, false));
+        if (target == nullptr)
+            return MethodArg::Fail(L, 3, kUsage);
     }
-    if (Game::Lua::Type(L, 4) > Game::Lua::TYPE_NIL && !NumberArgs(L, 4, 1, caster->DisplayName(), kUsage))
+    if (Game::Lua::Type(L, 4) > Game::Lua::TYPE_NIL && !NumberArgs(L, 4, 1, kUsage))
         return 0;
     const int castTimeMs =
         Game::Lua::IsNumber(L, 4) ? static_cast<int>(Game::Lua::ToNumber(L, 4)) : -1;
-    if (Game::Lua::Type(L, 5) > Game::Lua::TYPE_NIL && !NumberArgs(L, 5, 1, caster->DisplayName(), kUsage))
+    if (Game::Lua::Type(L, 5) > Game::Lua::TYPE_NIL && !NumberArgs(L, 5, 1, kUsage))
         return 0;
     const int channelMs =
         Game::Lua::IsNumber(L, 5) ? static_cast<int>(Game::Lua::ToNumber(L, 5)) : -1;
@@ -2430,12 +2579,12 @@ int __fastcall Script_PlaySpellVisual(void *L) {
 
 // The cast, from this actor at a ground point of the scene (model/SceneSpell.cpp).
 int __fastcall Script_PlaySpellVisualAtPoint(void *L) {
-    constexpr char kUsage[] = "PlaySpellVisualAtPoint(spellID, x, y, z [, castTimeMs [, channelTimeMs]])";
+    constexpr char kUsage[] = "Usage: self:PlaySpellVisualAtPoint(spellID, x, y, z [, castTimeMs [, channelTimeMs]])";
     Actor *caster = Self(L);
-    if (caster == nullptr || !NumberArgs(L, 2, 4, caster->DisplayName(), kUsage))
+    if (caster == nullptr || !NumberArgs(L, 2, 4, kUsage))
         return 0;
     for (int i : {6, 7}) {
-        if (Game::Lua::Type(L, i) > Game::Lua::TYPE_NIL && !NumberArgs(L, i, 1, caster->DisplayName(), kUsage))
+        if (Game::Lua::Type(L, i) > Game::Lua::TYPE_NIL && !NumberArgs(L, i, 1, kUsage))
             return 0;
     }
     const float point[3] = {FloatArg(L, 3), FloatArg(L, 4), FloatArg(L, 5)};
@@ -2452,7 +2601,7 @@ int __fastcall Script_PlaySpellVisualAtPoint(void *L) {
 // The spell's aura on the actor, its state kit shown (model/SceneAura.cpp).
 int __fastcall Script_AddAuraVisual(void *L) {
     Actor *actor = Self(L);
-    if (actor == nullptr || !NumberArgs(L, 2, 1, actor->DisplayName(), "AddAuraVisual(spellID)"))
+    if (actor == nullptr || !NumberArgs(L, 2, 1, "Usage: self:AddAuraVisual(spellID)"))
         return 0;
     Game::Lua::PushBool(L, AuraVisuals::Add(*actor, static_cast<uint32_t>(Game::Lua::ToNumber(L, 2))));
     return 1;
@@ -2489,8 +2638,7 @@ int __fastcall Script_StopSpellVisual(void *L) {
 // loaded, as SetSpellVisualKit's.
 int __fastcall Script_ApplySpellVisualKit(void *L) {
     Actor *actor = Self(L);
-    if (actor == nullptr || !NumberArgs(L, 2, 1, actor->DisplayName(),
-                                        "ApplySpellVisualKit(spellVisualKitID [, oneShot])"))
+    if (actor == nullptr || !NumberArgs(L, 2, 1, "Usage: self:ApplySpellVisualKit(spellVisualKitID [, oneShot])"))
         return 0;
     const auto kitID = static_cast<uint32_t>(Game::Lua::ToNumber(L, 2));
     const bool oneShot = Game::Lua::ToBoolean(L, 3) != 0;
@@ -2525,9 +2673,9 @@ int __fastcall Script_GetPlayAnimationSounds(void *L) {
 // Returns `willPlay, soundHandle` as PlaySound does; StopSound stops it.
 int __fastcall Script_PlaySound(void *L) {
     Actor *actor = Self(L);
-    if (actor == nullptr || !NumberArgs(L, 2, 1, actor->DisplayName(), "PlaySound(soundKitID)"))
+    if (actor == nullptr || !NumberArgs(L, 2, 1, "Usage: self:PlaySound(soundKitID)"))
         return 0;
-    void *sound = Sounds::Play(actor->SceneFrame(), static_cast<int>(Game::Lua::ToNumber(L, 2)), actor->position);
+    void *sound = Sounds::Play(actor->SceneFrame(), static_cast<int>(Game::Lua::ToNumber(L, 2)), actor->Origin().p);
     Game::Lua::PushBool(L, sound != nullptr);
     if (sound != nullptr)
         Game::Lua::PushNumber(L, static_cast<double>(reinterpret_cast<uintptr_t>(sound)));
@@ -2570,9 +2718,7 @@ int __fastcall Script_SetHighlight(void *L) {
         return 0;
     uint32_t bit = 0;
     if (!HighlightBit(L, 2, bit)) {
-        Game::Lua::Error(L, "Usage: %s:SetHighlight(\"target\" or \"mouseover\", highlighted)",
-                         actor->DisplayName());
-        return 0;
+        return MethodArg::Fail(L, 2, "Usage: self:SetHighlight(\"target\" or \"mouseover\", highlighted)");
     }
     if (Game::Lua::ToBoolean(L, 3) != 0) {
         actor->highlightBits |= 1u << bit;
@@ -2608,8 +2754,7 @@ uint32_t ColorByte(float c) {
 
 int __fastcall Script_SetSelectionCircle(void *L) {
     Actor *actor = Self(L);
-    if (actor == nullptr || !NumberArgs(L, 2, 3, actor->DisplayName(),
-                                        "SetSelectionCircle(colorR, colorG, colorB [, a])"))
+    if (actor == nullptr || !NumberArgs(L, 2, 3, "Usage: self:SetSelectionCircle(colorR, colorG, colorB [, a])"))
         return 0;
     const float a = Game::Lua::IsNumber(L, 5) ? static_cast<float>(Game::Lua::ToNumber(L, 5)) : 1.0f;
     actor->selectionCircle = ColorByte(a) << 24 |
@@ -2642,8 +2787,7 @@ int __fastcall Script_SetGroundReticle(void *L) {
     if (actor == nullptr)
         return 0;
     if (Game::Lua::IsNumber(L, 2) == 0 || !(FloatArg(L, 2) >= 0.0f)) {
-        Game::Lua::Error(L, "Usage: %s:SetGroundReticle(radius [, valid])", actor->DisplayName());
-        return 0;
+        return MethodArg::Fail(L, 2, "Usage: self:SetGroundReticle(radius [, valid])");
     }
     actor->groundReticleRadius = FloatArg(L, 2);
     actor->groundReticleValid = Game::Lua::Type(L, 3) <= Game::Lua::TYPE_NIL || Game::Lua::ToBoolean(L, 3) != 0;
@@ -2675,17 +2819,15 @@ void ClearName(Actor &actor) {
 // A new text is made at the next draw; a new colour alone goes to the string
 // made, as UpdatePlate's colour refetch does (GxuStringSetColor).
 int __fastcall Script_SetNameText(void *L) {
-    constexpr char kUsage[] = "SetNameText(text [, colorR, colorG, colorB])";
+    constexpr char kUsage[] = "Usage: self:SetNameText(text [, colorR, colorG, colorB])";
     Actor *actor = Self(L);
     if (actor == nullptr)
         return 0;
     // The colour is optional: a nil third argument (UnitName's realm) is none.
     const bool colored = Game::Lua::IsNumber(L, 3) != 0;
-    if (!Game::Lua::IsString(L, 2)) {
-        Game::Lua::Error(L, "Usage: %s:%s", actor->DisplayName(), kUsage);
-        return 0;
-    }
-    if (colored && !NumberArgs(L, 3, 3, actor->DisplayName(), kUsage))
+    if (!Game::Lua::IsString(L, 2))
+        return MethodArg::Fail(L, 2, kUsage);
+    if (colored && !NumberArgs(L, 3, 3, kUsage))
         return 0;
     const char *text = Game::Lua::ToString(L, 2);
     if (*text == '\0') {
@@ -2753,11 +2895,12 @@ int __fastcall Script_ClearModel(void *L) {
     return 0;
 }
 
+// IsLoaded (0x140C57080): a model whose file has loaded, before any dress.
 int __fastcall Script_IsLoaded(void *L) {
     Actor *actor = Self(L);
     if (actor == nullptr)
         return 0;
-    Game::Lua::PushBool(L, actor->loaded);
+    Game::Lua::PushBool(L, actor->model != nullptr && M2::IsLoaded(actor->model, 0, 0));
     return 1;
 }
 
@@ -2798,7 +2941,7 @@ void SizeMover(Actor &actor) {
 void PutDown(Actor &actor) {
     Advance(actor);
     Mover::ClearSpline(*actor.mover);
-    Mover::Reset(*actor.mover, actor.position, actor.yaw);
+    Mover::Reset(*actor.mover, actor.Origin().p, actor.yaw);
     Mover::FallGate(*actor.mover);
     Locomotion::OnMove(actor, Locomotion::Move::TeleportAck);
 }
@@ -2815,7 +2958,7 @@ int __fastcall Script_SetMovementEnabled(void *L) {
     }
     if (actor->mover == nullptr) {
         actor->mover = std::make_unique<Mover::Body>();
-        Mover::Init(*actor->mover, actor->position, actor->yaw, ClockMs(actor->SceneFrame()));
+        Mover::Init(*actor->mover, actor->Origin().p, actor->yaw, ClockMs(actor->SceneFrame()));
         actor->mover->facets.query = &QueryGroundFacets;
         actor->mover->facets.liquidQuery = &QueryGroundLiquidFacets;
         actor->mover->stepped = &Locomotion::OnStep;
@@ -2907,7 +3050,7 @@ Command StopPitch(Mover::Body &b) { return {Mover::StopPitch(b), std::nullopt}; 
 // 0x0060D040), which an actor's casts have no part for.
 int __fastcall Script_MoveTo(void *L) {
     Actor *actor = Self(L);
-    if (actor == nullptr || !NumberArgs(L, 2, 3, actor->DisplayName(), "MoveTo(x, y, z [, facing])"))
+    if (actor == nullptr || !NumberArgs(L, 2, 3, "Usage: self:MoveTo(x, y, z [, facing])"))
         return 0;
     if (actor->mover == nullptr)
         return 0;
@@ -2931,8 +3074,7 @@ int __fastcall Script_MoveTo(void *L) {
 // acknowledgement (0xF0: Fall). False without the mover.
 int __fastcall Script_KnockBack(void *L) {
     Actor *actor = Self(L);
-    if (actor == nullptr || !NumberArgs(L, 2, 4, actor->DisplayName(),
-                                        "KnockBack(fromX, fromY, horizontalSpeed, verticalSpeed)"))
+    if (actor == nullptr || !NumberArgs(L, 2, 4, "Usage: self:KnockBack(fromX, fromY, horizontalSpeed, verticalSpeed)"))
         return 0;
     if (actor->mover == nullptr) {
         Game::Lua::PushBool(L, false);
@@ -2989,7 +3131,7 @@ bool SpeedArg(void *L, int index, Mover::Speed &which) {
 }
 
 constexpr char kUsageSetMovementSpeed[] =
-    "Usage: %s:SetMovementSpeed(\"walk\", \"run\", \"runBack\", \"swim\", \"swimBack\" or \"turn\", speed)";
+    "Usage: self:SetMovementSpeed(\"walk\", \"run\", \"runBack\", \"swim\", \"swimBack\" or \"turn\", speed)";
 
 // A server's speed change for a unit it moves (the spline forms of
 // SMSG_SPLINE_SET_*_SPEED, CGUnit_C 0x00601360): the mover's setter at once,
@@ -3002,9 +3144,10 @@ int __fastcall Script_SetMovementSpeed(void *L) {
     if (actor == nullptr)
         return 0;
     Mover::Speed which{};
-    if (!SpeedArg(L, 2, which) || Game::Lua::IsNumber(L, 3) == 0 || !(FloatArg(L, 3) > 0.0f)) {
-        Game::Lua::Error(L, kUsageSetMovementSpeed, actor->DisplayName());
-        return 0;
+    if (!SpeedArg(L, 2, which))
+        return MethodArg::Fail(L, 2, kUsageSetMovementSpeed);
+    if (Game::Lua::IsNumber(L, 3) == 0 || !(FloatArg(L, 3) > 0.0f)) {
+        return MethodArg::Fail(L, 3, kUsageSetMovementSpeed);
     }
     if (actor->mover == nullptr)
         return 0;
@@ -3020,9 +3163,7 @@ int __fastcall Script_GetMovementSpeed(void *L) {
         return 0;
     Mover::Speed which{};
     if (!SpeedArg(L, 2, which)) {
-        Game::Lua::Error(L, "Usage: %s:GetMovementSpeed(\"walk\", \"run\", \"runBack\", \"swim\", \"swimBack\" or \"turn\")",
-                         actor->DisplayName());
-        return 0;
+        return MethodArg::Fail(L, 2, "Usage: self:GetMovementSpeed(\"walk\", \"run\", \"runBack\", \"swim\", \"swimBack\" or \"turn\")");
     }
     if (actor->mover == nullptr)
         return 0;
@@ -3111,7 +3252,7 @@ float ClampPivot(float height) {
 
 int __fastcall Script_GetCameraPivotHeight(void *L) {
     Actor *actor = Self(L);
-    if (actor == nullptr || !NumberArgs(L, 2, 1, actor->DisplayName(), "GetCameraPivotHeight(distance)"))
+    if (actor == nullptr || !NumberArgs(L, 2, 1, "Usage: self:GetCameraPivotHeight(distance)"))
         return 0;
     void *model = actor->model;
     if (model == nullptr || !M2::IsLoaded(model, 0, 0))
@@ -3155,7 +3296,7 @@ int __fastcall Script_GetCameraPivotHeight(void *L) {
 
 int __fastcall Script_SetPosition(void *L) {
     Actor *actor = Self(L);
-    if (actor == nullptr || !NumberArgs(L, 2, 3, actor->DisplayName(), "SetPosition(x, y, z)"))
+    if (actor == nullptr || !NumberArgs(L, 2, 3, "Usage: self:SetPosition(position)"))
         return 0;
     for (int i = 0; i < 3; ++i)
         actor->position[i] = FloatArg(L, 2 + i);
@@ -3176,9 +3317,10 @@ int __fastcall Script_GetPosition(void *L) {
 // The one-number setters and getters.
 int __fastcall Script_SetYaw(void *L) {
     Actor *actor = Self(L);
-    if (actor == nullptr || !NumberArgs(L, 2, 1, actor->DisplayName(), "SetYaw(yaw)"))
+    float yaw = 0.0f;
+    if (actor == nullptr || !MethodArg::Number(L, 2, "Usage: self:SetYaw(yaw)", yaw))
         return 0;
-    actor->yaw = FloatArg(L, 2);
+    actor->yaw = yaw;
     if (actor->mover != nullptr) {
         Advance(*actor);
         Mover::ClearSpline(*actor->mover); // MSG_MOVE_SET_FACING (case 0x10)
@@ -3187,16 +3329,19 @@ int __fastcall Script_SetYaw(void *L) {
     return 0;
 }
 
-constexpr char kUsageSetPitch[] = "SetPitch(pitch)";
-constexpr char kUsageSetRoll[] = "SetRoll(roll)";
-constexpr char kUsageSetScale[] = "SetScale(scale)";
+constexpr char kUsageSetPitch[] = "Usage: self:SetPitch(pitch)";
+constexpr char kUsageSetRoll[] = "Usage: self:SetRoll(roll)";
+constexpr char kUsageSetScale[] = "Usage: self:SetScale(scale)";
 
-template <float Actor::*Field, const char *Usage>
+float Unclamped(float v) { return v; }
+
+template <float Actor::*Field, const char *Usage, float (*Clamp)(float) = &Unclamped>
 int __fastcall SetFloat(void *L) {
     Actor *actor = Self(L);
-    if (actor == nullptr || !NumberArgs(L, 2, 1, actor->DisplayName(), Usage))
+    float value = 0.0f;
+    if (actor == nullptr || !MethodArg::Number(L, 2, Usage, value))
         return 0;
-    actor->*Field = FloatArg(L, 2);
+    actor->*Field = Clamp(value);
     return 0;
 }
 
@@ -3211,11 +3356,21 @@ int __fastcall GetFloat(void *L) {
 
 int __fastcall Script_SetAlpha(void *L) {
     Actor *actor = Self(L);
-    if (actor == nullptr || !NumberArgs(L, 2, 1, actor->DisplayName(), "SetAlpha(alpha)"))
+    float a = 0.0f;
+    if (actor == nullptr || !MethodArg::Number(L, 2, "Usage: self:SetAlpha(alpha)", a))
         return 0;
-    const float a = FloatArg(L, 2);
     actor->alpha = a < 0.0f ? 0.0f : (a > 1.0f ? 1.0f : a);
     actor->ApplyAlpha();
+    return 0;
+}
+
+// A finite number (0x140C57DB0, reader 0x140A6DF60), clamped by the store.
+int __fastcall Script_SetDesaturation(void *L) {
+    Actor *actor = Self(L);
+    float amount = 0.0f;
+    if (actor == nullptr || !MethodArg::Number(L, 2, "Usage: self:SetDesaturation(strength)", amount))
+        return 0;
+    actor->SetDesaturation(amount);
     return 0;
 }
 
@@ -3312,15 +3467,29 @@ int __fastcall Script_IsVisible(void *L) {
     return 1;
 }
 
+// SetAnimation (0x140C57A50): a non-number is the method's own error; the
+// animation is read as a uint16 and one at or past 1866 (0x74A, the end of
+// AnimationData) changes nothing; the variation is a number or -1; the speed
+// and the offset are luaL_optnumber's (1 and 0 when absent, an argument
+// error when not a number).
 int __fastcall Script_SetAnimation(void *L) {
     Actor *actor = Self(L);
-    if (actor == nullptr || !NumberArgs(L, 2, 1, actor->DisplayName(),
-                                        "SetAnimation(animation [, variation, animSpeed, animOffsetSeconds])"))
+    if (actor == nullptr)
         return 0;
-    actor->animation = static_cast<uint32_t>(Game::Lua::ToNumber(L, 2));
+    if (!Game::Lua::IsNumber(L, 2)) {
+        Game::Lua::RaiseClientMethodError(L, actor->DisplayName(), "SetAnimation", "Invalid animation type used");
+        return 0;
+    }
+    const auto animation = static_cast<uint16_t>(static_cast<int64_t>(Game::Lua::ToNumber(L, 2)));
+    float speed = 1.0f, offset = 0.0f;
+    if (!MethodArg::OptLuaNumber(L, 4, 1.0f, speed) || !MethodArg::OptLuaNumber(L, 5, 0.0f, offset))
+        return 0;
+    if (animation >= kAnimationEnd)
+        return 0;
+    actor->animation = animation;
     actor->variation = Game::Lua::IsNumber(L, 3) ? static_cast<int>(Game::Lua::ToNumber(L, 3)) : -1;
-    actor->animSpeed = Game::Lua::IsNumber(L, 4) ? FloatArg(L, 4) : 1.0f;
-    actor->animOffsetSec = Game::Lua::IsNumber(L, 5) ? FloatArg(L, 5) : 0.0f;
+    actor->animSpeed = speed;
+    actor->animOffsetSec = offset;
     actor->kitAnimation = -1; // the script's animation replaces a spell kit's
     actor->kitAnimationLoops = false;
     actor->kitLoopAnimation = -1;
@@ -3346,12 +3515,19 @@ int __fastcall Script_GetAnimationVariation(void *L) {
     return 1;
 }
 
+// The blend reader (0x140C625C0): an integer 0 (None) or 1 (Anim), else the
+// usage error. Stored only; the next animation blends by it.
 int __fastcall Script_SetAnimationBlendOperation(void *L) {
+    constexpr char kUsage[] = "Usage: self:SetAnimationBlendOperation(blendOp)";
     Actor *actor = Self(L);
-    if (actor == nullptr ||
-        !NumberArgs(L, 2, 1, actor->DisplayName(), "SetAnimationBlendOperation(blendOperation)"))
+    if (actor == nullptr)
         return 0;
-    actor->blendOperation = Game::Lua::ToNumber(L, 2) != 0.0 ? 1u : 0u;
+    if (!Game::Lua::IsNumber(L, 2))
+        return MethodArg::Fail(L, 2, kUsage);
+    const double v = std::trunc(Game::Lua::ToNumber(L, 2));
+    if (!(v >= 0.0 && v <= 1.0))
+        return MethodArg::Fail(L, 2, kUsage);
+    actor->blendOperation = static_cast<uint32_t>(v);
     return 0;
 }
 
@@ -3365,11 +3541,12 @@ int __fastcall Script_GetAnimationBlendOperation(void *L) {
 
 int __fastcall Script_SetSpellVisualKit(void *L) {
     Actor *actor = Self(L);
-    if (actor == nullptr)
+    int kitID = 0;
+    if (actor == nullptr ||
+        (!MethodArg::Missing(L, 2) &&
+         !MethodArg::Integer(L, 2, "Usage: self:SetSpellVisualKit([spellVisualKitID, oneShot])", kitID)))
         return 0;
-    const auto kitID =
-        Game::Lua::IsNumber(L, 2) ? static_cast<uint32_t>(Game::Lua::ToNumber(L, 2)) : 0u;
-    actor->SetSpellVisualKit(kitID, Game::Lua::ToBoolean(L, 3) != 0);
+    actor->SetSpellVisualKit(static_cast<uint32_t>(kitID), Game::Lua::ToBoolean(L, 3) != 0);
     return 0;
 }
 
@@ -3381,37 +3558,87 @@ int __fastcall Script_GetSpellVisualKit(void *L) {
     return 1;
 }
 
-// No animation kits in this client: nothing to play or stop.
-int __fastcall Script_AnimationKit(void *L) {
+// No animation kits in this client: nothing to play or stop. PlayAnimationKit
+// still reads its arguments (0x140C57600): the kit is a required int32.
+int __fastcall Script_PlayAnimationKit(void *L) {
+    Actor *actor = Self(L);
+    int kit = 0;
+    if (actor != nullptr)
+        MethodArg::Integer(L, 2, "Usage: self:PlayAnimationKit(animationKit [, isLooping])", kit);
+    return 0;
+}
+
+int __fastcall Script_StopAnimationKit(void *L) {
     Self(L);
     return 0;
 }
 
-// Six numbers, bottom x, y, z then top x, y, z (what the retail getters
-// return and ModelSceneActorMixin reads); nothing until the model loads.
-int PushBox(void *L, const float (&box)[6]) {
-    for (float v : box)
-        Game::Lua::PushNumber(L, v);
+// Six numbers, bottom x, y, z then top x, y, z, or six nils (the pusher
+// 0x140C624E0) without a model whose file has loaded or a valid box.
+int PushBox(void *L, const float (&box)[6], bool valid) {
+    for (float v : box) {
+        if (valid)
+            Game::Lua::PushNumber(L, v);
+        else
+            Game::Lua::PushNil(L);
+    }
     return 6;
 }
 
+bool FileLoaded(const Actor &actor) { return actor.model != nullptr && M2::IsLoaded(actor.model, 0, 0); }
+
 int __fastcall Script_GetActiveBoundingBox(void *L) {
     Actor *actor = Self(L);
-    if (actor == nullptr || !actor->loaded)
+    if (actor == nullptr)
         return 0;
-    float box[6];
-    M2::GetSequenceBounds(actor->model, actor->animation,
-                          actor->variation < 0 ? 0u : static_cast<uint32_t>(actor->variation), box);
-    return PushBox(L, box);
+    float box[6] = {};
+    const bool valid = FileLoaded(*actor) && ActiveBox(*actor, box);
+    return PushBox(L, box, valid);
 }
 
 int __fastcall Script_GetMaxBoundingBox(void *L) {
     Actor *actor = Self(L);
-    if (actor == nullptr || !actor->loaded)
+    if (actor == nullptr)
         return 0;
-    float box[6];
-    M2::GetBoundingBox(actor->model, box);
-    return PushBox(L, box);
+    float box[6] = {};
+    if (FileLoaded(*actor))
+        M2::GetBoundingBox(actor->model, box);
+    return PushBox(L, box, FileLoaded(*actor));
+}
+
+// SetPlayerModelFromGlues (0x140C59890): a character of the glue screen's
+// list, the selected one by default. The scene exists only in the world,
+// where no glue list is loaded, so every index is past the list and the
+// model setter (0x14194B090) gets no character: false.
+int __fastcall Script_SetPlayerModelFromGlues(void *L) {
+    constexpr char kUsage[] = "Usage: local success = self:SetPlayerModelFromGlues([characterIndex, sheatheWeapons, "
+                              "autoDress, hideWeapons, usePlayerNativeForm, customRaceID])";
+    Actor *actor = Self(L);
+    int value = 0;
+    if (actor == nullptr || (!MethodArg::Missing(L, 2) && !MethodArg::Integer(L, 2, kUsage, value)) ||
+        (!MethodArg::Missing(L, 7) && !MethodArg::Integer(L, 7, kUsage, value)))
+        return 0;
+    Game::Lua::PushBool(L, false);
+    return 1;
+}
+
+// SetPreferModelCollisionBounds (0x140C59E30): a required bool.
+int __fastcall Script_SetPreferModelCollisionBounds(void *L) {
+    Actor *actor = Self(L);
+    bool prefer = false;
+    if (actor == nullptr ||
+        !MethodArg::Bool(L, 2, "Usage: self:SetPreferModelCollisionBounds(preferCollisionBounds)", prefer))
+        return 0;
+    actor->preferModelCollisionBounds = prefer;
+    return 0;
+}
+
+int __fastcall Script_IsPreferringModelCollisionBounds(void *L) {
+    Actor *actor = Self(L);
+    if (actor == nullptr)
+        return 0;
+    Game::Lua::PushBool(L, actor->preferModelCollisionBounds);
+    return 1;
 }
 
 // Retail's Enum.ModelBlendOperation (ModelAnimationSharedDocumentation.lua);
@@ -3462,8 +3689,8 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
     {"UndressSlot", &Script_UndressSlot},
     {"TryOn", &Script_TryOn},
     {"DressPlayerSlot", &Script_DressPlayerSlot},
-    {"IsSlotAllowed", &Script_IsSlotAllowed},
-    {"IsSlotVisible", &Script_IsSlotAllowed},
+    {"IsSlotAllowed", &Script_IsSlotAllowed<kUsageIsSlotAllowed>},
+    {"IsSlotVisible", &Script_IsSlotAllowed<kUsageIsSlotVisible>},
     {"GetItemTransmogInfo", &Script_GetItemTransmogInfo},
     {"GetItemTransmogInfoList", &Script_GetItemTransmogInfoList},
     {"SetItemTransmogInfo", &Script_SetItemTransmogInfo},
@@ -3475,6 +3702,13 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
     {"UseUnitSheatheCategory", &Script_UseUnitSheatheCategory},
     {"SetAutoDress", &Script_SetAutoDress},
     {"GetAutoDress", &Script_GetAutoDress},
+    {"SetUseTransmogSkin", &SetTransmogFlag<&Actor::useTransmogSkin, kUsageSetUseTransmogSkin>},
+    {"GetUseTransmogSkin", &GetTransmogFlag<&Actor::useTransmogSkin>},
+    {"SetUseTransmogChoices", &SetTransmogFlag<&Actor::useTransmogChoices, kUsageSetUseTransmogChoices>},
+    {"GetUseTransmogChoices", &GetTransmogFlag<&Actor::useTransmogChoices>},
+    {"SetObeyHideInTransmogFlag", &SetTransmogFlag<&Actor::obeyHideInTransmogFlag, kUsageSetObeyHideInTransmogFlag>},
+    {"GetObeyHideInTransmogFlag", &GetTransmogFlag<&Actor::obeyHideInTransmogFlag>},
+    {"ResetNextHandSlot", &Script_ResetNextHandSlot},
     {"IsGeoReady", &Script_IsGeoReady},
     {"SetPaused", &Script_SetPaused},
     {"GetPaused", &Script_GetPaused},
@@ -3543,9 +3777,11 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
     {"GetPitch", &GetFloat<&Actor::pitch>},
     {"SetRoll", &SetFloat<&Actor::roll, kUsageSetRoll>},
     {"GetRoll", &GetFloat<&Actor::roll>},
-    {"SetScale", &SetFloat<&Actor::scale, kUsageSetScale>},
+    {"SetScale", &SetFloat<&Actor::scale, kUsageSetScale, &ClampScale>},
     {"GetScale", &GetFloat<&Actor::scale>},
     {"SetAlpha", &Script_SetAlpha},
+    {"SetDesaturation", &Script_SetDesaturation},
+    {"GetDesaturation", &GetFloat<&Actor::desaturation>},
     {"GetAlpha", &GetFloat<&Actor::alpha>},
     {"SetUseCenterForOrigin", &Script_SetUseCenterForOrigin},
     {"IsUsingCenterForOrigin", &Script_IsUsingCenterForOrigin},
@@ -3565,8 +3801,11 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
     {"GetAnimationBlendOperation", &Script_GetAnimationBlendOperation},
     {"SetSpellVisualKit", &Script_SetSpellVisualKit},
     {"GetSpellVisualKit", &Script_GetSpellVisualKit},
-    {"PlayAnimationKit", &Script_AnimationKit},
-    {"StopAnimationKit", &Script_AnimationKit},
+    {"PlayAnimationKit", &Script_PlayAnimationKit},
+    {"StopAnimationKit", &Script_StopAnimationKit},
+    {"SetPreferModelCollisionBounds", &Script_SetPreferModelCollisionBounds},
+    {"SetPlayerModelFromGlues", &Script_SetPlayerModelFromGlues},
+    {"IsPreferringModelCollisionBounds", &Script_IsPreferringModelCollisionBounds},
 };
 
 // ---- documentation --------------------------------------------------------------
@@ -3708,7 +3947,9 @@ const Game::Doc::Function kGetModelUnitGUID{"Returns the unit the actor shows.",
 const Game::Doc::Function kDress{"Dresses the actor in what its unit wears.", {}, {}};
 const Game::Doc::Function kUndress{"Takes everything off the actor.", kUndressArgs, {}};
 const Game::Doc::Function kUndressSlot{
-    "Takes the item in one inventory slot off the actor.", kUndressSlotArgs, {}};
+    "Takes the item in one armor slot or hand off the actor. The ranged slot, the neck, the rings and the "
+    "trinkets stay.",
+    kUndressSlotArgs, {}};
 const Game::Doc::Field kTryOnArgs[] = {
     Req("linkOrItemModifiedAppearanceID", "IDOrLink",
         "An item ID, item link, trade-skill recipe link, or the name of an item you carry."),
@@ -3727,12 +3968,15 @@ const Game::Doc::Field kDressSlotArgs[] = {
     Req("invSlot", "luaIndex", "An inventory slot, 1 (head) to 19 (tabard)."),
 };
 const Game::Doc::Function kDressPlayerSlot{
-    "Puts back what the actor's unit wears in one inventory slot.", kDressSlotArgs, {}};
+    "Puts back what the player wears in one inventory slot, on an actor that shows the player. The ranged "
+    "slot stays.",
+    kDressSlotArgs, {}};
 const Game::Doc::Field kSlotAllowedRet[] = {Req("allowed", "bool")};
 const Game::Doc::Field kSlotVisibleRet[] = {Req("visible", "bool")};
 const Game::Doc::Function kIsSlotAllowed{
-    "Returns whether the actor can wear an item in an inventory slot.", kUndressSlotArgs,
-    kSlotAllowedRet};
+    "Returns whether the actor can wear an item in an armor slot. False for the neck, the rings, the "
+    "trinkets, the hands and the ranged slot.",
+    kUndressSlotArgs, kSlotAllowedRet};
 const Game::Doc::Function kIsSlotVisible{
     "Returns whether an item in an inventory slot shows on the actor. Same as IsSlotAllowed.",
     kUndressSlotArgs, kSlotVisibleRet};
@@ -3742,7 +3986,8 @@ const Game::Doc::Field kTransmogInfoRet[] = {
         "weapon shows. Nil when the actor shows no model."),
 };
 const Game::Doc::Function kGetItemTransmogInfo{
-    "Returns what the actor wears in one inventory slot.", kUndressSlotArgs, kTransmogInfoRet};
+    "Returns what the actor wears in one inventory slot, or nothing when it wears nothing there.",
+    kUndressSlotArgs, kTransmogInfoRet};
 const Game::Doc::Field kTransmogInfoListRet[] = {
     Req("infoList", "table", "An ItemTransmogInfo for each inventory slot 1 to 19."),
 };
@@ -3755,8 +4000,8 @@ const Game::Doc::Field kSetTransmogInfoArgs[] = {
     Opt("ignoreChildItems", "bool", "false", "Has no effect."),
 };
 const Game::Doc::Function kSetItemTransmogInfo{
-    "Puts an item on the actor, as TryOn does. Shows no error. An appearanceID of 0 changes "
-    "nothing.",
+    "Puts an item on the actor, as TryOn does, and returns Success or NotEquippable. An item that is still "
+    "loading goes on when it arrives. Shows no error. An appearanceID of 0 changes nothing.",
     kSetTransmogInfoArgs, kTryOnRet};
 const Game::Doc::Function kSetSheathed{
     "Puts the held items in the hands or the sheaths, or hides them.", kSheathedArgs, {}};
@@ -3782,6 +4027,23 @@ const Game::Doc::Function kSetAutoDress{
     "Sets whether SetModelByUnit dresses the actor.", kAutoDressArg, {}};
 const Game::Doc::Function kGetAutoDress{
     "Returns whether SetModelByUnit dresses the actor.", {}, kAutoDressRet};
+const Game::Doc::Field kUseArg[] = {Req("use", "bool")};
+const Game::Doc::Field kUseRet[] = {Req("use", "bool")};
+const Game::Doc::Field kObeyArg[] = {Req("obey", "bool")};
+const Game::Doc::Field kObeyRet[] = {Req("obey", "bool")};
+const Game::Doc::Function kSetUseTransmogSkin{"Stores the flag. It changes nothing in this client.", kUseArg, {}};
+const Game::Doc::Function kGetUseTransmogSkin{"Returns the flag SetUseTransmogSkin stores.", {}, kUseRet};
+const Game::Doc::Function kSetUseTransmogChoices{"Stores the flag. It changes nothing in this client.", kUseArg,
+                                                 {}};
+const Game::Doc::Function kGetUseTransmogChoices{"Returns the flag SetUseTransmogChoices stores.", {}, kUseRet};
+const Game::Doc::Function kSetObeyHideInTransmogFlag{"Stores the flag. It changes nothing in this client.",
+                                                     kObeyArg, {}};
+const Game::Doc::Function kGetObeyHideInTransmogFlag{"Returns the flag SetObeyHideInTransmogFlag stores.", {},
+                                                     kObeyRet};
+const Game::Doc::Function kResetNextHandSlot{
+    "Lets the next one-handed weapon go in the off hand when the main hand holds one, else in the main hand. "
+    "Each try-on already chooses its hand this way.",
+    {}, {}};
 const Game::Doc::Function kIsGeoReady{
     "Returns whether the model and the item models on it have loaded.", {}, kGeoReadyRet};
 
@@ -3796,11 +4058,12 @@ const Game::Doc::Field kMountScaleRet[] = {
     Req("scale", "number", "The rider fits the mount at 1 over this scale."),
 };
 const Game::Doc::Function kAttachToMount{
-    "Seats the rider on this actor. False when either actor shows no model.",
+    "Seats the rider on this actor. An animation of 0 plays the seat pose (91). Without a kit, the rider's "
+    "kit is cleared. False when either actor shows no model, or this actor cannot hold the rider.",
     kAttachToMountArgs, kMountSuccessRet};
 const Game::Doc::Function kDetachFromMount{
-    "Takes the rider off this actor. The rider keeps its animation. False when the rider is "
-    "not seated on this actor.",
+    "Takes the rider off the mount it sits on. The rider keeps its animation. False when either actor "
+    "shows no model.",
     kRiderArg, kMountSuccessRet};
 const Game::Doc::Function kCalculateMountScale{
     "Returns the size of this mount relative to the rider: the scale of its creature display.",
@@ -4126,8 +4389,12 @@ const Game::Doc::Function kDetachFromActor{
     kMountSuccessRet, nullptr, true};
 
 const Game::Doc::Function kSetModelByCreatureDisplayID{
-    "Shows a creature display, dressed like the creature.", kDisplayArgs, kSuccessRet};
-const Game::Doc::Function kSetModelByPath{"Shows a model file.", kPathArgs, kSuccessRet};
+    "Shows a creature display, dressed like the creature. False, with the old model kept, for a display "
+    "without a model.",
+    kDisplayArgs, kSuccessRet};
+const Game::Doc::Function kSetModelByPath{
+    "Shows a model file. False, with the old model kept, when the file makes no model.", kPathArgs,
+    kSuccessRet};
 const Game::Doc::Field kCharacterAppearanceFields[] = {
     Req("raceID", "number"),
     Req("sex", "number", "0 male, 1 female."),
@@ -4238,24 +4505,36 @@ const Game::Doc::Function kPlayParryAnimation{
 const Game::Doc::Function kSetGameObjectState{
     "Shows a game object model in a state, as the world animates a door or a chest when its state changes.",
     kGameObjectStateArgs, {}, nullptr, true};
-const Game::Doc::Function kClearModel{"Removes the model.", {}, {}};
-const Game::Doc::Function kIsLoaded{"Returns whether the model has loaded.", {}, kLoadedRet};
+const Game::Doc::Function kClearModel{
+    "Removes the model. OnModelCleared runs, with a model or without.", {}, {}};
+const Game::Doc::Function kIsLoaded{
+    "Returns whether the model's file has loaded. Its dress and items can still be loading.", {}, kLoadedRet};
 const Game::Doc::Function kGetModelPath{"Returns the file of the model.", {}, kPathRet};
-const Game::Doc::Function kSetPosition{"Moves the actor in the scene.", kXYZArgs, {}};
-const Game::Doc::Function kGetPosition{"Returns where the actor stands.", {}, kXYZRets};
+const Game::Doc::Function kSetPosition{
+    "Moves the actor in the scene. The model stands at the position times the actor's scale.", kXYZArgs, {}};
+const Game::Doc::Function kGetPosition{"Returns the position SetPosition set.", {}, kXYZRets};
 const Game::Doc::Function kSetYaw{"Turns the actor about the up axis.", kYawArg, {}};
 const Game::Doc::Function kGetYaw{"Returns the yaw.", {}, kYawRet};
 const Game::Doc::Function kSetPitch{"Tilts the actor.", kPitchArg, {}};
 const Game::Doc::Function kGetPitch{"Returns the pitch.", {}, kPitchRet};
 const Game::Doc::Function kSetRoll{"Rolls the actor.", kRollArg, {}};
 const Game::Doc::Function kGetRoll{"Returns the roll.", {}, kRollRet};
-const Game::Doc::Function kSetScale{"Sets the size.", kScaleArg, {}};
+const Game::Doc::Function kSetScale{
+    "Sets the size, at least 0.01. The position scales with it.", kScaleArg, {}};
 const Game::Doc::Function kGetScale{"Returns the size.", {}, kScaleRet};
 const Game::Doc::Function kSetAlpha{"Sets the opacity.", kAlphaArg, {}};
+const Game::Doc::Field kStrengthArg[] = {Req("strength", "number", "0 to 1.")};
+const Game::Doc::Field kStrengthRet[] = {Req("strength", "number")};
+const Game::Doc::Function kSetDesaturation{
+    "Sets how much color is removed from the model and the models attached to it. 0 shows full color, 1 "
+    "shows gray.",
+    kStrengthArg, {}};
+const Game::Doc::Function kGetDesaturation{"Returns the strength that SetDesaturation stores.", {}, kStrengthRet};
 const Game::Doc::Function kGetAlpha{"Returns the opacity.", {}, kAlphaRet};
 const Game::Doc::Function kSetUseCenterForOrigin{
-    "Sets on which axes the centre of the model stands at the actor position.", kCenterArgs,
-    {}};
+    "Sets on which axes the centre of the model stands at the actor position. The centre is the one the model "
+    "had when it loaded; a later animation does not move it.",
+    kCenterArgs, {}};
 const Game::Doc::Function kIsUsingCenterForOrigin{
     "Returns on which axes the centre of the model stands at the actor position.", {},
     kCenterRets};
@@ -4279,10 +4558,26 @@ const Game::Doc::Function kGetAnimation{"Returns the animation.", {}, kAnimation
 const Game::Doc::Function kGetAnimationVariation{"Returns the animation variation.", {},
                                                  kVariationRet};
 const Game::Doc::Function kGetActiveBoundingBox{
-    "Returns the bounds of the model in its current animation. Nothing until it loads.", {},
-    kBoxRets};
+    "Returns the bounds of the model in its current animation, or its collision box while "
+    "SetPreferModelCollisionBounds is on and it has one. Six nils until the model's file loads.",
+    {}, kBoxRets};
 const Game::Doc::Function kGetMaxBoundingBox{
-    "Returns the overall bounds of the model. Nothing until it loads.", {}, kBoxRets};
+    "Returns the overall bounds of the model. Six nils until the model's file loads.", {}, kBoxRets};
+const Game::Doc::Field kPreferCollisionArg[] = {Req("preferCollisionBounds", "bool")};
+const Game::Doc::Field kPreferCollisionRet[] = {Req("preferringCollisionBounds", "bool")};
+const Game::Doc::Field kGluesArgs[] = {
+    Opt("characterIndex", "number"),       Opt("sheatheWeapons", "bool", "false"),
+    Opt("autoDress", "bool", "true"),      Opt("hideWeapons", "bool", "false"),
+    Opt("usePlayerNativeForm", "bool", "true"), Opt("customRaceID", "number"),
+};
+const Game::Doc::Function kSetPlayerModelFromGlues{
+    "Shows a character of the character select list. The scene exists only in the world, where that list is "
+    "not loaded, so it returns false.",
+    kGluesArgs, kSuccessRet};
+const Game::Doc::Function kSetPreferModelCollisionBounds{
+    "Sets whether GetActiveBoundingBox gives the model's collision box.", kPreferCollisionArg, {}};
+const Game::Doc::Function kIsPreferringModelCollisionBounds{
+    "Returns whether GetActiveBoundingBox gives the model's collision box.", {}, kPreferCollisionRet};
 
 const Game::Doc::Field kObjectTypeRets[] = {
     Game::Doc::Req("objectType", "cstring"),
@@ -4380,6 +4675,13 @@ const Game::Doc::Method kMethodDocs[] = {
     {"UseUnitSheatheCategory", &kUseUnitSheatheCategory},
     {"SetAutoDress", &kSetAutoDress},
     {"GetAutoDress", &kGetAutoDress},
+    {"SetUseTransmogSkin", &kSetUseTransmogSkin},
+    {"GetUseTransmogSkin", &kGetUseTransmogSkin},
+    {"SetUseTransmogChoices", &kSetUseTransmogChoices},
+    {"GetUseTransmogChoices", &kGetUseTransmogChoices},
+    {"SetObeyHideInTransmogFlag", &kSetObeyHideInTransmogFlag},
+    {"GetObeyHideInTransmogFlag", &kGetObeyHideInTransmogFlag},
+    {"ResetNextHandSlot", &kResetNextHandSlot},
     {"IsGeoReady", &kIsGeoReady},
     {"SetPaused", &kSetPaused},
     {"GetPaused", &kGetPaused},
@@ -4439,6 +4741,9 @@ const Game::Doc::Method kMethodDocs[] = {
     {"GetMovementSpeed", &kGetMovementSpeed},
     {"ClearModel", &kClearModel},
     {"IsLoaded", &kIsLoaded},
+    {"SetPreferModelCollisionBounds", &kSetPreferModelCollisionBounds},
+    {"SetPlayerModelFromGlues", &kSetPlayerModelFromGlues},
+    {"IsPreferringModelCollisionBounds", &kIsPreferringModelCollisionBounds},
     {"GetModelPath", &kGetModelPath},
     {"SetPosition", &kSetPosition},
     {"GetPosition", &kGetPosition},
@@ -4451,6 +4756,8 @@ const Game::Doc::Method kMethodDocs[] = {
     {"SetScale", &kSetScale},
     {"GetScale", &kGetScale},
     {"SetAlpha", &kSetAlpha},
+    {"SetDesaturation", &kSetDesaturation},
+    {"GetDesaturation", &kGetDesaturation},
     {"GetAlpha", &kGetAlpha},
     {"SetUseCenterForOrigin", &kSetUseCenterForOrigin},
     {"IsUsingCenterForOrigin", &kIsUsingCenterForOrigin},

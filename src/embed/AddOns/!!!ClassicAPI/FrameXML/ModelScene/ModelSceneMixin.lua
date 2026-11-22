@@ -1,5 +1,4 @@
--- Backport of retail's Blizzard_SharedXML/ModelSceneMixin.lua, verbatim except where
--- marked "ClassicAPI:".
+-- Verbatim backport of the 3.80.2 client's Blizzard_SharedXML/ModelSceneMixin.lua.
 
 
 ModelSceneMixin = {}
@@ -330,11 +329,7 @@ end
 function ModelSceneMixin:OnUpdate(elapsed)
 	if self.activeCamera then
 		local yawDirection = self.yawDirection;
-		-- ClassicAPI: retail turns by the increment every frame, which spins
-		-- several times faster at this client's uncapped frame rates. The
-		-- increment counts per 1/60 s here: 0.05 is 3 rad/s, the speed of
-		-- 1.12's own rotate buttons (ROTATIONS_PER_SECOND, pi rad/s).
-		local increment = self.increment and self.increment * elapsed * 60;
+		local increment = self.increment;
 		if yawDirection == "left" then
 			self.activeCamera:AdjustYaw(-1, -1, increment);
 		elseif yawDirection == "right" then

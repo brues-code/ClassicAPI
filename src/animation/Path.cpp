@@ -21,7 +21,7 @@
 // SMOOTH curve a Catmull-Rom spline. The offset goes through the same
 // AddAnimTranslation as a Translation.
 
-#include "animation/Args.h"
+#include "lua/MethodArg.h"
 #include "animation/Classes.h"
 #include "animation/Region.h"
 #include "animation/Xml.h"
@@ -38,6 +38,8 @@
 #include <cstring>
 
 namespace Animation {
+
+namespace MethodArg = Game::Lua::MethodArg;
 
 // ---- CSimpleControlPoint ------------------------------------------------------------
 
@@ -319,9 +321,9 @@ int __fastcall Script_SetCurveType(void *L) {
     if (path == nullptr)
         return 0;
     constexpr char kUsage[] = "Usage: self:SetCurveType(curveType)";
-    const char *text = Args::String(L, 2, kUsage);
+    const char *text = MethodArg::String(L, 2, kUsage);
     if (text != nullptr && !StringToCurve(text, path->curve))
-        Args::Fail(L, 2, kUsage);
+        MethodArg::Fail(L, 2, kUsage);
     return 0;
 }
 
@@ -368,14 +370,14 @@ int __fastcall Script_CreateControlPoint(void *L) {
         return 0;
     constexpr char kUsage[] = "Usage: local point = self:CreateControlPoint([name, templateName, order])";
     bool ok;
-    const char *name = Args::OptString(L, 2, kUsage, ok);
+    const char *name = MethodArg::OptString(L, 2, kUsage, ok);
     if (!ok)
         return 0;
-    const char *inherits = Args::OptString(L, 3, kUsage, ok);
+    const char *inherits = MethodArg::OptString(L, 3, kUsage, ok);
     if (!ok)
         return 0;
     int order = -1;
-    if (!Args::Missing(L, 4) && !Args::Integer(L, 4, kUsage, order))
+    if (!MethodArg::Missing(L, 4) && !MethodArg::Integer(L, 4, kUsage, order))
         return 0;
     const void *templateNode = nullptr;
     if (inherits != nullptr) {
@@ -404,7 +406,7 @@ int __fastcall Script_PointSetParent(void *L) {
     if (point == nullptr)
         return 0;
     const char *name = point->Name();
-    if (Args::Missing(L, 2)) {
+    if (MethodArg::Missing(L, 2)) {
         Game::Lua::RaiseClientMethodError(L, name, "SetParent", "Cannot set a 'nil' parent");
         return 0;
     }
@@ -441,9 +443,9 @@ int __fastcall Script_PointSetParent(void *L) {
         return 0;
     }
     const int oldOrder = point->order;
-    if (!Args::Missing(L, 3)) {
+    if (!MethodArg::Missing(L, 3)) {
         int order;
-        if (!Args::Integer(L, 3, "Usage: self:SetParent(parent [, order])", order))
+        if (!MethodArg::Integer(L, 3, "Usage: self:SetParent(parent [, order])", order))
             return 0;
         point->SetOrder(order, false, false);
     } else {
@@ -464,7 +466,7 @@ int __fastcall Script_PointSetOffset(void *L) {
         return 0;
     constexpr char kUsage[] = "Usage: self:SetOffset(offsetX, offsetY)";
     float x, y;
-    if (!Args::RawNumber(L, 2, kUsage, x) || !Args::RawNumber(L, 3, kUsage, y))
+    if (!MethodArg::RawNumber(L, 2, kUsage, x) || !MethodArg::RawNumber(L, 3, kUsage, y))
         return 0;
     point->SetOffset(Game::PixelToInternal(x), Game::PixelToInternal(y));
     return 0;
@@ -482,7 +484,7 @@ int __fastcall Script_PointGetOffset(void *L) {
 int __fastcall Script_PointSetOrder(void *L) {
     ControlPoint *point = PointSelf(L);
     int order;
-    if (point != nullptr && Args::Integer(L, 2, "Usage: self:SetOrder(order)", order))
+    if (point != nullptr && MethodArg::Integer(L, 2, "Usage: self:SetOrder(order)", order))
         point->SetOrder(order, true, false);
     return 0;
 }

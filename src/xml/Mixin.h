@@ -25,6 +25,10 @@ namespace Xml::Mixin {
 void ApplyChain(void *L, int index, const void *node, void *status, const char *owner,
                 bool listInherits);
 
+// Mixes in `node`'s own mixins only, not its templates': for a loader that
+// walks the inherits chain itself (the model scene actor's).
+void ApplyOwn(void *L, int index, const void *node, void *status, const char *owner);
+
 // For a loader hook that the engine re-enters for each inherited template:
 // Begin before the engine loads `node`, End after. Only the object's
 // outermost load applies the chain, so every mixin is in place before any

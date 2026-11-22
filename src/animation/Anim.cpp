@@ -27,9 +27,9 @@
 //
 // The Lua methods and their arguments follow the 3.80.2 client's tables
 // (0x14458F560 and the subclasses'), read as its generated bindings read
-// them (Args.h).
+// them (lua/MethodArg.h).
 
-#include "animation/Args.h"
+#include "lua/MethodArg.h"
 #include "animation/Classes.h"
 #include "animation/Region.h"
 #include "animation/Xml.h"
@@ -50,6 +50,8 @@
 #include <vector>
 
 namespace Animation {
+
+namespace MethodArg = Game::Lua::MethodArg;
 
 namespace {
 
@@ -478,7 +480,7 @@ int __fastcall Script_Restart(void *L) {
 int __fastcall Script_SetPlaying(void *L) {
     Anim *a = Self(L);
     bool play;
-    if (a == nullptr || !Args::Bool(L, 2, "Usage: self:SetPlaying(play)", play))
+    if (a == nullptr || !MethodArg::Bool(L, 2, "Usage: self:SetPlaying(play)", play))
         return 0;
     if (play)
         a->Play();
@@ -524,8 +526,8 @@ int __fastcall Script_GetOrder(void *L) { return PushNumberOf(L, [](Anim *a) { r
 void SetTiming(void *L, void (Anim::*set)(float, bool), const char *usage) {
     Anim *a = Self(L);
     float value;
-    if (a != nullptr && Args::Number(L, 2, usage, value))
-        (a->*set)(value, Args::OptBool(L, 3, true));
+    if (a != nullptr && MethodArg::Number(L, 2, usage, value))
+        (a->*set)(value, MethodArg::OptBool(L, 3, true));
 }
 int __fastcall Script_SetStartDelay(void *L) {
     SetTiming(L, &Anim::SetStartDelay, "Usage: self:SetStartDelay(delaySec [, recomputeGroupDuration])");
@@ -542,7 +544,7 @@ int __fastcall Script_SetDuration(void *L) {
 int __fastcall Script_SetSmoothProgress(void *L) {
     Anim *a = Self(L);
     float value;
-    if (a != nullptr && Args::Number(L, 2, "Usage: self:SetSmoothProgress(durationSec)", value))
+    if (a != nullptr && MethodArg::Number(L, 2, "Usage: self:SetSmoothProgress(durationSec)", value))
         a->smoothProgress = value;
     return 0;
 }
@@ -550,7 +552,7 @@ int __fastcall Script_SetSmoothProgress(void *L) {
 int __fastcall Script_SetOrder(void *L) {
     Anim *a = Self(L);
     int value;
-    if (a != nullptr && Args::Integer(L, 2, "Usage: self:SetOrder(newOrder)", value) && a->parent != nullptr)
+    if (a != nullptr && MethodArg::Integer(L, 2, "Usage: self:SetOrder(newOrder)", value) && a->parent != nullptr)
         a->SetOrder(value, true, false);
     return 0;
 }
@@ -560,12 +562,12 @@ int __fastcall Script_SetSmoothing(void *L) {
     if (a == nullptr)
         return 0;
     constexpr char kUsage[] = "Usage: self:SetSmoothing(weights)";
-    const char *text = Args::String(L, 2, kUsage);
+    const char *text = MethodArg::String(L, 2, kUsage);
     float in, out;
     if (text == nullptr)
         return 0;
     if (!StringToSmoothWeights(text, in, out)) {
-        Args::Fail(L, 2, kUsage);
+        MethodArg::Fail(L, 2, kUsage);
         return 0;
     }
     a->SetSmoothing(in, out);
@@ -588,7 +590,7 @@ int __fastcall Script_SetParent(void *L) {
     if (a == nullptr)
         return 0;
     const char *name = a->Name();
-    if (Args::Missing(L, 2)) {
+    if (MethodArg::Missing(L, 2)) {
         Game::Lua::RaiseClientMethodError(L, name, "SetParent", "Cannot set a 'nil' parent");
         return 0;
     }
@@ -624,7 +626,7 @@ int __fastcall Script_SetParent(void *L) {
     }
     const int oldOrder = a->order;
     int order = a->order;
-    if (!Args::Missing(L, 3) && !Args::Integer(L, 3, "Usage: self:SetParent(parent [, order])", order))
+    if (!MethodArg::Missing(L, 3) && !MethodArg::Integer(L, 3, "Usage: self:SetParent(parent [, order])", order))
         return 0;
     a->SetOrder(order, false, false);
     if (!a->ChangeParent(group) && oldOrder != a->order)
@@ -664,7 +666,7 @@ int __fastcall Script_SetTarget(void *L) {
     constexpr char kUsage[] = "Usage: local success = self:SetTarget(target)";
     void *object = Game::Lua::Type(L, 2) == Game::Lua::TYPE_TABLE ? Game::Lua::ResolveObject(L, 2) : nullptr;
     if (object == nullptr) {
-        Args::Fail(L, 2, kUsage);
+        MethodArg::Fail(L, 2, kUsage);
         return 0;
     }
     if (IsOurs(object) || !Game::Lua::IsA(object, Offsets::VAR_REGION_LUA_TYPE_ID)) {
@@ -680,7 +682,7 @@ int __fastcall Script_SetTarget(void *L) {
 }
 int __fastcall Script_SetTargetName(void *L) {
     Anim *a = Self(L);
-    const char *name = a != nullptr ? Args::String(L, 2, "Usage: local success = self:SetTargetName(name)") : nullptr;
+    const char *name = a != nullptr ? MethodArg::String(L, 2, "Usage: local success = self:SetTargetName(name)") : nullptr;
     if (name == nullptr)
         return 0;
     std::snprintf(a->targetName, sizeof(a->targetName), "%s", CreateName(name, a).c_str());
@@ -691,7 +693,7 @@ int __fastcall Script_SetTargetName(void *L) {
 }
 int __fastcall Script_SetTargetKey(void *L) {
     Anim *a = Self(L);
-    const char *key = a != nullptr ? Args::String(L, 2, "Usage: local success = self:SetTargetKey(key)") : nullptr;
+    const char *key = a != nullptr ? MethodArg::String(L, 2, "Usage: local success = self:SetTargetKey(key)") : nullptr;
     if (key == nullptr)
         return 0;
     a->targetName[0] = '\0';
@@ -703,7 +705,7 @@ int __fastcall Script_SetTargetKey(void *L) {
 int __fastcall Script_SetChildKey(void *L) {
     Anim *a = Self(L);
     const char *key =
-        a != nullptr ? Args::String(L, 2, "Usage: local success = self:SetChildKey(childKey)") : nullptr;
+        a != nullptr ? MethodArg::String(L, 2, "Usage: local success = self:SetChildKey(childKey)") : nullptr;
     if (key == nullptr)
         return 0;
     a->targetName[0] = '\0';
@@ -742,7 +744,7 @@ int __fastcall Script_GetTarget(void *L) {
 void SetAlphaEnd(void *L, uint8_t Anim::*end, const char *usage) {
     Anim *a = SelfOf(L, Anim::s_alphaClass);
     float value;
-    if (a == nullptr || !Args::Number(L, 2, usage, value))
+    if (a == nullptr || !MethodArg::Number(L, 2, usage, value))
         return;
     value = value < 0.0f ? 0.0f : (value > 1.0f ? 1.0f : value);
     a->*end = static_cast<uint8_t>(static_cast<int>(value * 255.0f));
@@ -770,7 +772,7 @@ int __fastcall Script_GetFromAlpha(void *L) { return GetAlphaEnd(L, &Anim::fromA
 int __fastcall Script_SetChange(void *L) {
     Anim *a = SelfOf(L, Anim::s_alphaClass);
     float change;
-    if (a == nullptr || !Args::Number(L, 2, "Usage: self:SetChange(change)", change))
+    if (a == nullptr || !MethodArg::Number(L, 2, "Usage: self:SetChange(change)", change))
         return 0;
     change = change < -1.0f ? -1.0f : (change >= 1.0f ? 1.0f : change);
     a->change = static_cast<int16_t>(change * 255.0f);
@@ -794,7 +796,7 @@ int __fastcall Script_SetOffset(void *L) {
         return 0;
     constexpr char kUsage[] = "Usage: self:SetOffset(offsetX, offsetY)";
     float x, y;
-    if (!Args::RawNumber(L, 2, kUsage, x) || !Args::RawNumber(L, 3, kUsage, y))
+    if (!MethodArg::RawNumber(L, 2, kUsage, x) || !MethodArg::RawNumber(L, 3, kUsage, y))
         return 0;
     x = Game::PixelToInternal(x);
     y = Game::PixelToInternal(y);
@@ -830,16 +832,16 @@ int __fastcall Script_SetOrigin(void *L) {
     if (a == nullptr)
         return 0;
     constexpr char kUsage[] = "Usage: self:SetOrigin(point, origin)";
-    const char *pointName = Args::String(L, 2, kUsage);
+    const char *pointName = MethodArg::String(L, 2, kUsage);
     if (pointName == nullptr)
         return 0;
     int point = Offsets::FRAMEPOINT_CENTER;
     if (!Frame::Layout::StringToPoint(pointName, &point)) {
-        Args::Fail(L, 2, kUsage);
+        MethodArg::Fail(L, 2, kUsage);
         return 0;
     }
     float x, y;
-    if (!Args::RawNumber(L, 3, kUsage, x) || !Args::RawNumber(L, 4, kUsage, y))
+    if (!MethodArg::RawNumber(L, 3, kUsage, x) || !MethodArg::RawNumber(L, 4, kUsage, y))
         return 0;
     a->originPoint = point;
     a->originX = Game::PixelToInternal(x);
@@ -865,7 +867,7 @@ int __fastcall Script_GetOrigin(void *L) {
 
 bool ScaleArgs(void *L, Anim *&a, const char *usage, float &x, float &y) {
     a = SelfOf(L, Anim::s_scaleClass);
-    if (a == nullptr || !Args::RawNumber(L, 2, usage, x) || !Args::RawNumber(L, 3, usage, y))
+    if (a == nullptr || !MethodArg::RawNumber(L, 2, usage, x) || !MethodArg::RawNumber(L, 3, usage, y))
         return false;
     x = x >= 0.001f ? x : 0.001f;
     y = y >= 0.001f ? y : 0.001f;
@@ -925,7 +927,7 @@ int __fastcall Script_GetScaleTo(void *L) {
 int __fastcall Script_SetDegrees(void *L) {
     Anim *a = SelfOf(L, Anim::s_rotationClass);
     float angle;
-    if (a != nullptr && Args::Number(L, 2, "Usage: self:SetDegrees(angle)", angle))
+    if (a != nullptr && MethodArg::Number(L, 2, "Usage: self:SetDegrees(angle)", angle))
         a->radians = angle * 0.017453292f;
     return 0;
 }
@@ -939,7 +941,7 @@ int __fastcall Script_GetDegrees(void *L) {
 int __fastcall Script_SetRadians(void *L) {
     Anim *a = SelfOf(L, Anim::s_rotationClass);
     float angle;
-    if (a != nullptr && Args::Number(L, 2, "Usage: self:SetRadians(angle)", angle))
+    if (a != nullptr && MethodArg::Number(L, 2, "Usage: self:SetRadians(angle)", angle))
         a->radians = angle;
     return 0;
 }
@@ -957,7 +959,7 @@ int __fastcall Script_GetRadians(void *L) {
 // (FUN_140A6D740), clamped to 0..1 and kept as BGRA.
 bool ColorArg(void *L, int idx, const char *usage, uint32_t &bgra) {
     if (Game::Lua::Type(L, idx) != Game::Lua::TYPE_TABLE)
-        return Args::Fail(L, idx, usage);
+        return MethodArg::Fail(L, idx, usage);
     const char *const keys[] = {"b", "g", "r", "a"};
     uint32_t packed = 0;
     for (int i = 0; i < 4; ++i) {
@@ -967,7 +969,7 @@ bool ColorArg(void *L, int idx, const char *usage, uint32_t &bgra) {
         const double v = number ? Game::Lua::ToNumber(L, -1) : 0.0;
         Game::Lua::SetTop(L, -2);
         if (!number || !std::isfinite(v))
-            return Args::Fail(L, idx, usage);
+            return MethodArg::Fail(L, idx, usage);
         const double c = v < 0.0 ? 0.0 : (v > 1.0 ? 1.0 : v);
         packed |= static_cast<uint32_t>(std::lround(c * 255.0)) << (i * 8);
     }
@@ -1015,14 +1017,14 @@ void SetFlipValue(void *L, uint32_t Anim::*field, const char *usage) {
     if (a == nullptr)
         return;
     if (!Game::Lua::IsNumber(L, 2)) {
-        Args::Fail(L, 2, usage);
+        MethodArg::Fail(L, 2, usage);
         return;
     }
     const double v = Game::Lua::ToNumber(L, 2);
     if (!(v >= 0.0 && v <= 4294967295.0)) {
         char detail[96];
         std::snprintf(detail, sizeof detail, "outside of expected range %u to %u", 0u, 4294967295u);
-        Args::Fail(L, 2, usage, detail);
+        MethodArg::Fail(L, 2, usage, detail);
         return;
     }
     a->*field = static_cast<uint32_t>(v);
@@ -1068,7 +1070,7 @@ int __fastcall Script_SetTexCoordOffset(void *L) {
         return 0;
     constexpr char kUsage[] = "Usage: self:SetOffset(offsetU, offsetV)";
     float u, v;
-    if (!Args::Number(L, 2, kUsage, u) || !Args::Number(L, 3, kUsage, v))
+    if (!MethodArg::Number(L, 2, kUsage, u) || !MethodArg::Number(L, 3, kUsage, v))
         return 0;
     const bool zero = u * u + v * v <= 0.00000023841858f;
     a->texOffsetU = zero ? 0.0f : u;
@@ -1208,13 +1210,13 @@ int __fastcall Script_CreateAnimation(void *L) {
         return 0;
     constexpr char kUsage[] = "Usage: local anim = self:CreateAnimation([animationType, name, templateName])";
     bool ok;
-    const char *type = Args::OptString(L, 2, kUsage, ok);
+    const char *type = MethodArg::OptString(L, 2, kUsage, ok);
     if (!ok)
         return 0;
-    const char *name = Args::OptString(L, 3, kUsage, ok);
+    const char *name = MethodArg::OptString(L, 3, kUsage, ok);
     if (!ok)
         return 0;
-    const char *inherits = Args::OptString(L, 4, kUsage, ok);
+    const char *inherits = MethodArg::OptString(L, 4, kUsage, ok);
     if (!ok)
         return 0;
     const void *templateNode = nullptr;

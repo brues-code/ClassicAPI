@@ -165,9 +165,9 @@ void ShowOne(Actor &actor, AuraVisual &aura) {
     const auto sound = Game::Read<int32_t>(aura.kit, Offsets::OFF_SPELLVISUALKIT_SOUND);
     if (Sounds::KitLoops(sound)) {
         aura.loopSoundID = sound;
-        aura.loopSound = Sounds::Loop(frame, sound, actor.position);
+        aura.loopSound = Sounds::Loop(frame, sound, actor.Origin().p);
     } else if (sound > 0) {
-        Sounds::Play(frame, sound, actor.position);
+        Sounds::Play(frame, sound, actor.Origin().p);
     }
     const uint8_t *effect =
         DBC::Record(Offsets::VAR_SPELLVISUALEFFECTNAME_RECORDS, Offsets::VAR_SPELLVISUALEFFECTNAME_COUNT,
@@ -180,7 +180,7 @@ void ShowOne(Actor &actor, AuraVisual &aura) {
         return;
     aura.worldEffect = planted;
     for (int i = 0; i < 3; ++i)
-        aura.worldPosition[i] = actor.position[i];
+        aura.worldPosition[i] = actor.Origin().p[i];
     aura.worldYaw = actor.ShownYaw();
     aura.worldScale = actor.scale > 0.0f ? actor.scale : 1.0f;
     LightAsEntity(planted, aura.worldLight, frame);
@@ -321,7 +321,7 @@ void ApplyColors(Actor &actor) {
 // The world has no pause; a paused scene (or actor) silences the loops, which
 // start again when the pause ends, as a hidden scene's do when it shows.
 void Update(Actor &actor, float elapsedSec) {
-    const bool held = IsPaused(actor.SceneFrame()) || actor.paused || actor.globalPaused;
+    const bool held = actor.paused || actor.globalPaused;
     for (AuraVisual &aura : actor.auraVisuals) {
         if (aura.worldEffect != nullptr)
             SettleLight(aura.worldEffect, aura.worldLight.get(), elapsedSec);
@@ -331,7 +331,7 @@ void Update(Actor &actor, float elapsedSec) {
             Sound::Play::Stop(aura.loopSound, 0.0f);
             aura.loopSound = nullptr;
         } else if (!held && aura.loopSound == nullptr) {
-            aura.loopSound = Sounds::Loop(actor.SceneFrame(), aura.loopSoundID, actor.position);
+            aura.loopSound = Sounds::Loop(actor.SceneFrame(), aura.loopSoundID, actor.Origin().p);
         }
     }
 }
@@ -357,12 +357,12 @@ void Link(Actor &actor) {
 void Place(Actor &actor) {
     const float axisZ[3] = {0.0f, 0.0f, 1.0f};
     for (AuraVisual &aura : actor.auraVisuals) {
-        Sounds::Move(actor.SceneFrame(), aura.loopSound, actor.position);
+        Sounds::Move(actor.SceneFrame(), aura.loopSound, actor.Origin().p);
         if (aura.worldEffect == nullptr)
             continue;
         if (aura.worldFollows) {
             for (int i = 0; i < 3; ++i)
-                aura.worldPosition[i] = actor.position[i];
+                aura.worldPosition[i] = actor.Origin().p[i];
         }
         const float scales[3] = {aura.worldScale, aura.worldScale, aura.worldScale};
         M2::SetBaseTRS(aura.worldEffect, aura.worldPosition, aura.worldYaw, axisZ, scales);

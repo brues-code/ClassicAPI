@@ -70,6 +70,34 @@ SHAMAN_TOTEM_PRIORITIES = {
 CAT_FORM = 1;
 BEAR_FORM = 5;
 
+-- Forms, as 3.80.2's Cata/Constants.lua names them; the IDs are this
+-- client's SpellShapeshiftForm rows, which keep these numbers. Flight form
+-- (27) and the second moonkin row (35) do not exist here.
+DRUID_CAT_FORM = 1;
+DRUID_TREE_FORM = 2;
+DRUID_TRAVEL_FORM = 3;
+DRUID_ACQUATIC_FORM = 4;
+DRUID_BEAR_FORM = 5;
+DRUID_DIRE_BEAR_FORM = 8;
+SHAMAN_GHOST_WOLF_FORM = 16;
+PRIEST_SHADOWFORM = 28;
+ROGUE_STEALTH = 30;
+DRUID_MOONKIN_FORM_1 = 31;
+
+-- The character sheet scene's actor for each animal form
+-- (ModelSceneUtil.SetUpCharacterSheetScene). This client's Dire Bear form is
+-- a bear.
+ANIMAL_FORMS = {
+	[DRUID_CAT_FORM] = {actorTag = "druid-cat-form"};
+	[DRUID_TREE_FORM] = {actorTag = "animal-form"};
+	[DRUID_TRAVEL_FORM] = {actorTag = "druid-travel-form"};
+	[DRUID_ACQUATIC_FORM] = {actorTag = "druid-acquatic-form"};
+	[DRUID_BEAR_FORM] = {actorTag = "druid-bear-form"};
+	[DRUID_DIRE_BEAR_FORM] = {actorTag = "druid-bear-form"};
+	[SHAMAN_GHOST_WOLF_FORM] = {actorTag = "animal-form"};
+	[DRUID_MOONKIN_FORM_1] = {actorTag = "druid-moonkin-form"};
+};
+
 --
 -- Class
 --
