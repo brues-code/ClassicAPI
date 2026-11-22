@@ -143,6 +143,11 @@ void Meter::Close() {
 
 bool Meter::IsOpen() const { return !sessions_.empty() && sessions_.back().open; }
 
+void Meter::Rename(const std::string &name) {
+    if (IsOpen())
+        sessions_.back().name = name;
+}
+
 const Session *Meter::Current() const { return sessions_.empty() ? nullptr : &sessions_.back(); }
 
 const Session *Meter::Find(uint32_t sessionID) const {

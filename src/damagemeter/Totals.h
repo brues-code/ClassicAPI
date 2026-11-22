@@ -241,6 +241,8 @@ public:
     // Ends the open session.
     void Close();
     bool IsOpen() const;
+    // Names the open session, if any.
+    void Rename(const std::string &name);
 
     // Adds the event to the open session and to Overall. Returns the
     // storages it changed as bits (1 << Storage); 0 while no session is

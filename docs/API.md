@@ -6338,12 +6338,13 @@ turn it off, the meter clears all sessions.
 ### Damage meter sessions
 
 A session is one fight. Each session has a `sessionID`. The IDs count up and
-do not start again after a reset. The meter keeps the last 30 sessions. When
+start again at 1 after a reset. The meter keeps the last 30 sessions. When
 a 31st session starts, the oldest session goes out of the list.
 
 - During a boss encounter, the session is the encounter. The session has the
-  name of the boss. A boss encounter always starts a new session, also in the
-  middle of another fight. The encounter is the one that `ENCOUNTER_START`
+  name of the first boss that joins the fight. If a session is open when that
+  boss joins, the open session becomes the encounter and changes its name to
+  the boss's name. The encounter is the one that `ENCOUNTER_START`
   and `ENCOUNTER_END` show in the [combat log file](#combat-log-file-advancedcombatlogging).
   Your own death does not end it.
 - At other times, a session starts when you or a group member in view goes

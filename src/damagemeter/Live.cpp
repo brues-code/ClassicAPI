@@ -19,9 +19,10 @@
 // Sessions. Retail starts one each time combat starts; its rule is on the C
 // side. Ours:
 //   - during an encounter (CombatLog::Encounter: a hostile boss fights
-//     the group) the session is the encounter, named after the boss. An
-//     encounter start always opens a new session, also in the middle of trash,
-//     and the player's own death does not end it;
+//     the group) the session is the encounter, named after its first boss.
+//     A fight already under way when that boss joins becomes the encounter
+//     (our choice: the pull's first hits stay with the boss), else the start
+//     opens a new session. The player's own death does not end it;
 //   - otherwise a session runs while the player or a group member in view is
 //     in combat (Encounter::GroupFighting). The first hit of a pull can come
 //     before the server's combat flag, so a hit between an ally and an enemy
@@ -182,14 +183,20 @@ void Clear(bool announce) {
     g_pendingCurrent = false;
 }
 
-// The encounter under way has its session: opened by the entry that starts
-// it (Encounter::Observe runs first), or at the next frame after a reset.
+// The encounter under way has its session: the fight already open when its
+// first boss joins, renamed after that boss, or else a new one, opened by the
+// entry that starts it (Encounter::Observe runs first) or at the next frame
+// after a reset. A session that is another encounter's is never taken over.
 bool OpenEncounter() {
     if (!CombatLog::Encounter::Active())
         return false;
     const uint32_t serial = CombatLog::Encounter::Serial();
-    if (!g_meter.IsOpen() || g_sessionEncounter != serial)
+    if (g_meter.IsOpen() && g_sessionEncounter == 0) {
+        g_meter.Rename(CombatLog::Encounter::BossName());
+        g_sessionEncounter = serial;
+    } else if (!g_meter.IsOpen() || g_sessionEncounter != serial) {
         Open(CombatLog::Encounter::BossName(), serial, true);
+    }
     return true;
 }
 
