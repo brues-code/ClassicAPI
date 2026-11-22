@@ -213,6 +213,9 @@ class Actor : public Animation::Object {
     void Place();
     // The scene frame's alpha changed.
     void ApplyAlpha();
+    // 3.80.2's desaturation (0x14194A9F0): clamped to 0..1, kept on the actor
+    // and given to its model, now and on each new model.
+    void SetDesaturation(float amount);
 
     // Clears the model (OnModelCleared), then releases any model that script
     // set.
@@ -427,6 +430,7 @@ class Actor : public Animation::Object {
             position[i] = point[i] / scale;
     }
     float alpha = 1.0f;
+    float desaturation = 0.0f;
     bool shown = true;
     // FadeOut: the world's fade of a removed object's model, on the scene
     // clock from fadeStartMs; the actor hides when it ends.

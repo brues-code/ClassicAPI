@@ -154,9 +154,8 @@
 // registers every virtual top-level node whatever its tag), loaded the way an
 // animation group is: the mixins of the whole inherits chain first, then each
 // node from the base up: parentKey / parentArray on the scene, `alpha`,
-// `scale`, `file`, <Scripts> and <KeyValues>; then OnLoad. `fileID` and
-// `desaturation` load nothing: 1.12 has no file IDs and no model
-// desaturation.
+// `scale`, `file`, `desaturation`, <Scripts> and <KeyValues>; then OnLoad.
+// `fileID` loads nothing: 1.12 has no file IDs.
 
 #include "model/Scene.h"
 
@@ -173,6 +172,7 @@
 #include "gx/Matrix.h"
 #include "item/Data.h"
 #include "item/Record.h"
+#include "model/Desaturation.h"
 #include "model/DisplayInfo.h"
 #include "model/M2.h"
 #include "lua/MethodArg.h"
@@ -493,6 +493,7 @@ void ReleaseModel(Actor &actor) {
     M2::SetVisible(actor.model, false);
     M2::Detach(actor.model); // a rider leaves its mount
     Model::DisplayInfo::DestroyDresser(actor.dresser);
+    Model::Desaturation::Set(actor.model, 0.0f);
     M2::Release(actor.model);
     actor.model = nullptr;
     actor.dresser = nullptr;
@@ -605,6 +606,7 @@ void Actor::SetModel(void *newModel, const char *path, const uint8_t *newDressRe
     Model::DisplayInfo::LightChildren(SceneFrame(), model);
     portraitDirty = portrait != nullptr;
     ApplyAlpha();
+    Model::Desaturation::Set(model, desaturation);
     ApplyHighlight();
     // The new model sizes the name again.
     nameDirty = true;
@@ -1157,6 +1159,8 @@ void LoadNode(Actor &actor, const void *node) {
         actor.alpha = value < 0.0f ? 0.0f : (value > 1.0f ? 1.0f : value);
         actor.ApplyAlpha();
     }
+    if (::Xml::FloatAttr(node, "desaturation", value))
+        actor.SetDesaturation(value);
     Animation::Xml::LoadScripts(&actor, node);
 }
 
@@ -1381,6 +1385,12 @@ void Actor::ApplyAlpha() {
         shownAlpha = static_cast<float>((Game::Read<float>(Offsets::VAR_THREE) - (x + x)) * x * x);
     }
     M2::SetAlpha(model, shownAlpha);
+}
+
+void Actor::SetDesaturation(float amount) {
+    desaturation = amount < 0.0f ? 0.0f : (amount > 1.0f ? 1.0f : amount);
+    if (model != nullptr)
+        Model::Desaturation::Set(model, desaturation);
 }
 
 // SetLight's colour (0x00614550) while a bit is set, else ClearLight's black
@@ -3351,6 +3361,16 @@ int __fastcall Script_SetAlpha(void *L) {
     return 0;
 }
 
+// A finite number (0x140C57DB0, reader 0x140A6DF60), clamped by the store.
+int __fastcall Script_SetDesaturation(void *L) {
+    Actor *actor = Self(L);
+    float amount = 0.0f;
+    if (actor == nullptr || !MethodArg::Number(L, 2, "Usage: self:SetDesaturation(strength)", amount))
+        return 0;
+    actor->SetDesaturation(amount);
+    return 0;
+}
+
 int __fastcall Script_SetUseCenterForOrigin(void *L) {
     Actor *actor = Self(L);
     if (actor == nullptr)
@@ -3758,6 +3778,8 @@ const Game::Lua::FrameMethodEntry kMethods[] = {
     {"SetScale", &SetFloat<&Actor::scale, kUsageSetScale, &ClampScale>},
     {"GetScale", &GetFloat<&Actor::scale>},
     {"SetAlpha", &Script_SetAlpha},
+    {"SetDesaturation", &Script_SetDesaturation},
+    {"GetDesaturation", &GetFloat<&Actor::desaturation>},
     {"GetAlpha", &GetFloat<&Actor::alpha>},
     {"SetUseCenterForOrigin", &Script_SetUseCenterForOrigin},
     {"IsUsingCenterForOrigin", &Script_IsUsingCenterForOrigin},
@@ -4499,6 +4521,13 @@ const Game::Doc::Function kSetScale{
     "Sets the size, at least 0.01. The position scales with it.", kScaleArg, {}};
 const Game::Doc::Function kGetScale{"Returns the size.", {}, kScaleRet};
 const Game::Doc::Function kSetAlpha{"Sets the opacity.", kAlphaArg, {}};
+const Game::Doc::Field kStrengthArg[] = {Req("strength", "number", "0 to 1.")};
+const Game::Doc::Field kStrengthRet[] = {Req("strength", "number")};
+const Game::Doc::Function kSetDesaturation{
+    "Sets how much color is removed from the model and the models attached to it. 0 shows full color, 1 "
+    "shows gray.",
+    kStrengthArg, {}};
+const Game::Doc::Function kGetDesaturation{"Returns the strength that SetDesaturation stores.", {}, kStrengthRet};
 const Game::Doc::Function kGetAlpha{"Returns the opacity.", {}, kAlphaRet};
 const Game::Doc::Function kSetUseCenterForOrigin{
     "Sets on which axes the centre of the model stands at the actor position. The centre is the one the model "
@@ -4725,6 +4754,8 @@ const Game::Doc::Method kMethodDocs[] = {
     {"SetScale", &kSetScale},
     {"GetScale", &kGetScale},
     {"SetAlpha", &kSetAlpha},
+    {"SetDesaturation", &kSetDesaturation},
+    {"GetDesaturation", &kGetDesaturation},
     {"GetAlpha", &kGetAlpha},
     {"SetUseCenterForOrigin", &kSetUseCenterForOrigin},
     {"IsUsingCenterForOrigin", &kIsUsingCenterForOrigin},

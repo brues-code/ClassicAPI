@@ -956,6 +956,7 @@ build instructions.
   - [`scene:GetSceneTime()`](#scenegetscenetime)
   - [`scene:After(seconds, callback)` / `scene:NewTimer(seconds, callback)` / `scene:NewTicker(seconds, callback [, iterations])`](#sceneafterseconds-callback--scenenewtimerseconds-callback--scenenewtickerseconds-callback--iterations)
   - [`scene:SetAllowOverlappedModels(allow)` / `scene:GetAllowOverlappedModels()`](#scenesetallowoverlappedmodelsallow--scenegetallowoverlappedmodels)
+  - [`scene:SetDesaturation(strength)`](#scenesetdesaturationstrength)
   - [`scene:SetGroundTerrain([terrainTypeID])` / `scene:GetGroundTerrain()`](#scenesetgroundterrainterraintypeid--scenegetgroundterrain)
   - [`scene:SetWorldModel(path [, x, y, z [, yaw [, doodadSet [, mapID]]]])`](#scenesetworldmodelpath--x-y-z--yaw--doodadset--mapid)
   - [`scene:SetWorldModelByMapID(mapID)`](#scenesetworldmodelbymapidmapid)
@@ -1014,6 +1015,7 @@ build instructions.
   - [`actor:Show()` / `actor:Hide()` / `actor:SetShown(shown)`](#actorshow--actorhide--actorsetshownshown)
   - [`actor:FadeOut()` / `actor:IsFadingOut()`](#actorfadeout--actorisfadingout)
   - [`actor:SetAlpha(alpha)` / `actor:GetAlpha()`](#actorsetalphaalpha--actorgetalpha)
+  - [`actor:SetDesaturation(strength)` / `actor:GetDesaturation()`](#actorsetdesaturationstrength--actorgetdesaturation)
   - [`actor:SetAnimation(animation [, variation, animSpeed, animOffsetSeconds])`](#actorsetanimationanimation--variation-animspeed-animoffsetseconds)
   - [`actor:SetAnimationBlendOperation(blendOperation)` / `actor:GetAnimationBlendOperation()`](#actorsetanimationblendoperationblendoperation--actorgetanimationblendoperation)
   - [`actor:SetPaused(paused [, affectsGlobalPause])` / `actor:GetPaused()`](#actorsetpausedpaused--affectsglobalpause--actorgetpaused)
@@ -21745,6 +21747,13 @@ default.
   frame. Thus the models of a scene that overlaps this scene can hide the
   models of this scene.
 
+### `scene:SetDesaturation(strength)`
+
+Gives `strength` to each actor that the scene has now, as
+[`actor:SetDesaturation`](#actorsetdesaturationstrength--actorgetdesaturation)
+does. The scene keeps no value. Thus an actor that you create after the
+call shows full color. There is no `scene:GetDesaturation()`.
+
 ### `scene:SetGroundTerrain([terrainTypeID])` / `scene:GetGroundTerrain()`
 
 Sets the ground that the actors of the scene stand on. The ground selects
@@ -22832,6 +22841,27 @@ end)
 Sets the opacity of the actor, from `0` to `1`. The alpha of the scene
 frame multiplies it.
 
+### `actor:SetDesaturation(strength)` / `actor:GetDesaturation()`
+
+Removes color from the model of the actor. `strength` is a number from `0`
+(full color) to `1` (gray). A value less than `0` is `0`, and a value more
+than `1` is `1`. A value that is not a finite number raises
+`Usage: self:SetDesaturation(strength)`. `GetDesaturation` returns the
+value, `0` by default.
+
+- The models attached to the model of the actor also lose their color: its
+  weapons, and the rider on it when it is a mount.
+- The actor keeps the value when it gets a new model.
+- The particles and ribbons of the model keep their color.
+- If the graphics card does not support pixel shader 2.0, or the client
+  uses OpenGL, the model shows full color. `GetDesaturation` still returns
+  the value.
+
+```lua
+local actor = scene:GetActorByTag("unwrapped")
+actor:SetDesaturation(1)    -- a gray mount, for a mount that you do not have
+```
+
 ### `actor:SetAnimation(animation [, variation, animSpeed, animOffsetSeconds])`
 
 Plays an animation (an `AnimationData` ID, for example `0` for stand and
@@ -23753,14 +23783,15 @@ A virtual `<Actor>` element is a template for `CreateActor`:
 </Actor>
 ```
 
-It takes `inherits`, `mixin`, `parentKey`, `parentArray`, `alpha`, `scale`
-and `file` (a model path), and the `<Scripts>` and `<KeyValues>` children.
+It takes `inherits`, `mixin`, `parentKey`, `parentArray`, `alpha`, `scale`,
+`desaturation` and `file` (a model path), and the `<Scripts>` and
+`<KeyValues>` children.
 `parentKey` and `parentArray` put the actor on the scene.
 
 A template that `inherits` names gives only its mixins and its key values.
 The base template applies first. The scripts, `parentKey`, `parentArray`,
-`file`, `scale` and `alpha` come only from the template that `CreateActor`
-names.
+`file`, `scale`, `alpha` and `desaturation` come only from the template that
+`CreateActor` names.
 
 ### `C_ModelInfo.GetModelSceneInfoByID(modelSceneID)`
 

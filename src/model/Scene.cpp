@@ -2109,6 +2109,18 @@ int __fastcall Script_SetAllowOverlappedModels(void *L) {
     return 0;
 }
 
+// 0x140C5D910: each actor that exists now takes the strength; the scene
+// keeps none, so actors made later stay in color.
+int __fastcall Script_SetDesaturation(void *L) {
+    void *frame = Self(L);
+    float amount = 0.0f;
+    if (frame == nullptr || !MethodArg::Number(L, 2, "Usage: self:SetDesaturation(strength)", amount))
+        return 0;
+    for (Actor *actor : *F(frame).actors)
+        actor->SetDesaturation(amount);
+    return 0;
+}
+
 int __fastcall Script_GetAllowOverlappedModels(void *L) {
     void *frame = Self(L);
     if (frame == nullptr)
@@ -2305,6 +2317,7 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"ClearWorldTimeOfDay", &Script_ClearWorldTimeOfDay},
     {"GetWorldTimeOfDay", &Script_GetWorldTimeOfDay},
     {"SetAllowOverlappedModels", &Script_SetAllowOverlappedModels},
+    {"SetDesaturation", &Script_SetDesaturation},
     {"GetAllowOverlappedModels", &Script_GetAllowOverlappedModels},
     {"Project3DPointTo2D", &Script_Project3DPointTo2D},
     {"GetActorAtCursor", &Script_GetActorAtCursor},
@@ -2610,6 +2623,10 @@ const Game::Doc::Function kClearWorldTimeOfDay{
     "Gives the scene back its own light and fog, and the world's time for its sky.", {}, {}, nullptr, true};
 const Game::Doc::Function kGetWorldTimeOfDay{"Returns the time of day SetWorldTimeOfDay gave.", {}, kTimeOfDayRet,
                                              nullptr, true};
+const Game::Doc::Field kStrengthArg[] = {Req("strength", "number", "0 to 1.")};
+const Game::Doc::Function kSetDesaturation{
+    "Sets how much color is removed from each actor the scene has now. Actors created later are not changed.",
+    kStrengthArg, {}};
 const Game::Doc::Field kOverlappedArg[] = {Req("allowOverlappedModels", "bool")};
 const Game::Doc::Field kOverlappedRet[] = {Req("allowOverlappedModels", "bool")};
 const Game::Doc::Function kSetAllowOverlappedModels{
@@ -2717,6 +2734,7 @@ const Game::Doc::Method g_methodDocs[] = {
     {"NewTimer", &kNewTimer},
     {"NewTicker", &kNewTicker},
     {"SetAllowOverlappedModels", &kSetAllowOverlappedModels},
+    {"SetDesaturation", &kSetDesaturation},
     {"GetAllowOverlappedModels", &kGetAllowOverlappedModels},
     {"SetGroundTerrain", &kSetGroundTerrain},
     {"GetGroundTerrain", &kGetGroundTerrain},
