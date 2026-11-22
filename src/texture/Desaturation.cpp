@@ -308,11 +308,13 @@ int __fastcall Script_GetDesaturation(void *L) {
 }
 
 // texture:SetDesaturated([desaturated]) — the engine method, re-routed through
-// the shared state so `false` clears any amount. The flag is plain
-// lua_toboolean, so no argument is false, as 3.80.2's (0x140A69800). The
-// return stays the engine's, which 1.12 FrameXML reads: 1 when desaturation is
-// supported, nil when it isn't (FrameXML then falls back to a grey vertex
-// colour).
+// the shared state so `false` clears any amount. The flag is read exactly as
+// the stock method reads it — FUN_LUA_TO_BOOLEAN_LOOSE(L, 2, 1) — so nil and
+// the number 0 are false. 1.12 addons write SetDesaturated(0) to clear it
+// (TrinketMenu, GearMenu); plain lua_toboolean reads that 0 as true and greys
+// every icon. The return stays the engine's, which 1.12 FrameXML reads: 1 when
+// desaturation is supported, nil when it isn't (FrameXML then falls back to a
+// grey vertex colour).
 int __fastcall Script_SetDesaturated(void *L) {
     if (!g_enabled || !IsD3d())
         return Game::Lua::CallScript(Offsets::FUN_SCRIPT_TEXTURE_SET_DESATURATED, L);
@@ -326,7 +328,7 @@ int __fastcall Script_SetDesaturated(void *L) {
         Game::Lua::PushNil(L);
         return 1;
     }
-    if (!Apply(region, Game::Lua::ToBoolean(L, 2) ? kFull : 0)) {
+    if (!Apply(region, Game::Lua::ToFlag(L, 2, true) ? kFull : 0)) {
         Game::Lua::PushNil(L);
         return 1;
     }
