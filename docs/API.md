@@ -3367,6 +3367,7 @@ The actions and their defaults:
 |--------|---------|
 | `SELFCAST` | `ALT` |
 | `FOCUSCAST` | `NONE` |
+| `MOUSEOVERCAST` | `NONE` |
 | `AUTOLOOTTOGGLE` | `SHIFT` |
 | `MAILAUTOLOOTTOGGLE` | `SHIFT` |
 | `STICKYCAMERA` | `CTRL` |

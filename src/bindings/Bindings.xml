@@ -23,10 +23,13 @@
 	<Binding name="AOELOOT">
 		C_Loot.LootAllCorpses()
 	</Binding>
-	<!-- 4.3.4's modified-click actions and defaults (FrameXML\Bindings.xml).
+	<!-- 4.3.4's modified-click actions and defaults (FrameXML\Bindings.xml),
+	     plus MOUSEOVERCAST: the mouseover-cast key of the 3.80.2 client's
+	     enableMouseoverCast, with retail's default (Bindings_Standard.xml).
 	     Read by src/bindings/ModifiedClick.cpp. -->
 	<ModifiedClick action="SELFCAST" default="ALT"/>
 	<ModifiedClick action="FOCUSCAST" default="NONE"/>
+	<ModifiedClick action="MOUSEOVERCAST" default="NONE"/>
 	<ModifiedClick action="AUTOLOOTTOGGLE" default="SHIFT"/>
 	<ModifiedClick action="MAILAUTOLOOTTOGGLE" default="SHIFT"/>
 	<ModifiedClick action="STICKYCAMERA" default="CTRL"/>
