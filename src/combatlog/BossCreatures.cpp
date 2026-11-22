@@ -32,6 +32,7 @@
 #include "lua/Arg.h"
 
 #include <cstdint>
+#include <cstdio>
 #include <set>
 
 namespace CombatLog::BossCreatures {
@@ -42,17 +43,50 @@ namespace Arg = Game::Lua::Arg;
 
 std::set<uint32_t> g_ids; // ordered, so GetBossCreatureIDs lists them ascending
 
+// Calls `apply` with each creature ID in argument 1: one ID, or a table of
+// them, read from [1] up to the first nil. A bad entry raises the field error
+// the 3.80.2 readers give (Current Field: [<n>]) before any entry is applied,
+// so a list with a mistake in it changes nothing.
+template <typename Apply>
+void ForEachID(void *L, const char *usage, Apply apply) {
+    if (Game::Lua::Type(L, 1) != Game::Lua::TYPE_TABLE) {
+        uint32_t id = 0;
+        if (Arg::UInt32(L, 1, usage, id))
+            apply(id);
+        return;
+    }
+    for (int pass = 0; pass < 2; ++pass) {
+        for (int i = 1;; ++i) {
+            Game::Lua::RawGetI(L, 1, i);
+            const int slot = Game::Lua::GetTop(L);
+            if (Game::Lua::Type(L, slot) == Game::Lua::TYPE_NIL) {
+                Game::Lua::SetTop(L, slot - 1);
+                break;
+            }
+            uint32_t id = 0;
+            Arg::Error error;
+            if (!Arg::UInt32(L, slot, usage, id, false, &error)) {
+                char field[16];
+                std::snprintf(field, sizeof field, "%d", i);
+                error.field = field;
+                Arg::Raise(L, error);
+            }
+            if (pass == 1)
+                apply(id);
+            Game::Lua::SetTop(L, slot - 1);
+        }
+    }
+}
+
 int __fastcall Script_AddBossCreatureID(void *L) {
-    uint32_t id = 0;
-    if (Arg::UInt32(L, 1, "Usage: C_InstanceEncounter.AddBossCreatureID(creatureID)", id))
-        g_ids.insert(id);
+    ForEachID(L, "Usage: C_InstanceEncounter.AddBossCreatureID(creatureID or creatureIDs)",
+              [](uint32_t id) { g_ids.insert(id); });
     return 0;
 }
 
 int __fastcall Script_RemoveBossCreatureID(void *L) {
-    uint32_t id = 0;
-    if (Arg::UInt32(L, 1, "Usage: C_InstanceEncounter.RemoveBossCreatureID(creatureID)", id))
-        g_ids.erase(id);
+    ForEachID(L, "Usage: C_InstanceEncounter.RemoveBossCreatureID(creatureID or creatureIDs)",
+              [](uint32_t id) { g_ids.erase(id); });
     return 0;
 }
 
@@ -67,17 +101,18 @@ int __fastcall Script_GetBossCreatureIDs(void *L) {
 }
 
 const Game::Doc::Field kIdArgs[] = {
-    Game::Doc::Req("creatureID", "number", "The creature ID, as UnitCreatureID returns it."),
+    Game::Doc::Req("creatureID", "any",
+                   "A creature ID, as UnitCreatureID returns it, or a table of creature IDs."),
 };
 const Game::Doc::Field kGetRets[] = {
     Game::Doc::Req("creatureIDs", "table", "The listed creature IDs, in ascending order."),
 };
 const Game::Doc::Function kAdd{
-    "Makes the creatures with this ID bosses, so they get bossN tokens and start encounters "
+    "Makes the creatures with these IDs bosses, so they get bossN tokens and start encounters "
     "until the next reload.",
     kIdArgs, {}, nullptr, true};
 const Game::Doc::Function kRemove{
-    "Takes a creature ID off the boss list; bosses already in the encounter keep their tokens.",
+    "Takes creature IDs off the boss list; bosses already in the encounter keep their tokens.",
     kIdArgs, {}, nullptr, true};
 const Game::Doc::Function kGet{"Returns the creature IDs that addons have made bosses.", {},
                                kGetRets, nullptr, true};

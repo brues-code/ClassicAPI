@@ -15106,6 +15106,9 @@ are not bosses by default.
   creature ID is the value that `UnitCreatureID` returns.
 - `RemoveBossCreatureID(creatureID)` removes a creature ID from the boss
   list.
+- Both functions also accept a table of creature IDs, such as
+  `{646, 647}`. The functions read the table from index 1 to the first
+  `nil`.
 - `GetBossCreatureIDs()` returns a table of the creature IDs on the boss
   list, from the lowest to the highest.
 
@@ -15129,11 +15132,13 @@ The boss list obeys these rules:
   fights joins the encounter. The encounter ends as a kill only when all of
   them are dead. Only the first five bosses get a `bossN` token.
 - The creature ID must be a number from 0 to 4294967295. Other values cause
-  an error.
+  an error. If one entry in a table is not correct, the error names its
+  index, and the function makes no change to the boss list.
 
 ```lua
 -- In the main file of your addon:
 C_InstanceEncounter.AddBossCreatureID(639) -- Edwin VanCleef
+C_InstanceEncounter.AddBossCreatureID({646, 647}) -- Mr. Smite, Captain Greenskin
 ```
 
 ## InterfaceOptions
