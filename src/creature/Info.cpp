@@ -126,8 +126,7 @@ int __fastcall Script_GetCreatureInfoByID(void *L) {
 // fetch for an uncached creature: issues SMSG_CREATURE_QUERY and fires
 // `CREATURE_DATA_LOAD_RESULT(creatureID, success)` when the response
 // lands (or on timeout). Fires success synchronously if already cached.
-// Returns true if the request was accepted (false for bad input or a
-// full pending set).
+// Returns true if the request was accepted (false for bad input).
 int __fastcall Script_RequestLoadCreatureByID(void *L) {
     if (!Game::Lua::IsNumber(L, 1)) {
         Game::Lua::PushBool(L, false);

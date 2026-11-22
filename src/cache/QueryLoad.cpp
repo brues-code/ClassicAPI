@@ -20,21 +20,40 @@
 #include "tick/WorldTick.h"
 #include "time/Clock.h"
 
+#include <ankerl/unordered_dense.h>
+
 #include <cstdint>
+#include <deque>
+#include <vector>
 
 namespace Cache::QueryLoad {
 
 namespace {
 
+// The order ids go out in. Priority ids (a client's PriorityFn) go first, a
+// few a tick. Requests (the C_*.RequestLoad* functions) and then warm-ups
+// share the background rate, requests first, so an id a caller asked for by
+// name does not wait behind an addon's bulk scan.
+enum Lane : uint8_t { LANE_PRIORITY, LANE_REQUEST, LANE_WARM, LANE_COUNT };
+
 struct Pending {
-    uint32_t id;
     uint32_t sentMs; // when the last query went out (valid while issued)
     int timeouts;    // sends that went unanswered for kResendMs in the world
     int requests;    // requesting Track calls (see Track)
     bool implicit;   // a warm-up waits on it too
     bool issued;     // a query is in flight
     bool sentOnce;   // our callback is on the entry; resend with Cache::Query
-    bool failed;     // the server refused it (Escalated)
+    Lane lane;       // the lane it waits in while not issued
+};
+
+struct InFlight {
+    uint32_t id;
+    uint32_t sentMs;
+};
+
+struct Answer {
+    uint32_t id;
+    bool success;
 };
 
 // A query unanswered this long in the world is sent again, up to
@@ -49,8 +68,9 @@ constexpr int kMaxTimeouts = 3;
 // the server has put the player back in the world (a transfer completes on
 // the server's receipt of the client's world-port ack). Queries sent in that
 // gap are dropped; waiting keeps them out of it, and the resend recovers any
-// that still land there. Also latched the instant an answer arrives in the
-// world (an answer proves the server answers), in `OnResponse`.
+// that still land there. Also latched the instant one of our queries is
+// answered in the world (an answer proves the server answers), in
+// `OnEntryAnswer`.
 constexpr uint32_t kSettleMs = 1000;
 // Minimum spacing between background queries: 20 per second at most,
 // wall-clock so the rate does not follow the frame rate.
@@ -59,26 +79,44 @@ constexpr uint32_t kMinRequestSpacingMs = 50;
 // (the player's carried items), so this resolves it fast without a burst:
 // at most kPriorityPerTick + 1 packets a frame.
 constexpr int kPriorityPerTick = 6;
-// Ids waiting per cache. 3.80.2 has no cap, but this queue is not its
-// loader: it drains 20 a second, and the world tick walks every entry each
-// frame. A quest addon's item scan at login queues thousands of uncached
-// ids, and without a cap that walk cost every frame until the queue drained
-// (issue #152: 60 FPS to 4 on a laptop CPU).
-constexpr int kMaxPending = 512;
 
+// The owning modules' callbacks, one per kind. `Client` constructors in other
+// translation units set them during dynamic initialization, in an unspecified
+// order against this file's. So they stay out of `Slot`, whose containers make
+// `g_slots` dynamically initialized as well: its initializer could otherwise
+// run after a `Client` and reset the callbacks to null. This array has no
+// initializer, so it is zero-filled before any dynamic initialization.
+struct Callbacks {
+    DoneFn done;
+    PriorityFn priority;
+};
+Callbacks g_callbacks[KIND_COUNT];
+
+// Per cache. Nothing here is walked whole: a tick looks only at the fronts of
+// the lanes and of the in-flight list, and an answer finds its id in the map.
+// So the cost of a tick does not depend on how many ids wait, and the set has
+// no cap (3.80.2's has none, 0x14050E2D0). The server still sees at most the
+// background rate.
+//
+// The lanes and the in-flight list may hold stale ids (completed, moved to
+// another lane, or re-sent); each pop checks the id against its map entry.
 struct Slot {
     uintptr_t cache;
     uintptr_t getRecord;
-    DoneFn done;
-    PriorityFn priority;
-    Pending pending[kMaxPending];
-    int count;
+    const Callbacks *callbacks;
+    ankerl::unordered_dense::map<uint32_t, Pending> pending;
+    std::deque<uint32_t> lanes[LANE_COUNT];
+    std::deque<InFlight> inFlight; // send order, so oldest first
+    std::vector<Answer> answers;   // queued by the entry callback, reported by the tick
 };
 
 Slot g_slots[KIND_COUNT] = {
-    {Offsets::VAR_ITEMDB_CACHE, Offsets::FUN_DBCACHE_ITEMSTATS_GET_RECORD},
-    {Offsets::VAR_CREATURE_CACHE, Offsets::FUN_CREATURE_GET_RECORD},
-    {Offsets::VAR_GAMEOBJECT_CACHE, Offsets::FUN_GAMEOBJECT_GET_RECORD},
+    {Offsets::VAR_ITEMDB_CACHE, Offsets::FUN_DBCACHE_ITEMSTATS_GET_RECORD,
+     &g_callbacks[KIND_ITEM]},
+    {Offsets::VAR_CREATURE_CACHE, Offsets::FUN_CREATURE_GET_RECORD,
+     &g_callbacks[KIND_CREATURE]},
+    {Offsets::VAR_GAMEOBJECT_CACHE, Offsets::FUN_GAMEOBJECT_GET_RECORD,
+     &g_callbacks[KIND_GAMEOBJECT]},
 };
 
 // Queries may go out: in the world, and settled since the last entry.
@@ -86,6 +124,8 @@ bool g_settled = false;
 // When the world went live (VAR_IN_WORLD set); 0 = not in the world.
 uint32_t g_inWorldSinceMs = 0;
 uint32_t g_lastRequestMs = 0;
+// The last tick was in the world: leaving it re-queues what is in flight.
+bool g_wasInWorld = false;
 
 bool InWorld() {
     return *reinterpret_cast<const volatile uint8_t *>(
@@ -96,148 +136,190 @@ bool Loaded(const Slot &s, uint32_t id) {
     return Cache::Record::Peek(s.getRecord, s.cache, id) != nullptr;
 }
 
-int Count(const Slot &s) {
-    return s.count;
+Lane LaneFor(const Slot &s, uint32_t id, const Pending &p) {
+    const PriorityFn priority = s.callbacks->priority;
+    if (priority != nullptr && priority(id))
+        return LANE_PRIORITY;
+    return p.requests > 0 ? LANE_REQUEST : LANE_WARM;
 }
 
-int Find(const Slot &s, uint32_t id) {
-    for (int i = 0; i < Count(s); ++i)
-        if (s.pending[i].id == id)
-            return i;
-    return -1;
-}
-
-void RemoveAt(Slot &s, int i) {
-    --s.count;
-    if (i != s.count)
-        s.pending[i] = s.pending[s.count];
-}
-
-void Report(const Slot &s, const Pending &p, bool success) {
-    if (s.done != nullptr)
-        s.done(p.id, success, p.requests, p.implicit);
-}
-
-// Removes and reports the id at `i` if it resolved: loaded, or refused by the
-// server. True if it did, so callers must not advance their index.
-bool TryComplete(Slot &s, int i) {
-    const Pending p = s.pending[i];
-    bool success;
-    if (Loaded(s, p.id))
-        success = true;
-    else if (p.failed)
-        success = false;
+void Enqueue(Slot &s, uint32_t id, Pending &p, bool front) {
+    p.lane = LaneFor(s, id, p);
+    if (front)
+        s.lanes[p.lane].push_front(id);
     else
-        return false;
-    RemoveAt(s, i);
-    Report(s, p, success);
-    return true;
+        s.lanes[p.lane].push_back(id);
 }
 
-// The callback our first query carries, one per kind so a refusal finds its
-// own cache. The engine calls it with the id we put in userData. A filled
-// entry already reads as loaded, so success needs nothing. On a refusal (the
-// id with its high bit set in the response) the engine leaves the entry
-// unloaded (verified for the item cache in FUN_0055BDB0), so the id is marked
-// here and fails on the next sweep.
-template <int K> void __stdcall Escalated(void *userData, int success) {
-    if (success)
+// A waiting id moves to a better lane when it now has one: it became a
+// priority id, or a warm-up was requested. The copy left in the old lane is
+// skipped when popped.
+void Promote(Slot &s, uint32_t id, Pending &p) {
+    if (p.issued || p.lane == LANE_PRIORITY)
         return;
-    Slot &s = g_slots[K];
-    const int i = Find(s, static_cast<uint32_t>(reinterpret_cast<uintptr_t>(userData)));
-    if (i >= 0)
-        s.pending[i].failed = true;
+    const Lane lane = LaneFor(s, id, p);
+    if (lane < p.lane) {
+        p.lane = lane;
+        s.lanes[lane].push_back(id);
+    }
 }
 
-using EscalatedFn = void(__stdcall *)(void *, int);
-const EscalatedFn kEscalated[KIND_COUNT] = {&Escalated<KIND_ITEM>, &Escalated<KIND_CREATURE>,
-                                            &Escalated<KIND_GAMEOBJECT>};
+// Removes the id and reports it. `done` may run Lua that tracks more ids,
+// which can move map entries, so nothing holds a reference across it.
+void Complete(Slot &s, uint32_t id, bool success) {
+    const auto it = s.pending.find(id);
+    if (it == s.pending.end())
+        return;
+    const Pending p = it->second;
+    s.pending.erase(it);
+    if (s.callbacks->done != nullptr)
+        s.callbacks->done(id, success, p.requests, p.implicit);
+}
 
-void Send(int kind, Pending &p, uint32_t now) {
-    const Slot &s = g_slots[kind];
+// The callback our first query puts on the engine's cache entry, one per kind.
+// Every response parser (item 0x0055BDB0, creature 0x00556E20, game object
+// 0x005588E0) runs an entry's callbacks for each record it reads: with
+// success 1 after filling the entry and setting its valid byte, with 0 on a
+// refusal (the id with its high bit set) before deleting the entry. The
+// answer is only queued here, inside the engine's callback walk and the
+// packet handler; the world tick reports it at the end of the frame
+// (`ReportAnswers`), so no parser needs a hook of ours.
+template <int K> void __stdcall OnEntryAnswer(void *userData, int success) {
+    // One behind a loading screen was answered before the transfer, which
+    // proves nothing about now.
+    if (InWorld())
+        g_settled = true;
+    g_slots[K].answers.push_back(
+        Answer{static_cast<uint32_t>(reinterpret_cast<uintptr_t>(userData)), success != 0});
+}
+
+using EntryCallbackFn = void(__stdcall *)(void *, int);
+const EntryCallbackFn kEntryCallback[KIND_COUNT] = {
+    &OnEntryAnswer<KIND_ITEM>, &OnEntryAnswer<KIND_CREATURE>, &OnEntryAnswer<KIND_GAMEOBJECT>};
+
+void Send(int kind, uint32_t id, uint32_t now) {
+    Slot &s = g_slots[kind];
+    const auto it = s.pending.find(id);
+    if (it == s.pending.end())
+        return;
+    Pending &p = it->second;
     if (p.sentOnce) {
-        Cache::Query::Send(reinterpret_cast<void *>(s.cache), p.id);
+        Cache::Query::Send(reinterpret_cast<void *>(s.cache), id);
     } else {
         // A new entry sends the query; an entry someone else created gets our
         // callback and no packet. With dedup, a repeat does not queue it twice.
         const uint64_t none = 0;
-        Cache::Record::Get(s.getRecord, s.cache, p.id, &none,
-                           reinterpret_cast<void *>(kEscalated[kind]),
-                           reinterpret_cast<void *>(static_cast<uintptr_t>(p.id)), true);
+        Cache::Record::Get(s.getRecord, s.cache, id, &none,
+                           reinterpret_cast<void *>(kEntryCallback[kind]),
+                           reinterpret_cast<void *>(static_cast<uintptr_t>(id)), true);
     }
     p.issued = true;
     p.sentOnce = true;
     p.sentMs = now;
+    s.inFlight.push_back(InFlight{id, now});
 }
 
-// A response parser for `cache` just ran: the engine filled the entries and
-// ran their callbacks, Escalated included.
-void OnResponse(void *cache) {
-    // An answer in the world proves the server is answering, so queries may
-    // go out now. One behind a loading screen was answered before the
-    // transfer, which proves nothing about now.
-    if (InWorld())
-        g_settled = true;
-    for (Slot &s : g_slots) {
-        if (s.cache != reinterpret_cast<uintptr_t>(cache))
+// The next id in `lane` that still waits there and is not cached yet, or 0.
+// An id the cache filled some other way while it waited (the engine's own
+// query, a server push) completes here without a query.
+uint32_t PopSendable(Slot &s, Lane lane) {
+    std::deque<uint32_t> &queue = s.lanes[lane];
+    while (!queue.empty()) {
+        const uint32_t id = queue.front();
+        queue.pop_front();
+        const auto it = s.pending.find(id);
+        if (it == s.pending.end() || it->second.issued || it->second.lane != lane)
             continue;
-        for (int i = 0; i < Count(s);)
-            if (!TryComplete(s, i))
-                ++i;
+        if (Loaded(s, id)) {
+            Complete(s, id, true);
+            continue;
+        }
+        return id;
+    }
+    return 0;
+}
+
+// Out of the world the server may have dropped every query in flight, so
+// each goes back to the front of its lane to be sent again.
+void RequeueInFlight() {
+    for (Slot &s : g_slots) {
+        while (!s.inFlight.empty()) {
+            const InFlight f = s.inFlight.back();
+            s.inFlight.pop_back();
+            const auto it = s.pending.find(f.id);
+            if (it == s.pending.end() || !it->second.issued || it->second.sentMs != f.sentMs)
+                continue;
+            it->second.issued = false;
+            Enqueue(s, f.id, it->second, /*front=*/true);
+        }
     }
 }
 
-// One hook per cache class's response parser: the original fills the entry
-// and walks the engine's callback list, then the queue sweeps. `__thiscall`
-// mimicked as `__fastcall(ecx, edx_unused, ...)`.
-using Parser_t = void(__fastcall *)(void *cache, void *edx, void *packetReader, int flag);
-
-Parser_t g_origItemParser = nullptr;
-void __fastcall ItemParser_h(void *cache, void *, void *packetReader, int flag) {
-    g_origItemParser(cache, nullptr, packetReader, flag);
-    OnResponse(cache);
+// A query unanswered for kResendMs goes again, at the front of its lane; the
+// id fails after kMaxTimeouts. The list is in send order, so only its front
+// can be due.
+void ExpireInFlight(Slot &s, uint32_t now) {
+    while (!s.inFlight.empty()) {
+        const InFlight f = s.inFlight.front();
+        const auto it = s.pending.find(f.id);
+        if (it == s.pending.end() || !it->second.issued || it->second.sentMs != f.sentMs) {
+            s.inFlight.pop_front();
+            continue;
+        }
+        if (Time::Clock::Elapsed(f.sentMs, now) < kResendMs)
+            return;
+        s.inFlight.pop_front();
+        // A record the cache holds is never failed or sent again, however it
+        // arrived.
+        if (Loaded(s, f.id)) {
+            Complete(s, f.id, true);
+            continue;
+        }
+        if (++it->second.timeouts >= kMaxTimeouts) {
+            Complete(s, f.id, false);
+            continue;
+        }
+        it->second.issued = false;
+        Enqueue(s, f.id, it->second, /*front=*/true);
+    }
 }
 
-Parser_t g_origCreatureParser = nullptr;
-void __fastcall CreatureParser_h(void *cache, void *, void *packetReader, int flag) {
-    g_origCreatureParser(cache, nullptr, packetReader, flag);
-    OnResponse(cache);
+// Reports the answers the entry callbacks queued since the last tick. Their
+// records are filled (the valid byte is set before the callback walk), and
+// this runs at the frame's end, where Lua is safe.
+void ReportAnswers() {
+    for (Slot &s : g_slots) {
+        // `done` may run Lua; read by index, so an answer added meanwhile is
+        // still reported, then clear the list.
+        for (std::size_t i = 0; i < s.answers.size(); ++i) {
+            const Answer a = s.answers[i];
+            Complete(s, a.id, a.success);
+        }
+        s.answers.clear();
+    }
 }
-
-Parser_t g_origGameObjectParser = nullptr;
-void __fastcall GameObjectParser_h(void *cache, void *, void *packetReader, int flag) {
-    g_origGameObjectParser(cache, nullptr, packetReader, flag);
-    OnResponse(cache);
-}
-
-const Game::HookAutoRegister _hookItem{Offsets::FUN_ITEMSTATS_CACHE_RESPONSE,
-                                       reinterpret_cast<void *>(&ItemParser_h),
-                                       reinterpret_cast<void **>(&g_origItemParser)};
-const Game::HookAutoRegister _hookCreature{Offsets::FUN_CREATURE_QUERY_RESPONSE,
-                                           reinterpret_cast<void *>(&CreatureParser_h),
-                                           reinterpret_cast<void **>(&g_origCreatureParser)};
-const Game::HookAutoRegister _hookGameObject{Offsets::FUN_GAMEOBJECT_QUERY_RESPONSE,
-                                             reinterpret_cast<void *>(&GameObjectParser_h),
-                                             reinterpret_cast<void **>(&g_origGameObjectParser)};
 
 // The one place any query goes out, so the rate floor governs every path.
 //   1. Out of the world nothing is sent, and every query in flight is queued
 //      to go again, since the server may have dropped it. Back in the world,
 //      queries wait kSettleMs (or the first answer).
-//   2. Priority ids go out first, kPriorityPerTick a tick; everything else is
-//      background, one per kMinRequestSpacingMs across all caches.
-//   3. An id the server refused fails now; a query unanswered for kResendMs
-//      goes again, and the id fails after kMaxTimeouts.
+//   2. Priority ids go out first, kPriorityPerTick a tick; requests and then
+//      warm-ups are background, one per kMinRequestSpacingMs across all
+//      caches.
+//   3. A query unanswered for kResendMs goes again, and the id fails after
+//      kMaxTimeouts.
 void OnWorldTick() {
     const uint32_t now = Time::Clock::NowMs();
+    ReportAnswers();
     if (!InWorld()) {
+        if (g_wasInWorld)
+            RequeueInFlight();
+        g_wasInWorld = false;
         g_settled = false;
         g_inWorldSinceMs = 0;
-        for (Slot &s : g_slots)
-            for (int i = 0; i < Count(s); ++i)
-                s.pending[i].issued = false;
         return;
     }
+    g_wasInWorld = true;
     if (!g_settled) {
         if (g_inWorldSinceMs == 0)
             g_inWorldSinceMs = now;
@@ -245,39 +327,32 @@ void OnWorldTick() {
             g_settled = true;
     }
 
-    int priorityBudget = g_settled ? kPriorityPerTick : 0;
-    bool backgroundFree =
-        g_settled && Time::Clock::Elapsed(g_lastRequestMs, now) >= kMinRequestSpacingMs;
-    for (int kind = 0; kind < KIND_COUNT; ++kind) {
-        Slot &s = g_slots[kind];
-        for (int i = 0; i < Count(s);) {
-            Pending &p = s.pending[i];
-            if (g_settled && !p.issued) {
-                if (s.priority != nullptr && s.priority(p.id)) {
-                    if (priorityBudget > 0) {
-                        --priorityBudget;
-                        Send(kind, p, now);
-                    }
-                } else if (backgroundFree) {
-                    backgroundFree = false;
-                    g_lastRequestMs = now;
-                    Send(kind, p, now);
-                }
+    for (Slot &s : g_slots)
+        ExpireInFlight(s, now);
+    if (!g_settled)
+        return;
+
+    int priorityBudget = kPriorityPerTick;
+    for (int kind = 0; kind < KIND_COUNT && priorityBudget > 0; ++kind) {
+        while (priorityBudget > 0) {
+            const uint32_t id = PopSendable(g_slots[kind], LANE_PRIORITY);
+            if (id == 0)
+                break;
+            Send(kind, id, now);
+            --priorityBudget;
+        }
+    }
+
+    if (Time::Clock::Elapsed(g_lastRequestMs, now) < kMinRequestSpacingMs)
+        return;
+    for (const Lane lane : {LANE_REQUEST, LANE_WARM}) {
+        for (int kind = 0; kind < KIND_COUNT; ++kind) {
+            const uint32_t id = PopSendable(g_slots[kind], lane);
+            if (id != 0) {
+                Send(kind, id, now);
+                g_lastRequestMs = now;
+                return;
             }
-            if (TryComplete(s, i))
-                continue;
-            // Only an id whose query is in flight times out; one still
-            // waiting its turn behind the rate floor does not.
-            if (p.issued && Time::Clock::Elapsed(p.sentMs, now) >= kResendMs) {
-                if (++p.timeouts >= kMaxTimeouts) {
-                    const Pending gone = p;
-                    RemoveAt(s, i);
-                    Report(s, gone, false);
-                    continue;
-                }
-                p.issued = false; // send again
-            }
-            ++i;
         }
     }
 }
@@ -287,36 +362,48 @@ const Tick::WorldTick::AutoSubscribe _tickSub{&OnWorldTick};
 } // namespace
 
 Client::Client(Kind kind, DoneFn done, PriorityFn priority) {
-    g_slots[kind].done = done;
-    g_slots[kind].priority = priority;
+    g_callbacks[kind].done = done;
+    g_callbacks[kind].priority = priority;
 }
 
 bool Track(Kind kind, uint32_t id, bool requested) {
     Slot &s = g_slots[kind];
     if (id == 0)
         return false;
+    const auto it = s.pending.find(id);
     if (Loaded(s, id)) {
-        if (requested && s.done != nullptr)
-            s.done(id, true, 1, false);
+        // Filled some other way while it waited: report the waiters now.
+        if (it != s.pending.end()) {
+            if (requested)
+                ++it->second.requests;
+            Complete(s, id, true);
+        } else if (requested && s.callbacks->done != nullptr) {
+            s.callbacks->done(id, true, 1, false);
+        }
         return true;
     }
-    const int i = Find(s, id);
-    if (i >= 0) {
-        Pending &p = s.pending[i];
+    if (it != s.pending.end()) {
+        Pending &p = it->second;
         if (requested)
             ++p.requests;
         else
             p.implicit = true;
+        Promote(s, id, p);
         return true;
     }
-    if (s.count >= kMaxPending)
-        return false;
-    Pending &p = s.pending[s.count++];
-    p = Pending{};
-    p.id = id;
+    Pending p{};
     p.requests = requested ? 1 : 0;
     p.implicit = !requested;
+    Pending &added = s.pending.emplace(id, p).first->second;
+    Enqueue(s, id, added, /*front=*/false);
     return true;
+}
+
+void Prioritize(Kind kind, uint32_t id) {
+    Slot &s = g_slots[kind];
+    const auto it = s.pending.find(id);
+    if (it != s.pending.end())
+        Promote(s, id, it->second);
 }
 
 bool IsCached(Kind kind, uint32_t id) {
@@ -328,7 +415,7 @@ bool Settled() {
 }
 
 int PendingCount(Kind kind) {
-    return Count(g_slots[kind]);
+    return static_cast<int>(g_slots[kind].pending.size());
 }
 
 } // namespace Cache::QueryLoad

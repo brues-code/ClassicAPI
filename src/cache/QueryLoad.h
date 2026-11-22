@@ -30,12 +30,18 @@
 //   fails.
 // - Rate. One background query per 50 ms (issue #25: an unthrottled /reload
 //   burst of 1,325 queries in 14 ms dropped a router's NAT table). A cache's
-//   priority ids go out ahead of that floor, a few per tick.
-// - Answer. Each cache's response parser is hooked. After the engine fills
-//   the entry and runs its callbacks, the queue reports every tracked id the
-//   cache now holds. A server refusal reaches the queue's own callback, the
-//   one whose presence makes `_GetRecord` send (Cache::Record), and fails
-//   the id at once.
+//   priority ids go out ahead of that floor, a few per tick. Requests go
+//   before warm-ups within the floor.
+// - Answer. The first query for an id puts the queue's callback on the
+//   engine's cache entry, the callback whose presence makes `_GetRecord` send
+//   (Cache::Record). Each response parser runs it per record, success or
+//   refusal; it only queues the answer, and the world tick reports it at the
+//   end of the frame. An id the cache filled some other way while it waited
+//   is reported when Track sees it again, when its turn to send comes, or
+//   when its query times out.
+// - Cost. No per-frame work depends on how many ids wait, so there is no cap
+//   (issue #152: a walk of every waiting id each frame, under a quest
+//   addon's login item scan, took a laptop from 60 FPS to 4).
 namespace Cache::QueryLoad {
 
 enum Kind { KIND_ITEM, KIND_CREATURE, KIND_GAMEOBJECT, KIND_COUNT };
@@ -61,9 +67,15 @@ struct Client {
 // lookups report a hit to nobody. While the id is pending, each request adds
 // one to its count and a warm-up marks it implicit, so one answer reports
 // every caller: the 3.80.2 client keeps one callback per request and one per
-// id for its implicit readers (0x141382130, tag dedup 0x14045BDA0). False for
-// id 0, and for a new id while 512 already wait (kMaxPending in the .cpp).
+// id for its implicit readers (0x141382130, tag dedup 0x14045BDA0). The set
+// has no cap, as 3.80.2's has none (0x14050E2D0). False only for id 0.
 bool Track(Kind kind, uint32_t id, bool requested);
+
+// Moves a waiting `id` to the priority lane when the kind's PriorityFn now
+// says so. For a priority set that changes after its ids were queued (the
+// player picks up an item a scan already queued). Does nothing for an id
+// that is not waiting.
+void Prioritize(Kind kind, uint32_t id);
 
 // True when the cache holds `id`'s record. Never sends a query.
 bool IsCached(Kind kind, uint32_t id);

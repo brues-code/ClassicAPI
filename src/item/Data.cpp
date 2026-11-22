@@ -277,11 +277,14 @@ static void OnWorldTick() {
 
     // Refresh the carried-item set while there is queued work, at most
     // once per kOwnedRefreshMs — the set changes slowly and the walk is
-    // pointer-chasing, not free.
+    // pointer-chasing, not free. The queue decides an id's lane when it is
+    // queued, so a carried item a scan queued earlier moves up here.
     if (Cache::QueryLoad::PendingCount(Cache::QueryLoad::KIND_ITEM) > 0 &&
         (!g_ownedEverBuilt || Time::Clock::Elapsed(g_ownedBuiltMs, now) >= kOwnedRefreshMs)) {
         RebuildOwned();
         g_ownedBuiltMs = now;
+        for (int i = 0; i < g_ownedCount; ++i)
+            Cache::QueryLoad::Prioritize(Cache::QueryLoad::KIND_ITEM, g_owned[i]);
     }
 }
 
@@ -339,10 +342,10 @@ int __fastcall Script_GetItemInfo_h(void *L) {
 // known missing: ITEM_DATA_LOAD_RESULT(id, false) at once (FUN_141382130's
 // synchronous event 1).
 static void RequestLoad(int itemID) {
-    // A full queue fails the request now, so every call still fires its one
-    // result.
-    if (itemID <= 0 || !Track(static_cast<uint32_t>(itemID), /*requested=*/true))
+    if (itemID <= 0)
         FireItemDataLoadResult(itemID, false);
+    else
+        Track(static_cast<uint32_t>(itemID), /*requested=*/true);
 }
 
 static int __fastcall Script_RequestLoadItemDataByID(void *L) {

@@ -5603,8 +5603,8 @@ C_CreatureInfo.RequestLoadCreatureByID(10184)   -- Onyxia → fires the event,
                                                 --  then GetCreatureInfoByID works
 ```
 
-Returns `true` if the request was accepted (`false` only on bad input
-or a full pending set). If the creature is **already** cached, the
+Returns `true` if the request was accepted (`false` only on bad input).
+If the creature is **already** cached, the
 event fires synchronously with `success = true`. On a query that never
 resolves it fires once with `success = false` after a timeout.
 
@@ -16760,8 +16760,8 @@ valid or holds no item.
 Each call fires `ITEM_DATA_LOAD_RESULT(itemID, success)` one time:
 - If the data is cached, the event fires during the call, with `success`
   `true`.
-- If the item ID is `0` or less, or 512 items already wait for an answer,
-  the event fires during the call, with `success` `false`.
+- If the item ID is `0` or less, the event fires during the call, with
+  `success` `false`.
 - Otherwise the event fires when the server answers. When you call the
   function three times before the answer, the event fires three times.
 

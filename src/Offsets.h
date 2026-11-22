@@ -6701,25 +6701,18 @@ enum Offsets {
     // With `requestIfMissing=false`, returns NULL if not in cache (no server
     // round-trip) — exactly the "instant" semantics we want.
     FUN_DBCACHE_ITEMSTATS_GET_RECORD = 0x0055BA30,
-    // Item-cache response handler — the function called from
-    // `0x00555140` (success path for `SMSG_ITEM_QUERY_SINGLE_RESPONSE`)
-    // and `0x00555160` (failure path). Parses one or more itemIDs out
-    // of the packet, looks up (or creates) the cache entry per ID,
-    // copies the item data block via `FUN_007c9640` to `entry+0x18`,
-    // sets `[entry+0x1F0]=1` (the loaded byte), then walks the entry's
-    // pending callback list at `[entry+0x1FC]` and invokes each with
-    // `(userData, success)`. High-bit-on itemID in the packet signals
-    // a per-item failure for the batch.
-    //
-    // We hook this to observe any item-cache fill the engine performs
-    // — covers the engine's natural inventory prefetch and any
-    // addon-triggered queries without having to register our own
-    // engine callbacks. Lets `RequestLoadItemData` be purely passive:
-    // we track itemIDs, the engine (or whoever) issues the query, we
-    // see the fill via this hook and fire `ITEM_DATA_LOAD_RESULT`.
-    //
-    // Signature: `__thiscall(void *cache, void *packetReader, int flag)`.
-    // `cache` is the same `VAR_ITEMDB_CACHE` we already use.
+    // Item-cache response parser — `__thiscall(cache, packetReader, bool
+    // single)`, called by HandleItemQueryResponseSingle (`0x00555140`,
+    // SMSG_ITEM_QUERY_SINGLE_RESPONSE, single = 1) and
+    // HandleItemQueryResponseMultiple (`0x00555160`,
+    // SMSG_ITEM_QUERY_MULTIPLE_RESPONSE, single = 0: a uint8 count first).
+    // Per record: an int32 itemID, its high bit set for "not found". Found:
+    // finds or creates the entry, reads the record (ItemStatsRead) into
+    // `entry+0x18`, sets the loaded byte `[entry+0x1F0]`, then calls every
+    // callback on `[entry+0x1FC]` as `(userData, 1)` and frees the list. Not
+    // found: calls every callback as `(userData, 0)`, then deletes the entry
+    // (vtable +0). Cache::QueryLoad's entry callback relies on both calls;
+    // nothing hooks this. Verified in Ghidra 2026-11-22.
     FUN_ITEMSTATS_CACHE_RESPONSE = 0x0055BDB0,
     // DBCache<T> object fields (benilla-re dbcache#cache-objects-and-nodes,
     // read by the query send in FUN_DBCACHE_ITEMSTATS_GET_RECORD at
@@ -8853,12 +8846,13 @@ enum Offsets {
     // own `_GetRecord` (FUN_GAMEOBJECT_GET_RECORD). Verified via
     // FUN_00604600 (`FUN_00556aa0(creatureID, &guid, cb, 0, 0)`).
     FUN_CREATURE_GET_RECORD = 0x00556AA0,
-    // Creature-cache response parser — `__thiscall(cache, packetReader,
-    // flag)`. Fills the entry data block, sets the loaded flag (entry+0x50),
-    // and walks the entry's pending-callback list. The creature SMSG
-    // handler `FUN_005550E0` calls it with ecx=the creature cache.
-    // `Cache::QueryLoad` hooks it to fire CREATURE_DATA_LOAD_RESULT. The
-    // item/quest caches have their own parsers, so it's conflict-free.
+    // Creature-cache response parser (CreatureCacheReceive) —
+    // `__thiscall(cache, packetReader, bool single)`. The creature SMSG
+    // handler `FUN_005550E0` calls it with ecx=the creature cache. Same
+    // per-record shape as FUN_ITEMSTATS_CACHE_RESPONSE: found sets the
+    // loaded flag (entry+0x50) and calls the entry's callbacks with
+    // `(userData, 1)`; not found calls them with 0 and deletes the entry.
+    // Nothing hooks it; Cache::QueryLoad's entry callback relies on it.
     FUN_CREATURE_QUERY_RESPONSE = 0x00556E20,
     // Pet name cache (CMSG_PET_NAME_QUERY 0x52), keyed by UNIT_FIELD_PETNUMBER,
     // with the same `_GetRecord` shape as FUN_CREATURE_GET_RECORD.
@@ -8909,10 +8903,11 @@ enum Offsets {
     // FUN_0062dc10 (`FUN_00558560(goEntry, &guid, 0,0,0)` then reads the
     // GO name at `[block+0x08]`).
     FUN_GAMEOBJECT_GET_RECORD = 0x00558560,
-    // GO response parser — `__thiscall(cache, packetReader, flag)`. The GO
-    // SMSG handler `FUN_00555100` calls it with ecx=the GO cache. Distinct
-    // from the creature parser (sets loaded flag at entry+0x98), so
-    // `Cache::QueryLoad` hooks it separately to fire GAMEOBJECT_DATA_LOAD_RESULT.
+    // GO response parser — `__thiscall(cache, packetReader, bool single)`.
+    // The GO SMSG handler `FUN_00555100` calls it with ecx=the GO cache.
+    // Same per-record shape as FUN_ITEMSTATS_CACHE_RESPONSE, with the loaded
+    // flag at entry+0x98. Nothing hooks it; Cache::QueryLoad's entry
+    // callback relies on it.
     FUN_GAMEOBJECT_QUERY_RESPONSE = 0x005588E0,
     // GO-query record field offsets, within the data block returned by
     // FUN_GAMEOBJECT_GET_RECORD. Wire/WDB order: type, displayId, Name[4],
