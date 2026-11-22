@@ -2041,7 +2041,7 @@ int __fastcall Script_SetSoundListenerActor(void *L) {
         F(frame).listener = nullptr;
         return 0;
     }
-    auto *actor = static_cast<Actor *>(Animation::Resolve(L, 2, Actor::s_class));
+    auto *actor = static_cast<Actor *>(Animation::Resolve(L, 2, Actor::s_class, false));
     if (actor == nullptr || actor->SceneFrame() != frame)
         return MethodArg::Fail(L, 2, kUsage);
     F(frame).listener = actor;
@@ -2812,7 +2812,7 @@ bool IsSceneFrame(void *L, int idx) {
            Game::Lua::ResolveTypedObject(L, idx, g_class.TypeIdVar(), false) != nullptr;
 }
 
-bool IsActor(void *L, int idx) { return Animation::Resolve(L, idx, Actor::s_class) != nullptr; }
+bool IsActor(void *L, int idx) { return Animation::Resolve(L, idx, Actor::s_class, false) != nullptr; }
 
 World::Backdrop *WorldOf(void *sceneFrame) { return F(sceneFrame).world; }
 

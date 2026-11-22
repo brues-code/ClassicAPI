@@ -1998,7 +1998,7 @@ int __fastcall Script_PlaySwing(void *L) {
         return 0;
     Actor *victim = nullptr;
     if (Game::Lua::Type(L, 2) > Game::Lua::TYPE_NIL) {
-        victim = static_cast<Actor *>(Animation::Resolve(L, 2, Actor::s_class));
+        victim = static_cast<Actor *>(Animation::Resolve(L, 2, Actor::s_class, false));
         if (victim == nullptr)
             return MethodArg::Fail(L, 2, kUsage);
         if (victim->SceneFrame() != attacker->SceneFrame())
@@ -2397,7 +2397,7 @@ int __fastcall Script_IsGeoReady(void *L) {
 
 // The rider argument of the mount methods.
 Actor *RiderArg(void *L, const Actor *mount, const char *usage) {
-    Actor *rider = static_cast<Actor *>(Animation::Resolve(L, 2, Actor::s_class));
+    Actor *rider = static_cast<Actor *>(Animation::Resolve(L, 2, Actor::s_class, false));
     if (rider == nullptr)
         MethodArg::Fail(L, 2, usage);
     return rider;
@@ -2493,7 +2493,7 @@ int __fastcall Script_AttachToActor(void *L) {
     Actor *child = Self(L);
     if (child == nullptr)
         return 0;
-    Actor *parent = static_cast<Actor *>(Animation::Resolve(L, 2, Actor::s_class));
+    Actor *parent = static_cast<Actor *>(Animation::Resolve(L, 2, Actor::s_class, false));
     if (parent == nullptr)
         return MethodArg::Fail(L, 2, kUsage);
     if (!NumberArgs(L, 3, 1, kUsage))
@@ -2527,7 +2527,7 @@ int __fastcall Script_PlaySpellVisual(void *L) {
                 Game::Lua::SetTop(L, -2);
                 break;
             }
-            auto *actor = static_cast<Actor *>(Animation::Resolve(L, Game::Lua::GetTop(L), Actor::s_class));
+            auto *actor = static_cast<Actor *>(Animation::Resolve(L, Game::Lua::GetTop(L), Actor::s_class, false));
             Game::Lua::SetTop(L, -2);
             if (actor == nullptr)
                 return MethodArg::Fail(L, 3, kUsage);
@@ -2541,7 +2541,7 @@ int __fastcall Script_PlaySpellVisual(void *L) {
         if (target == nullptr)
             return 0;
     } else if (Game::Lua::Type(L, 3) > Game::Lua::TYPE_NIL) {
-        target = static_cast<Actor *>(Animation::Resolve(L, 3, Actor::s_class));
+        target = static_cast<Actor *>(Animation::Resolve(L, 3, Actor::s_class, false));
         if (target == nullptr)
             return MethodArg::Fail(L, 3, kUsage);
     }

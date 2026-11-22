@@ -97,7 +97,9 @@ class Object : public ScriptObjectHeader {
 int TypeId(Class &cls);
 // The object at `idx` when it is of `cls` or a class derived from it, else
 // raises the engine's errors (as every method does) and returns nullptr.
-Object *Resolve(void *L, int idx, Class &cls);
+// `raiseError = false` for an object ARGUMENT: the caller raises its own
+// usage error, as 3.80.2's object reader (0x140AFD650) does.
+Object *Resolve(void *L, int idx, Class &cls, bool raiseError = true);
 // Pushes the object's table.
 void Push(void *L, Object *object);
 // Whether a script object is one of ours.

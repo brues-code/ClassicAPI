@@ -152,8 +152,9 @@ void Object::RunScript(int index, int nargs) {
 
 int TypeId(Class &cls) { return Game::Lua::FrameScriptTypeId(reinterpret_cast<uintptr_t>(&cls.typeId)); }
 
-Object *Resolve(void *L, int idx, Class &cls) {
-    return static_cast<Object *>(Game::Lua::ResolveTypedObject(L, idx, reinterpret_cast<uintptr_t>(&cls.typeId)));
+Object *Resolve(void *L, int idx, Class &cls, bool raiseError) {
+    return static_cast<Object *>(
+        Game::Lua::ResolveTypedObject(L, idx, reinterpret_cast<uintptr_t>(&cls.typeId), raiseError));
 }
 
 void Push(void *L, Object *object) { Game::Lua::PushObject(L, object); }
