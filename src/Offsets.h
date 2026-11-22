@@ -5445,6 +5445,13 @@ enum Offsets {
     OFF_FRAME_CHILD_LIST = 0x300,
     VTBL_FRAME_SET_FRAME_ALPHA = 0x28,
     VTBL_REGION_RECOLOR = 0x20,
+    // Region vtable+0x28 — `void __thiscall Emit(batch)`, ret 4: the region's
+    // append to its layer batch. The frame's layer walk (0x0076B3A0) calls
+    // this slot on every registered region of an enabled layer (0x0076B3E1);
+    // CSimpleTexture's is FUN_SIMPLETEXTURE_EMIT (slot 10 of
+    // VTBL_SIMPLETEXTURE, read from the exe). Texture::Mask gives a
+    // MaskTexture a no-op here, as 3.80.2's batch slot skips a mask.
+    VTBL_REGION_EMIT = 0x28,
     // CScriptObject vtable+0x04 — `const char *__thiscall GetName()`, NULL for
     // an unnamed object. The frame-script usage errors (Script_GetScript
     // 0x00774780, Script_SetScript 0x007748D0, ~90 more sites) format the
@@ -5458,8 +5465,9 @@ enum Offsets {
     // +0x18 IsObjectType `int __thiscall(this, const char *)`, ret 4 (0x00773430:
     // "Texture" or "Region"); +0x1C GetObjectType `const char *__thiscall(this)`
     // (0x00773480: the "Texture" string at [0x00878CE4]). Texture::Mask gives a
-    // MaskTexture a copy with its own slots 2, 6 and 7. The slot offsets are the
-    // frame's (VTBL_FRAME_GET_SCRIPT_METHOD / _IS_OBJECT_TYPE / _GET_OBJECT_TYPE).
+    // MaskTexture a copy with its own slots 2, 6, 7 and 10. The slot offsets are
+    // the frame's (VTBL_FRAME_GET_SCRIPT_METHOD / _IS_OBJECT_TYPE /
+    // _GET_OBJECT_TYPE) and VTBL_REGION_EMIT.
     VTBL_SIMPLETEXTURE = 0x0081C718,
     VTBL_SIMPLETEXTURE_SLOTS = 13,
     // CSimpleTexture's layout vtable, stored at +0x24 by the same constructor:

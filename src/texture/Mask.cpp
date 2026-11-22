@@ -52,8 +52,9 @@
 // given its own copy of CSimpleTexture's vtable, as 3.80.2's CSimpleMaskTexture
 // is the texture constructor plus a vtable swap: GetObjectType answers
 // "MaskTexture", IsObjectType("MaskTexture") is true, and the four mask methods
-// are not on it. It stays shown and is never drawn (the draw hook skips it, as
-// 3.80.2's batch slot 0x140579F50 skips IsMask), and a hidden mask still masks.
+// are not on it. It stays shown and is never drawn (its emit slot adds nothing
+// to the layer batch, as 3.80.2's batch slot 0x140579F50 skips IsMask), and a
+// hidden mask still masks.
 //
 // State discipline: the queued draw is only flushed at the indexed submit
 // (FUN_GX_PRIM_INDEXED) the engine issues right after this stream call, so the
@@ -118,8 +119,7 @@ std::unordered_map<void *, MaskEntry> g_regionMask;
 // as g_regionMask.
 constexpr size_t kMaxMasks = 3;
 std::unordered_map<void *, std::vector<void *>> g_baseMasks;
-// Every MaskTexture region: what the draw hook skips, and what a pooled reuse
-// detaches.
+// Every MaskTexture region: what a pooled reuse detaches.
 std::unordered_set<void *> g_maskRegions;
 
 // --- the MaskTexture vtable ------------------------------------------------------
@@ -155,6 +155,13 @@ int __fastcall MaskIsObjectType(void *self, void *, const char *name) {
 
 const char *__fastcall MaskGetObjectType(void *) { return kMaskTextureType; }
 
+// A MaskTexture adds nothing to its layer batch, as 3.80.2's batch slot
+// (0x140579F50) skips IsMask: never drawn, shown or hidden. Skipping it any
+// later is too late: once the quad is queued, the engine's submit binds the
+// mask's image and its indexed draw follows the stream call, so dropping only
+// the stream redraws the previous quad's vertices with the mask's image.
+void __fastcall MaskEmit(void *, void *, void *) {}
+
 const void *MaskVtable() {
     if (g_maskVtable[0] == 0) {
         for (int i = 0; i < Offsets::VTBL_SIMPLETEXTURE_SLOTS; ++i)
@@ -165,6 +172,7 @@ const void *MaskVtable() {
             reinterpret_cast<uintptr_t>(&MaskIsObjectType);
         g_maskVtable[Offsets::VTBL_FRAME_GET_OBJECT_TYPE / 4] =
             reinterpret_cast<uintptr_t>(&MaskGetObjectType);
+        g_maskVtable[Offsets::VTBL_REGION_EMIT / 4] = reinterpret_cast<uintptr_t>(&MaskEmit);
     }
     return g_maskVtable;
 }
@@ -458,9 +466,9 @@ void __fastcall PrimStreams_h(int count, const void *pos, int posStride, const v
                               int s3Stride, const void *colors, int colorStride, int drop8,
                               int drop9, const void *uv0, int uv0Stride, const void *uv1,
                               int uv1Stride) {
-    // Fast path: nothing masked, no MaskTexture, or not a plain textured quad.
-    if (count == 4 && uv0 != nullptr && uv1 == nullptr && pos != nullptr &&
-        (!g_maskRegions.empty() || (g_enabled && (!g_regionMask.empty() || !g_baseMasks.empty())))) {
+    // Fast path: nothing masked, or not a plain textured quad.
+    if (count == 4 && uv0 != nullptr && uv1 == nullptr && pos != nullptr && g_enabled &&
+        (!g_regionMask.empty() || !g_baseMasks.empty())) {
         // The region draw passes the region's corner array as `positions`, so
         // the owning region is positions - OFF_SIMPLETEXTURE_CORNERS. A false
         // match needs a non-region draw whose positions pointer numerically
@@ -471,20 +479,17 @@ void __fastcall PrimStreams_h(int count, const void *pos, int posStride, const v
         if (region == nullptr)
             region = reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(pos) -
                                               Offsets::OFF_SIMPLETEXTURE_CORNERS);
-        // A MaskTexture is never drawn.
-        if (!g_maskRegions.empty() && g_maskRegions.count(region) != 0)
-            return;
         // A path mask (SetMask) and positioned mask regions (AddMaskTexture)
         // compose — every mask MODULATEs into the same draw.
         void *pathMaskH = nullptr;
-        if (g_enabled && !g_regionMask.empty()) {
+        if (!g_regionMask.empty()) {
             auto it = g_regionMask.find(region);
             if (it != g_regionMask.end())
                 pathMaskH = it->second.handle;
         }
         void *const *masks = nullptr;
         int maskCount = 0;
-        if (g_enabled && !g_baseMasks.empty()) {
+        if (!g_baseMasks.empty()) {
             auto mit = g_baseMasks.find(region);
             if (mit != g_baseMasks.end() && !mit->second.empty()) {
                 masks = mit->second.data();
