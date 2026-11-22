@@ -1,4 +1,4 @@
--- Verbatim backport of retail's Blizzard_SharedXML/ModelSceneControlFrame.lua.
+-- Verbatim backport of the 3.80.2 client's Blizzard_SharedXML/ModelSceneControlFrame.lua.
 
 
 local DEFAULT_ZOOM_INCREMENT = 1;
@@ -155,8 +155,8 @@ function ModelSceneControlButtonMixin:OnEnter()
 	self:GetParent():SetAlpha(1);
 	if ( GetCVar("UberTooltips") == "1" ) then
 		local tooltip = GetAppropriateTooltip();
-		local topLevelParent = GetAppropriateTopLevelParent();
-		GameTooltip_SetDefaultAnchor(tooltip, topLevelParent);
+		local uiParent = GetAppropriateTopLevelParent();
+		GameTooltip_SetDefaultAnchor(tooltip, uiParent);
 		GameTooltip_SetTitle(tooltip, self.tooltip);
 		if ( self.tooltipText ) then
 			GameTooltip_AddBodyLine(tooltip, self.tooltipText);
@@ -240,23 +240,6 @@ function ModelScenelRotateButtonMixin:OnMouseUp()
 	ModelSceneControlButtonMixin.OnMouseUp(self);
 	if self.modelScene then
 		self.modelScene:StopCameraYaw();
-	end
-end
-
-function ModelScenelRotateButtonMixin:OnSmartNavClick()
-	self:RotateStep();
-end
-
-function ModelScenelRotateButtonMixin:RotateStep()
-	local camera = self.modelScene and self.modelScene:GetActiveCamera();
-	if not camera then
-		return;
-	end
-
-	if self.rotateDirection == "left" then
-		camera:AdjustYaw(-1, -1, 0.25);
-	else
-		camera:AdjustYaw(1, 1, 0.25);
 	end
 end
 

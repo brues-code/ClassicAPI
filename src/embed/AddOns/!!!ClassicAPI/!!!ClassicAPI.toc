@@ -162,6 +162,9 @@ FrameXML\ModelScene\OrbitCameraMixin.lua
 FrameXML\ModelScene\FollowCameraMixin.lua
 FrameXML\ModelScene\ModelSceneMixin.lua
 FrameXML\ModelScene\ModelSceneMixin.xml
+FrameXML\ModelScene\ModelSceneTemplates.lua
+FrameXML\ModelScene\ModelSceneTemplates.xml
+FrameXML\ModelScene\ModelSceneUtil.lua
 FrameXML\ModelScene\ModelSceneActorMixin.lua
 FrameXML\ModelScene\ModelSceneActorMixin.xml
 FrameXML\ModelScene\ModelSceneControlFrame.lua

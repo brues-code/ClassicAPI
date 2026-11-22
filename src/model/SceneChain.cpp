@@ -116,7 +116,7 @@ void DestroyBolt(State &state, int handle) {
 
 // The caster's end (0x006EC6F0).
 bool CasterEnd(const Actor &actor, float (&out)[3]) {
-    std::memcpy(out, actor.position, sizeof out);
+    std::memcpy(out, actor.Origin().p, sizeof out);
     void *model = actor.model;
     if (model == nullptr || !M2::IsLoaded(model, 0, 0))
         return true;
@@ -139,7 +139,7 @@ bool CasterEnd(const Actor &actor, float (&out)[3]) {
 // The target's end (0x006EC780): the attachment the visual names, else the
 // position. The engine reads the table with no bound; past it, the position.
 void TargetEnd(const Actor &actor, uint32_t index, float (&out)[3]) {
-    std::memcpy(out, actor.position, sizeof out);
+    std::memcpy(out, actor.Origin().p, sizeof out);
     void *model = actor.model;
     if (model == nullptr || !M2::IsLoaded(model, 0, 0) || index >= Offsets::SPELL_VISUAL_ATTACHMENT_COUNT)
         return;

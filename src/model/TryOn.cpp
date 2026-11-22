@@ -23,6 +23,8 @@
 
 #include "model/TryOn.h"
 
+#include "lua/MethodArg.h"
+
 #include "Game.h"
 #include "Offsets.h"
 #include "dbc/Lookup.h"
@@ -137,13 +139,9 @@ uint32_t FieldNumber(void *L, int index, const char *key) {
 
 } // namespace
 
-bool ReadTransmogInfo(void *L, const char *name, Request &request) {
-    if (Game::Lua::Type(L, 2) != Game::Lua::TYPE_TABLE) {
-        Game::Lua::Error(L,
-                         "Usage: %s:SetItemTransmogInfo(transmogInfo [, inventorySlots, ignoreChildItems])",
-                         name);
-        return false;
-    }
+bool ReadTransmogInfo(void *L, const char *usage, Request &request) {
+    if (Game::Lua::Type(L, 2) != Game::Lua::TYPE_TABLE)
+        return Game::Lua::MethodArg::Fail(L, 2, usage);
     request.itemID = FieldNumber(L, 2, "appearanceID");
     request.enchant = FieldNumber(L, 2, "illusionID");
     request.quiet = true;
@@ -157,17 +155,20 @@ bool ReadTransmogInfo(void *L, const char *name, Request &request) {
     return true;
 }
 
-void PushTransmogInfo(void *L, const Outfit::Appearance &slot) {
+void PushTransmogInfo(void *L, const Outfit::Appearance &slot, int secondaryAppearanceID) {
     Game::Lua::MixinTable::Push(L, "ItemTransmogInfoMixin");
     Game::Lua::SetFieldNumber(L, "appearanceID", slot.item);
-    Game::Lua::SetFieldNumber(L, "secondaryAppearanceID", 0);
+    Game::Lua::SetFieldNumber(L, "secondaryAppearanceID", secondaryAppearanceID);
     Game::Lua::SetFieldNumber(L, "illusionID", slot.enchant);
 }
 
-void PushTransmogInfoList(void *L, const Outfit::Worn &worn) {
+void PushTransmogInfoList(void *L, const Outfit::Worn &worn, bool individualMainHand) {
     Game::Lua::NewTable(L);
     for (int i = 0; i < Outfit::kInventorySlots; ++i) {
-        PushTransmogInfo(L, worn[i]);
+        const Outfit::Appearance &slot = worn[i];
+        const bool individual = individualMainHand && i == Offsets::INVSLOT_MAINHAND - 1 &&
+                                (slot.item != 0 || slot.enchant != 0);
+        PushTransmogInfo(L, slot, individual ? -1 : 0);
         Game::Lua::RawSetI(L, -2, i + 1);
     }
 }

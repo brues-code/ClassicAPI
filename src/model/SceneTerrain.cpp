@@ -895,8 +895,7 @@ class Staged {
     Staged(void *frame, const float (&eye)[3], const World::ViewVolume &volume, float farClip) : eye_(eye) {
         // The fog end the world's draws compare with: the scene's fog, else
         // the far clip, past which nothing draws.
-        const bool fogged =
-            (Game::Read<uint32_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_FLAGS) & Offsets::SIMPLEMODEL_FOG_ARMED) != 0;
+        const bool fogged = Model::Scene::HasFog(frame);
         fogEnd = fogged ? Game::Read<float>(frame, Offsets::OFF_SIMPLEMODEL_FOG_FAR) : farClip;
         // The view looks from the origin, so its third column is the view
         // axis for a point relative to the eye.

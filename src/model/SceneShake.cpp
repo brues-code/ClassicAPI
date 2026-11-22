@@ -157,7 +157,7 @@ void AddGroup(void *frame, int32_t groupID, const float (&position)[3]) {
 
 void PlayKit(const Actor &actor, const uint8_t *kit) {
     if (kit != nullptr)
-        AddGroup(actor.SceneFrame(), Game::Read<int32_t>(kit, Offsets::OFF_SPELLVISUALKIT_SHAKE), actor.position);
+        AddGroup(actor.SceneFrame(), Game::Read<int32_t>(kit, Offsets::OFF_SPELLVISUALKIT_SHAKE), actor.Origin().p);
 }
 
 void Offset(void *frame, const float (&eye)[3], float heading, float (&out)[3]) {

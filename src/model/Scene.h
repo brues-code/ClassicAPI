@@ -214,10 +214,17 @@ class Actor : public Animation::Object {
     // The scene frame's alpha changed.
     void ApplyAlpha();
 
-    // Shows `model` (one reference, which the actor takes over), or nothing.
     // Clears the model (OnModelCleared), then releases any model that script
-    // set: the caller's new model wins.
+    // set.
     void Vacate();
+    // Lets the model go with no script, as 3.80.2's SetModel (0x1419497D0)
+    // replaces one: OnModelCleared is ClearModel's alone.
+    void Release();
+    // OnModelLoaded's work once the model (and its dress) has loaded, then the
+    // script: from SetModel at once for a model that has already loaded, as
+    // 3.80.2's SetModel runs its handler (0x14194A570), else from the update
+    // walk. True when it ran.
+    bool FinishLoad();
     // A model dressed by a CreatureDisplayInfoExtra record, or by a player
     // body, once it has loaded.
     void SetModel(void *model, const char *path, const uint8_t *dressRecord,
@@ -244,6 +251,12 @@ class Actor : public Animation::Object {
     // and the item's record is cached; returns the ItemTryOnReason.
     int TryOnItem(const Model::TryOn::Request &request);
     void ClearModel();
+    // SetPaused, the actor's and the scene's: holds or releases the
+    // animation; with affectsGlobalPause the global pause flag follows too.
+    void Pause(bool paused, bool affectsGlobalPause);
+    // TakeActor: the actor hangs from `scene` now. The caller has cleared
+    // its model and moved it between the scenes' lists.
+    void MoveToScene(void *scene) { parent = scene; }
     void PlayAnimation();
     // Shows the kit (0 for none) on the model, replacing the one shown.
     void SetSpellVisualKit(uint32_t kitID, bool oneShot);
@@ -348,6 +361,12 @@ class Actor : public Animation::Object {
     uint32_t sheatheCategory[2] = {};
     uint8_t ownSheathe[2] = {};
     bool useUnitSheatheCategory = false; // UseUnitSheatheCategory
+    // The transmog flags (Set/GetUseTransmogSkin, ...Choices,
+    // ...ObeyHideInTransmogFlag), stored only: 1.12 has no transmog
+    // collection.
+    bool useTransmogSkin = false;
+    bool useTransmogChoices = false;
+    bool obeyHideInTransmogFlag = false;
     // The ammo tried on (an INVTYPE_AMMO item, as a player equips it): its
     // ItemDisplayInfo id, 0 for none.
     uint32_t ammoDisplay = 0;
@@ -391,9 +410,22 @@ class Actor : public Animation::Object {
     // The yaw the model is drawn at: the body facing while the mover is on.
     float ShownYaw() const { return mover != nullptr ? facings.body : yaw; }
 
+    // SetPosition's position, in the actor's scale: the model stands at
+    // Origin(), the scale times it, as 3.80.2 places it (0x141949C00).
     float position[3] = {0.0f, 0.0f, 0.0f};
     float yaw = 0.0f, pitch = 0.0f, roll = 0.0f;
-    float scale = 1.0f;
+    float scale = 1.0f; // at least 0.01 (SetScale 0x140C5A1E0)
+    struct Point {
+        float p[3];
+    };
+    // Where the model stands in the scene.
+    Point Origin() const { return {{position[0] * scale, position[1] * scale, position[2] * scale}}; }
+    // Stands the actor at a scene point (the mover's): the position over the
+    // scale.
+    void StandAt(const float (&point)[3]) {
+        for (int i = 0; i < 3; ++i)
+            position[i] = point[i] / scale;
+    }
     float alpha = 1.0f;
     bool shown = true;
     // FadeOut: the world's fade of a removed object's model, on the scene
@@ -401,6 +433,12 @@ class Actor : public Animation::Object {
     bool fadingOut = false;
     uint32_t fadeStartMs = 0;
     bool useCenterForOrigin[3] = {false, false, false};
+    // The active box's centre, taken once when the model loads (0x14194A570
+    // keeps it at +0x1B0; SetAnimation does not move it).
+    float originCentre[3] = {0.0f, 0.0f, 0.0f};
+    // SetPreferModelCollisionBounds (+0x1BD bit 0): the active box is the
+    // model's collision box, when it has one.
+    bool preferModelCollisionBounds = false;
     uint32_t animation = 0;
     int variation = -1;
     float animSpeed = 1.0f;
@@ -1138,10 +1176,13 @@ const float *LightAmbient(void *sceneFrame);
 
 // The scene clock in milliseconds (the M2 scene's): the actors' movement runs
 // on it as a unit's runs on the OS clock, so it stops while the scene is
-// paused or hidden, with the animations.
+// hidden, with the animations.
 uint32_t ClockMs(void *sceneFrame);
-// Whether SetPaused holds the scene.
-bool IsPaused(void *sceneFrame);
+// Whether the scene's fog falls inside what it draws: its fog starts before
+// its far clip. Its fog is always on (3.80.2 has no fog switch), so a scene
+// whose fog starts past the far clip, as it does by default and after
+// ClearFog, fogs nothing.
+bool HasFog(void *sceneFrame);
 // The radius the actor's ground-target reticle draws at: its own, or the
 // world's default for 0 (Offsets::RETICLE_DEFAULT_RADIUS).
 float GroundReticleRadius(const Actor &actor);
@@ -1186,10 +1227,16 @@ int GroundTerrain(void *sceneFrame);
 // Registers the actor class in the current Lua state.
 void RegisterActorClass();
 
-// The methods' argument checks, for the frame and its actors. True when the
-// `count` arguments from `first` are numbers; else the engine's usage error,
-// "Usage: <owner>:<usage>".
-bool NumberArgs(void *L, int first, int count, const char *owner, const char *usage);
+// Whether the value at `idx` is a ModelScene frame, or a ModelSceneActor; no
+// error either way.
+bool IsSceneFrame(void *L, int idx);
+bool IsActor(void *L, int idx);
+
+// The methods' number check, for the frame and its actors, as 3.80.2's
+// vector reader (0x140A90E70) makes it: true when the `count` arguments from
+// `first` are numbers (lua_isnumber, no finite test); else luaL_argerror at the
+// first one that is not, with `usage` (a whole "Usage: self:..." string).
+bool NumberArgs(void *L, int first, int count, const char *usage);
 float FloatArg(void *L, int index);
 
 } // namespace Model::Scene

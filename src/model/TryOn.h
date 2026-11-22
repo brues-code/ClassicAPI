@@ -54,13 +54,17 @@ void ShowNotEquippable();
 // (appearanceID) and enchant (illusionID), and the hand an inventory slot of
 // 16 or 17 names. Quiet: retail's callers show the error. False, after a Lua
 // usage error naming the frame `name`, when index 2 is not a table.
-bool ReadTransmogInfo(void *L, const char *name, Request &request);
+bool ReadTransmogInfo(void *L, const char *usage, Request &request);
 
-// One slot as an ItemTransmogInfoMixin table of (item, NoTransmogID, enchant),
+// One slot as an ItemTransmogInfoMixin table of (item, secondary, enchant),
 // built as 3.80.2 builds one (0x140B0E2A0, lua/MixinTable.h).
-void PushTransmogInfo(void *L, const Outfit::Appearance &slot);
+void PushTransmogInfo(void *L, const Outfit::Appearance &slot, int secondaryAppearanceID = 0);
 
-// Every slot 1..19 as a list of ItemTransmogInfo.
-void PushTransmogInfoList(void *L, const Outfit::Worn &worn);
+// Every slot 1..19 as a list of ItemTransmogInfo. With
+// `individualMainHand`, a main hand that wears something has
+// secondaryAppearanceID -1 (MainHandTransmogIsIndividualWeapon), as the
+// actor's list gives it (0x14194FF90: paired flag - 1; 1.12 has no paired
+// weapons).
+void PushTransmogInfoList(void *L, const Outfit::Worn &worn, bool individualMainHand = false);
 
 } // namespace Model::TryOn

@@ -17,7 +17,7 @@
 // group finishes (Finish included), and Stop still restores the alpha. No
 // source on disk says what a later client's Stop does with the flag.
 
-#include "animation/Args.h"
+#include "lua/MethodArg.h"
 #include "animation/Classes.h"
 #include "animation/Region.h"
 
@@ -31,6 +31,8 @@
 #include <cmath>
 
 namespace Animation {
+
+namespace MethodArg = Game::Lua::MethodArg;
 
 namespace {
 
@@ -530,7 +532,7 @@ const char *SmoothWeightsToString(float in, float out) {
 
 // ---- Lua methods (CSimpleAnimGroup_Scripts.cpp, 3.80.2's table 0x14458F9B0) -----
 //
-// Arguments are read as 3.80.2's generated bindings read them (Args.h).
+// Arguments are read as 3.80.2's generated bindings read them (lua/MethodArg.h).
 
 namespace {
 
@@ -541,9 +543,9 @@ constexpr char kRestartUsage[] = "Usage: self:Restart([reverse, offset])";
 
 // Play's and Restart's [reverse, offset]: false and 0 by default.
 bool PlayArgs(void *L, const char *usage, bool &reverse, float &offset) {
-    reverse = Args::OptBool(L, 2, false);
+    reverse = MethodArg::OptBool(L, 2, false);
     offset = 0.0f;
-    return Args::OptNumber(L, 3, usage, offset);
+    return MethodArg::OptNumber(L, 3, usage, offset);
 }
 
 int __fastcall Script_Play(void *L) {
@@ -567,7 +569,7 @@ int __fastcall Script_Restart(void *L) {
 int __fastcall Script_SetPlaying(void *L) {
     Group *g = Self(L);
     bool play;
-    if (g == nullptr || !Args::Bool(L, 2, "Usage: self:SetPlaying(play)", play))
+    if (g == nullptr || !MethodArg::Bool(L, 2, "Usage: self:SetPlaying(play)", play))
         return 0;
     if (play)
         g->Play(false, 0.0f);
@@ -634,7 +636,7 @@ int __fastcall Script_SetAnimationSpeedMultiplier(void *L) {
     Group *g = Self(L);
     float value;
     if (g != nullptr &&
-        Args::Number(L, 2, "Usage: self:SetAnimationSpeedMultiplier(animationSpeedMultiplier)", value))
+        MethodArg::Number(L, 2, "Usage: self:SetAnimationSpeedMultiplier(animationSpeedMultiplier)", value))
         g->speedMultiplier = value;
     return 0;
 }
@@ -645,7 +647,7 @@ int __fastcall Script_SetLooping(void *L) {
     LoopType type;
     // A string; a number is not one here (3.80.2's FUN_140AB2EA0).
     if (Game::Lua::Type(L, 2) != Game::Lua::TYPE_STRING || !StringToLoopType(Game::Lua::ToString(L, 2), type)) {
-        Args::Fail(L, 2, "Usage: self:SetLooping(loopType)");
+        MethodArg::Fail(L, 2, "Usage: self:SetLooping(loopType)");
         return 0;
     }
     g->loopType = type;
@@ -669,7 +671,7 @@ int __fastcall Script_GetLoopState(void *L) {
 int __fastcall Script_SetToFinalAlpha(void *L) {
     Group *g = Self(L);
     bool keep;
-    if (g != nullptr && Args::Bool(L, 2, "Usage: self:SetToFinalAlpha(setToFinalAlpha)", keep))
+    if (g != nullptr && MethodArg::Bool(L, 2, "Usage: self:SetToFinalAlpha(setToFinalAlpha)", keep))
         g->setToFinalAlpha = keep;
     return 0;
 }

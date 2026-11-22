@@ -159,13 +159,15 @@ function DressUpMount(mountID, forcedFrame, shouldSetModelFromHyperlink, link)
 		ShowUIPanel(frame);
 	end
 	frame:SetLastLink(link);
-	frame.ModelScene:ClearScene();
+	-- 3.80.2's mount preview (Classic Blizzard_MountCollection.lua): the
+	-- camera kept across mounts, the player's own customizations, the
+	-- mount's visual kit and the player's native form passed on.
 	local forceEvenIfSame = true;
-	frame.ModelScene:TransitionToModelSceneID(modelSceneID, CAMERA_TRANSITION_TYPE_IMMEDIATE, CAMERA_MODIFICATION_TYPE_DISCARD, forceEvenIfSame);
+	frame.ModelScene:TransitionToModelSceneID(modelSceneID, CAMERA_TRANSITION_TYPE_IMMEDIATE, CAMERA_MODIFICATION_TYPE_MAINTAIN, forceEvenIfSame);
 
 	local mountActor = frame.ModelScene:GetActorByTag("unwrapped");
 	if mountActor then
-		mountActor:SetModelByCreatureDisplayID(creatureDisplayID);
+		mountActor:SetModelByCreatureDisplayID(creatureDisplayID, true);
 
 		-- mount self idle animation
 		if (isSelfMount) then
@@ -175,7 +177,9 @@ function DressUpMount(mountID, forcedFrame, shouldSetModelFromHyperlink, link)
 			mountActor:SetAnimationBlendOperation(Enum.ModelBlendOperation.Anim);
 			mountActor:SetAnimation(0);
 		end
-		frame.ModelScene:AttachPlayerToMount(mountActor, animID, isSelfMount, disablePlayerMountPreview);
+		local _, raceFilename = UnitRace("player");
+		local useNativeForm = raceFilename and true or false;
+		frame.ModelScene:AttachPlayerToMount(mountActor, animID, isSelfMount, disablePlayerMountPreview, spellVisualKitID, useNativeForm);
 	end
 	return true;
 end

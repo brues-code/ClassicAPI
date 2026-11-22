@@ -933,6 +933,7 @@ build instructions.
   - [`CreateFrame("ModelScene" [, name, parent, template])`](#createframemodelscene--name-parent-template)
   - [`scene:CreateActor([name, template])`](#scenecreateactorname-template)
   - [`scene:GetNumActors()` / `scene:GetActorAtIndex(index)`](#scenegetnumactors--scenegetactoratindexindex)
+  - [`scene:TakeActor(actor)`](#scenetakeactoractor)
   - [`scene:SetCameraPosition(x, y, z)` / `scene:GetCameraPosition()`](#scenesetcamerapositionx-y-z--scenegetcameraposition)
   - [`scene:SetCameraOrientationByYawPitchRoll(yaw, pitch, roll)`](#scenesetcameraorientationbyyawpitchrollyaw-pitch-roll)
   - [`scene:SetCameraOrientationByAxisVectors(forwardX, forwardY, forwardZ, rightX, rightY, rightZ, upX, upY, upZ)`](#scenesetcameraorientationbyaxisvectorsforwardx-forwardy-forwardz-rightx-righty-rightz-upx-upy-upz)
@@ -987,12 +988,15 @@ build instructions.
   - [`actor:SetModelByUnit(unit [, sheatheWeapons, autoDress, hideWeapons, usePlayerNativeForm, holdBowString, customRaceID])`](#actorsetmodelbyunitunit--sheatheweapons-autodress-hideweapons-useplayernativeform-holdbowstring-customraceid)
   - [`actor:SetModelByUnitCreatureDisplayID(unit)`](#actorsetmodelbyunitcreaturedisplayidunit)
   - [`actor:GetModelUnitGUID()`](#actorgetmodelunitguid)
+  - [`actor:SetPlayerModelFromGlues([characterIndex, sheatheWeapons, autoDress, hideWeapons, usePlayerNativeForm, customRaceID])`](#actorsetplayermodelfromgluescharacterindex-sheatheweapons-autodress-hideweapons-useplayernativeform-customraceid)
   - [`actor:Dress()` / `actor:Undress([includeWeapons])` / `actor:UndressSlot(slot)`](#actordress--actorundressincludeweapons--actorundressslotslot)
   - [`actor:TryOn(item [, handSlotName, spellEnchantID])`](#actortryonitem--handslotname-spellenchantid)
   - [`actor:DressPlayerSlot(slot)`](#actordressplayerslotslot)
   - [`actor:IsSlotAllowed(slot)` / `actor:IsSlotVisible(slot)`](#actorisslotallowedslot--actorisslotvisibleslot)
   - [`actor:GetItemTransmogInfo(slot)` / `actor:GetItemTransmogInfoList()`](#actorgetitemtransmoginfoslot--actorgetitemtransmoginfolist)
   - [`actor:SetItemTransmogInfo(info [, slot, ignoreChildItems])`](#actorsetitemtransmoginfoinfo--slot-ignorechilditems)
+  - [`actor:SetUseTransmogSkin(use)` / `actor:SetUseTransmogChoices(use)` / `actor:SetObeyHideInTransmogFlag(obey)`](#actorsetusetransmogskinuse--actorsetusetransmogchoicesuse--actorsetobeyhideintransmogflagobey)
+  - [`actor:ResetNextHandSlot()`](#actorresetnexthandslot)
   - [`actor:SetSheathed(sheathed [, hidden])` / `actor:GetSheathed()`](#actorsetsheathedsheathed--hidden--actorgetsheathed)
   - [`actor:SetSheatheState(state)`](#actorsetsheathestatestate)
   - [`actor:SetHeldItem(inventorySlot [, itemDisplayID, itemClass, itemSubclass, inventoryType, sheatheType])`](#actorsethelditeminventoryslot--itemdisplayid-itemclass-itemsubclass-inventorytype-sheathetype)
@@ -1006,6 +1010,7 @@ build instructions.
   - [`actor:SetScale(scale)` / `actor:GetScale()`](#actorsetscalescale--actorgetscale)
   - [`actor:SetUseCenterForOrigin([x, y, z])` / `actor:IsUsingCenterForOrigin()`](#actorsetusecenterfororiginx-y-z--actorisusingcenterfororigin)
   - [`actor:GetActiveBoundingBox()` / `actor:GetMaxBoundingBox()`](#actorgetactiveboundingbox--actorgetmaxboundingbox)
+  - [`actor:SetPreferModelCollisionBounds(prefer)` / `actor:IsPreferringModelCollisionBounds()`](#actorsetprefermodelcollisionboundsprefer--actorispreferringmodelcollisionbounds)
   - [`actor:Show()` / `actor:Hide()` / `actor:SetShown(shown)`](#actorshow--actorhide--actorsetshownshown)
   - [`actor:FadeOut()` / `actor:IsFadingOut()`](#actorfadeout--actorisfadingout)
   - [`actor:SetAlpha(alpha)` / `actor:GetAlpha()`](#actorsetalphaalpha--actorgetalpha)
@@ -1050,6 +1055,12 @@ build instructions.
   - [`C_ModelInfo.GetModelSceneCameraInfoByID(modelSceneCameraID)`](#c_modelinfogetmodelscenecamerainfobyidmodelscenecameraid)
   - [`C_ModelInfo.GetModelSceneActorInfoByID(modelActorID)`](#c_modelinfogetmodelsceneactorinfobyidmodelactorid)
   - [`C_ModelInfo.GetModelSceneActorDisplayInfoByID(modelActorDisplayID)`](#c_modelinfogetmodelsceneactordisplayinfobyidmodelactordisplayid)
+  - [`C_ModelInfo.AddActiveModelScene(modelSceneFrame, modelSceneID)` / `C_ModelInfo.AddActiveModelSceneActor(modelSceneFrameActor, modelSceneActorID)` / `C_ModelInfo.ClearActiveModelScene(modelSceneFrame)` / `C_ModelInfo.ClearActiveModelSceneActor(modelSceneFrameActor)`](#c_modelinfoaddactivemodelscenemodelsceneframe-modelsceneid--c_modelinfoaddactivemodelsceneactormodelsceneframeactor-modelsceneactorid--c_modelinfoclearactivemodelscenemodelsceneframe--c_modelinfoclearactivemodelsceneactormodelsceneframeactor)
+  - [`Enum.ModelSceneType`](#enummodelscenetype)
+  - [`Enum.UIModelSceneFlags`](#enumuimodelsceneflags)
+  - [`Enum.UIModelSceneActorFlag`](#enumuimodelsceneactorflag)
+  - [`Enum.UIModelSceneContext`](#enumuimodelscenecontext)
+  - [`UI_MODEL_SCENE_INFO_UPDATED` event](#ui_model_scene_info_updated-event)
 
 - [Mount](#mount)
   - [`C_MountJournal.GetMountFromSpell(spellID)`](#c_mountjournalgetmountfromspellspellid)
@@ -21432,6 +21443,12 @@ A `ModelScene` frame shows many models in one 3D scene. Each model is an
 and the actors in scene coordinates: `z` is up, and distances are in yards.
 The scene can also show a WMO, for example a dungeon, around the actors.
 
+A wrong argument to a method of a scene or of an actor raises an error in
+this form: `bad argument #N to 'Method' (Usage: self:Method(...))`. The
+methods that set one number, for example `SetCameraFieldOfView`,
+`SetFogNear` and `actor:SetScale`, also need a finite number. The angles of
+`SetCameraOrientationByYawPitchRoll` also need finite numbers.
+
 ### `CreateFrame("ModelScene" [, name, parent, template])`
 
 Makes a `ModelScene` frame. In XML, use the `<ModelScene>` element.
@@ -21457,9 +21474,14 @@ attributes of a frame:
 | XML | Effect |
 |---|---|
 | `drawLayer="OVERLAY"` | `SetDrawLayer` |
-| `fogNear="10"` / `fogFar="40"` | `SetFogNear` / `SetFogFar`. A negative value becomes `0`. |
-| `<FogColor r="1" g="0" b="0"/>` | `SetFogColor` |
-| `<ViewInsets left="0" right="0" top="50" bottom="0"/>` | `SetViewInsets` |
+| `fogNear="10"` / `fogFar="40"` | `SetFogNear` / `SetFogFar`. The scene keeps the value as it is. A negative value stays negative. |
+| `<FogColor r="1" g="0" b="0"/>` | `SetFogColor`. Only the first `<FogColor>` has an effect. |
+| `<ViewInsets left="0" right="0" top="50" bottom="0"/>` | `SetViewInsets`. A missing attribute is `0`. Without the four attributes, an `<AbsInset>` or `<RelInset>` child gives the insets. |
+
+A scene inside a frame that clips its children
+([`frame:SetClipsChildren`](#framesetclipschildrenclipschildren--framedoesclipchildren)),
+or inside a `ScrollFrame`, is cut to the rectangle of that frame. A scene
+that is fully outside that rectangle draws nothing.
 
 ```lua
 local scene = CreateFrame("ModelScene", nil, UIParent)
@@ -21476,14 +21498,30 @@ horse:SetModelByCreatureDisplayID(2404)   -- a brown horse
 
 Adds an actor to the scene and returns it. `name` gives the actor a global
 name. In `name`, `$parent` stands for the name of the scene. `template` is
-the name of a virtual `<Actor>` element. The actor gets the template's
-mixins, scripts and key values, and then its `OnLoad` runs.
+the name of a virtual `<Actor>` element (see [`<Actor>` templates](#actor-templates)).
+The actor gets the settings of the template, and then its `OnLoad` runs.
+`OnLoad` runs before the actor goes into the list of the scene. Thus
+`GetNumActors` in `OnLoad` does not count the new actor.
+
+A `template` that is not a string has no effect. When no template has the
+name, the call raises the error `Couldn't find inherited node "name"`. When
+the `inherits` chain of the template comes back to a template in the chain,
+the call raises the error `Recursively inherited node "name"`.
 
 ### `scene:GetNumActors()` / `scene:GetActorAtIndex(index)`
 
 `GetNumActors` returns the number of actors in the scene.
 `GetActorAtIndex` returns one actor. Index `1` is the first actor that the
-scene made.
+scene made. For an index out of the range, `GetActorAtIndex` returns
+nothing. When `index` is not a number, it raises the error
+`Invalid index passed`.
+
+### `scene:TakeActor(actor)`
+
+Moves an actor of another scene into this scene. The actor loses its model,
+and its `OnModelCleared` script runs. Give the actor a model again after the
+move. The actor goes to the end of the list of this scene. For an actor of
+this scene, the call does nothing.
 
 ### `scene:SetCameraPosition(x, y, z)` / `scene:GetCameraPosition()`
 
@@ -21493,12 +21531,15 @@ Sets or returns the position of the camera.
 
 Turns the camera. All three angles are in radians. `yaw` turns about the up
 axis, a positive `pitch` looks down, and `roll` turns about the direction
-that the camera looks.
+that the camera looks. The axes that the angles give go through the test of
+`SetCameraOrientationByAxisVectors`.
 
 ### `scene:SetCameraOrientationByAxisVectors(forwardX, forwardY, forwardZ, rightX, rightY, rightZ, upX, upY, upZ)`
 
 Turns the camera so that it looks along the forward vector, with the right
-and up vectors as its sides.
+and up vectors as its sides. Each vector must have a length of 1, and each
+two vectors must be at a right angle. If they are not, the call raises the
+error `Each vector must be orthonormal`, and the camera does not turn.
 
 ### `scene:GetCameraForward()` / `scene:GetCameraRight()` / `scene:GetCameraUp()`
 
@@ -21506,12 +21547,23 @@ Each one returns three numbers: one axis of the camera.
 
 ### `scene:SetCameraFieldOfView(fov)` / `scene:GetCameraFieldOfView()`
 
-Sets or returns the vertical field of view of the camera, in radians.
+Sets or returns the vertical field of view of the camera, in radians. A
+value less than `0` becomes `0`. A value more than 2π (`6.2831855`) becomes
+2π.
 
 ### `scene:SetCameraNearClip(nearClip)` / `scene:SetCameraFarClip(farClip)`
 
 Sets the nearest and the farthest distance that the camera draws.
-`GetCameraNearClip()` and `GetCameraFarClip()` return them.
+`GetCameraNearClip()` and `GetCameraFarClip()` return them. A value of `0`
+or less becomes `0`. While the near clip is not less than the far clip, the
+scene draws nothing.
+
+The clip distances and the fog distances follow the scale of the frame. The
+scene divides each of these distances by `GetScale()`, multiplied by
+`GetEffectiveScale()` and by a factor of the screen. Thus a scene at a
+smaller UI scale draws to a farther distance, and its fog is farther away.
+The positions of the camera and of the actors do not follow the scale. The
+getters return the values that you set.
 
 ### `scene:SetViewInsets(left, right, top, bottom)` / `scene:GetViewInsets()`
 
@@ -21585,7 +21637,8 @@ scene:SetActiveCamera(camera)
 
 ### `scene:SetLightType(lightType)` / `scene:GetLightType()`
 
-`0` makes a directional light, and `1` makes a point light.
+`0` makes a directional light, and `1` makes a point light. Other values
+raise an argument error.
 
 ### `scene:SetLightVisible([visible])` / `scene:IsLightVisible()`
 
@@ -21594,25 +21647,39 @@ Turns the light on or off.
 ### `scene:SetLightDirection(x, y, z)` / `scene:SetLightPosition(x, y, z)`
 
 Sets the direction of a directional light, or the position of a point
-light. `GetLightDirection()` and `GetLightPosition()` return them.
+light. `GetLightDirection()` and `GetLightPosition()` return them. The scene
+keeps the direction as a vector with a length of 1, so `GetLightDirection`
+returns the normalized vector.
 
 ### `scene:SetLightAmbientColor(r, g, b)` / `scene:SetLightDiffuseColor(r, g, b)`
 
-Sets the colors of the light, from `0` to `1`. `GetLightAmbientColor()` and
-`GetLightDiffuseColor()` return them.
+Sets the colors of the light, from `0` to `1`. A value less than `0`
+becomes `0`, and a value more than `1` becomes `1`. The scene keeps each
+value in steps of 1/255. `GetLightAmbientColor()` and
+`GetLightDiffuseColor()` return the stored values.
 
 ### `scene:SetFogColor(r, g, b)` / `scene:GetFogColor()`
 
-Sets the color of the fog and turns the fog on.
+Sets the color of the fog, from `0` to `1`, with the same limits and steps
+as the light colors. The call changes only the color: it does not change
+the fog distances. The fog is white by default.
 
 ### `scene:SetFogNear(near)` / `scene:SetFogFar(far)`
 
 Sets the distance where the fog starts and the distance where it is full.
-`GetFogNear()` and `GetFogFar()` return them.
+`GetFogNear()` and `GetFogFar()` return them. The scene keeps the value as
+you give it.
+
+The fog of a scene is always on. The default distances (`10000000` and
+`100000000`) are too far for fog to show. A call to `SetFogNear` or
+`SetFogFar` alone thus makes white fog. The fog distances follow the scale
+of the frame, as the clip distances do (see
+[`scene:SetCameraNearClip`](#scenesetcameranearclipnearclip--scenesetcamerafarclipfarclip)).
 
 ### `scene:ClearFog()`
 
-Turns the fog off.
+Sets the fog distances back to their defaults, near `10000000` and far
+`100000000`, so that no fog shows. The color of the fog does not change.
 
 ### `scene:SetDrawLayer(layer)` / `scene:GetDrawLayer()`
 
@@ -21621,35 +21688,28 @@ Sets the draw layer of the scene, for example `"ARTWORK"` or `"OVERLAY"`.
 
 ### `scene:SetPaused(paused [, affectsGlobalPause])`
 
-`true` stops the animations of all the actors. Each actor stays at its
-current frame. `false` starts the animations again from the same frame.
-`affectsGlobalPause` has no effect. To pause one actor, use
-[`actor:SetPaused`](#actorsetpausedpaused--affectsglobalpause--actorgetpaused).
+Pauses or unpauses each actor of the scene that has a model at the time of
+the call. For each of these actors, the call is the same as
+[`actor:SetPaused(paused, affectsGlobalPause)`](#actorsetpausedpaused--affectsglobalpause--actorgetpaused).
+`paused` is necessary: without it, the call raises an argument error.
+`affectsGlobalPause` is `true` by default.
 
-These also stop with the animations:
+The scene keeps no pause of its own. Thus the call does not change these:
 
+- An actor that the scene makes after the call, and an actor without a
+  model at the time of the call.
 - The clock of the scene ([`scene:GetSceneTime`](#scenegetscenetime)) and
   the timers of the scene.
-- The movement of all the actors: walking, running, jumping, falling,
-  swimming and `MoveTo`. A movement command that you give while the scene is
-  paused starts when the scene starts again.
-- The spell visuals of `PlaySpellVisual`, missiles in flight and chain
-  bolts. The flight sounds of the missiles stop.
-- The shards of a spell ground area (`actor:SetModelBySpellArea`). The
-  sound of the area stops.
-- The click-to-move marker of `scene:SetMoveMarker`.
-
-When the scene starts again, each of these continues from where it stopped.
-The `OnUpdate` scripts of the actors continue to run while the scene is
-paused.
+- The movement of the actors, the camera shakes and the click-to-move
+  marker of `scene:SetMoveMarker`.
 
 ### `scene:GetSceneTime()`
 
 Returns the time on the clock of the scene, in seconds. The clock starts
 at 0 when the scene is made. The actors animate and move by this clock.
 
-The clock stops while the scene is paused (`scene:SetPaused`) and while
-the scene is hidden. This is a ClassicAPI extension.
+The clock stops while the scene is hidden. `scene:SetPaused` does not stop
+it. This is a ClassicAPI extension.
 
 ### `scene:After(seconds, callback)` / `scene:NewTimer(seconds, callback)` / `scene:NewTicker(seconds, callback [, iterations])`
 
@@ -21658,8 +21718,7 @@ These functions are the same as
 [`C_Timer.NewTimer`](#c_timernewtimerseconds-callback) and
 [`C_Timer.NewTicker`](#c_timernewtickerseconds-callback-iterations), but
 they use the clock of the scene. Time does not pass for these timers while
-the scene is paused or hidden. Thus the timers stay in step with the
-animations of the actors.
+the scene is hidden. `scene:SetPaused` does not stop them.
 
 The scene runs its timers when its clock moves, before the actors update.
 A ticker runs one time in each frame at most. A `/reload` cancels all the
@@ -21677,8 +21736,14 @@ ticker:Cancel()
 
 ### `scene:SetAllowOverlappedModels(allow)` / `scene:GetAllowOverlappedModels()`
 
-Stores a flag. It is `false` by default. The flag has no effect: a scene
-always draws, also when another model frame covers it.
+Sets how the scene uses the depth of the screen. `allow` is necessary:
+without it, the call raises an argument error. The flag is `false` by
+default.
+
+- `true` clears the depth under the scene before the scene draws.
+- `false` keeps the depth of the scenes that drew earlier in the same
+  frame. Thus the models of a scene that overlaps this scene can hide the
+  models of this scene.
 
 ### `scene:SetGroundTerrain([terrainTypeID])` / `scene:GetGroundTerrain()`
 
@@ -21777,7 +21842,7 @@ in it:
   take the light of the place where they are. An arrow in a bow or in a
   target takes the light of the actor that holds it.
 
-The far clip of the camera (`100` yards by default) also
+The far clip of the camera (`100` by default) also
 cuts the WMO. For a large WMO, increase the far clip with
 `scene:SetCameraFarClip`. `scene:GetActorAtCursor` does not return the WMO
 or its props.
@@ -22116,7 +22181,7 @@ scene shows one marker. A new call moves it to the new point.
   marker lies on their faces near the point. In a scene with neither, it
   lies flat at the height of the point.
 - The marker pulses between 0.5 and 0.75 yards in size, two times each
-  second. It stops while the scene is paused.
+  second.
 - The marker stays until you call `ClearMoveMarker`. It does not go away
   when an actor gets to the point.
 
@@ -22172,8 +22237,8 @@ extension.
 ### `actor:SetModelByCreatureDisplayID(displayID [, useActivePlayerCustomizations])`
 
 Shows a creature by its display ID (a `CreatureDisplayInfo` ID) and returns
-`true`. It returns `false` and shows nothing for an ID that is not a
-display. A display of a character model is dressed in the clothes of its
+`true`. For an ID that is not a display, it returns `false` and keeps the
+old model. A display of a character model is dressed in the clothes of its
 NPC. `useActivePlayerCustomizations` has no effect.
 
 ### `actor:SetModelByCharacterAppearance(appearance)`
@@ -22201,8 +22266,8 @@ actor:SetItemTransmogInfo(ItemUtil.CreateItemTransmogInfo(2575), 4) -- a shirt
 ### `actor:SetModelByPath(path [, useMips])`
 
 Shows a model file, for example `"Creature\\Wolf\\Wolf.mdx"`, and returns
-`true`. It returns `false` when the path does not give a model. `useMips`
-has no effect.
+`true`. When the path does not give a model, it returns `false` and keeps
+the old model. `useMips` has no effect.
 
 ### `actor:SetModelBySpellArea(spellID, radius)`
 
@@ -22223,8 +22288,9 @@ Returns `true`, or `false` when the spell has no ground area.
 - When you hide the actor or change its model, the area stops. No more
   shards fall, and the sound fades out in 3 seconds. Shards that are in the
   air land first. When you show the actor again, the area starts again.
-- While the scene or the actor is paused, the shards stop where they are
-  and the sound stops. When the pause ends, they continue.
+- While the actor is paused (`actor:SetPaused` or `scene:SetPaused`), the
+  shards stop where they are and the sound stops. When the pause ends, they
+  continue.
 
 This is a ClassicAPI extension.
 
@@ -22401,7 +22467,8 @@ door:SetGameObjectState(0, 1)            -- opens
 ### `actor:SetModelByUnit(unit [, sheatheWeapons, autoDress, hideWeapons, usePlayerNativeForm, holdBowString, customRaceID])`
 
 Shows a copy of a unit, with the items that it wears and holds, and returns
-`true`. It returns `false` when the unit does not exist.
+`true`. When the unit does not exist, it returns `false` and keeps the old
+model.
 
 | Argument | Default | Effect |
 |---|---|---|
@@ -22426,13 +22493,23 @@ shows its own display. It returns `false` when the unit does not exist.
 Returns the GUID of the unit that `SetModelByUnit` shows. It returns
 nothing for an actor that does not show a unit.
 
+### `actor:SetPlayerModelFromGlues([characterIndex, sheatheWeapons, autoDress, hideWeapons, usePlayerNativeForm, customRaceID])`
+
+Always returns `false` and changes nothing. A scene exists only in the
+world, and the list of characters of the character screen is not available
+there.
+
 ### `actor:Dress()` / `actor:Undress([includeWeapons])` / `actor:UndressSlot(slot)`
 
 These work on an actor that shows a unit. `Dress` puts on everything that
-the unit wears. `Undress` takes everything off. With `includeWeapons` set to
-`false`, the weapons stay, the ranged weapon too. `UndressSlot` takes off the
-item in one inventory slot, from `1` (head) to `19` (tabard). Slot `18` is
-the ranged slot.
+the unit wears. For a unit that is not your character, `Dress` also turns
+off the `hideWeapons` setting of `SetModelByUnit`. `Undress` takes
+everything off. With `includeWeapons` set to `false`, the weapons stay, the
+ranged weapon too.
+
+`UndressSlot` takes off the item in one armor slot or one hand. `slot` is
+an inventory slot, from `1` (head) to `19` (tabard). The ranged slot (`18`),
+the neck, the rings and the trinkets do not change.
 
 ### `actor:TryOn(item [, handSlotName, spellEnchantID])`
 
@@ -22491,24 +22568,25 @@ from `1` (head) to `19` (tabard). This undoes a `TryOn` or an `UndressSlot`
 on that slot. If the unit wears nothing in the slot, the slot becomes empty.
 A helm or a cloak that the unit hides stays off.
 
-It works on an actor that shows a unit (`SetModelByUnit`), while the unit is
-near enough for your client to see it. A hand slot changes only that hand.
-Slot `18` puts back the ranged weapon of the unit. For example, after a two-hand weapon goes on with `TryOn`, `DressPlayerSlot(17)`
-puts the off-hand item of the unit back next to it.
+It works only on an actor that shows your character (`SetModelByUnit`). On
+other actors, it does nothing. A hand slot changes only that hand. The
+ranged slot (`18`) does not change. For example, after a two-hand weapon
+goes on with `TryOn`, `DressPlayerSlot(17)` puts the off-hand item of your
+character back next to it.
 
 ### `actor:IsSlotAllowed(slot)` / `actor:IsSlotVisible(slot)`
 
-`IsSlotAllowed` returns `true` when the actor can wear an item in the
-inventory slot:
+`IsSlotAllowed` returns `true` when the actor can wear an item in an armor
+slot. The armor slots are the head, the shoulders, the shirt, the chest,
+the waist and the legs. The feet, the wrists, the hands (gloves, slot
+`10`), the back and the tabard are also armor slots. They are allowed when
+`TryOn` can put armor on the actor.
 
-- The hands (`16` and `17`) and the ranged slot (`18`) are allowed on all
-  models.
-- The armor slots are allowed when `TryOn` can put armor on the actor.
-- The neck, the rings, and the trinkets are not allowed.
-
-It returns `false` for an actor that shows no model. `IsSlotVisible` returns
-the same value. An item in an allowed slot shows, but a ranged weapon shows
-only while the actor shoots.
+All other slots return `false`. These are the main hand and the off hand
+(`16` and `17`), the ranged slot (`18`), the neck, the rings and the
+trinkets. An
+actor that shows no model also returns `false`. `IsSlotVisible` returns the
+same value as `IsSlotAllowed`.
 
 ### `actor:GetItemTransmogInfo(slot)` / `actor:GetItemTransmogInfoList()`
 
@@ -22518,13 +22596,15 @@ table has three fields:
 | Field | Value |
 |-------|-------|
 | `appearanceID` | The item ID, or `0` for an empty slot. |
-| `secondaryAppearanceID` | Always `0` (`Constants.Transmog.NoTransmogID`). |
+| `secondaryAppearanceID` | `0` (`Constants.Transmog.NoTransmogID`). In the list of `GetItemTransmogInfoList`, a main hand (slot `16`) that wears an item has `-1` (`Constants.Transmog.MainHandTransmogIsIndividualWeapon`). |
 | `illusionID` | On a weapon, the SpellItemEnchantment ID of the enchant glow that the weapon shows. Else `0`. |
 
 `GetItemTransmogInfo` returns the table for one inventory slot, from `1`
-(head) to `19` (tabard). It returns nothing for an actor that shows no model,
-or for a slot number outside this range. `GetItemTransmogInfoList` returns a
-list of 19 tables, one for each inventory slot, in slot order.
+(head) to `19` (tabard). It returns nothing for a slot that wears nothing,
+for an actor that shows no model, and for a slot number outside this range.
+`GetItemTransmogInfoList` returns a list of 19 tables, one for each
+inventory slot, in slot order. In this list, an empty slot has an
+`appearanceID` of `0`.
 
 An actor that shows a player (`SetModelByUnit`) starts with the items that
 the player wears. A helm or a cloak that the player hides is `0`. The neck,
@@ -22543,9 +22623,12 @@ values.
 ### `actor:SetItemTransmogInfo(info [, slot, ignoreChildItems])`
 
 Puts the item `info.appearanceID` on the actor, as `TryOn` does. A weapon
-shows the glow of the enchant `info.illusionID`. It returns the same
-`Enum.ItemTryOnReason` values as `TryOn`. These are the differences:
+shows the glow of the enchant `info.illusionID`. It returns
+`Enum.ItemTryOnReason.Success` or `Enum.ItemTryOnReason.NotEquippable`.
+These are the differences from `TryOn`:
 
+- An item that is not in the item cache returns `Success`. The actor wears
+  the item when the data arrives.
 - It shows no error message. The caller shows `ERR_NOT_EQUIPPABLE` when the
   result is not `Success`.
 - A `slot` of `16` or `17` selects the hand that holds a weapon. With all
@@ -22567,10 +22650,24 @@ for slot, info in ipairs(saved) do
 end
 ```
 
+### `actor:SetUseTransmogSkin(use)` / `actor:SetUseTransmogChoices(use)` / `actor:SetObeyHideInTransmogFlag(obey)`
+
+Each method stores a flag, and `GetUseTransmogSkin()`,
+`GetUseTransmogChoices()` and `GetObeyHideInTransmogFlag()` return it. The
+argument is necessary: without it, the call raises an argument error. The
+flags have no effect on the actor.
+
+### `actor:ResetNextHandSlot()`
+
+Has no effect. Each `TryOn` already selects the hand for a one-handed
+weapon: the off hand when the main hand holds a one-handed weapon, else
+the main hand.
+
 ### `actor:SetSheathed(sheathed [, hidden])` / `actor:GetSheathed()`
 
-Puts the weapons of the actor in its hands or in their sheaths. `hidden`
-set to `true` hides them. The setting also applies to items that `TryOn`
+Puts the weapons of the actor in its hands or in their sheaths.
+`sheathed` is necessary: without it, the call raises an argument error.
+`hidden` set to `true` hides them. The setting also applies to items that `TryOn`
 puts on later. After a ranged shot, the call also puts the ranged weapon
 away.
 
@@ -22610,7 +22707,8 @@ actor:SetSheatheState(1)
 Sets where the item in a hand hangs while the actor's weapons are sheathed.
 `slot` is `16` (main hand) or `17` (off hand). Other slots change nothing.
 A ranged weapon has no sheath place. `category` is an
-`Enum.TransmogOutfitSlotOptionSheatheCategory` value:
+`Enum.TransmogOutfitSlotOptionSheatheCategory` value. A `category` that is
+not an integer from `0` to `3` raises an argument error.
 
 | Value | Name | Sheathed item |
 |---|---|---|
@@ -22632,14 +22730,17 @@ actor:SetSheathedCategory(16, Enum.TransmogOutfitSlotOptionSheatheCategory.Side)
 
 ### `actor:UseUnitSheatheCategory(useCategory)`
 
-`useCategory` set to `true` puts each sheathed item at its own place. The
-`SetSheathedCategory` categories have no effect until a call with `false`.
-Units do not keep a sheath category, so the place of the item is the place
-of the unit. The default is `false`.
+Stores a flag. The call does not change the items that the actor holds
+now. The next model of the actor uses the flag. With `true`, each sheathed
+item of that model goes to its own place, and the `SetSheathedCategory`
+categories have no effect. Units do not keep a sheath category, so the
+place of the item is the place of the unit. The default is `false`.
+`useCategory` is necessary: without it, the call raises an argument error.
 
 ### `actor:SetAutoDress(autoDress)` / `actor:GetAutoDress()`
 
-Sets whether the next `SetModelByUnit` call dresses the actor.
+Sets whether the next `SetModelByUnit` call dresses the actor. `autoDress`
+is necessary: without it, the call raises an argument error.
 
 ### `actor:IsGeoReady()`
 
@@ -22647,13 +22748,17 @@ Returns `true` when the model and the item models on it have loaded.
 
 ### `actor:ClearModel()` / `actor:IsLoaded()` / `actor:GetModelPath()`
 
-`ClearModel` removes the model. `IsLoaded` returns `true` after the model
-has loaded and `OnModelLoaded` has run. `GetModelPath` returns the file of
-the model, or `""` for a unit copy.
+`ClearModel` removes the model. `OnModelCleared` runs each time, also for
+an actor without a model. `IsLoaded` returns `true` when the model file has
+loaded. The clothes and the items of the model can load after that time.
+`GetModelPath` returns the file of the model, or `""` for a unit copy.
 
 ### `actor:SetPosition(x, y, z)` / `actor:GetPosition()`
 
-Moves the actor in the scene.
+Moves the actor in the scene. The position is in units of the scale of the
+actor: the model stands at the position multiplied by `actor:GetScale()`.
+For example, at a scale of `2`, `SetPosition(1, 0, 0)` puts the model at
+`(2, 0, 0)`. `GetPosition` returns the position that you set.
 
 ### `actor:SetYaw(yaw)` / `actor:SetPitch(pitch)` / `actor:SetRoll(roll)`
 
@@ -22663,22 +22768,34 @@ the angles.
 
 ### `actor:SetScale(scale)` / `actor:GetScale()`
 
-Sets the size of the actor. `1` is the size of the model file.
+Sets the size of the actor. `1` is the size of the model file. A value
+less than `0.01` becomes `0.01`, also in the `scale` attribute of an
+`<Actor>` template. The scale also multiplies the position (see
+`actor:SetPosition`).
 
 ### `actor:SetUseCenterForOrigin([x, y, z])` / `actor:IsUsingCenterForOrigin()`
 
 For each axis set to `true`, the center of the model stands at the position
 of the actor. For each axis set to `false`, the origin of the model file
 stands there. For example, `SetUseCenterForOrigin(false, false, true)`
-moves a model up or down so that its middle is at the actor's height.
+moves a model up or down so that its middle is at the actor's height. The
+center is the center that the model had when it loaded. A later animation
+does not move it.
 
 ### `actor:GetActiveBoundingBox()` / `actor:GetMaxBoundingBox()`
 
 Each one returns six numbers: the bottom corner `x, y, z` and then the top
 corner `x, y, z`, in the coordinates of the model file.
 `GetActiveBoundingBox` gives the box of the current animation, and
-`GetMaxBoundingBox` gives the box of the whole model. Both return nothing
-until the model has loaded.
+`GetMaxBoundingBox` gives the box of the whole model. Before the model file
+has loaded, both return six `nil` values.
+
+### `actor:SetPreferModelCollisionBounds(prefer)` / `actor:IsPreferringModelCollisionBounds()`
+
+Sets whether `GetActiveBoundingBox` gives the collision box of the model in
+place of the box of the current animation. A model without a collision box
+gives the box of the animation. The default is `false`. `prefer` is
+necessary: without it, the call raises an argument error.
 
 ### `actor:Show()` / `actor:Hide()` / `actor:SetShown(shown)`
 
@@ -22694,7 +22811,7 @@ away, for example a corpse. Then the actor hides: `IsShown()` returns
 - The fade starts from the alpha that the actor shows and slows at the end.
 - When the actor shows less than 1/100 alpha, or its model has not loaded,
   it hides at once.
-- While the scene is paused, the fade stops where it is.
+- While the scene is hidden, the fade stops where it is.
 - `actor:Show`, `actor:Hide` and `actor:SetShown` end the fade. Then the
   actor shows at its alpha again, or hides.
 - `actor:GetAlpha` returns the alpha that you set. The fade does not change
@@ -22730,16 +22847,27 @@ runs. Use `OnAnimFinished` to go on to the next animation.
 `GetAnimation()` returns the animation. `GetAnimationVariation()` returns
 the variation, or `4294967295` when any variation plays.
 
+When `animation` is not a number, the call raises the error
+`Invalid animation type used`. An animation ID of `1866` or more changes
+nothing. When you give `animSpeed` or `animOffsetSeconds`, it must be a
+number. Else the call raises an argument error.
+
 ### `actor:SetAnimationBlendOperation(blendOperation)` / `actor:GetAnimationBlendOperation()`
 
 Sets how the next animation starts. `Enum.ModelBlendOperation.Anim` (`1`,
 the default) blends from the animation that plays.
 `Enum.ModelBlendOperation.None` (`0`) starts the new animation at once.
+Other values raise an argument error.
 
 ### `actor:SetPaused(paused [, affectsGlobalPause])` / `actor:GetPaused()`
 
 Stops the animation of one actor at its current frame. The other actors
-continue. The actor still moves, turns and fades when you change it, and
+continue. `paused` is necessary: without it, the call raises an argument
+error.
+
+The pause belongs to the model of the actor. An actor without a model does
+not change, and `GetPaused` returns `false, false` for it. A new model
+plays: it does not keep the pause of the old model. The actor still moves, turns and fades when you change it, and
 its animation does not end, so `OnAnimFinished` does not run. The flight
 sounds of its missiles and the sound of its spell ground area stop. When
 you unpause it, the animation continues from the same frame, and the
@@ -22800,8 +22928,10 @@ These have no effect. There are no animation kits in this game.
 
 Seats another actor of the same scene on this actor, and returns `true`.
 The rider plays `animation` (`91` is the mount animation for most mounts).
-With `spellKitVisualID`, the rider also shows that spell visual kit. A
-rider that sits on another mount moves to this one. It returns `false` when
+An `animation` of `0` plays `91`. An `animation` of `1866` or more raises an
+argument error. With `spellKitVisualID`, the rider shows that spell visual
+kit. Without it, the rider loses its spell visual kit. A rider that sits on
+another mount moves to this one. It returns `false` when
 either actor shows no model, when the rider is in another scene, or when
 the rider is this actor or the actor that this actor hangs on.
 
@@ -22810,8 +22940,10 @@ rider fit the mount, use `rider:SetScale(1 / mount:CalculateMountScale(rider))`.
 
 ### `actor:DetachFromMount(rider)`
 
-Takes the rider off this actor, and returns `true`. The rider keeps its
-animation. It returns `false` when the rider does not sit on this actor.
+Takes the rider off the actor that it sits on or hangs on, also when that
+actor is not this actor. The rider keeps its animation. The function
+returns `true` when this actor and the rider both show a model, else
+`false`.
 
 ### `actor:CalculateMountScale(rider)`
 
@@ -23148,14 +23280,14 @@ result of the spell at the moment that the impact shows.
 You hear the sounds from the camera of the scene (see
 [Scene sounds](#scene-sounds)). The sounds of the caster play at the
 caster, the sounds of the impact play at the target, and the flight sound
-moves with the missile. While the scene or the caster is paused, the flight
-sound stops. It starts again when the pause ends.
+moves with the missile. While the caster is paused, the flight sound
+stops. It starts again when the pause ends.
 
 Some spells shake the camera of the scene, as they shake the camera in the
 world. For example, Thunder Clap and War Stomp shake it when they are cast,
 and Knockdown shakes it at the impact. The camera moves, but it does not
 turn. A shake is strongest within 9 yards of the camera, weaker farther
-away, and gone past 80 yards. While the scene is paused, its shakes stop.
+away, and gone past 80 yards. While the scene is hidden, its shakes stop.
 The auras of `AddAuraVisual`, the kits of `SetSpellVisualKit` and
 `ApplySpellVisualKit`, and the ground areas of `SetModelBySpellArea` shake
 the camera in the same way.
@@ -23590,14 +23722,20 @@ work as they do on frames.
 
 | Script | Runs |
 |---|---|
-| `OnLoad` | After `CreateActor` has applied the template. |
+| `OnLoad` | After `CreateActor` applies the template, before the actor goes into the list of the scene. |
 | `OnUpdate(self, elapsed)` | Each frame while the scene shows. |
-| `OnModelLoading` | When the actor gets a new model. |
+| `OnModelLoading` | When the actor gets a new model, during the `SetModelBy...` call. |
 | `OnModelLoaded` | When the model and its clothes have loaded. |
-| `OnModelCleared` | When the actor loses its model. |
+| `OnModelCleared` | When `ClearModel` or `scene:TakeActor` removes the model. |
 | `OnAnimFinished` | Each time the animation ends. |
 | `OnSpellVisualImpact(self, spellID, target, castID)` | When a spell of `actor:PlaySpellVisual` reaches its target. |
 | `OnMoveFinished` | When the actor arrives at the point of `actor:MoveTo`. |
+
+A new model replaces the old model, and `OnModelCleared` does not run for
+the old model. When a `SetModelBy...` call fails, it returns `false`, and
+the actor keeps the old model. When the new model has already loaded,
+`OnModelLoaded` runs first and `OnModelLoading` runs next. Both run during
+the `SetModelBy...` call.
 
 An actor also has `GetObjectType()` (`"ModelSceneActor"`),
 `IsObjectType(type)`, `GetName()` and `GetParent()` (the scene).
@@ -23619,12 +23757,34 @@ It takes `inherits`, `mixin`, `parentKey`, `parentArray`, `alpha`, `scale`
 and `file` (a model path), and the `<Scripts>` and `<KeyValues>` children.
 `parentKey` and `parentArray` put the actor on the scene.
 
+A template that `inherits` names gives only its mixins and its key values.
+The base template applies first. The scripts, `parentKey`, `parentArray`,
+`file`, `scale` and `alpha` come only from the template that `CreateActor`
+names.
+
 ### `C_ModelInfo.GetModelSceneInfoByID(modelSceneID)`
 
 Returns four values for a model scene: `modelSceneType`, a table of the
-camera IDs, a table of the actor IDs, and `flags`. Model scenes `4` (mounts),
-`44` (the Qiraji battle tanks) and `596` are available. For other IDs, the
-function returns nothing.
+camera IDs, a table of the actor IDs, and `flags`. `modelSceneType` is an
+[`Enum.ModelSceneType`](#enummodelscenetype) value. `flags` holds
+[`Enum.UIModelSceneFlags`](#enumuimodelsceneflags) bits. These model
+scenes are available:
+
+| ID | Scene |
+|---|---|
+| `4` | Mounts |
+| `44` | The Qiraji battle tanks |
+| `595` | The character sheet |
+| `596` | The dressing room |
+| `59`, `253`, `290`, `343`, `420`, `718`, `1695` | Other scenes of the game UI |
+
+For other IDs, the function returns nothing.
+
+These rules apply to the four `C_ModelInfo` getters:
+
+- A missing ID, or an ID that is not a number from `0` to `4294967295`,
+  raises an argument error.
+- The getters are also available on the glue screens.
 
 ### `C_ModelInfo.GetModelSceneCameraInfoByID(modelSceneCameraID)`
 
@@ -23647,6 +23807,73 @@ Returns a table with the settings of a scene actor: `modelActorID`,
 Returns a table with the animation, alpha and scale that a scene actor
 starts with: `animation`, `animationVariation`, `animSpeed`,
 `animationKitID`, `spellVisualKitID`, `alpha` and `scale`.
+
+### `C_ModelInfo.AddActiveModelScene(modelSceneFrame, modelSceneID)` / `C_ModelInfo.AddActiveModelSceneActor(modelSceneFrameActor, modelSceneActorID)` / `C_ModelInfo.ClearActiveModelScene(modelSceneFrame)` / `C_ModelInfo.ClearActiveModelSceneActor(modelSceneFrameActor)`
+
+These functions do a test of their arguments and do nothing else. The first
+argument must be a `ModelScene` frame or an actor of a scene, as its name
+tells. The ID of an `Add` function must be a number from `0` to
+`4294967295`. A wrong argument raises an argument error.
+
+### `Enum.ModelSceneType`
+
+The types of model scene, for `modelSceneType`.
+
+| Field | Value |
+|---|---|
+| `MountJournal` | 0 |
+| `PetJournalCard` | 1 |
+| `ShopCard` | 2 |
+| `EncounterJournal` | 3 |
+| `PetJournalLoadout` | 4 |
+| `ArtifactTier2` | 5 |
+| `ArtifactTier2ForgingScene` | 6 |
+| `ArtifactTier2SlamEffect` | 7 |
+| `CommentatorVictoryFanfare` | 8 |
+| `ArtifactRelicTalentEffect` | 9 |
+| `PvPWarModeOrb` | 10 |
+| `PvPWarModeFire` | 11 |
+| `PartyPose` | 12 |
+| `AzeriteItemLevelUpToast` | 13 |
+| `AzeritePowers` | 14 |
+| `AzeriteRewardGlow` | 15 |
+
+### `Enum.UIModelSceneFlags`
+
+The bits of the `flags` of a model scene.
+
+| Field | Value |
+|---|---|
+| `SheatheWeapon` | 1 |
+| `HideWeapon` | 2 |
+| `Autodress` | 4 |
+| `NoCameraSpin` | 8 |
+
+### `Enum.UIModelSceneActorFlag`
+
+The bits of the flags of a scene actor.
+`C_ModelInfo.GetModelSceneActorInfoByID` gives the three
+`UseCenterForOrigin` bits as the fields `useCenterForOriginX`,
+`useCenterForOriginY` and `useCenterForOriginZ`.
+
+| Field | Value |
+|---|---|
+| `Deprecated1` | 1 |
+| `UseCenterForOriginX` | 2 |
+| `UseCenterForOriginY` | 4 |
+| `UseCenterForOriginZ` | 8 |
+
+### `Enum.UIModelSceneContext`
+
+| Field | Value |
+|---|---|
+| `None` | -1 |
+| `PerksProgram` | 0 |
+
+### `UI_MODEL_SCENE_INFO_UPDATED` event
+
+The event fires when the data of the model scenes changes. The data of the
+model scenes in this game never changes, so the event never fires.
 
 ## Mount
 
@@ -23677,17 +23904,19 @@ Returns the mount ID of an item that summons a mount. The mount ID is the
 ID of the item's use spell. For an item that does not summon a mount, the
 function returns `nil`.
 
-`itemID` can be an item ID or an item link. When the game does not have
-the data for the item yet, the function returns `nil` and requests the
-data. Call the function again after the item data has arrived.
+`itemID` must be an item ID (a number). Another value, for example an item
+link, raises an argument error. When the game does not have the data for
+the item yet, the function returns `nil` and requests the data. Call the
+function again after the item data has arrived.
 
 On Turtle WoW, a mount item has the spell "Add Mount to Collection" (46499)
 in place of its mount spell. So the function returns `nil` for it.
 
 ### `C_MountJournal.GetMountInfoExtraByID(mountID)`
 
-Returns nine values for a mount. For an ID that is not a mount, the function
-returns nothing.
+Returns eight values for a mount. For an ID that is not a mount, the
+function returns nothing. A `mountID` that is not a number raises an
+argument error.
 
 | # | Value | Contents |
 |---|---|---|
@@ -23699,7 +23928,8 @@ returns nothing.
 | 6 | `uiModelSceneID` | The model scene for a preview of the mount. `44` for the Qiraji battle tanks, `4` for all other mounts. |
 | 7 | `animID` | The animation of the rider on the mount. Always `91`. |
 | 8 | `spellVisualKitID` | Always `0`. |
-| 9 | `disablePlayerMountPreview` | Always `false`. |
+
+The function does not return `disablePlayerMountPreview`.
 
 The display ID comes from the data of the creature that the mount spell
 summons. If the game does not have this data, the function returns `nil` for

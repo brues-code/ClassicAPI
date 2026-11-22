@@ -64,24 +64,34 @@
 // frame's light callback, as a Model frame's model is, so the light setters
 // write the frame's M2Light through the engine's own light setters.
 //
-// Fog is the Model frame's own (+0x3A4..+0x3B0), stored the way Model's
-// SetFogColor / SetFogNear / SetFogFar / ClearFog store it (0x0076EE60..
-// 0x0076F5C5): the colour arms it, ClearFog disarms it only. It starts with
-// retail's values (near 1e7, far 1e8, white), which fog nothing. SetPaused
-// stops the scene clock: the frame's update runs without Model's
-// M2SceneAdvance, so every actor holds its pose.
+// Fog is the Model frame's own (+0x3A4..+0x3B0), always armed: 3.80.2's fog
+// block (+0x2E0, set up by 0x1401F29E0) has no enable bit, and its paint
+// hands the whole block to the render state every frame (0x14194D860). It
+// starts white with near 1e7 and far 1e8, which fog nothing; SetFogNear and
+// SetFogFar alone fog to white, and ClearFog (0x140C5AFF0) puts the near and
+// far back to 1e7 and 1e8, leaving the colour. SetPaused (0x140C5EED0) stores
+// nothing on the scene: it pauses each actor that has a model at the call,
+// as that actor's own SetPaused, and the scene clock runs on.
+//
+// 3.80.2 draws the scene's models and camera at F times their positions,
+// F = GetScale x GetEffectiveScale x the DDC height x 5/3 (the paint
+// 0x14194D860, the placement 0x141949C00, Project 0x14194CDD0), and leaves
+// the clip planes and the fog distances as set. The picture is the same
+// (eye and models scale together), but in scene units the clips and the fog
+// fall at distance / F. Here the positions stay and those distances are
+// divided by F instead (WorldScale). That F is also the retail probe's depth
+// factor: k = 0.4607 at scale 1 and 1.8427 at scale 2 on a 21:9 screen, where
+// the DDC height 1/sqrt(aspect^2 + 1) is 0.389.
 //
 // ClassicAPI extensions on that clock: GetSceneTime, and After / NewTimer /
 // NewTicker, C_Timer's queue and handles with deadlines in scene seconds,
-// fired from the update right after the clock moves. A paused or hidden
-// scene's clock stands still, and so do its timers.
+// fired from the update right after the clock moves. A hidden scene's clock
+// stands still, and so do its timers.
 //
-// XML: `drawLayer`, `fogNear` and `fogFar` (clamped at 0, as Model's loader
-// clamps them) and <FogColor> (FUN_XML_READ_COLOR, which arms the fog), after
-// the frame's own loader, and <ViewInsets left right top bottom>. Retail's
-// <Actors> child is not read; no retail UI uses it. Not ported, as no UI this
-// DLL targets uses them and their exact effect is unprobed: desaturation and
-// TakeActor.
+// XML: `drawLayer`, `fogNear` and `fogFar` (raw, as 3.80.2's loader
+// 0x14194CAC0 copies them) and the first <FogColor> (FUN_XML_READ_COLOR),
+// after the frame's own loader, and <ViewInsets>. Retail's <Actors> child is
+// not read; no retail UI uses it. Not ported: desaturation.
 //
 // View insets and translation (retail screenshots, 2026-11-06): the camera's
 // picture is built over the frame's rect less the insets, moved by the
@@ -95,9 +105,18 @@
 // then scaled and shifted to place the view in the frame, and the viewport
 // stays the frame's rect.
 //
-// SetAllowOverlappedModels only stores its flag (retail's default false,
-// probed): 1.12 draws a model frame whatever overlaps it, so there is nothing
-// for the flag to allow. Project3DPointTo2D is under "projection" below.
+// SetAllowOverlappedModels (bit 1 of +0x474, default false) decides 3.80.2's
+// "Scene Clear Color" pass (0x1410C70E0): with it, depth and stencil are
+// cleared over the scene's viewport before its models draw; without it the
+// depth already there is kept, unless the UI's target has no depth yet that
+// frame. 1.12's UI draws over the world's depth, so the first scene a frame
+// paints clears the screen's depth (the UI's fresh target) and the rest keep
+// it unless the flag is set. Project3DPointTo2D is under "projection" below.
+//
+// A scene under a clipping frame or a ScrollFrame is cut to that frame's rect
+// as 3.80.2 cuts it (0x1428D60F0 intersects the viewport with the batch's
+// clip rect, and keeps the scene's own rect when they do not overlap): the
+// clip has narrowed the viewport before the paint runs.
 //
 // ClassicAPI extensions: GetActorAtCursor, and the scripts OnActorEnter /
 // OnActorLeave (self, actor), which run from the update walk when the actor
@@ -126,8 +145,10 @@
 #include "frame/Subclass.h"
 #include "gx/Device.h"
 #include "gx/Matrix.h"
+#include "lua/MethodArg.h"
 #include "model/Camera.h"
 #include "model/M2.h"
+#include "tick/FrameTick.h"
 #include "time/Timer.h"
 #include "xml/FrameLoad.h"
 
@@ -136,7 +157,9 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <cstdio>
 #include <cstring>
+#include <utility>
 #include <vector>
 
 namespace Model::Scene {
@@ -145,6 +168,11 @@ namespace {
 
 using Frame::Layout::OwnerOf;
 using Model::Camera::Vec3;
+namespace MethodArg = Game::Lua::MethodArg;
+
+// 3.80.2's float epsilon (DAT_14415B534): the light direction's normalize
+// threshold and the axis vectors' right-angle test.
+constexpr float kAxisEpsilon = 2.3841858e-7f;
 
 // Retail's camera defaults (probe, docs/notes/model-scene.md).
 constexpr float kDefaultFieldOfView = 0.9424778f;
@@ -164,7 +192,10 @@ struct Fields {
     uint32_t lightVisible;
     Vec3 lightDirection;
     Vec3 lightPosition;
-    uint32_t paused;
+    // SetFogNear / SetFogFar as given; the Model frame's fog fields hold them
+    // over WorldScale while the scene draws.
+    float fogNear;
+    float fogFar;
     uint32_t allowOverlappedModels;
     // In the frame's own units: left, right, top, bottom; then x, y (y up).
     float viewInsets[4];
@@ -193,6 +224,20 @@ constexpr size_t kObjectSize = Offsets::MODEL_FRAME_SIZE + sizeof(Fields);
 
 Fields &F(void *frame) { return *Game::Ptr<Fields>(frame, Offsets::MODEL_FRAME_SIZE); }
 
+// 3.80.2's world scale F (0x14194D860): the frame's own scale (Frame:GetScale,
+// OFF_FRAME_SCALE) times its effective scale, times the DDC height
+// (DAT_144408720, 1.12's VAR_COORD_DDC_HEIGHT_SCALE) and 5/3, at least 0.01 as
+// the paint keeps it (+0x2C4). The scene's clip planes and fog distances in
+// scene units are what was set over F (see the top of the file).
+float WorldScale(void *frame) {
+    const float scale = Game::Read<float>(frame, Offsets::OFF_FRAME_SCALE) * Frame::Layout::EffectiveScale(frame) *
+                        Game::Read<float>(Offsets::VAR_COORD_DDC_HEIGHT_SCALE) * (5.0f / 3.0f);
+    return scale > 0.01f ? scale : 0.01f;
+}
+
+// The far clip in scene units, what the scene draws to.
+float DrawFarClip(void *frame) { return F(frame).farClip / WorldScale(frame); }
+
 // ---- the camera ------------------------------------------------------------------
 
 void *CameraOf(void *frame) { return Game::Read<void *>(frame, Offsets::OFF_SIMPLEMODEL_CAMERA); }
@@ -215,23 +260,24 @@ void ApplyCamera(void *frame) {
     SetScalar(camera, Offsets::CAMERA_PROP_ROLL, roll);
     SetScalar(camera, Offsets::CAMERA_PROP_YAW, yaw);
     SetScalar(camera, Offsets::CAMERA_PROP_FOV, f.fieldOfView);
-    SetScalar(camera, Offsets::CAMERA_PROP_NEAR_CLIP, f.nearClip);
-    SetScalar(camera, Offsets::CAMERA_PROP_FAR_CLIP, f.farClip);
+    const float scale = WorldScale(frame);
+    SetScalar(camera, Offsets::CAMERA_PROP_NEAR_CLIP, f.nearClip / scale);
+    SetScalar(camera, Offsets::CAMERA_PROP_FAR_CLIP, f.farClip / scale);
 }
 
 // Retail's axes from yaw, pitch and roll (Vector3D_CalculateNormalFromYawPitch:
 // forward = (cos p cos y, cos p sin y, -sin p), positive pitch looking down;
 // the retail probe: right = (0, 1, 0) and up = (0, 0, 1) at rest, and roll
 // turns both about forward).
-void SetOrientation(Fields &f, float yaw, float pitch, float roll) {
+void Orientation(float yaw, float pitch, float roll, Vec3 &forward, Vec3 &right, Vec3 &up) {
     const float cy = std::cos(yaw), sy = std::sin(yaw);
     const float cp = std::cos(pitch), sp = std::sin(pitch);
     const float cr = std::cos(roll), sr = std::sin(roll);
     const Vec3 right0{-sy, cy, 0.0f};
     const Vec3 up0{sp * cy, sp * sy, cp};
-    f.forward = {cp * cy, cp * sy, -sp};
-    f.right = {cr * right0.x + sr * up0.x, cr * right0.y + sr * up0.y, cr * right0.z + sr * up0.z};
-    f.up = {cr * up0.x - sr * right0.x, cr * up0.y - sr * right0.y, cr * up0.z - sr * right0.z};
+    forward = {cp * cy, cp * sy, -sp};
+    right = {cr * right0.x + sr * up0.x, cr * right0.y + sr * up0.y, cr * right0.z + sr * up0.z};
+    up = {cr * up0.x - sr * right0.x, cr * up0.y - sr * right0.y, cr * up0.z - sr * right0.z};
 }
 
 void InstallCamera(void *frame) {
@@ -262,7 +308,14 @@ void SetLightVisible(void *frame, bool visible) {
     M2::SetLightEnabled(LightOf(frame), visible);
 }
 
-void SetLightDirection(void *frame, const Vec3 &v) {
+// Stored normalized, as 3.80.2 stores it (0x140C5E660 -> 0x1403117C0): a
+// vector whose squared length is above 2.38e-7 is scaled to length 1.
+void SetLightDirection(void *frame, Vec3 v) {
+    const float lengthSq = v.x * v.x + v.y * v.y + v.z * v.z;
+    if (lengthSq > kAxisEpsilon) {
+        const float inverse = 1.0f / std::sqrt(lengthSq);
+        v = {v.x * inverse, v.y * inverse, v.z * inverse};
+    }
     F(frame).lightDirection = v;
     M2::SetLightDirection(LightOf(frame), &v.x);
 }
@@ -270,6 +323,22 @@ void SetLightDirection(void *frame, const Vec3 &v) {
 void SetLightPosition(void *frame, const Vec3 &v) {
     F(frame).lightPosition = v;
     M2::SetLightPosition(LightOf(frame), &v.x);
+}
+
+// 3.80.2's colour reader byte (0x140A6CC50): clamped to [0, 1], NaN to 0,
+// then trunc(c * 255 + 0.5).
+uint32_t ColorByte(float c) {
+    if (!(c > 0.0f))
+        c = 0.0f;
+    else if (c > 1.0f)
+        c = 1.0f;
+    return static_cast<uint32_t>(c * 255.0f + 0.5f);
+}
+
+// The colour the reader gives back as floats (0x142A56790): each channel
+// quantized to 1/255.
+Vec3 QuantizedColor(const Vec3 &c) {
+    return {ColorByte(c.x) / 255.0f, ColorByte(c.y) / 255.0f, ColorByte(c.z) / 255.0f};
 }
 
 void SetColor(float *color, const Vec3 &v) {
@@ -288,27 +357,33 @@ void InitLight(void *frame) {
     SetLightVisible(frame, true);
 }
 
-// Model's SetFogColor byte: clamped to [0, 1] (NaN to 1), trunc(c * 255 + 0.5).
-uint32_t FogByte(float c) {
-    if (!(c < 1.0f))
-        c = 1.0f;
-    else if (!(c > 0.0f))
-        c = 0.0f;
-    return static_cast<uint32_t>(c * 255.0f + 0.5f);
+// SetFogColor's colour (0x140C5DD00): packed 0xFFRRGGBB through the reader.
+void SetFogColor(void *frame, const Vec3 &c) {
+    Game::Ref<uint32_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_COLOR) =
+        0xFF000000u | (ColorByte(c.x) << 16) | (ColorByte(c.y) << 8) | ColorByte(c.z);
 }
 
-uint32_t &FogFlags(void *frame) { return Game::Ref<uint32_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_FLAGS); }
+// 3.80.2's fog distances at construction and after ClearFog (0x141393DC0,
+// 0x140C5AFF0).
+constexpr float kNoFogNear = 1.0e7f;
+constexpr float kNoFogFar = 1.0e8f;
 
-void SetFogColor(void *frame, const Vec3 &c) {
-    FogFlags(frame) |= Offsets::SIMPLEMODEL_FOG_ARMED;
-    Game::Ref<uint32_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_COLOR) =
-        0xFF000000u | (FogByte(c.x) << 16) | (FogByte(c.y) << 8) | FogByte(c.z);
+// The fog the Model frame's draw applies: always armed, the distances over
+// WorldScale. Run before every draw, so a UI scale change takes effect.
+void ApplyFog(void *frame) {
+    const Fields &f = F(frame);
+    const float scale = WorldScale(frame);
+    Game::Ref<uint32_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_FLAGS) |= Offsets::SIMPLEMODEL_FOG_ARMED;
+    Game::Ref<float>(frame, Offsets::OFF_SIMPLEMODEL_FOG_NEAR) = f.fogNear / scale;
+    Game::Ref<float>(frame, Offsets::OFF_SIMPLEMODEL_FOG_FAR) = f.fogFar / scale;
 }
 
 void InitFog(void *frame) {
+    Fields &f = F(frame);
     Game::Ref<uint32_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_COLOR) = 0xFFFFFFFFu;
-    Game::Ref<float>(frame, Offsets::OFF_SIMPLEMODEL_FOG_NEAR) = 1.0e7f;
-    Game::Ref<float>(frame, Offsets::OFF_SIMPLEMODEL_FOG_FAR) = 1.0e8f;
+    f.fogNear = kNoFogNear;
+    f.fogFar = kNoFogFar;
+    ApplyFog(frame);
 }
 
 // ---- the paint (SimpleModelDraw) -----------------------------------------------
@@ -693,7 +768,8 @@ void DrawGroundReticle(void *frame, const Actor &actor, const Ground &ground, co
     if (texture == nullptr)
         return;
     const float r = GroundReticleRadius(actor);
-    const float(&p)[3] = actor.position;
+    const Actor::Point origin = actor.Origin();
+    const float(&p)[3] = origin.p;
     const float two = Game::Read<float>(Offsets::VAR_TWO);
     const float box[6] = {p[0] - r, p[1] - r, p[2] - two, p[0] + r, p[1] + r, p[2] + two};
     float m[16];
@@ -736,14 +812,27 @@ void DrawGroundDecals(void *frame, const float (&eye)[3]) {
         DrawMoveMarker(frame, ground, eye);
 }
 
+// Whether the UI's depth is still the world's this frame: set at the head of
+// each UI frame, cleared by the first scene that paints (see the top of the
+// file).
+bool g_worldDepth = true;
+
+void ResetUiDepth() { g_worldDepth = true; }
+
+const Tick::FrameTick::AutoSubscribeBefore _uiDepth{&ResetUiDepth};
+
 void __fastcall Paint(void *frame) {
     using SetupOrtho_t = void(__fastcall *)(const float *rect, const float *point, int unused);
-    using Clear_t = void(__fastcall *)(uint32_t mask);
 
+    // 3.80.2's paint draws nothing unless the near clip is before the far.
+    if (!(F(frame).nearClip < F(frame).farClip))
+        return;
     // {bottom, left, top, right}
     float rect[4] = {};
     if (!Frame::Layout::GetRect(frame, rect))
         return;
+    ApplyCamera(frame);
+    ApplyFog(frame);
     const Gx::SavedTransforms saved;
     const Gx::Viewport &vp = saved.SavedViewport();
     float eye[3] = {0.0f, 0.0f, 0.0f};
@@ -768,10 +857,25 @@ void __fastcall Paint(void *frame) {
     Frame::Layout::DdcToNdc(&rect[3], &rect[2], rect[3], rect[2]);
     for (float &edge : rect)
         edge = ClampUnit(edge);
+    // The viewport is the rect cut to the clip a clipping frame or a
+    // ScrollFrame has narrowed the viewport to (0x1428D60F0's intersection),
+    // and the camera's picture of the whole rect is cropped to it. 3.80.2
+    // keeps the whole rect when they do not overlap; here that draws nothing,
+    // as 1.12's ScrollFrame relies on the clip to hide what it scrolled away.
+    const float port[4] = {std::max(rect[0], vp.minY), std::max(rect[1], vp.minX), std::min(rect[2], vp.maxY),
+                           std::min(rect[3], vp.maxX)};
+    if (!(port[0] < port[2]) || !(port[1] < port[3]))
+        return;
     const float epsilon = Game::Read<float>(Offsets::VAR_TWO_POW_MINUS_22); // 2^-22
-    if (!(std::fabs(rect[1] - rect[3]) < epsilon) && !(std::fabs(rect[0] - rect[2]) < epsilon)) {
-        Gx::SetViewport({rect[1] * vp.maxX, rect[3] * vp.maxX, rect[0] * vp.maxY, rect[2] * vp.maxY,
-                         0.0f, 1.0f});
+    if (!(std::fabs(port[1] - port[3]) < epsilon) && !(std::fabs(port[0] - port[2]) < epsilon)) {
+        if (g_worldDepth) {
+            Gx::SetViewport({0.0f, 1.0f, 0.0f, 1.0f, 0.0f, 1.0f});
+            Gx::Clear(2);
+            g_worldDepth = false;
+        }
+        Gx::SetViewport({port[1], port[3], port[0], port[2], 0.0f, 1.0f});
+        if (port[0] != rect[0] || port[1] != rect[1] || port[2] != rect[2] || port[3] != rect[3])
+            FitProjection(port, rect);
         World::Backdrop *world = CameraOf(frame) != nullptr ? F(frame).world : nullptr;
         Terrain::Land *terrain = CameraOf(frame) != nullptr ? F(frame).terrain : nullptr;
         World::ViewVolume volume;
@@ -784,14 +888,15 @@ void __fastcall Paint(void *frame) {
                                                 : World::kNoMap;
         // A scene with its own time of day is lit at it, before the liquid's
         // fog takes the map's light.
-        const World::Daylight daylight(frame, map, liquid, eye, F(frame).farClip, F(frame).timeOfDay);
-        const World::LiquidFog liquidFog(frame, map, liquid, eye, F(frame).farClip);
+        const float farClip = DrawFarClip(frame);
+        const World::Daylight daylight(frame, map, liquid, eye, farClip, F(frame).timeOfDay);
+        const World::LiquidFog liquidFog(frame, map, liquid, eye, farClip);
         const bool wet = liquid != Offsets::LIQUID_DRY;
         if (world != nullptr)
             World::ClearAndDrawSky(*world, frame, eye, volume);
         else if (terrain != nullptr)
             World::ClearAndDrawOpenSky(frame, map, liquid, eye);
-        else
+        else if (F(frame).allowOverlappedModels != 0)
             Gx::Clear(2);
         PlaceActors(frame);
         // The world's walk elects what it animates and draws before the
@@ -808,11 +913,11 @@ void __fastcall Paint(void *frame) {
         // The world's frame draws its chunks before its map objects, and the
         // terrain's magma after them (DrawWorldScene 0x006812B1..0x006812BB).
         if (terrain != nullptr)
-            Terrain::Draw(*terrain, frame, eye, volume, F(frame).farClip);
+            Terrain::Draw(*terrain, frame, eye, volume, farClip);
         if (world != nullptr)
             World::Draw(*world, frame, eye, volume);
         if (terrain != nullptr)
-            Terrain::DrawMagma(*terrain, frame, eye, volume, F(frame).farClip);
+            Terrain::DrawMagma(*terrain, frame, eye, volume, farClip);
         DrawGroundDecals(frame, eye);
         M2::DrawScene(scene, 0);
         DrawGroundReticles(frame, eye);
@@ -824,7 +929,7 @@ void __fastcall Paint(void *frame) {
         // RenderLiquid (0x006816D0): the terrain's ocean and river, then the
         // map objects' liquids.
         if (terrain != nullptr)
-            Terrain::DrawWater(*terrain, frame, eye, volume, F(frame).farClip, liquid);
+            Terrain::DrawWater(*terrain, frame, eye, volume, farClip, liquid);
         if (world != nullptr)
             World::DrawLiquids(*world, frame, eye);
         Water::DrawRipples(F(frame).water, eye);
@@ -852,10 +957,12 @@ void __fastcall Paint(void *frame) {
 // and 33.25 up of it, this matrix to every digit; a point behind the camera
 // still projects. Depth was (far - k * viewDepth) / (far - near): planar
 // (the off-axis point had the on-axis depth), the same k across far 100/200,
-// near 0.2/1, width and field of view, but k = 0.4607 at scale 1 and 1.8427
-// at SetScale(2) — about 0.911 * effectiveScale^2, a factor 1.12 has no
-// source for. Depth here is the same form without it (1 at the near clip,
-// 0 at the far); retail's callers all discard it.
+// near 0.2/1, width and field of view, k = 0.4607 at scale 1 and 1.8427 at
+// SetScale(2). That k is WorldScale: 3.80.2 (0x14194CDD0) multiplies the
+// point and the camera by F before it projects, with the clips unscaled. So
+// depth here is (far/F - viewDepth) / (far/F - near/F), the same value, from
+// the camera ApplyCamera sets. 3.80.2 divides by w whatever it is; |w| under
+// 0.001 projects nothing here, the 1.12 engine's own rule (0x005C4F30).
 //
 // The view insets and translation do not move the projection: retail gave
 // (142.22, 71.11) with none, with SetViewInsets(100, 0, 0, 0) and with
@@ -866,6 +973,7 @@ bool Project(void *frame, const Vec3 &point, double out[3]) {
     float rect[4] = {}; // {bottom, left, top, right}
     if (camera == nullptr || !Frame::Layout::GetRect(frame, rect))
         return false;
+    ApplyCamera(frame);
     Gx::Matrix projection, view;
     {
         const Gx::SavedTransforms saved;
@@ -894,7 +1002,9 @@ bool Project(void *frame, const Vec3 &point, double out[3]) {
     out[0] = (c[0] / c[3] + 1.0) * 0.5 * width;
     out[1] = (c[1] / c[3] + 1.0) * 0.5 * height;
     const Fields &f = F(frame);
-    out[2] = (f.farClip - c[3]) / (f.farClip - f.nearClip);
+    const double scale = WorldScale(frame);
+    const double nearClip = f.nearClip / scale, farClip = f.farClip / scale;
+    out[2] = farClip != nearClip ? (farClip - c[3]) / (farClip - nearClip) : 0.0;
     return true;
 }
 
@@ -1072,7 +1182,6 @@ Frame::Subclass::Class<Offsets::VTBL_SIMPLEMODEL_SLOTS, Offsets::VTBL_SIMPLEMODE
             kObjectSize,
             &Destroy};
 
-using Frame::Subclass::FrameBase;
 using Frame::Subclass::EmitLayer_t;
 using Frame::Subclass::LoadXML_t;
 using Frame::Subclass::OnFrameUpdate_t;
@@ -1129,7 +1238,7 @@ void __fastcall OnFrameUpdate(void *self, void *, float elapsedSec) {
     Terrain::Land *terrain = F(self).terrain;
     // The world's map update runs first in its frame (0x00698390): the
     // chunks around the camera, then the map objects they place.
-    if (terrain != nullptr && Terrain::Stream(*terrain, self, CameraView(self).eye, F(self).farClip))
+    if (terrain != nullptr && Terrain::Stream(*terrain, self, CameraView(self).eye, DrawFarClip(self)))
         World::SetTileObjects(F(self).world, Terrain::MapObjects(*terrain), Terrain::MapOf(*terrain));
     World::Backdrop *world = F(self).world;
     if (world != nullptr)
@@ -1146,10 +1255,7 @@ void __fastcall OnFrameUpdate(void *self, void *, float elapsedSec) {
             if (actor->model != nullptr && M2::Parent(actor->model) == nullptr && M2::IsLoaded(actor->model, 0, 0))
                 World::Settle(world, terrain, *actor->ambience, self, actor->model, elapsedSec);
     const uint32_t before = ClockMs(self);
-    if (F(self).paused)
-        FrameBase<OnFrameUpdate_t>(Offsets::VTBL_FRAME_ON_FRAME_UPDATE)(self, nullptr, elapsedSec);
-    else
-        g_class.Base<OnFrameUpdate_t>(Offsets::VTBL_FRAME_ON_FRAME_UPDATE)(self, nullptr, elapsedSec);
+    g_class.Base<OnFrameUpdate_t>(Offsets::VTBL_FRAME_ON_FRAME_UPDATE)(self, nullptr, elapsedSec);
     // The scene's timers, movement and casts run on its clock, once it has
     // moved this frame.
     const uint32_t advancedMs = ClockMs(self) - before;
@@ -1189,7 +1295,34 @@ int __fastcall Hide(void *self, void *) {
 }
 
 
-// The frame's own loader, then ModelSceneType's attributes and <FogColor>.
+// <ViewInsets> as 3.80.2 reads it (FUN_1405D6070): any of left, right, top,
+// bottom set, and the four attributes are the insets (a missing one 0);
+// else an <AbsInset> or <RelInset> child gives them; else a warning and 0s.
+// Each <ViewInsets> replaces the last.
+void ReadViewInsets(const void *node, float (&in)[4], void *status) {
+    static constexpr const char *kEdges[4] = {"left", "right", "top", "bottom"};
+    const auto read = [&in](const void *from) {
+        bool any = false;
+        for (int i = 0; i < 4; ++i) {
+            in[i] = 0.0f;
+            any |= Xml::FloatAttr(from, kEdges[i], in[i]);
+        }
+        return any;
+    };
+    if (read(node))
+        return;
+    for (const void *c = Xml::FirstChild(node); c != nullptr; c = Xml::NextSibling(c)) {
+        if (Xml::TagIs(c, "AbsInset") || Xml::TagIs(c, "RelInset")) {
+            read(c);
+            return;
+        }
+        Xml::Warn(status, "Unknown child node in %s element: %s", "ViewInsets", Xml::Tag(c));
+    }
+    Xml::Warn(status, "%s element has no insets", "ViewInsets");
+}
+
+// The frame's own loader, then ModelSceneType's attributes and the first
+// <FogColor> (3.80.2's 0x14194CAC0 copies fogNear and fogFar as given).
 uintptr_t __fastcall LoadXML(void *layout, void *, const void *node, void *status) {
     using LayerFromName_t = int(__fastcall *)(const char *name, int *layer);
     const uintptr_t result = Frame::Subclass::Slot<LoadXML_t>(
@@ -1199,21 +1332,16 @@ uintptr_t __fastcall LoadXML(void *layout, void *, const void *node, void *statu
     void *frame = OwnerOf(layout);
     if (const char *layer = Xml::Attr(node, "drawLayer"); layer != nullptr && *layer != '\0')
         reinterpret_cast<LayerFromName_t>(Offsets::FUN_XML_DRAW_LAYER_FROM_NAME)(layer, &F(frame).drawLayer);
-    float value = 0.0f;
-    if (Xml::FloatAttr(node, "fogNear", value))
-        Game::Ref<float>(frame, Offsets::OFF_SIMPLEMODEL_FOG_NEAR) = value < 0.0f ? 0.0f : value;
-    if (Xml::FloatAttr(node, "fogFar", value))
-        Game::Ref<float>(frame, Offsets::OFF_SIMPLEMODEL_FOG_FAR) = value < 0.0f ? 0.0f : value;
+    Xml::FloatAttr(node, "fogNear", F(frame).fogNear);
+    Xml::FloatAttr(node, "fogFar", F(frame).fogFar);
+    ApplyFog(frame);
+    bool fogColor = false;
     for (const void *c = Xml::FirstChild(node); c != nullptr; c = Xml::NextSibling(c)) {
         if (Xml::TagIs(c, "FogColor")) {
-            Xml::ReadColor(c, Game::Ref<uint32_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_COLOR), status);
-            FogFlags(frame) |= Offsets::SIMPLEMODEL_FOG_ARMED;
+            if (!std::exchange(fogColor, true))
+                Xml::ReadColor(c, Game::Ref<uint32_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_COLOR), status);
         } else if (Xml::TagIs(c, "ViewInsets")) {
-            float *in = F(frame).viewInsets;
-            Xml::FloatAttr(c, "left", in[0]);
-            Xml::FloatAttr(c, "right", in[1]);
-            Xml::FloatAttr(c, "top", in[2]);
-            Xml::FloatAttr(c, "bottom", in[3]);
+            ReadViewInsets(c, F(frame).viewInsets, status);
         }
     }
     return result;
@@ -1240,7 +1368,7 @@ void *__fastcall CreateModelScene(void *parent) {
     Fields &f = F(frame);
     f.actors = new std::vector<Actor *>;
     f.position = {0.0f, 0.0f, 0.0f};
-    SetOrientation(f, 0.0f, 0.0f, 0.0f);
+    Orientation(0.0f, 0.0f, 0.0f, f.forward, f.right, f.up);
     f.fieldOfView = kDefaultFieldOfView;
     f.nearClip = kDefaultNearClip;
     f.farClip = kDefaultFarClip;
@@ -1278,25 +1406,47 @@ Vec3 Vec3Args(void *L, int first) {
     return {FloatArg(L, first), FloatArg(L, first + 1), FloatArg(L, first + 2)};
 }
 
+// Whether the template's inherits chain comes back to a template it has
+// passed, CreateActor's "Recursively inherited node".
+bool TemplateRecursive(const void *node) {
+    std::vector<const void *> seen;
+    for (; node != nullptr; node = Xml::Template(Xml::Attr(node, "inherits"))) {
+        if (std::find(seen.begin(), seen.end(), node) != seen.end())
+            return true;
+        seen.push_back(node);
+        const char *inherits = Xml::Attr(node, "inherits");
+        if (inherits == nullptr || *inherits == '\0')
+            return false;
+    }
+    return false;
+}
+
+// CreateActor (0x14194FBB0 -> 0x14194D230): the name is any string lua_isstring
+// takes; a template only a string. The template loads (OnLoad included)
+// before the actor joins the scene's list, so OnLoad does not find it there.
 int __fastcall Script_CreateActor(void *L) {
     void *frame = Self(L);
     if (frame == nullptr)
         return 0;
     const char *name = Game::Lua::IsString(L, 2) ? Game::Lua::ToString(L, 2) : nullptr;
     const void *templateNode = nullptr;
-    if (Game::Lua::IsString(L, 3)) {
+    if (Game::Lua::Type(L, 3) == Game::Lua::TYPE_STRING) {
         const char *inherits = Game::Lua::ToString(L, 3);
         templateNode = Xml::Template(inherits);
-        if (templateNode == nullptr) {
-            Game::Lua::Error(L, "%s:CreateActor(): Couldn't find inherited node \"%s\"",
-                             Game::Lua::ObjectDisplayName(frame), inherits);
+        const char *problem = templateNode == nullptr        ? "Couldn't find inherited node"
+                              : TemplateRecursive(templateNode) ? "Recursively inherited node"
+                                                               : nullptr;
+        if (problem != nullptr) {
+            char message[Game::Lua::kClientErrorSize];
+            std::snprintf(message, sizeof message, "%s \"%s\"", problem, inherits);
+            Game::Lua::RaiseClientMethodError(L, Game::Lua::ObjectDisplayName(frame), "CreateActor", message);
             return 0;
         }
     }
     Actor *actor = new Actor(frame, name);
-    F(frame).actors->push_back(actor);
     if (templateNode != nullptr)
         actor->LoadXml(templateNode, nullptr);
+    F(frame).actors->push_back(actor);
     Animation::Push(L, actor);
     return 1;
 }
@@ -1309,23 +1459,55 @@ int __fastcall Script_GetNumActors(void *L) {
     return 1;
 }
 
+// 0x140C5B0F0: a non-number is the method's own error; the index is
+// lua_tointeger's; out of range returns nothing.
 int __fastcall Script_GetActorAtIndex(void *L) {
     void *frame = Self(L);
-    if (frame == nullptr || !NumberArgs(L, 2, 1, Game::Lua::ObjectDisplayName(frame),
-                                        "GetActorAtIndex(index)"))
+    if (frame == nullptr)
         return 0;
+    if (!Game::Lua::IsNumber(L, 2)) {
+        Game::Lua::RaiseClientMethodError(L, Game::Lua::ObjectDisplayName(frame), "GetActorAtIndex",
+                                          "Invalid index passed");
+        return 0;
+    }
     const std::vector<Actor *> &actors = *F(frame).actors;
-    const double index = Game::Lua::ToNumber(L, 2);
+    const double index = std::trunc(Game::Lua::ToNumber(L, 2));
     if (!(index >= 1.0 && index <= static_cast<double>(actors.size())))
         return 0;
     Animation::Push(L, actors[static_cast<size_t>(index) - 1]);
     return 1;
 }
 
+// TakeActor(actor) (0x14194FE10): an actor of another scene leaves its list
+// for this one's; anything else, or an actor of this scene, does nothing. An
+// actor's model lives in its scene's M2 scene in 1.12, so it is cleared
+// first (OnModelCleared), with the spell areas and chains of the old scene,
+// as the actor's destructor drops them; the caller gives it a model again.
+int __fastcall Script_TakeActor(void *L) {
+    void *frame = Self(L);
+    if (frame == nullptr)
+        return 0;
+    auto *actor = static_cast<Actor *>(Animation::Resolve(L, 2, Actor::s_class));
+    if (actor == nullptr || actor->SceneFrame() == frame)
+        return 0;
+    void *old = actor->SceneFrame();
+    actor->Vacate();
+    Areas::Drop(*actor);
+    Chains::Forget(*actor);
+    Fields &from = F(old);
+    from.actors->erase(std::remove(from.actors->begin(), from.actors->end(), actor), from.actors->end());
+    if (from.listener == actor)
+        from.listener = nullptr;
+    if (from.hovered == actor)
+        from.hovered = nullptr;
+    actor->MoveToScene(frame);
+    F(frame).actors->push_back(actor);
+    return 0;
+}
+
 int __fastcall Script_SetCameraPosition(void *L) {
     void *frame = Self(L);
-    if (frame == nullptr || !NumberArgs(L, 2, 3, Game::Lua::ObjectDisplayName(frame),
-                                        "SetCameraPosition(x, y, z)"))
+    if (frame == nullptr || !NumberArgs(L, 2, 3, "Usage: self:SetCameraPosition(position)"))
         return 0;
     F(frame).position = Vec3Args(L, 2);
     ApplyCamera(frame);
@@ -1337,29 +1519,51 @@ int __fastcall Script_GetCameraPosition(void *L) {
     return frame != nullptr ? PushVec3(L, F(frame).position) : 0;
 }
 
-int __fastcall Script_SetCameraOrientationByYawPitchRoll(void *L) {
-    void *frame = Self(L);
-    if (frame == nullptr ||
-        !NumberArgs(L, 2, 3, Game::Lua::ObjectDisplayName(frame),
-                    "SetCameraOrientationByYawPitchRoll(yaw, pitch, roll)"))
-        return 0;
-    SetOrientation(F(frame), FloatArg(L, 2), FloatArg(L, 3), FloatArg(L, 4));
+// The orthonormal test of 3.80.2's axis setter (0x14194DC20): each vector
+// of squared length within 0.001 of 1 (DAT_14415B630), each pair's dot
+// product within 2.38e-7 of 0 (DAT_14415B534).
+bool Orthonormal(const Vec3 &a, const Vec3 &b, const Vec3 &c) {
+    auto dot = [](const Vec3 &u, const Vec3 &v) { return u.x * v.x + u.y * v.y + u.z * v.z; };
+    for (const Vec3 *v : {&a, &b, &c})
+        if (!(std::fabs(dot(*v, *v) - 1.0f) < 0.001f))
+            return false;
+    return std::fabs(dot(a, b)) < kAxisEpsilon && std::fabs(dot(a, c)) < kAxisEpsilon &&
+           std::fabs(dot(b, c)) < kAxisEpsilon;
+}
+
+// The axis setter: the vectors stored when they are orthonormal, else its
+// error and nothing stored. YawPitchRoll goes through it too.
+void SetAxes(void *L, void *frame, const Vec3 &forward, const Vec3 &right, const Vec3 &up) {
+    if (!Orthonormal(forward, right, up)) {
+        Game::Lua::RaiseClientMethodError(L, Game::Lua::ObjectDisplayName(frame), "SetCameraOrientationByAxisVectors",
+                                          "Each vector must be orthonormal");
+        return;
+    }
+    Fields &f = F(frame);
+    f.forward = forward;
+    f.right = right;
+    f.up = up;
     ApplyCamera(frame);
+}
+
+int __fastcall Script_SetCameraOrientationByYawPitchRoll(void *L) {
+    constexpr char kUsage[] = "Usage: self:SetCameraOrientationByYawPitchRoll(yaw, pitch, roll)";
+    void *frame = Self(L);
+    float yaw = 0.0f, pitch = 0.0f, roll = 0.0f;
+    if (frame == nullptr || !MethodArg::Number(L, 2, kUsage, yaw) || !MethodArg::Number(L, 3, kUsage, pitch) ||
+        !MethodArg::Number(L, 4, kUsage, roll))
+        return 0;
+    Vec3 forward, right, up;
+    Orientation(yaw, pitch, roll, forward, right, up);
+    SetAxes(L, frame, forward, right, up);
     return 0;
 }
 
 int __fastcall Script_SetCameraOrientationByAxisVectors(void *L) {
     void *frame = Self(L);
-    if (frame == nullptr ||
-        !NumberArgs(L, 2, 9, Game::Lua::ObjectDisplayName(frame),
-                    "SetCameraOrientationByAxisVectors(forwardX, forwardY, forwardZ, rightX, "
-                    "rightY, rightZ, upX, upY, upZ)"))
+    if (frame == nullptr || !NumberArgs(L, 2, 9, "Usage: self:SetCameraOrientationByAxisVectors(forward, right, up)"))
         return 0;
-    Fields &f = F(frame);
-    f.forward = Vec3Args(L, 2);
-    f.right = Vec3Args(L, 5);
-    f.up = Vec3Args(L, 8);
-    ApplyCamera(frame);
+    SetAxes(L, frame, Vec3Args(L, 2), Vec3Args(L, 5), Vec3Args(L, 8));
     return 0;
 }
 
@@ -1378,17 +1582,27 @@ int __fastcall Script_GetCameraUp(void *L) {
     return frame != nullptr ? PushVec3(L, F(frame).up) : 0;
 }
 
-// The one-number camera setters and getters.
-constexpr char kUsageSetFieldOfView[] = "SetCameraFieldOfView(fov)";
-constexpr char kUsageSetNearClip[] = "SetCameraNearClip(nearClip)";
-constexpr char kUsageSetFarClip[] = "SetCameraFarClip(farClip)";
+// The one-number camera setters (0x140C5CE70, 0x140C5D050, 0x140C5CC90): a
+// finite number; the field of view held to [0, 2 pi] (DAT_14415C248), a clip
+// at or below 0 made 0.
+constexpr char kUsageSetFieldOfView[] = "Usage: self:SetCameraFieldOfView(fov)";
+constexpr char kUsageSetNearClip[] = "Usage: self:SetCameraNearClip(nearClip)";
+constexpr char kUsageSetFarClip[] = "Usage: self:SetCameraFarClip(farClip)";
 
-template <float Fields::*Field, const char *Usage>
+float ClampFieldOfView(float v) {
+    constexpr float kTwoPi = 6.2831855f;
+    return v > 0.0f ? (v < kTwoPi ? v : kTwoPi) : 0.0f;
+}
+
+float ClampClip(float v) { return v > 0.0f ? v : 0.0f; }
+
+template <float Fields::*Field, const char *Usage, float (*Clamp)(float)>
 int __fastcall SetCameraScalar(void *L) {
     void *frame = Self(L);
-    if (frame == nullptr || !NumberArgs(L, 2, 1, Game::Lua::ObjectDisplayName(frame), Usage))
+    float value = 0.0f;
+    if (frame == nullptr || !MethodArg::Number(L, 2, Usage, value))
         return 0;
-    F(frame).*Field = FloatArg(L, 2);
+    F(frame).*Field = Clamp(value);
     ApplyCamera(frame);
     return 0;
 }
@@ -1409,11 +1623,8 @@ int __fastcall Script_SetDrawLayer(void *L) {
         return 0;
     int layer = 0;
     if (!Game::Lua::IsString(L, 2) ||
-        !reinterpret_cast<LayerFromName_t>(Offsets::FUN_XML_DRAW_LAYER_FROM_NAME)(
-            Game::Lua::ToString(L, 2), &layer)) {
-        Game::Lua::Error(L, "Usage: %s:SetDrawLayer(layer)", Game::Lua::ObjectDisplayName(frame));
-        return 0;
-    }
+        !reinterpret_cast<LayerFromName_t>(Offsets::FUN_XML_DRAW_LAYER_FROM_NAME)(Game::Lua::ToString(L, 2), &layer))
+        return MethodArg::Fail(L, 2, "Usage: self:SetDrawLayer(layer)");
     Fields &f = F(frame);
     if (layer == f.drawLayer)
         return 0;
@@ -1435,11 +1646,18 @@ int __fastcall Script_GetDrawLayer(void *L) {
     return 2;
 }
 
+// SetPaused(paused [, affectsGlobalPause]) (0x140C5EED0): each actor with a
+// model at the call, as that actor's SetPaused; the scene stores nothing.
 int __fastcall Script_SetPaused(void *L) {
+    constexpr char kUsage[] = "Usage: self:SetPaused(paused [, affectsGlobalPause])";
     void *frame = Self(L);
-    if (frame == nullptr)
+    bool paused = false;
+    if (frame == nullptr || !MethodArg::Bool(L, 2, kUsage, paused))
         return 0;
-    F(frame).paused = Game::Lua::ToBoolean(L, 2) != 0 ? 1 : 0;
+    const bool affectsGlobalPause = MethodArg::OptBool(L, 3, true);
+    for (Actor *actor : *F(frame).actors)
+        if (actor->model != nullptr)
+            actor->Pause(paused, affectsGlobalPause);
     return 0;
 }
 
@@ -1466,8 +1684,7 @@ int __fastcall Script_Timer(void *L) {
 
 int __fastcall Script_Project3DPointTo2D(void *L) {
     void *frame = Self(L);
-    if (frame == nullptr || !NumberArgs(L, 2, 3, Game::Lua::ObjectDisplayName(frame),
-                                        "Project3DPointTo2D(pointX, pointY, pointZ)"))
+    if (frame == nullptr || !NumberArgs(L, 2, 3, "Usage: self:Project3DPointTo2D(pointX, pointY, pointZ)"))
         return 0;
     double out[3];
     if (!Project(frame, Vec3Args(L, 2), out))
@@ -1510,8 +1727,7 @@ int __fastcall Script_GetCursorRay(void *L) {
 // order.
 int __fastcall Script_GetActorsInRadius(void *L) {
     void *frame = Self(L);
-    if (frame == nullptr || !NumberArgs(L, 2, 4, Game::Lua::ObjectDisplayName(frame),
-                                        "GetActorsInRadius(pointX, pointY, pointZ, radius)"))
+    if (frame == nullptr || !NumberArgs(L, 2, 4, "Usage: self:GetActorsInRadius(pointX, pointY, pointZ, radius)"))
         return 0;
     const Vec3 point = Vec3Args(L, 2);
     const float radius = FloatArg(L, 5);
@@ -1523,9 +1739,10 @@ int __fastcall Script_GetActorsInRadius(void *L) {
     for (Actor *actor : *F(frame).actors) {
         if (!actor->shown || actor->model == nullptr)
             continue;
-        const float dx = actor->position[0] - point.x;
-        const float dy = actor->position[1] - point.y;
-        const float dz = actor->position[2] - point.z;
+        const Actor::Point origin = actor->Origin();
+        const float dx = origin.p[0] - point.x;
+        const float dy = origin.p[1] - point.y;
+        const float dz = origin.p[2] - point.z;
         const float distanceSq = dx * dx + dy * dy + dz * dz;
         if (distanceSq <= radius * radius)
             hits.push_back({distanceSq, actor});
@@ -1543,8 +1760,7 @@ int __fastcall Script_GetActorsInRadius(void *L) {
 
 int __fastcall Script_SetMoveMarker(void *L) {
     void *frame = Self(L);
-    if (frame == nullptr || !NumberArgs(L, 2, 3, Game::Lua::ObjectDisplayName(frame),
-                                        "SetMoveMarker(pointX, pointY, pointZ)"))
+    if (frame == nullptr || !NumberArgs(L, 2, 3, "Usage: self:SetMoveMarker(pointX, pointY, pointZ)"))
         return 0;
     Fields &f = F(frame);
     for (int i = 0; i < 3; ++i)
@@ -1570,8 +1786,7 @@ int __fastcall Script_GetMoveMarker(void *L) {
 
 int __fastcall Script_SetViewInsets(void *L) {
     void *frame = Self(L);
-    if (frame == nullptr || !NumberArgs(L, 2, 4, Game::Lua::ObjectDisplayName(frame),
-                                        "SetViewInsets(left, right, top, bottom)"))
+    if (frame == nullptr || !NumberArgs(L, 2, 4, "Usage: self:SetViewInsets(left, right, top, bottom)"))
         return 0;
     float *in = F(frame).viewInsets;
     for (int i = 0; i < 4; ++i)
@@ -1590,8 +1805,7 @@ int __fastcall Script_GetViewInsets(void *L) {
 
 int __fastcall Script_SetViewTranslation(void *L) {
     void *frame = Self(L);
-    if (frame == nullptr || !NumberArgs(L, 2, 2, Game::Lua::ObjectDisplayName(frame),
-                                        "SetViewTranslation(translationX, translationY)"))
+    if (frame == nullptr || !NumberArgs(L, 2, 2, "Usage: self:SetViewTranslation(translationX, translationY)"))
         return 0;
     F(frame).viewTranslation[0] = FloatArg(L, 2);
     F(frame).viewTranslation[1] = FloatArg(L, 3);
@@ -1617,8 +1831,7 @@ int __fastcall Script_SetGroundTerrain(void *L) {
         F(frame).groundTerrain = -1;
         return 0;
     }
-    if (!NumberArgs(L, 2, 1, Game::Lua::ObjectDisplayName(frame),
-                    "SetGroundTerrain([terrainTypeID])"))
+    if (!NumberArgs(L, 2, 1, "Usage: self:SetGroundTerrain([terrainTypeID])"))
         return 0;
     F(frame).groundTerrain = static_cast<int32_t>(Game::Lua::ToNumber(L, 2));
     return 0;
@@ -1635,28 +1848,25 @@ int __fastcall Script_GetGroundTerrain(void *L) {
 // The scene's own WMO (a ClassicAPI extension, model/SceneWorld.cpp), beside
 // the terrain's. A set that fails clears it, as an actor's SetModelByPath
 // clears its model.
-constexpr char kUsageSetWorldModel[] = "SetWorldModel(path [, x, y, z [, yaw [, doodadSet [, mapID]]]])";
+constexpr char kUsageSetWorldModel[] = "Usage: self:SetWorldModel(path [, x, y, z [, yaw [, doodadSet [, mapID]]]])";
 
 int __fastcall Script_SetWorldModel(void *L) {
     void *frame = Self(L);
     if (frame == nullptr)
         return 0;
-    const char *owner = Game::Lua::ObjectDisplayName(frame);
-    if (!Game::Lua::IsString(L, 2)) {
-        Game::Lua::Error(L, "Usage: %s:%s", owner, kUsageSetWorldModel);
-        return 0;
-    }
+    if (!Game::Lua::IsString(L, 2))
+        return MethodArg::Fail(L, 2, kUsageSetWorldModel);
     const auto given = [L](int index) { return Game::Lua::Type(L, index) > Game::Lua::TYPE_NIL; };
     float position[3] = {};
     if (given(3) || given(4) || given(5)) {
-        if (!NumberArgs(L, 3, 3, owner, kUsageSetWorldModel))
+        if (!NumberArgs(L, 3, 3, kUsageSetWorldModel))
             return 0;
         position[0] = FloatArg(L, 3);
         position[1] = FloatArg(L, 4);
         position[2] = FloatArg(L, 5);
     }
     for (int index = 6; index <= 8; ++index)
-        if (given(index) && !NumberArgs(L, index, 1, owner, kUsageSetWorldModel))
+        if (given(index) && !NumberArgs(L, index, 1, kUsageSetWorldModel))
             return 0;
     const float yaw = given(6) ? FloatArg(L, 6) : 0.0f;
     const uint32_t doodadSet = given(7) ? static_cast<uint32_t>(Game::Lua::ToNumber(L, 7)) : 0;
@@ -1670,7 +1880,7 @@ int __fastcall Script_SetWorldModel(void *L) {
 int __fastcall Script_SetWorldModelByMapID(void *L) {
     void *frame = Self(L);
     if (frame == nullptr ||
-        !NumberArgs(L, 2, 1, Game::Lua::ObjectDisplayName(frame), "SetWorldModelByMapID(mapID)"))
+        !NumberArgs(L, 2, 1, "Usage: self:SetWorldModelByMapID(mapID)"))
         return 0;
     Game::Lua::PushBool(L, World::SetMapModel(F(frame).world, static_cast<uint32_t>(Game::Lua::ToNumber(L, 2))));
     return 1;
@@ -1692,14 +1902,13 @@ void SetTerrain(void *frame, Terrain::Land *terrain) {
     World::SetTileObjects(F(frame).world, {}, World::kNoMap);
 }
 
-constexpr char kUsageSetWorldTerrain[] = "SetWorldTerrain(mapID)";
+constexpr char kUsageSetWorldTerrain[] = "Usage: self:SetWorldTerrain(mapID)";
 
 int __fastcall Script_SetWorldTerrain(void *L) {
     void *frame = Self(L);
     if (frame == nullptr)
         return 0;
-    const char *owner = Game::Lua::ObjectDisplayName(frame);
-    if (!NumberArgs(L, 2, 1, owner, kUsageSetWorldTerrain))
+    if (!NumberArgs(L, 2, 1, kUsageSetWorldTerrain))
         return 0;
     SetTerrain(frame, Terrain::Open(static_cast<uint32_t>(Game::Lua::ToNumber(L, 2))));
     Game::Lua::PushBool(L, F(frame).terrain != nullptr);
@@ -1717,8 +1926,7 @@ int __fastcall Script_ClearWorldTerrain(void *L) {
 // fraction. Nothing on a miss or without ground.
 int __fastcall Script_TraceSegment(void *L) {
     void *frame = Self(L);
-    if (frame == nullptr || !NumberArgs(L, 2, 6, Game::Lua::ObjectDisplayName(frame),
-                                        "TraceSegment(startX, startY, startZ, endX, endY, endZ [, camera])"))
+    if (frame == nullptr || !NumberArgs(L, 2, 6, "Usage: self:TraceSegment(startX, startY, startZ, endX, endY, endZ [, camera])"))
         return 0;
     const float start[3] = {FloatArg(L, 2), FloatArg(L, 3), FloatArg(L, 4)};
     const float end[3] = {FloatArg(L, 5), FloatArg(L, 6), FloatArg(L, 7)};
@@ -1741,7 +1949,7 @@ int __fastcall Script_TraceSegment(void *L) {
 int __fastcall Script_GetLiquidAtPoint(void *L) {
     void *frame = Self(L);
     if (frame == nullptr ||
-        !NumberArgs(L, 2, 3, Game::Lua::ObjectDisplayName(frame), "GetLiquidAtPoint(pointX, pointY, pointZ)"))
+        !NumberArgs(L, 2, 3, "Usage: self:GetLiquidAtPoint(pointX, pointY, pointZ)"))
         return 0;
     const float point[3] = {FloatArg(L, 2), FloatArg(L, 3), FloatArg(L, 4)};
     uint32_t type = 0;
@@ -1806,8 +2014,7 @@ bool SweepGround(void *frame, const float (&feet)[3], float radius, float height
 int __fastcall Script_SweepCollider(void *L) {
     void *frame = Self(L);
     if (frame == nullptr ||
-        !NumberArgs(L, 2, 8, Game::Lua::ObjectDisplayName(frame),
-                    "SweepCollider(feetX, feetY, feetZ, radius, height, moveX, moveY, moveZ)"))
+        !NumberArgs(L, 2, 8, "Usage: self:SweepCollider(feetX, feetY, feetZ, radius, height, moveX, moveY, moveZ)"))
         return 0;
     const float feet[3] = {FloatArg(L, 2), FloatArg(L, 3), FloatArg(L, 4)};
     const float move[3] = {FloatArg(L, 7), FloatArg(L, 8), FloatArg(L, 9)};
@@ -1826,7 +2033,7 @@ int __fastcall Script_SweepCollider(void *L) {
 // The actor the scene's sounds are heard at, as the world hears them at the
 // unit the player drives (a ClassicAPI extension). nil: the camera again.
 int __fastcall Script_SetSoundListenerActor(void *L) {
-    constexpr char kUsage[] = "SetSoundListenerActor([actor])";
+    constexpr char kUsage[] = "Usage: self:SetSoundListenerActor([actor])";
     void *frame = Self(L);
     if (frame == nullptr)
         return 0;
@@ -1835,10 +2042,8 @@ int __fastcall Script_SetSoundListenerActor(void *L) {
         return 0;
     }
     auto *actor = static_cast<Actor *>(Animation::Resolve(L, 2, Actor::s_class));
-    if (actor == nullptr || actor->SceneFrame() != frame) {
-        Game::Lua::Error(L, "Usage: %s:%s", Game::Lua::ObjectDisplayName(frame), kUsage);
-        return 0;
-    }
+    if (actor == nullptr || actor->SceneFrame() != frame)
+        return MethodArg::Fail(L, 2, kUsage);
     F(frame).listener = actor;
     return 0;
 }
@@ -1871,7 +2076,7 @@ int __fastcall Script_GetPlayWorldModelSounds(void *L) {
 int __fastcall Script_SetWorldTimeOfDay(void *L) {
     void *frame = Self(L);
     if (frame == nullptr ||
-        !NumberArgs(L, 2, 1, Game::Lua::ObjectDisplayName(frame), "SetWorldTimeOfDay(timeOfDay)"))
+        !NumberArgs(L, 2, 1, "Usage: self:SetWorldTimeOfDay(timeOfDay)"))
         return 0;
     const double t = Game::Lua::ToNumber(L, 2);
     const float day = static_cast<float>(t - std::floor(t));
@@ -1893,9 +2098,14 @@ int __fastcall Script_GetWorldTimeOfDay(void *L) {
     return 1;
 }
 
+// A required bool (0x140C5CAB0): nil raises the usage error.
 int __fastcall Script_SetAllowOverlappedModels(void *L) {
-    if (void *frame = Self(L))
-        F(frame).allowOverlappedModels = Game::Lua::ToBoolean(L, 2) != 0 ? 1 : 0;
+    void *frame = Self(L);
+    bool allow = false;
+    if (frame == nullptr ||
+        !MethodArg::Bool(L, 2, "Usage: self:SetAllowOverlappedModels(allowOverlappedModels)", allow))
+        return 0;
+    F(frame).allowOverlappedModels = allow ? 1 : 0;
     return 0;
 }
 
@@ -1907,12 +2117,20 @@ int __fastcall Script_GetAllowOverlappedModels(void *L) {
     return 1;
 }
 
+// The light type reader (0x140C62970): a number whose lua_tointeger, as an
+// unsigned value, is at most 1 (0 Directional, 1 Point); else the usage
+// error.
 int __fastcall Script_SetLightType(void *L) {
+    constexpr char kUsage[] = "Usage: self:SetLightType(lightType)";
     void *frame = Self(L);
-    if (frame == nullptr || !NumberArgs(L, 2, 1, Game::Lua::ObjectDisplayName(frame),
-                                        "SetLightType(lightType)"))
+    if (frame == nullptr)
         return 0;
-    SetLightType(frame, Game::Lua::ToNumber(L, 2) != 0.0 ? 1u : 0u);
+    if (!Game::Lua::IsNumber(L, 2))
+        return MethodArg::Fail(L, 2, kUsage);
+    const double v = std::trunc(Game::Lua::ToNumber(L, 2));
+    if (!(v >= 0.0 && v <= 1.0))
+        return MethodArg::Fail(L, 2, kUsage);
+    SetLightType(frame, static_cast<uint32_t>(v));
     return 0;
 }
 
@@ -1926,7 +2144,7 @@ int __fastcall Script_GetLightType(void *L) {
 
 int __fastcall Script_SetLightVisible(void *L) {
     if (void *frame = Self(L))
-        SetLightVisible(frame, Game::Lua::ToBoolean(L, 2) != 0);
+        SetLightVisible(frame, MethodArg::OptBool(L, 2, false));
     return 0;
 }
 
@@ -1940,8 +2158,7 @@ int __fastcall Script_IsLightVisible(void *L) {
 
 int __fastcall Script_SetLightDirection(void *L) {
     void *frame = Self(L);
-    if (frame == nullptr || !NumberArgs(L, 2, 3, Game::Lua::ObjectDisplayName(frame),
-                                        "SetLightDirection(x, y, z)"))
+    if (frame == nullptr || !NumberArgs(L, 2, 3, "Usage: self:SetLightDirection(direction)"))
         return 0;
     SetLightDirection(frame, Vec3Args(L, 2));
     return 0;
@@ -1954,8 +2171,7 @@ int __fastcall Script_GetLightDirection(void *L) {
 
 int __fastcall Script_SetLightPosition(void *L) {
     void *frame = Self(L);
-    if (frame == nullptr || !NumberArgs(L, 2, 3, Game::Lua::ObjectDisplayName(frame),
-                                        "SetLightPosition(x, y, z)"))
+    if (frame == nullptr || !NumberArgs(L, 2, 3, "Usage: self:SetLightPosition(position)"))
         return 0;
     SetLightPosition(frame, Vec3Args(L, 2));
     return 0;
@@ -1966,11 +2182,14 @@ int __fastcall Script_GetLightPosition(void *L) {
     return frame != nullptr ? PushVec3(L, F(frame).lightPosition) : 0;
 }
 
+// The colour reader (0x140A6CC50) clamps and quantizes each channel, so the
+// light keeps, and the getters give back, the 1/255 steps (0x140C5E280,
+// 0x140C5BE70).
 int SetLightColor(void *L, float *(*color)(void *), const char *usage) {
     void *frame = Self(L);
-    if (frame == nullptr || !NumberArgs(L, 2, 3, Game::Lua::ObjectDisplayName(frame), usage))
+    if (frame == nullptr || !NumberArgs(L, 2, 3, usage))
         return 0;
-    SetColor(color(frame), Vec3Args(L, 2));
+    SetColor(color(frame), QuantizedColor(Vec3Args(L, 2)));
     return 0;
 }
 
@@ -1983,18 +2202,17 @@ int GetLightColor(void *L, float *(*color)(void *)) {
 }
 
 int __fastcall Script_SetLightAmbientColor(void *L) {
-    return SetLightColor(L, &AmbientOf, "SetLightAmbientColor(colorR, colorG, colorB)");
+    return SetLightColor(L, &AmbientOf, "Usage: self:SetLightAmbientColor(color)");
 }
 int __fastcall Script_GetLightAmbientColor(void *L) { return GetLightColor(L, &AmbientOf); }
 int __fastcall Script_SetLightDiffuseColor(void *L) {
-    return SetLightColor(L, &DiffuseOf, "SetLightDiffuseColor(colorR, colorG, colorB)");
+    return SetLightColor(L, &DiffuseOf, "Usage: self:SetLightDiffuseColor(color)");
 }
 int __fastcall Script_GetLightDiffuseColor(void *L) { return GetLightColor(L, &DiffuseOf); }
 
 int __fastcall Script_SetFogColor(void *L) {
     void *frame = Self(L);
-    if (frame == nullptr || !NumberArgs(L, 2, 3, Game::Lua::ObjectDisplayName(frame),
-                                        "SetFogColor(colorR, colorG, colorB)"))
+    if (frame == nullptr || !NumberArgs(L, 2, 3, "Usage: self:SetFogColor(color)"))
         return 0;
     SetFogColor(frame, Vec3Args(L, 2));
     return 0;
@@ -2008,30 +2226,39 @@ int __fastcall Script_GetFogColor(void *L) {
     return PushVec3(L, {((c >> 16) & 0xFF) / 255.0f, ((c >> 8) & 0xFF) / 255.0f, (c & 0xFF) / 255.0f});
 }
 
-template <uintptr_t Offset, const char *Usage>
+// SetFogNear / SetFogFar (0x140C5E0B0, 0x140C5DEE0): a finite number, stored
+// as given.
+template <float Fields::*Field, const char *Usage>
 int __fastcall SetFogDistance(void *L) {
     void *frame = Self(L);
-    if (frame == nullptr || !NumberArgs(L, 2, 1, Game::Lua::ObjectDisplayName(frame), Usage))
+    float value = 0.0f;
+    if (frame == nullptr || !MethodArg::Number(L, 2, Usage, value))
         return 0;
-    Game::Ref<float>(frame, Offset) = FloatArg(L, 2);
+    F(frame).*Field = value;
+    ApplyFog(frame);
     return 0;
 }
 
-template <uintptr_t Offset>
+template <float Fields::*Field>
 int __fastcall GetFogDistance(void *L) {
     void *frame = Self(L);
     if (frame == nullptr)
         return 0;
-    Game::Lua::PushNumber(L, Game::Read<float>(frame, Offset));
+    Game::Lua::PushNumber(L, F(frame).*Field);
     return 1;
 }
 
-constexpr char kUsageSetFogNear[] = "SetFogNear(near)";
-constexpr char kUsageSetFogFar[] = "SetFogFar(far)";
+constexpr char kUsageSetFogNear[] = "Usage: self:SetFogNear(near)";
+constexpr char kUsageSetFogFar[] = "Usage: self:SetFogFar(far)";
 
+// ClearFog (0x140C5AFF0): the near and far back to the constructor's, the
+// colour left.
 int __fastcall Script_ClearFog(void *L) {
-    if (void *frame = Self(L))
-        FogFlags(frame) &= ~static_cast<uint32_t>(Offsets::SIMPLEMODEL_FOG_ARMED);
+    if (void *frame = Self(L)) {
+        F(frame).fogNear = kNoFogNear;
+        F(frame).fogFar = kNoFogFar;
+        ApplyFog(frame);
+    }
     return 0;
 }
 
@@ -2039,6 +2266,7 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"CreateActor", &Script_CreateActor},
     {"GetNumActors", &Script_GetNumActors},
     {"GetActorAtIndex", &Script_GetActorAtIndex},
+    {"TakeActor", &Script_TakeActor},
     {"SetCameraPosition", &Script_SetCameraPosition},
     {"GetCameraPosition", &Script_GetCameraPosition},
     {"SetCameraOrientationByYawPitchRoll", &Script_SetCameraOrientationByYawPitchRoll},
@@ -2046,11 +2274,11 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"GetCameraForward", &Script_GetCameraForward},
     {"GetCameraRight", &Script_GetCameraRight},
     {"GetCameraUp", &Script_GetCameraUp},
-    {"SetCameraFieldOfView", &SetCameraScalar<&Fields::fieldOfView, kUsageSetFieldOfView>},
+    {"SetCameraFieldOfView", &SetCameraScalar<&Fields::fieldOfView, kUsageSetFieldOfView, &ClampFieldOfView>},
     {"GetCameraFieldOfView", &GetCameraScalar<&Fields::fieldOfView>},
-    {"SetCameraNearClip", &SetCameraScalar<&Fields::nearClip, kUsageSetNearClip>},
+    {"SetCameraNearClip", &SetCameraScalar<&Fields::nearClip, kUsageSetNearClip, &ClampClip>},
     {"GetCameraNearClip", &GetCameraScalar<&Fields::nearClip>},
-    {"SetCameraFarClip", &SetCameraScalar<&Fields::farClip, kUsageSetFarClip>},
+    {"SetCameraFarClip", &SetCameraScalar<&Fields::farClip, kUsageSetFarClip, &ClampClip>},
     {"GetCameraFarClip", &GetCameraScalar<&Fields::farClip>},
     {"SetDrawLayer", &Script_SetDrawLayer},
     {"GetDrawLayer", &Script_GetDrawLayer},
@@ -2103,10 +2331,10 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
     {"GetLightDiffuseColor", &Script_GetLightDiffuseColor},
     {"SetFogColor", &Script_SetFogColor},
     {"GetFogColor", &Script_GetFogColor},
-    {"SetFogNear", &SetFogDistance<Offsets::OFF_SIMPLEMODEL_FOG_NEAR, kUsageSetFogNear>},
-    {"GetFogNear", &GetFogDistance<Offsets::OFF_SIMPLEMODEL_FOG_NEAR>},
-    {"SetFogFar", &SetFogDistance<Offsets::OFF_SIMPLEMODEL_FOG_FAR, kUsageSetFogFar>},
-    {"GetFogFar", &GetFogDistance<Offsets::OFF_SIMPLEMODEL_FOG_FAR>},
+    {"SetFogNear", &SetFogDistance<&Fields::fogNear, kUsageSetFogNear>},
+    {"GetFogNear", &GetFogDistance<&Fields::fogNear>},
+    {"SetFogFar", &SetFogDistance<&Fields::fogFar, kUsageSetFogFar>},
+    {"GetFogFar", &GetFogDistance<&Fields::fogFar>},
     {"ClearFog", &Script_ClearFog},
 };
 
@@ -2154,6 +2382,11 @@ const Game::Doc::Function kGetNumActors{"Returns how many actors the scene has."
                                         kNumActorsRet};
 const Game::Doc::Function kGetActorAtIndex{"Returns an actor, in creation order.", kIndexArg,
                                            kActorRet};
+const Game::Doc::Field kTakeActorArg[] = {Req("actor", "ModelSceneFrameActor")};
+const Game::Doc::Function kTakeActor{
+    "Moves an actor of another scene into this scene. The actor's model is cleared; give it a model again. "
+    "Does nothing for an actor of this scene.",
+    kTakeActorArg, {}};
 const Game::Doc::Function kSetCameraPosition{"Moves the camera.", kPositionArgs, {}};
 const Game::Doc::Function kGetCameraPosition{"Returns where the camera is.", {}, kPositionRets};
 const Game::Doc::Function kSetCameraOrientationByYawPitchRoll{
@@ -2180,7 +2413,7 @@ const Game::Doc::Field kLayerArg[] = {Req("layer", "DrawLayer")};
 const Game::Doc::Field kLayerRets[] = {Req("layer", "DrawLayer"), Req("sublevel", "number")};
 const Game::Doc::Field kPausedArgs[] = {
     Req("paused", "bool"),
-    Opt("affectsGlobalPause", "bool", "true", "Has no effect."),
+    Opt("affectsGlobalPause", "bool", "true"),
 };
 const Game::Doc::Field kLightTypeArg[] = {Req("lightType", "ModelLightType")};
 const Game::Doc::Field kLightTypeRet[] = {Req("lightType", "ModelLightType")};
@@ -2202,13 +2435,13 @@ const Game::Doc::Field kFarFogRet[] = {Req("far", "number")};
 const Game::Doc::Function kSetDrawLayer{"Sets the layer the scene draws in.", kLayerArg, {}};
 const Game::Doc::Function kGetDrawLayer{"Returns the layer the scene draws in.", {}, kLayerRets};
 const Game::Doc::Function kSetPaused{
-    "Stops or restarts the scene: the actors' animations, movement and spell visuals, and the clock and timers "
-    "of the scene.",
+    "Pauses or unpauses each actor of the scene that has a model, as the actor's own SetPaused does. Actors "
+    "made later, and actors without a model, are not changed.",
     kPausedArgs, {}};
 const Game::Doc::Field kSceneTimeRet[] = {Req("seconds", "number")};
 const Game::Doc::Function kGetSceneTime{
     "Returns the seconds that the clock of the scene has run since the scene was made. The clock "
-    "stops while the scene is paused or hidden. The actors animate and move by this clock.",
+    "stops while the scene is hidden. The actors animate and move by this clock.",
     {}, kSceneTimeRet, nullptr, true};
 const Game::Doc::Field kTimerArgs[] = {Req("seconds", "number", "On the clock of the scene."),
                                        Req("callback", "function")};
@@ -2380,7 +2613,9 @@ const Game::Doc::Function kGetWorldTimeOfDay{"Returns the time of day SetWorldTi
 const Game::Doc::Field kOverlappedArg[] = {Req("allowOverlappedModels", "bool")};
 const Game::Doc::Field kOverlappedRet[] = {Req("allowOverlappedModels", "bool")};
 const Game::Doc::Function kSetAllowOverlappedModels{
-    "Stores the flag. Scenes that overlap other model frames always draw.", kOverlappedArg, {}};
+    "Sets whether the scene clears the depth under it before it draws. Without it, a scene that overlaps "
+    "another scene drawn earlier in the same frame can be hidden behind that scene's models.",
+    kOverlappedArg, {}};
 const Game::Doc::Function kGetAllowOverlappedModels{"Returns the flag that SetAllowOverlappedModels stores.",
                                                     {}, kOverlappedRet};
 const Game::Doc::Field kProjectArgs[] = {Req("pointX", "number"), Req("pointY", "number"),
@@ -2462,7 +2697,7 @@ const Game::Doc::Function kGetLightAmbientColor{"Returns the light's ambient col
 const Game::Doc::Function kSetLightDiffuseColor{"Sets the light's diffuse colour.", kColorArgs, {}};
 const Game::Doc::Function kGetLightDiffuseColor{"Returns the light's diffuse colour.", {},
                                                 kColorRets};
-const Game::Doc::Function kSetFogColor{"Sets the fog colour and turns the fog on.", kColorArgs, {}};
+const Game::Doc::Function kSetFogColor{"Sets the fog colour. The fog starts white.", kColorArgs, {}};
 const Game::Doc::Function kGetFogColor{"Returns the fog colour.", {}, kColorRets};
 const Game::Doc::Function kSetFogNear{"Sets the distance where the fog starts.", kNearFogArg, {}};
 const Game::Doc::Function kGetFogNear{"Returns the distance where the fog starts.", {},
@@ -2470,7 +2705,8 @@ const Game::Doc::Function kGetFogNear{"Returns the distance where the fog starts
 const Game::Doc::Function kSetFogFar{"Sets the distance where the fog is full.", kFarFogArg, {}};
 const Game::Doc::Function kGetFogFar{"Returns the distance where the fog is full.", {},
                                      kFarFogRet};
-const Game::Doc::Function kClearFog{"Turns the fog off.", {}, {}};
+const Game::Doc::Function kClearFog{
+    "Moves the fog's start and end back past anything the scene draws. The colour stays.", {}, {}};
 
 const Game::Doc::Method g_methodDocs[] = {
     {"SetDrawLayer", &kSetDrawLayer},
@@ -2532,6 +2768,7 @@ const Game::Doc::Method g_methodDocs[] = {
     {"CreateActor", &kCreateActor},
     {"GetNumActors", &kGetNumActors},
     {"GetActorAtIndex", &kGetActorAtIndex},
+    {"TakeActor", &kTakeActor},
     {"SetCameraPosition", &kSetCameraPosition},
     {"GetCameraPosition", &kGetCameraPosition},
     {"SetCameraOrientationByYawPitchRoll", &kSetCameraOrientationByYawPitchRoll},
@@ -2558,12 +2795,10 @@ const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 
 } // namespace
 
-bool NumberArgs(void *L, int first, int count, const char *owner, const char *usage) {
+bool NumberArgs(void *L, int first, int count, const char *usage) {
     for (int i = 0; i < count; ++i) {
-        if (!Game::Lua::IsNumber(L, first + i)) {
-            Game::Lua::Error(L, "Usage: %s:%s", owner, usage);
-            return false;
-        }
+        if (!Game::Lua::IsNumber(L, first + i))
+            return Game::Lua::MethodArg::Fail(L, first + i, usage);
     }
     return true;
 }
@@ -2571,6 +2806,13 @@ bool NumberArgs(void *L, int first, int count, const char *owner, const char *us
 float FloatArg(void *L, int index) { return static_cast<float>(Game::Lua::ToNumber(L, index)); }
 
 int GroundTerrain(void *sceneFrame) { return F(sceneFrame).groundTerrain; }
+
+bool IsSceneFrame(void *L, int idx) {
+    return Game::Lua::Type(L, idx) == Game::Lua::TYPE_TABLE &&
+           Game::Lua::ResolveTypedObject(L, idx, g_class.TypeIdVar(), false) != nullptr;
+}
+
+bool IsActor(void *L, int idx) { return Animation::Resolve(L, idx, Actor::s_class) != nullptr; }
 
 World::Backdrop *WorldOf(void *sceneFrame) { return F(sceneFrame).world; }
 
@@ -2647,7 +2889,7 @@ float GroundReticleRadius(const Actor &actor) {
     return radius;
 }
 
-bool IsPaused(void *sceneFrame) { return F(sceneFrame).paused != 0; }
+bool HasFog(void *sceneFrame) { return F(sceneFrame).fogNear < F(sceneFrame).farClip; }
 
 uint32_t ClockMs(void *sceneFrame) {
     return Game::Read<uint32_t>(Model::Pane::Scene(sceneFrame), Offsets::OFF_M2SCENE_TIME);
@@ -2658,7 +2900,7 @@ View CameraView(void *sceneFrame) {
     return {{f.position.x, f.position.y, f.position.z},
             {f.forward.x, f.forward.y, f.forward.z},
             {f.up.x, f.up.y, f.up.z},
-            f.farClip};
+            DrawFarClip(sceneFrame)};
 }
 
 } // namespace Model::Scene

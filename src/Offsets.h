@@ -5606,6 +5606,9 @@ enum Offsets {
     // calls vtable +0x8C (the rescale). Frame:SetScale (0x00775140) calls it
     // with force 0 after rejecting a negative scale (Ghidra).
     FUN_FRAME_SET_SCALE = 0x0076AC10,
+    // The frame's own scale (float), what SetFrameScale stores and Script
+    // Frame:GetScale (0x00775080) pushes: `fld [frame + 0xB8]` at 0x0077511F.
+    OFF_FRAME_SCALE = 0xB8,
     // 4.3.4's disabled bit: CSimpleFrame::RunOnEnableScript sets it for a
     // disabled Button or EditBox, and EditBox:IsEnabled reads it.
     FRAME_FLAG_DISABLED = 0x400,
@@ -7190,6 +7193,10 @@ enum Offsets {
     // KitEffectDecayCallback (0x005FF1D0) plays it again until the effect's
     // end time, which a state kit leaves at 0, so it holds until the aura goes.
     ANIM_HOLD = 158,
+    // AnimationData.dbc row 91, "Mount": the seat pose the world's Mount
+    // (0x00607A00) plays on a rider, and what 3.80.2's AttachToMount plays for
+    // an animation of 0 (0x140C521F6 writes 0x5B).
+    ANIM_MOUNT = 91,
     // A family A game object handler's animation per state (+0x10, 0 to 12):
     // the u32 table at 0x008607E4 that PlayAnimatedHandlerState (0x005F3930)
     // indexes, holding 145, 147, 148, 149, 146, 150, 151, 152, 153 to 156 and

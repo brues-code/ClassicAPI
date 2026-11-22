@@ -210,9 +210,9 @@ void PlayKit(Actor &actor, const uint8_t *kit, std::vector<void *> *effects, Spe
     const int sound = Game::Read<int32_t>(kit, Offsets::OFF_SPELLVISUALKIT_SOUND);
     if (lasting && Sounds::KitLoops(sound)) {
         loop->soundID = sound;
-        loop->sound = Sounds::Loop(actor.SceneFrame(), sound, actor.position);
+        loop->sound = Sounds::Loop(actor.SceneFrame(), sound, actor.Origin().p);
     } else {
-        Sounds::Play(actor.SceneFrame(), sound, actor.position);
+        Sounds::Play(actor.SceneFrame(), sound, actor.Origin().p);
     }
 }
 
@@ -492,9 +492,10 @@ void Aim(SpellCast &cast) {
     }
     float box[6];
     M2::GetBoundingBox(target->model, box);
-    cast.destination[0] = target->position[0];
-    cast.destination[1] = target->position[1];
-    cast.destination[2] = target->position[2] + box[5] * target->scale * kAimHeight;
+    const Actor::Point origin = target->Origin();
+    cast.destination[0] = origin.p[0];
+    cast.destination[1] = origin.p[1];
+    cast.destination[2] = origin.p[2] + box[5] * target->scale * kAimHeight;
 }
 
 // GetSpellHostility (0x006EA280): 2 for a harmful spell.
@@ -651,7 +652,7 @@ void HandPoint(Actor &caster, float (&point)[3]) {
         }
     }
     for (int i = 0; i < 3; ++i)
-        point[i] = caster.position[i];
+        point[i] = caster.Origin().p[i];
 }
 
 // CMissile::Launch: aims, fits the speed to the time spent queued, plays
@@ -1027,7 +1028,7 @@ void Update(Actor &caster, float elapsedSec) {
     // The world has no pause; a paused scene (or caster) holds its missiles
     // still and silences their flight, which starts again when the pause
     // ends, as a hidden scene's does when it shows again.
-    const bool held = IsPaused(caster.SceneFrame()) || caster.paused || caster.globalPaused;
+    const bool held = caster.paused || caster.globalPaused;
     for (SpellCast &cast : caster.spellCasts) {
         for (SpellCast::KitLoop *loop : {&cast.precastLoop, &cast.channelLoop}) {
             if (loop->soundID == 0)
@@ -1038,7 +1039,7 @@ void Update(Actor &caster, float elapsedSec) {
                     loop->sound = nullptr;
                 }
             } else if (loop->sound == nullptr) {
-                loop->sound = Sounds::Loop(caster.SceneFrame(), loop->soundID, caster.position);
+                loop->sound = Sounds::Loop(caster.SceneFrame(), loop->soundID, caster.Origin().p);
             }
         }
         if (cast.phase != SpellCast::Phase::Flight)
@@ -1104,8 +1105,8 @@ void Place(Actor &caster) {
     const float axisZ[3] = {0.0f, 0.0f, 1.0f};
     const float scales[3] = {1.0f, 1.0f, 1.0f};
     for (SpellCast &cast : caster.spellCasts) {
-        Sounds::Move(caster.SceneFrame(), cast.precastLoop.sound, caster.position);
-        Sounds::Move(caster.SceneFrame(), cast.channelLoop.sound, caster.position);
+        Sounds::Move(caster.SceneFrame(), cast.precastLoop.sound, caster.Origin().p);
+        Sounds::Move(caster.SceneFrame(), cast.channelLoop.sound, caster.Origin().p);
         if (cast.phase != SpellCast::Phase::Flight)
             continue;
         const float dx = cast.destination[0] - cast.position[0];

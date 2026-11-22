@@ -105,7 +105,8 @@ Frame3 Ear(void *sceneFrame) {
             M2::GetBoundingBox(actor->model, box);
             height = (box[5] - box[2]) * actor->scale;
         }
-        const float origin[3] = {actor->position[0], actor->position[1], actor->position[2] + height};
+        const Actor::Point stands = actor->Origin();
+        const float origin[3] = {stands.p[0], stands.p[1], stands.p[2] + height};
         const float forward[3] = {std::cos(actor->yaw), std::sin(actor->yaw), 0.0f};
         const float up[3] = {0.0f, 0.0f, 1.0f};
         return MakeFrame(origin, forward, up);

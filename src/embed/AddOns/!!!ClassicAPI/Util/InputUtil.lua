@@ -14,6 +14,14 @@ function InputUtil.GetCursorDelta(parent)
 	return x / scale, y / scale;
 end
 
+-- 3.80.2's Blizzard_UIParent/Shared/UIParent.lua: the cursor's move in
+-- UIParent's units, which its OrbitCameraMixin reads.
+function GetScaledCursorDelta()
+	local uiScale = UIParent:GetEffectiveScale();
+	local x, y = GetCursorDelta();
+	return x / uiScale, y / uiScale;
+end
+
 function InputUtil.AnchorRegionToCursor(region, point)
 	local parent = GetAppropriateTopLevelParent();
 	local x, y = InputUtil.GetCursorPosition(parent);

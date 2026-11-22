@@ -442,7 +442,7 @@ bool FogOn(const Backdrop &b, const MapObject &o) { return WmoFogShown(b) && b.f
 // scene's fog stands for the zone's; a scene without fog stands for one
 // that ends at the far clip in the target's colour.
 FogValues SceneZoneFog(const Backdrop &b, void *frame) {
-    if ((Game::Read<uint32_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_FLAGS) & Offsets::SIMPLEMODEL_FOG_ARMED) != 0)
+    if (Model::Scene::HasFog(frame))
         return {Game::Read<float>(frame, Offsets::OFF_SIMPLEMODEL_FOG_FAR),
                 Game::Read<float>(frame, Offsets::OFF_SIMPLEMODEL_FOG_NEAR),
                 Game::Read<uint32_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_COLOR)};
@@ -495,8 +495,7 @@ void CommitLighting(const Backdrop &b, const MapObject &o, void *frame, const fl
     // that colour, so it gets a range from the far clip to where a world
     // without light ends its fog, which fogs nothing it draws. The caller's
     // render-state scope ends it.
-    if (!FogOn(b, o) &&
-        (Game::Read<uint32_t>(frame, Offsets::OFF_SIMPLEMODEL_FOG_FLAGS) & Offsets::SIMPLEMODEL_FOG_ARMED) == 0) {
+    if (!FogOn(b, o) && !Model::Scene::HasFog(frame)) {
         Gx::SetStateFloat(Offsets::GXRS_FOG_START, b.farClip);
         Gx::SetStateFloat(Offsets::GXRS_FOG_END, Game::Read<float>(Offsets::VAR_NO_LIGHT_FOG_END));
     }

@@ -158,6 +158,11 @@ int InvSlotOfComponent(uint32_t componentSlot);
 // model's ready gate allows).
 bool SlotAllowed(int invSlot, bool armorReady);
 
+// Whether an inventory slot (1-based) is one the character component dresses:
+// head, shoulder, shirt, chest, waist, legs, feet, wrist, hands, back,
+// tabard. They are the slots 3.80.2's slot-mask bits cover (0x140350520).
+inline bool ArmorSlot(int invSlot) { return ComponentSlotOf(invSlot) >= 0; }
+
 // A hand (lane 0 or 1) holding `lane` with ItemDisplayInfo row `display`, as
 // DressSlot's hand leg puts a unit's lane on: the old item off, the lane, row
 // and no glow taken, then hung. An empty lane or no row leaves the hand
