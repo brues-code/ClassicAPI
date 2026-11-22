@@ -40,8 +40,15 @@
 // target to each new soft enemy, and 1.12's target setter carries a running
 // attack to the new target, as 3.80.2's does.
 //
-// Applies to AttackTarget (its toggle's resolve call is redirected here) and
-// StartAttack. With soft enemy off, or no soft enemy, the engine's resolve
+// Applies to AttackTarget (its toggle's resolve call is redirected here),
+// StartAttack and the spells that start a swing (Heroic Strike, Sunder
+// Armor, ...): 1.12's cast request takes their unit from this resolve (see
+// CALL_CAST_ATTACK_RESOLVE), so with a friendly or dead target they go to
+// the soft enemy, as 3.80.2's default spell target does. The request's send
+// and spell-go tails then start the swing through the toggle with that GUID;
+// a GUID that is the action enemy is settled the same way, so attacking it
+// never selects it (3.80.2 sets the target only for a unit other than the
+// action enemy). With soft enemy off, or no soft enemy, the engine's resolve
 // runs untouched (and tab-targets as 1.12 does).
 
 #include "target/SoftAttack.h"
@@ -94,11 +101,21 @@ int Resolve(void *player, uint64_t *guid) {
 
 int __fastcall Toggle_h(void *player, void *, uint64_t *guid) { return ResolveMelee(player, guid); }
 
+// The cast request's pick starts no swing itself: its send tail runs the
+// toggle, which resolves again. So nothing is left settled for a start.
+int __fastcall CastPick_h(void *player, void *, uint64_t *guid) {
+    const int result = ResolveMelee(player, guid);
+    g_settled = 0;
+    return result;
+}
+
 void Register() {
     Common::RedirectCall(Offsets::CALL_ATTACK_RESOLVE_SELECT, Offsets::FUN_SET_SELECTION_BY_GUID,
                          reinterpret_cast<const void *>(&Select_h));
     Common::RedirectCall(Offsets::CALL_ATTACK_TOGGLE_RESOLVE, Offsets::FUN_ATTACK_RESOLVE_TARGET,
                          reinterpret_cast<const void *>(&Toggle_h));
+    Common::RedirectCall(Offsets::CALL_CAST_ATTACK_RESOLVE, Offsets::FUN_ATTACK_RESOLVE_TARGET,
+                         reinterpret_cast<const void *>(&CastPick_h));
     Common::RedirectCall(Offsets::CALL_ATTACK_START_SELECT, Offsets::FUN_SET_SELECTION_BY_GUID,
                          reinterpret_cast<const void *>(&StartSelect_h));
 }
@@ -109,10 +126,9 @@ const Game::ModuleAutoRegister _autoreg{&Register};
 
 int ResolveMelee(void *player, uint64_t *guid) {
     g_settled = 0;
-    if (*guid != 0)
-        return Resolve(player, guid);
-    const uint64_t soft = SoftUnit::GetAny(SoftUnit::Side::Enemy);
-    if (soft == 0 || soft == Reason::Selection())
+    const uint64_t action = SoftUnit::GetAny(SoftUnit::Side::Enemy);
+    const uint64_t soft = *guid != 0 ? *guid : action;
+    if (soft == 0 || soft != action || soft == Reason::Selection())
         return Resolve(player, guid);
     *guid = soft;
     g_settling = soft;

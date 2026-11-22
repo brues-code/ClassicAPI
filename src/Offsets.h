@@ -13658,6 +13658,14 @@ enum Offsets {
     // AttackTarget): `__thiscall(player, uint64_t guid)`, `ret 8`. Its call to
     // RESOLVE_TARGET with &guid; then stop when attacking, else START.
     CALL_ATTACK_TOGGLE_RESOLVE = 0x006131AA,
+    // The cast request's (FUN_006E4B60) melee pick: for a spell that starts a
+    // swing (0x006E5200: Attributes 0x404, AttributesEx 0x200 or AttributesEx2
+    // bit 20) while the player is not attacking, `mov ecx,[ebp-8]; lea
+    // edx,[ebx+0xC]; push edx; call RESOLVE_TARGET` — the request's own GUID
+    // slot, so the GUID it settles is the one the range check, the arm and
+    // the send tail's toggle (0x006E51DE) read. A 0 return refuses the cast
+    // (0x006E4F02). benilla-re systems/spell/attack.md.
+    CALL_CAST_ATTACK_RESOLVE = 0x006E4EFB,
     // FUN_ATTACK_START's own select of the victim (CGPlayer_C::StartMeleeAttack
     // selects it through FUN_SET_SELECTION_BY_GUID before CMSG_ATTACKSWING).
     CALL_ATTACK_START_SELECT = 0x005ECCAA,

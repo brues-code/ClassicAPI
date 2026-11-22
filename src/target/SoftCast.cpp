@@ -58,8 +58,10 @@
 // selection becomes "no unit given"; the player (onSelf, or the player
 // selected) stays explicit.
 //
-// Not covered: a spell that starts a melee swing (Heroic Strike) takes its
-// unit from the melee resolve the request calls directly, which 1.12 has.
+// A spell that starts a melee swing (Heroic Strike, Sunder Armor) takes its
+// unit earlier, from the melee resolve the request calls directly; that
+// call is Target::SoftAttack's, and the GUID it settles reaches both reads
+// here as given.
 
 #include "target/SoftCast.h"
 
