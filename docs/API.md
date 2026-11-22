@@ -662,6 +662,7 @@ build instructions.
 - [Instance](#instance)
   - [`GetInstanceInfo()`](#getinstanceinfo)
   - [`IsActiveBattlefieldArena()`](#isactivebattlefieldarena)
+  - [`C_InstanceEncounter.AddBossCreatureID(creatureID)` / `C_InstanceEncounter.RemoveBossCreatureID(creatureID)` / `C_InstanceEncounter.GetBossCreatureIDs()`](#c_instanceencounteraddbosscreatureidcreatureid--c_instanceencounterremovebosscreatureidcreatureid--c_instanceencountergetbosscreatureids)
 
 - [InterfaceOptions](#interfaceoptions)
   - [`InterfaceOptionsFrame` and addon option panels](#interfaceoptionsframe-and-addon-option-panels)
@@ -4061,7 +4062,7 @@ the event. The file also has these lines:
 | `COMBAT_LOG_VERSION` | At the start, after each loading screen, and each time that you set `advancedCombatLogging`. |
 | `ZONE_CHANGE` | After each `COMBAT_LOG_VERSION` line, and when you go into a new zone. |
 | `MAP_CHANGE` | After each `ZONE_CHANGE` that follows a `COMBAT_LOG_VERSION` line, and when the world map that you are on changes. The line has the Classic Era map ID, the name and the world bounds of the map. In an instance with no map of its own, there is no line. |
-| `ENCOUNTER_START`, `ENCOUNTER_END` | When the group starts and ends a fight with a world boss. The encounter ID is the creature ID of the boss. |
+| `ENCOUNTER_START`, `ENCOUNTER_END` | When the group starts and ends a fight with a boss: a world boss, or a creature on the [boss list](#c_instanceencounteraddbosscreatureidcreatureid--c_instanceencounterremovebosscreatureidcreatureid--c_instanceencountergetbosscreatureids). The encounter ID is the creature ID of the boss. |
 | `COMBATANT_INFO` | For each group member, after an `ENCOUNTER_START`. Stats and talents are known only for you. |
 | `EMOTE` | When a boss sends a raid boss emote: the boss, its target, and the text as the chat frame shows it. The boss GUID is `0000000000000000` when no unit in view has its name, or more than one does. Monster emotes and yells are not logged. |
 
@@ -15093,6 +15094,47 @@ if UnitIsDeadOrGhost("player") and not isArena then
 end
 ```
 
+### `C_InstanceEncounter.AddBossCreatureID(creatureID)` / `C_InstanceEncounter.RemoveBossCreatureID(creatureID)` / `C_InstanceEncounter.GetBossCreatureIDs()`
+
+These functions are a ClassicAPI extension. They make more creatures into
+bosses. By default, only world bosses are bosses: `UnitClassification`
+returns `"worldboss"` for them. Most dungeon bosses are only elite, so they
+are not bosses by default.
+
+- `AddBossCreatureID(creatureID)` adds a creature ID to the boss list. The
+  creature ID is the value that `UnitCreatureID` returns.
+- `RemoveBossCreatureID(creatureID)` removes a creature ID from the boss
+  list.
+- `GetBossCreatureIDs()` returns a table of the creature IDs on the boss
+  list, from the lowest to the highest.
+
+A creature on the boss list is a boss in the same way as a world boss. This
+applies to:
+- the [`bossN`](#unit-tokens-bossn) unit tokens and
+  [`INSTANCE_ENCOUNTER_ENGAGE_UNIT`](#instance_encounter_engage_unit-event);
+- the `ENCOUNTER_START` and `ENCOUNTER_END` lines of the
+  [combat log file](#combat-log-file-advancedcombatlogging);
+- the [damage meter sessions](#damage-meter-sessions).
+
+There is one boss list for all addons. When one addon adds a creature ID,
+the `bossN` tokens change for all addons.
+
+The boss list obeys these rules:
+- The boss list is empty after each login and after each `/reload`. Add
+  your creature IDs again when your addon loads.
+- If you remove a creature ID during an encounter, the bosses with that ID
+  keep their tokens until the encounter ends.
+- If more than one creature has the same listed ID, each one that your group
+  fights joins the encounter. The encounter ends as a kill only when all of
+  them are dead. Only the first five bosses get a `bossN` token.
+- The creature ID must be a number from 0 to 4294967295. Other values cause
+  an error.
+
+```lua
+-- In the main file of your addon:
+C_InstanceEncounter.AddBossCreatureID(639) -- Edwin VanCleef
+```
+
 ## InterfaceOptions
 
 ### `InterfaceOptionsFrame` and addon option panels
@@ -24657,7 +24699,7 @@ the slot becomes empty.
 `"boss1"` … `"boss5"` are unit tokens for every `UnitX` function. Each
 token is a boss of the encounter that your group fights now. This is the
 encounter that writes `ENCOUNTER_START` to the combat log file: a fight
-between your group and a world boss.
+between your group and a boss.
 
 ```lua
 for i = 1, 5 do
@@ -24675,9 +24717,11 @@ The tokens obey these rules:
 - A boss keeps its token until the encounter ends, also after the boss dies.
   The encounter ends at a kill, at a wipe, or at a loading screen. Then all
   the tokens become empty at the same time.
-- Only world bosses get a token. For these bosses, `UnitClassification`
-  returns `"worldboss"`. Most dungeon bosses are only elite, so they get no
-  token. Adds get no token.
+- Only bosses get a token. A boss is a world boss (`UnitClassification`
+  returns `"worldboss"`), or a creature that an addon adds with
+  [`C_InstanceEncounter.AddBossCreatureID`](#c_instanceencounteraddbosscreatureidcreatureid--c_instanceencounterremovebosscreatureidcreatureid--c_instanceencountergetbosscreatureids).
+  Most dungeon bosses are only elite, so they get no token until an addon
+  adds them. Adds get no token.
 - `UnitExists("bossN")` returns `false` when the token has no boss. It also
   returns `false` when the boss is out of range, but `UnitGUID("bossN")`
   still returns its GUID.

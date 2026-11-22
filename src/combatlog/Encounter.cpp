@@ -18,7 +18,8 @@
 // the creature's rank: 3, world boss, in its creature cache record
 // (OFF_CREATURE_RANK, the field UnitClassification reads). Raid and world
 // bosses carry it, Turtle's custom raids included; most dungeon bosses are
-// only elite, so dungeons get no encounter lines.
+// only elite. Addons name those by creature ID (CombatLog::BossCreatures), and
+// a listed creature is a boss here the same as a world boss.
 //
 // The lines, as Era writes them:
 //   ENCOUNTER_START,encounterID,"name",difficultyID,groupSize,instanceID,2
@@ -37,7 +38,7 @@
 //   - instanceID: the map ID, as Era writes it.
 //
 // When:
-//   - start: the first entry between a hostile world boss (by the entry's
+//   - start: the first entry between a hostile boss (by the entry's
 //     reaction flags) and a unit of the group (the player, a party or raid
 //     member, or a pet of theirs, by the entry's affiliation flags), other
 //     than a kill or an aura falling off. Later bosses the group fights join
@@ -65,6 +66,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "combatlog/BossCreatures.h"
 #include "combatlog/Combatant.h"
 #include "combatlog/File.h"
 #include "creature/Info.h"
@@ -113,10 +115,14 @@ int g_difficulty = 0;
 int g_groupSize = 0;
 std::vector<Boss> g_bosses;
 
-bool IsWorldBoss(uint64_t guid) {
+// A world boss (rank 3), or a creature an addon listed.
+bool IsBoss(uint64_t guid) {
     if (!Guid::IsCreature(guid))
         return false;
-    const uint8_t *rec = Creature::Info::CacheRecord(Unit::CreatureID::ForGuid(guid));
+    const uint32_t id = Unit::CreatureID::ForGuid(guid);
+    if (BossCreatures::Listed(id))
+        return true;
+    const uint8_t *rec = Creature::Info::CacheRecord(id);
     return rec != nullptr && Game::Read<uint32_t>(rec, Offsets::OFF_CREATURE_RANK) == kWorldBossRank;
 }
 
@@ -207,7 +213,7 @@ bool Dead(const void *unit) {
 // after the death, and a dead boss's area spells (Gehennas's Rain of Fire)
 // keep hitting.
 void Engage(uint64_t boss, uint32_t bossFlags, const std::string &name) {
-    if ((bossFlags & ObjectFlag::REACTION_HOSTILE) == 0 || !IsWorldBoss(boss) || Dead(UnitOf(boss)))
+    if ((bossFlags & ObjectFlag::REACTION_HOSTILE) == 0 || !IsBoss(boss) || Dead(UnitOf(boss)))
         return;
     if (!g_active)
         Start(boss, name);

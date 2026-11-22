@@ -18,7 +18,7 @@
 //
 // Sessions. Retail starts one each time combat starts; its rule is on the C
 // side. Ours:
-//   - during an encounter (CombatLog::Encounter: a hostile world boss fights
+//   - during an encounter (CombatLog::Encounter: a hostile boss fights
 //     the group) the session is the encounter, named after the boss. An
 //     encounter start always opens a new session, also in the middle of trash,
 //     and the player's own death does not end it;

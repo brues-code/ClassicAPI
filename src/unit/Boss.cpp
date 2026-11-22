@@ -28,12 +28,13 @@
 //     cap the walk at five (0x141B8FE70, 0x141B90E10).
 //
 // 1.12's server sends neither, so the list here is the bosses of the
-// encounter CombatLog::Encounter tracks: the world bosses (rank 3) the group
-// fights, in the order they joined the fight. A boss stays on the list, dead
+// encounter CombatLog::Encounter tracks: the world bosses (rank 3) and the
+// creatures addons list (CombatLog::BossCreatures) that the group fights, in
+// the order they joined the fight. A boss stays on the list, dead
 // or not, until the encounter ends (kill, wipe, loading screen), as a 3.80.2
 // server disengages its bosses when the encounter is over. There is no
-// priority, so engage order is the order. Bosses of rank below 3 (most
-// dungeon bosses) and the adds a server would mark never get a token.
+// priority, so engage order is the order. Unlisted bosses of rank below 3
+// (most dungeon bosses) and the adds a server would mark never get a token.
 //
 // Resolution is the `bossN` branch of the token resolver
 // (unit/TokenExtensions.cpp), so every `Unit*` takes the tokens. Unit events
@@ -54,7 +55,7 @@ namespace {
 
 const Game::Doc::Event kEngageUnitDoc{
     "InstanceEncounter",
-    "Fires when a unit joins or leaves the boss1 to boss5 unit tokens. A world boss joins at "
+    "Fires when a unit joins or leaves the boss1 to boss5 unit tokens. A boss joins at "
     "its first combat log entry with your group, and every boss leaves when the encounter "
     "ends.",
     {}};

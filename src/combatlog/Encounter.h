@@ -13,8 +13,9 @@
 
 #pragma once
 
-// The combat log file's ENCOUNTER_START / ENCOUNTER_END lines, from the world
-// bosses the group fights. See Encounter.cpp.
+// The combat log file's ENCOUNTER_START / ENCOUNTER_END lines, from the
+// bosses (world bosses and listed creatures) the group fights. See
+// Encounter.cpp.
 
 #include "combatlog/Entry.h"
 
