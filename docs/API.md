@@ -1119,6 +1119,7 @@ build instructions.
   - [`C_PlayerInfo.CanUseItem(itemID)`](#c_playerinfocanuseitemitemid)
   - [`C_PlayerInfo.GUIDIsPlayer(guid)` / `GUIDIsCreature` / `GUIDIsPet` / `GUIDIsGameObject`](#c_playerinfoguidisplayerguid--guidiscreature--guidispet--guidisgameobject)
   - [`C_PlayerInfo.GetName / GetClass / GetRace / GetSex / IsConnected(playerLocation)`](#c_playerinfogetname--getclass--getrace--getsex--isconnectedplayerlocation)
+  - [`C_PlayerInfo.GetDisplayID()` / `GetNativeDisplayID()` / `IsDisplayRaceNative()`](#c_playerinfogetdisplayid--getnativedisplayid--isdisplayracenative)
 
 - [Profiling](#profiling)
   - [`UpdateAddOnMemoryUsage()` / `GetAddOnMemoryUsage(index or "name")`](#updateaddonmemoryusage--getaddonmemoryusageindex-or-name)
@@ -25033,6 +25034,31 @@ local sex = C_PlayerInfo.GetSex(loc)
   non-localized token (`"WARRIOR"`) those return.
 - An unresolvable or unsupported location returns nil. A malformed unit token
   raises an error, the same as passing it to `UnitName` or `UnitClass`.
+
+### `C_PlayerInfo.GetDisplayID()` / `GetNativeDisplayID()` / `IsDisplayRaceNative()`
+
+These functions give the creature display of your character. They take no
+arguments.
+
+| Function | Returns |
+|----------|---------|
+| `C_PlayerInfo.GetDisplayID()` | `displayID`, the display that your character shows now |
+| `C_PlayerInfo.GetNativeDisplayID()` | `nativeDisplayID`, the display of your character with no form |
+| `C_PlayerInfo.IsDisplayRaceNative()` | `true` when the display shows the race of your character |
+
+- A shapeshift form or a transform changes `GetDisplayID`.
+  `GetNativeDisplayID` does not change.
+- `IsDisplayRaceNative` is `false` when your character shows a character model
+  of a different race. A creature display, for example a cat form or a
+  polymorph, gives `true`.
+- With no character in the world, the two IDs are `0` and
+  `IsDisplayRaceNative` is `false`.
+
+```lua
+if C_PlayerInfo.GetDisplayID() ~= C_PlayerInfo.GetNativeDisplayID() then
+    print("You are in a form or a transform.")
+end
+```
 
 ## Profiling
 

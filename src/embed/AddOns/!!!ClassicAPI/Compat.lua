@@ -123,6 +123,12 @@ function C_PlayerInfo.GetAlternateFormInfo()
     return false, false
 end
 
+-- 3.80.2 tests the mirror-image unit flag (UNIT_FLAG2_MIRROR_IMAGE). This
+-- client has no such flag and no mirror image.
+function C_PlayerInfo.IsMirrorImage()
+    return false
+end
+
 -- Retail marks the settings added in the current version as new. Nothing in
 -- this client is new.
 function IsNewSettingInCurrentVersion(variable)
