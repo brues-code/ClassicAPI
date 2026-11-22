@@ -22,6 +22,7 @@
 #include "guid/Guid.h"
 #include "nameplate/Walk.h"
 #include "object/Resolve.h"
+#include "unit/Boss.h"
 #include "unit/TokenEvents.h"
 
 #include <cstdint>
@@ -256,16 +257,16 @@ static int __fastcall Script_UnitGUID(void *L) {
 // GUID, return the first unit token currently mapped to that GUID, or
 // nil if none of the known tokens point at it.
 //
-// The search walks the modern retail token order with post-vanilla
-// tokens dropped (no `vehicle`, `arenaN`, `arenapetN`, `bossN` — those
-// post-date 1.12 and `FUN_TOKEN_TO_GUID` knows none of them). `nameplateN`, `focus` and the soft targets are included — we
-// hook the token resolver so the engine recognizes them (see
-// `unit/TokenExtensions.cpp`, `unit/Focus.cpp`, `target/SoftInteract.cpp`
-// and `target/SoftUnit.cpp`). Order matches retail with the dropped
-// tokens skipped in place:
+// The search walks the 3.80.2 client's order (0x141B8FE70) with the
+// tokens 1.12 has no units for dropped (no `vehicle`, `arenaN`,
+// `arenapetN`). `nameplateN`, `bossN`, `focus` and the soft targets are
+// included — we hook the token resolver so the engine recognizes them (see
+// `unit/TokenExtensions.cpp`, `unit/Boss.cpp`, `unit/Focus.cpp`,
+// `target/SoftInteract.cpp` and `target/SoftUnit.cpp`). Order matches
+// 3.80.2 with the dropped tokens skipped in place:
 //
 //   player → pet → party1..4 → partypet1..4 → raid1..40
-//          → raidpet1..40 → nameplate1..N → target → focus
+//          → raidpet1..40 → nameplate1..N → boss1..5 → target → focus
 //          → npc → mouseover → softenemy → softfriend → softinteract
 //
 // `markN` is not in retail's list, so it is never returned here.
@@ -338,6 +339,11 @@ const char *TokenFromGUID(uint64_t target, char *buf, size_t bufSize) {
         }
     }
 
+    if (const int boss = Unit::Boss::IndexOf(target); boss != 0) {
+        std::snprintf(buf, bufSize, "boss%d", boss);
+        return buf;
+    }
+
     if (check("target")) return set("target");
     if (check("focus")) return set("focus");
     if (check("npc")) return set("npc");
@@ -350,7 +356,7 @@ const char *TokenFromGUID(uint64_t target, char *buf, size_t bufSize) {
 }
 
 // A token's place in the 3.80.2 client's unit-event list (0x141B90E10):
-// player, pet, party / partypet, raid / raidpet, nameplate, target,
+// player, pet, party / partypet, raid / raidpet, nameplate, boss, target,
 // targettarget, focus, focustarget, npc, softenemy, softfriend, softinteract;
 // then ClassicAPI's pettarget, markN and totemN. Prefixes are tested longest
 // first.
@@ -360,20 +366,20 @@ static int TokenRank(const char *t) {
         bool prefix;
     } kOrder[] = {
         {"player", false},    {"pet", false},          {"partypet", true},   {"party", true},
-        {"raidpet", true},    {"raid", true},          {"nameplate", true},  {"target", false},
-        {"targettarget", false}, {"focus", false},     {"focustarget", false}, {"npc", false},
-        {"softenemy", false}, {"softfriend", false},   {"softinteract", false},
-        {"pettarget", false}, {"mark", true},          {"totem", true},
+        {"raidpet", true},    {"raid", true},          {"nameplate", true},  {"boss", true},
+        {"target", false},    {"targettarget", false}, {"focus", false},     {"focustarget", false},
+        {"npc", false},       {"softenemy", false},    {"softfriend", false},
+        {"softinteract", false}, {"pettarget", false}, {"mark", true},       {"totem", true},
     };
     // party and partypet (raid and raidpet) share a place.
-    static const int kRank[] = {0, 1, 2, 2, 3, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+    static const int kRank[] = {0, 1, 2, 2, 3, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
     for (size_t i = 0; i < sizeof kOrder / sizeof kOrder[0]; ++i) {
         const size_t len = std::strlen(kOrder[i].name);
         if (kOrder[i].prefix ? std::strncmp(t, kOrder[i].name, len) == 0
                              : std::strcmp(t, kOrder[i].name) == 0)
             return kRank[i];
     }
-    return 16;
+    return 17;
 }
 
 int TokensForGUID(uint64_t guid, char (*out)[32], int maxTokens) {

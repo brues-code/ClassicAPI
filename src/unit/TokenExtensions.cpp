@@ -33,6 +33,9 @@
 // - `totem1`..`totem4` — the player's totem creature in each totem slot
 //   (Fire, Earth, Water, Air), backed by `Totem::Tracker`.
 //
+// - `boss1`..`boss5` — the bosses of the encounter under way, backed by
+//   `Unit::Boss`.
+//
 // - `softinteract` / `anyinteract` / `anyleftinteract` — the interact
 //   key's object, backed by `Target::SoftInteract`. Any can be a game object
 //   or a corpse, so only GUID readers (UnitGUID) see those; unit readers
@@ -66,7 +69,7 @@
 //
 // Resolution order in the hook: raw GUID, a hidden target, focus, the soft targets,
 // nameplateN (requires a digit), markN (one digit 1..8), totemN (one
-// digit 1..4), then a name. Each branch short-circuits; on no match
+// digit 1..4), bossN (one digit 1..5), then a name. Each branch short-circuits; on no match
 // the original engine resolver runs unchanged.
 
 #include "Game.h"
@@ -77,6 +80,7 @@
 #include "target/SoftInteract.h"
 #include "target/SoftUnit.h"
 #include "totem/Tracker.h"
+#include "unit/Boss.h"
 #include "unit/Focus.h"
 #include "unit/RaidTarget.h"
 #include "unit/Identity.h"
@@ -141,6 +145,8 @@ constexpr const char kMarkPrefix[] = "mark";
 constexpr int kMarkPrefixLen = static_cast<int>(sizeof(kMarkPrefix) - 1);
 constexpr const char kTotemPrefix[] = "totem";
 constexpr int kTotemPrefixLen = static_cast<int>(sizeof(kTotemPrefix) - 1);
+constexpr const char kBossPrefix[] = "boss";
+constexpr int kBossPrefixLen = static_cast<int>(sizeof(kBossPrefix) - 1);
 constexpr const char kSuffixTarget[] = "target";
 constexpr int kSuffixTargetLen = static_cast<int>(sizeof(kSuffixTarget) - 1);
 
@@ -467,6 +473,20 @@ uint64_t __fastcall Hook_h(const char *token) {
             const int slot = *p - '0';
             ++p;
             const uint64_t guid = Totem::Tracker::GetGUIDBySlot(slot);
+            if (guid == 0)
+                return 0;
+            return WalkSuffix(guid, p);
+        }
+    }
+
+    // `bossN` / `boss1target*`. One digit `1`..`5` after the prefix. Anything
+    // else (`boss`, `boss0`, `boss6`) falls through to the engine.
+    if (Game::StrCmpI(token, kBossPrefix, kBossPrefixLen) == 0) {
+        const char *p = token + kBossPrefixLen;
+        if (*p >= '1' && *p < '1' + Unit::Boss::kTokenCount) {
+            const int index = *p - '0';
+            ++p;
+            const uint64_t guid = Unit::Boss::GetGUIDByIndex(index);
             if (guid == 0)
                 return 0;
             return WalkSuffix(guid, p);

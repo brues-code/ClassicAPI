@@ -12,7 +12,7 @@
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
 // Every unit event the engine fires reaches the tokens 1.12's token map
-// lacks — `nameplateN`, `targettarget`, `focus`, `focustarget`,
+// lacks — `nameplateN`, `bossN`, `targettarget`, `focus`, `focustarget`,
 // `softenemy`, `softfriend`, `softinteract`, and ClassicAPI's `pettarget`,
 // `markN` and `totemN` — as it reaches `target`. The 3.80.2 client fires every
 // unit event for all of these but the last three (its token builder
@@ -73,6 +73,7 @@
 #include "target/SoftUnit.h"
 #include "tick/WorldTick.h"
 #include "totem/Tracker.h"
+#include "unit/Boss.h"
 #include "unit/Focus.h"
 #include "unit/Identity.h"
 #include "unit/RaidTarget.h"
@@ -93,9 +94,9 @@ using Broadcast_t = void(__fastcall *)(const uint64_t *guid, uint32_t eventId);
 using CombatFeedback_t = void(__fastcall *)(const uint64_t *guid, const char *action, int amount,
                                             int school, uint32_t hitInfo);
 
-// At most one nameplate, targettarget, focus, focustarget, softenemy,
+// At most one nameplate, boss, targettarget, focus, focustarget, softenemy,
 // softfriend, softinteract, pettarget, mark and totem per unit.
-constexpr int kMaxTokens = 10;
+constexpr int kMaxTokens = 11;
 using TokenList = char[kMaxTokens][32];
 
 // The unit `guid`'s target, or 0 when the unit is not in view.
@@ -159,6 +160,8 @@ int ListTokens(uint64_t guid, char (*out)[32], int max) {
             std::snprintf(out[n++], sizeof out[0], "nameplate%d", i);
             break;
         }
+    if (const int b = Unit::Boss::IndexOf(guid); n < max && b != 0)
+        std::snprintf(out[n++], sizeof out[0], "boss%d", b);
     if (n < max && guid == TargetTarget())
         std::snprintf(out[n++], sizeof out[0], "targettarget");
     if (n < max && guid == Unit::Focus::Get())

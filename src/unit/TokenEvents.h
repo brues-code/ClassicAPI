@@ -26,9 +26,10 @@ namespace Unit::TokenEvents {
 // engine itself).
 void Refresh(uint64_t guid);
 
-// The ClassicAPI tokens `guid` has right now — nameplateN, targettarget,
-// focus, focustarget, softenemy, softfriend, softinteract, pettarget, markN,
-// totemN, in that order — written into `out` (rows of 32 bytes), at most
+// The ClassicAPI tokens `guid` has right now — nameplateN, bossN,
+// targettarget, focus, focustarget, softenemy, softfriend, softinteract,
+// pettarget, markN, totemN, in that order — written into `out` (rows of 32
+// bytes), at most
 // `maxTokens` of them. Returns the count: 0 for guid 0, and before the world
 // is up. These are the tokens the engine's unit events reach.
 int TokensOf(uint64_t guid, char (*out)[32], int maxTokens);

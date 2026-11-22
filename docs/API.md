@@ -327,6 +327,7 @@ build instructions.
   - [`GROUP_JOINED` / `GROUP_FORMED` / `GROUP_LEFT` events](#group_joined--group_formed--group_left-events)
   - [`GROUP_ROSTER_UPDATE` event](#group_roster_update-event)
   - [`INCOMING_RESURRECT_CHANGED` event](#incoming_resurrect_changed-event)
+  - [`INSTANCE_ENCOUNTER_ENGAGE_UNIT` event](#instance_encounter_engage_unit-event)
   - [`INVENTORY_SEARCH_UPDATE` event](#inventory_search_update-event)
   - [`LOOT_HISTORY_ROLL_CHANGED` / `LOOT_HISTORY_ROLL_COMPLETE` / `LOOT_HISTORY_FULL_UPDATE` / `LOOT_HISTORY_AUTO_SHOW` events](#loot_history_roll_changed--loot_history_roll_complete--loot_history_full_update--loot_history_auto_show-events)
   - [`LEARNED_SPELL_IN_SKILL_LINE` event](#learned_spell_in_skill_line-event)
@@ -1093,6 +1094,7 @@ build instructions.
   - [Unit tokens (`nameplateN`)](#unit-tokens-nameplaten)
   - [Unit tokens (`markN`)](#unit-tokens-markn)
   - [Unit tokens (`totemN`)](#unit-tokens-totemn)
+  - [Unit tokens (`bossN`)](#unit-tokens-bossn)
   - [Unit tokens (GUID literals)](#unit-tokens-guid-literals)
   - [Unit tokens (names)](#unit-tokens-names)
   - [`IsUnitToken(value)`](#isunittokenvalue)
@@ -7897,6 +7899,26 @@ local f = CreateFrame("Frame")
 f:RegisterEvent("INCOMING_RESURRECT_CHANGED")
 f:SetScript("OnEvent", function()
     print(arg1, UnitHasIncomingResurrection(arg1))
+end)
+```
+
+### `INSTANCE_ENCOUNTER_ENGAGE_UNIT` event
+
+Fires when a boss gets a [`bossN`](#unit-tokens-bossn) token, and when a
+boss loses its token at the end of the encounter. The event gives no
+value. Read the `bossN` tokens again in the handler.
+
+The event fires one time for each boss. At the end of an encounter with two
+bosses, it fires two times.
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterEvent("INSTANCE_ENCOUNTER_ENGAGE_UNIT")
+f:SetScript("OnEvent", function()
+    for i = 1, 5 do
+        local unit = "boss" .. i
+        print(unit, UnitGUID(unit))
+    end
 end)
 ```
 
@@ -24503,8 +24525,8 @@ and one time with `"focus"`.
 
 The unit events that ClassicAPI adds use these tokens, in this order:
 `player`, `pet`, `partyN` or `partypetN`, `raidN` or `raidpetN`,
-`nameplateN`, `target`, `targettarget`, `focus`, `focustarget`, `npc`,
-`softenemy`, `softfriend`, `softinteract`, `pettarget`, `markN`, and
+`nameplateN`, `bossN`, `target`, `targettarget`, `focus`, `focustarget`,
+`npc`, `softenemy`, `softfriend`, `softinteract`, `pettarget`, `markN`, and
 `totemN`. Examples of these events are `UNIT_POWER_UPDATE`,
 `UNIT_TARGETABLE_CHANGED`, and `UNIT_CONNECTION`. They do not fire for
 `mouseover`.
@@ -24512,7 +24534,7 @@ The unit events that ClassicAPI adds use these tokens, in this order:
 The other unit events, for example `UNIT_HEALTH`, `UNIT_AURA`, and
 `UNIT_COMBAT`, fire first for `player`, `pet`, `target`, `partyN`,
 `partypetN`, `raidN`, `raidpetN`, `npc`, and `mouseover`. Then they fire for
-`nameplateN`, `targettarget`, `focus`, `focustarget`, `softenemy`,
+`nameplateN`, `bossN`, `targettarget`, `focus`, `focustarget`, `softenemy`,
 `softfriend`, `softinteract`, `pettarget`, `markN`, and `totemN`.
 
 Some tokens have special rules:
@@ -24629,6 +24651,45 @@ includes `UNIT_HEALTH`, `UNIT_AURA`, `UNIT_COMBAT`, and `UNIT_NAME_UPDATE`.
 The events start when the client sees the totem creature. They stop when
 the slot becomes empty.
 
+### Unit tokens (`bossN`)
+
+`"boss1"` … `"boss5"` are unit tokens for every `UnitX` function. Each
+token is a boss of the encounter that your group fights now. This is the
+encounter that writes `ENCOUNTER_START` to the combat log file: a fight
+between your group and a world boss.
+
+```lua
+for i = 1, 5 do
+    local unit = "boss" .. i
+    if UnitExists(unit) then
+        print(i, UnitName(unit), UnitHealth(unit))
+    end
+end
+```
+
+The tokens obey these rules:
+- `boss1` is the boss that started the fight. A boss that joins the fight
+  later gets the next number. For example, in the Twin Emperors fight, the
+  second emperor becomes `boss2`.
+- A boss keeps its token until the encounter ends, also after the boss dies.
+  The encounter ends at a kill, at a wipe, or at a loading screen. Then all
+  the tokens become empty at the same time.
+- Only world bosses get a token. For these bosses, `UnitClassification`
+  returns `"worldboss"`. Most dungeon bosses are only elite, so they get no
+  token. Adds get no token.
+- `UnitExists("bossN")` returns `false` when the token has no boss. It also
+  returns `false` when the boss is out of range, but `UnitGUID("bossN")`
+  still returns its GUID.
+- Token chains work, for example `"boss1target"`, the same as for the
+  other token families.
+
+[`INSTANCE_ENCOUNTER_ENGAGE_UNIT`](#instance_encounter_engage_unit-event)
+fires when a boss gets its token and when it loses its token.
+
+**Unit events fire for `"bossN"`.** Every unit event fires with
+`arg1 == "bossN"` for the boss, as it does for `"target"`. This includes
+`UNIT_HEALTH`, `UNIT_AURA`, `UNIT_COMBAT`, and `UNIT_NAME_UPDATE`.
+
 ### Unit tokens (GUID literals)
 
 A raw 64-bit GUID literal — `"0x"` followed by up to 16 hex digits
@@ -24717,7 +24778,7 @@ That is the common case for conditional slash commands, because
 `Bob`.
 
 The answer covers every token family the client accepts, including
-`nameplateN`, `markN`, `totemN`, `focus`, GUID literals, and suffix chains such as
+`nameplateN`, `markN`, `totemN`, `bossN`, `focus`, GUID literals, and suffix chains such as
 `focustarget`.
 
 The question is whether the text names a token, not whether a unit is there.
@@ -30739,10 +30800,10 @@ Best-effort reverse lookup: given a GUID string in the
 known unit tokens and return the first one currently mapped to that
 GUID, or `nil` if none of them point at it.
 
-The search order omits tokens that the client does not recognize
-(`vehicle`, `arenaN`, `arenapetN`, `bossN`). `nameplateN`, `focus`,
-`softenemy`, `softfriend` and `softinteract` are included, because
-ClassicAPI adds these token forms. As with the other positional tokens, a returned
+The search order omits `vehicle`, `arenaN`, and `arenapetN`, because no
+unit can have these tokens. `nameplateN`, `bossN`, `focus`, `softenemy`,
+`softfriend`, and `softinteract` are included. A boss gives `bossN` before
+`target`. As with the other positional tokens, a returned
 `"nameplate3"` result is only valid at that instant; the slot may
 shift to a different unit between calls, so re-verify with
 `UnitGUID(token)` before reusing.

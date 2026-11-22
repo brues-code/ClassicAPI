@@ -444,13 +444,14 @@ when launching with `-console`), not as Lua functions. See the
 </details>
 
 <details>
-<summary><b>Unit tokens</b> — <code>nameplateN</code>, <code>focus</code>, <code>markN</code>, <code>softinteract</code>, <code>softenemy</code>, <code>softfriend</code>, <code>anyinteract</code>, <code>anyenemy</code>, <code>anyfriend</code></summary>
+<summary><b>Unit tokens</b> — <code>nameplateN</code>, <code>focus</code>, <code>markN</code>, <code>bossN</code>, <code>softinteract</code>, <code>softenemy</code>, <code>softfriend</code>, <code>anyinteract</code>, <code>anyenemy</code>, <code>anyfriend</code></summary>
 
 | Token | Resolves to |
 |-------|-------------|
 | `nameplate1`..`nameplateN` | Unit behind the Nth visible nameplate, in creation-order. Works with every `UnitX` function — `UnitName`, `UnitGUID`, `UnitClass`, `UnitHealth`, etc. Suffix chains (`nameplate1target`, `nameplate1targettarget`) compose. See [NamePlate / Unit tokens](docs/API.md#unit-tokens-nameplaten). |
 | `focus` / `focustarget` | Sticky target set via [`FocusUnit`](docs/API.md#focusunitunit), cleared via [`ClearFocus`](docs/API.md#clearfocus). Same `UnitX` coverage as `nameplateN`. Fires [`PLAYER_FOCUS_CHANGED`](docs/API.md#player_focus_changed-event) on transition. See [Focus](docs/API.md#focus). |
 | `mark1`..`mark8` | Unit currently wearing the Nth raid-target marker (`mark1` = star … `mark8` = skull). Same `UnitX` coverage as `nameplateN`, and fires unit events (`UNIT_HEALTH`, `UNIT_AURA`, …) with `arg1 == "markN"`. `UnitExists("markN")` is `false` when the marker is unset, out of range, or on a non-unit. Suffix chains (`mark1target`) compose. See [Unit tokens (`markN`)](docs/API.md#unit-tokens-markn). |
+| `boss1`..`boss5` | The world bosses of the encounter your group fights now, in the order they joined the fight. A boss keeps its token until the encounter ends, also after it dies. Fires unit events with `arg1 == "bossN"`, and [`INSTANCE_ENCOUNTER_ENGAGE_UNIT`](docs/API.md#instance_encounter_engage_unit-event) when a boss gets or loses its token. Suffix chains (`boss1target`) compose. See [Unit tokens (`bossN`)](docs/API.md#unit-tokens-bossn). |
 | `softinteract` / `anyinteract` / `anyleftinteract` | The object that the Interact Key uses. `softinteract` is the nearest object in front of you that you can interact with. `anyinteract` is your target when you can interact with it, else `softinteract`. Both can be a game object or a corpse, which only `UnitGUID` reads. See [Soft interact](docs/API.md#soft-interact-softinteract--anyinteract). |
 | `softenemy` / `softfriend` / `anyenemy` / `anyfriend` | The nearest enemy and the nearest friendly unit, or your target when it qualifies. `anyenemy` and `anyfriend` use your target first. See [Soft enemy and soft friend](docs/API.md#soft-enemy-and-soft-friend-softenemy--softfriend--anyenemy--anyfriend). |
 

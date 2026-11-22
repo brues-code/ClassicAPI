@@ -117,7 +117,7 @@ const char *TokenFromGUID(uint64_t guid, char *buf, size_t bufSize);
 // (`FUN_UNIT_TOKENS_FROM_GUID`), less mouseover; ClassicAPI's tokens
 // (`Unit::TokenEvents::TokensOf`) join them, and the list is in the 3.80.2
 // client's unit-event order (its builder 0x141B90E10): player, pet,
-// party/partypet, raid/raidpet, nameplate, target, targettarget, focus,
+// party/partypet, raid/raidpet, nameplate, boss, target, targettarget, focus,
 // focustarget, npc, softenemy, softfriend, softinteract, then markN, totemN.
 // The result is snapshotted into `out` (safe to fire re-entrant Lua events
 // while iterating). Returns 0 pre-world or when no token maps to `guid`. Used

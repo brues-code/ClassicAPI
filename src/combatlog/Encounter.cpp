@@ -57,6 +57,9 @@
 // turning logging on mid-fight writes neither.
 // The kill's ENCOUNTER_END comes before the boss's UNIT_DIED line, as in
 // Era's log (Razorgore, Vaelastrasz).
+//
+// The encounter's bosses, from their start or join until the end, are also the
+// units of the `bossN` tokens (unit/Boss.cpp).
 
 #include "combatlog/Encounter.h"
 
@@ -71,6 +74,7 @@
 #include "map/Instance.h"
 #include "object/Resolve.h"
 #include "tick/FrameTick.h"
+#include "unit/Boss.h"
 #include "unit/CreatureID.h"
 #include "unit/Identity.h"
 #include "unit/Relation.h"
@@ -162,6 +166,7 @@ void Start(uint64_t boss, const std::string &name) {
     g_groupSize = GroupSize();
     g_difficulty = Difficulty(g_groupSize);
     g_bosses.assign(1, Boss{boss, false});
+    Unit::Boss::Changed(boss);
     g_session = File::Session();
     char tail[32];
     std::snprintf(tail, sizeof tail, ",%d,%d", Game::Read<int>(Offsets::VAR_CURRENT_MAP_ID),
@@ -176,7 +181,11 @@ void End(bool success) {
     if (g_session != 0 && File::Session() == g_session)
         File::WriteLine("ENCOUNTER_END" + Fields() + (success ? ",1" : ",0"));
     g_active = false;
-    g_bosses.clear();
+    // The bossN tokens keep every boss, dead or not, until here.
+    std::vector<Boss> gone;
+    gone.swap(g_bosses);
+    for (const Boss &b : gone)
+        Unit::Boss::Changed(b.guid);
 }
 
 Boss *Engaged(uint64_t guid) {
@@ -202,8 +211,10 @@ void Engage(uint64_t boss, uint32_t bossFlags, const std::string &name) {
         return;
     if (!g_active)
         Start(boss, name);
-    else if (Engaged(boss) == nullptr)
+    else if (Engaged(boss) == nullptr) {
         g_bosses.push_back(Boss{boss, false});
+        Unit::Boss::Changed(boss);
+    }
 }
 
 void OnFrame() {
@@ -250,6 +261,12 @@ bool Active() { return g_active; }
 uint32_t Serial() { return g_serial; }
 
 const std::string &BossName() { return g_name; }
+
+uint64_t EngagedBoss(int index) {
+    if (index < 0 || index >= static_cast<int>(g_bosses.size()))
+        return 0;
+    return g_bosses[index].guid;
+}
 
 int GroupSize() {
     const int raid = Group::Roster::RaidCount();

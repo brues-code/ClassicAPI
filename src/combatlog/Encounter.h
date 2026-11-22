@@ -39,6 +39,11 @@ uint32_t Serial();
 // the last one.
 const std::string &BossName();
 
+// The `index`th (from 0) boss of the encounter under way, in the order they
+// joined it, dead ones included; 0 past the last and while none is under way.
+// The units of the `bossN` tokens (Unit::Boss).
+uint64_t EngagedBoss(int index);
+
 // The player or a member of its group in view is in combat
 // (UNIT_FLAG_IN_COMBAT). Members out of view count as out of combat.
 bool GroupFighting();
