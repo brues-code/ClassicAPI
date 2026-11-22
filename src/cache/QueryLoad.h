@@ -61,9 +61,8 @@ struct Client {
 // lookups report a hit to nobody. While the id is pending, each request adds
 // one to its count and a warm-up marks it implicit, so one answer reports
 // every caller: the 3.80.2 client keeps one callback per request and one per
-// id for its implicit readers (0x141382130, tag dedup 0x14045BDA0). The
-// pending set has no cap, as 3.80.2's has none (0x14050E2D0). False only for
-// id 0.
+// id for its implicit readers (0x141382130, tag dedup 0x14045BDA0). False for
+// id 0, and for a new id while 512 already wait (kMaxPending in the .cpp).
 bool Track(Kind kind, uint32_t id, bool requested);
 
 // True when the cache holds `id`'s record. Never sends a query.

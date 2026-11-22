@@ -21,7 +21,6 @@
 #include "time/Clock.h"
 
 #include <cstdint>
-#include <vector>
 
 namespace Cache::QueryLoad {
 
@@ -60,13 +59,20 @@ constexpr uint32_t kMinRequestSpacingMs = 50;
 // (the player's carried items), so this resolves it fast without a burst:
 // at most kPriorityPerTick + 1 packets a frame.
 constexpr int kPriorityPerTick = 6;
+// Ids waiting per cache. 3.80.2 has no cap, but this queue is not its
+// loader: it drains 20 a second, and the world tick walks every entry each
+// frame. A quest addon's item scan at login queues thousands of uncached
+// ids, and without a cap that walk cost every frame until the queue drained
+// (issue #152: 60 FPS to 4 on a laptop CPU).
+constexpr int kMaxPending = 512;
 
 struct Slot {
     uintptr_t cache;
     uintptr_t getRecord;
     DoneFn done;
     PriorityFn priority;
-    std::vector<Pending> pending;
+    Pending pending[kMaxPending];
+    int count;
 };
 
 Slot g_slots[KIND_COUNT] = {
@@ -91,7 +97,7 @@ bool Loaded(const Slot &s, uint32_t id) {
 }
 
 int Count(const Slot &s) {
-    return static_cast<int>(s.pending.size());
+    return s.count;
 }
 
 int Find(const Slot &s, uint32_t id) {
@@ -102,9 +108,9 @@ int Find(const Slot &s, uint32_t id) {
 }
 
 void RemoveAt(Slot &s, int i) {
-    if (i != Count(s) - 1)
-        s.pending[i] = s.pending.back();
-    s.pending.pop_back();
+    --s.count;
+    if (i != s.count)
+        s.pending[i] = s.pending[s.count];
 }
 
 void Report(const Slot &s, const Pending &p, bool success) {
@@ -303,11 +309,13 @@ bool Track(Kind kind, uint32_t id, bool requested) {
             p.implicit = true;
         return true;
     }
-    Pending p{};
+    if (s.count >= kMaxPending)
+        return false;
+    Pending &p = s.pending[s.count++];
+    p = Pending{};
     p.id = id;
     p.requests = requested ? 1 : 0;
     p.implicit = !requested;
-    s.pending.push_back(p);
     return true;
 }
 

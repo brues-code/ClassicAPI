@@ -339,10 +339,10 @@ int __fastcall Script_GetItemInfo_h(void *L) {
 // known missing: ITEM_DATA_LOAD_RESULT(id, false) at once (FUN_141382130's
 // synchronous event 1).
 static void RequestLoad(int itemID) {
-    if (itemID <= 0)
+    // A full queue fails the request now, so every call still fires its one
+    // result.
+    if (itemID <= 0 || !Track(static_cast<uint32_t>(itemID), /*requested=*/true))
         FireItemDataLoadResult(itemID, false);
-    else
-        Track(static_cast<uint32_t>(itemID), /*requested=*/true);
 }
 
 static int __fastcall Script_RequestLoadItemDataByID(void *L) {

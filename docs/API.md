@@ -16760,8 +16760,8 @@ valid or holds no item.
 Each call fires `ITEM_DATA_LOAD_RESULT(itemID, success)` one time:
 - If the data is cached, the event fires during the call, with `success`
   `true`.
-- If the item ID is `0` or less, the event fires during the call, with
-  `success` `false`.
+- If the item ID is `0` or less, or 512 items already wait for an answer,
+  the event fires during the call, with `success` `false`.
 - Otherwise the event fires when the server answers. When you call the
   function three times before the answer, the event fires three times.
 
