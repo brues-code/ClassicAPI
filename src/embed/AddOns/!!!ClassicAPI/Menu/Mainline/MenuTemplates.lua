@@ -1,6 +1,6 @@
 -- Requires the button to inherit ButtonStateBehaviorMixin
 function GetWowStyle1ArrowButtonState(button)
-	if button:IsEnabled() then
+	if button:IsEnabled() == 1 then
 		if button:IsDownOver() then
 			return "common-dropdown-a-button-pressedhover";
 		elseif button:IsOver() then
@@ -18,7 +18,7 @@ end
 
 -- Requires the button to inherit ButtonStateBehaviorMixin
 function GetWowStyle1ArrowButtonShadowlessState(button)
-	if button:IsEnabled() then
+	if button:IsEnabled() == 1 then
 		if button:IsDownOver() then
 			return "common-dropdown-a-button-pressedhover-shadowless";
 		elseif button:IsOver() then

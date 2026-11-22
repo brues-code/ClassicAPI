@@ -20,6 +20,8 @@
 --     forward through unpack(arg) and lengths come from table.getn.
 --   - wipe is ClassicAPI.wipe, so an addon's own global wipe cannot
 --     replace it.
+--   - 1.12's Button:IsEnabled returns 1 or 0, and 0 is true in Lua, so
+--     CheckForSubmenu compares it with 1.
 
 local CreateSecureMap = SecureTypes.CreateSecureMap;
 local CreateSecureArray = SecureTypes.CreateSecureArray;
@@ -2285,7 +2287,7 @@ function MenuManagerMixin:CheckForSubmenu(frame, level)
 		self:CollapseMenusUntilLevel(level);
 	end
 
-	if (frame:GetObjectType() ~= "Button" or frame:IsEnabled()) and description:CanOpenSubmenu() then
+	if (frame:GetObjectType() ~= "Button" or frame:IsEnabled() == 1) and description:CanOpenSubmenu() then
 		self:GenerateSubmenu(description, level, frame);
 	end
 end

@@ -3,6 +3,8 @@
 --
 -- Implementation differences from the retail source:
 --   - No narration: ClearButtonMixin has no NarrationGetName.
+--   - 1.12's Button:IsEnabled returns 1 or 0, and 0 is true in Lua, so
+--     ClearButtonMixin:OnMouseDown compares it with 1.
 
 function EditBox_ClearFocus(self)
 	self:ClearFocus();
@@ -101,7 +103,7 @@ function ClearButtonMixin:OnLeave()
 end
 
 function ClearButtonMixin:OnMouseDown()
-	if self:IsEnabled() then
+	if self:IsEnabled() == 1 then
 		self.Icon:SetPoint("TOPLEFT", self, "TOPLEFT", 4, -4);
 	end
 end

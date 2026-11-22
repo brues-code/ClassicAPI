@@ -11,7 +11,8 @@
 --   - DropdownWithSteppersMixin has no gamepad cursor anchors: this client
 --     has no gamepad navigation.
 --   - 1.12's Button:IsEnabled returns 1 or 0, and 0 is true in Lua, so
---     DropdownWithSteppersMixin compares the dropdown's with 1.
+--     DropdownWithSteppersMixin and PanelResizeButtonMixin compare it
+--     with 1.
 
 function TruncatedTooltipScript_OnEnter(self)
 	local text = self.truncatedTooltipScriptText or self.Text;
@@ -245,7 +246,7 @@ function PanelResizeButtonMixin:OnLeave()
 end
 
 function PanelResizeButtonMixin:OnMouseDown()
-	if not self:IsEnabled() then
+	if self:IsEnabled() ~= 1 then
 		return;
 	end
 

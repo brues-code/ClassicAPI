@@ -5,7 +5,7 @@ function DamageMeterSettingsDropdownButton:GetIcon()
 end
 
 function DamageMeterSettingsDropdownButton:GetIconAtlas()
-	if not self:IsEnabled() then
+	if self:IsEnabled() ~= 1 then
 		return self.disabled;
 	elseif self:IsDownOver() then
 		return self.hoverPressed;

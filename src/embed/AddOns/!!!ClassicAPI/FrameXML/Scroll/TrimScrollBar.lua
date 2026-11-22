@@ -1,4 +1,8 @@
--- Verbatim backport of retail's Blizzard_SharedXML/Shared/Scroll/TrimScrollBar.lua.
+-- Backport of retail's Blizzard_SharedXML/Shared/Scroll/TrimScrollBar.lua.
+--
+-- Implementation differences from the retail source:
+--   - 1.12's Button:IsEnabled returns 1 or 0, and 0 is true in Lua, so the
+--     stepper and thumb atlases compare it with 1.
 WowTrimScrollBarMixin = {};
 
 function WowTrimScrollBarMixin:OnLoad()
@@ -25,7 +29,7 @@ function WowTrimScrollBarStepperMixin:OnLoad()
 end
 
 function WowTrimScrollBarStepperMixin:GetAtlas()
-	if self:IsEnabled() then
+	if self:IsEnabled() == 1 then
 		if self:IsDown() then
 			return self.downTexture;
 		end
@@ -46,7 +50,7 @@ function WowScrollBarThumbScriptsMixin:OnLoad()
 end
 
 function WowScrollBarThumbScriptsMixin:GetAtlas()
-	if self:IsEnabled() then
+	if self:IsEnabled() == 1 then
 		if self.over then
 			return self.overMiddleTexture, self.overBeginTexture, self.overEndTexture;
 		end

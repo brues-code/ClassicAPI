@@ -12,6 +12,9 @@
 --   - 1.12 has no draw sublevels, so GetDrawLayer returns only the layer.
 --     CreateSelectionTextures draws the selected texture one layer above
 --     the unselected one instead of one sublevel above.
+--   - 1.12's Button:IsEnabled returns 1 or 0, and 0 is true in Lua, so
+--     the dropdown and icon button styles, here and in Mainline/, compare
+--     it with 1.
 
 -- The draw layer above each layer, for drawing one texture over another.
 local NextDrawLayer =
@@ -878,7 +881,7 @@ function WowStyle1DropdownMixin:OnLoad()
 end
 
 function WowStyle1DropdownMixin:OnButtonStateChanged()
-	local enabled = self:IsEnabled();
+	local enabled = self:IsEnabled() == 1;
 	if enabled then
 		self.Text:SetTextColor(HIGHLIGHT_FONT_COLOR:GetRGB());
 	else
@@ -911,7 +914,7 @@ function WowStyle1FilterDropdownMixin:OnLoad()
 end
 
 function WowStyle1FilterDropdownMixin:GetBackgroundAtlas()
-	if self:IsEnabled() then
+	if self:IsEnabled() == 1 then
 		if self:IsDownOver() then
 			return WowStyle1FilterDropdownStateDownOver;
 		elseif self:IsOver() then
@@ -965,7 +968,7 @@ function WowStyle2DropdownMixin:OnShow()
 end
 
 function WowStyle2DropdownMixin:GetBackgroundAtlas()
-	if self:IsEnabled() then
+	if self:IsEnabled() == 1 then
 		if self:IsDownOver() then
 			return "common-dropdown-c-button-pressedhover-1";
 		elseif self:IsOver() then
@@ -983,7 +986,7 @@ function WowStyle2DropdownMixin:GetBackgroundAtlas()
 end
 
 function WowStyle2DropdownMixin:OnButtonStateChanged()
-	local enabled = self:IsEnabled();
+	local enabled = self:IsEnabled() == 1;
 	if enabled then
 		self.Text:SetTextColor(NORMAL_FONT_COLOR:GetRGB());
 	else
@@ -1107,7 +1110,7 @@ function WowStyle2IconButtonMixin:OnLoad()
 end
 
 function WowStyle2IconButtonMixin:GetBackgroundAtlas()
-	if self:IsEnabled() then
+	if self:IsEnabled() == 1 then
 		if self:IsDownOver() then
 			return "common-dropdown-c-button-pressedhover-2";
 		elseif self:IsOver() then
@@ -1125,6 +1128,6 @@ end
 function WowStyle2IconButtonMixin:OnButtonStateChanged()
 	self.Background:SetAtlas(self:GetBackgroundAtlas(), TextureKitConstants.UseAtlasSize);
 
-	local icon = self:IsEnabled() and self.normalAtlas or self.disabledAtlas;
+	local icon = self:IsEnabled() == 1 and self.normalAtlas or self.disabledAtlas;
 	self.Icon:SetAtlas(icon, TextureKitConstants.UseAtlasSize);
 end

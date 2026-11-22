@@ -1,4 +1,8 @@
--- Verbatim backport of retail's Blizzard_SharedXMLBase/ButtonStateBehavior.lua.
+-- Backport of retail's Blizzard_SharedXMLBase/ButtonStateBehavior.lua.
+--
+-- Implementation differences from the retail source:
+--   - 1.12's Button:IsEnabled returns 1 or 0, and 0 is true in Lua, so the
+--     enter, leave and mouse gates compare it with 1.
 
 ButtonStateBehaviorMixin = {};
 
@@ -35,7 +39,7 @@ function ButtonStateBehaviorMixin:IsOver()
 end
 
 function ButtonStateBehaviorMixin:OnEnter()
-	if self:IsEnabled() then
+	if self:IsEnabled() == 1 then
 		self.over = true;
 		self:OnButtonStateChanged();
 		return true;
@@ -44,7 +48,7 @@ function ButtonStateBehaviorMixin:OnEnter()
 end
 
 function ButtonStateBehaviorMixin:OnLeave()
-	if self:IsEnabled() then
+	if self:IsEnabled() == 1 then
 		self.over = nil;
 		self:OnButtonStateChanged();
 		return true;
@@ -53,7 +57,7 @@ function ButtonStateBehaviorMixin:OnLeave()
 end
 
 function ButtonStateBehaviorMixin:OnMouseDown()
-	if self:IsEnabled() then
+	if self:IsEnabled() == 1 then
 		self.down = true;
 
 		if self.displacedRegions then
@@ -70,7 +74,7 @@ function ButtonStateBehaviorMixin:OnMouseDown()
 end
 
 function ButtonStateBehaviorMixin:OnMouseUp()
-	if self:IsEnabled() then
+	if self:IsEnabled() == 1 then
 		self.down = nil;
 
 		if self.displacedRegions then
