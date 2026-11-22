@@ -4669,3 +4669,49 @@ duplicates.
 Our side when a server has it: send up to 32 ids per packet from the
 background queue; if a batch goes unanswered, fall back to single
 queries for the session. No config switch — detect it from the answer.
+
+## 113. Retail-style nameplate clicks (pfUI request) — designed, built once, reverted
+
+Ask: a drag that starts on a nameplate turns the camera, and only a click
+selects. Today a plate swallows the press (benilla-re `ui/mouseover`
+"Pressing a nameplate"), so the world frame never starts the turn, and Lua
+cannot fix it (freelook enters on the press with no threshold and sends the
+plate a fake release; the press-time pick never covers plates).
+
+3.80.2 (WowClassicGM-China.exe), read 2026-11-22:
+- A plate is not a mouse frame. The world frame's hover update
+  `FUN_141192420` asks the plate pick `FUN_1419b71d0` when the foci walk
+  reaches the world frame, before the 3D pick.
+- `FUN_1419b71d0(cursor, skipTarget)` hit-tests every plate with its type's
+  hit-test insets (`FUN_14194efc0`) and keeps the best one.
+- The click router `FUN_141195f70` runs the plate pick at the click, before
+  the press-latched world pick. On a hit on the current target's plate
+  (`DAT_144ba0cf0`) it picks again without that plate, so clicks go
+  through stacked plates. A right click on a creature with type flag
+  0x20000000 (DO_NOT_TARGET_ON_INTERACTION) keeps the target; 1.12 has no
+  such flag.
+- No toggle. No `SetNamePlate*ClickThrough` in 3.80.2, nor in any on-disk
+  retail Lua or API docs (retail removed them).
+
+The port that was built (worked in the compile, never tested in game):
+- Plates start click-off, motion-on (Frame::MouseInput halves), from a
+  redirect of the plate constructor's one call (0x7CB250 at 0x60881D;
+  `__thiscall(plate, parent)`, ret 4, returns the plate). Each game UI load
+  resets every plate on the shown list (0xC4D92C) and the recycle list
+  (0xC4D920, linked at +0x4E0), since plates outlive /reload. The press walk
+  then passes the plate by, and the press reaches the world frame.
+  EnableMouse(true) on a plate restores 1.12's swallow.
+- Redirect the two router calls (0x481F60 at 0x514D79 push 4, 0x514D8D
+  push 1): pick the plate first, in mouse-list order, through each plate's
+  own hit test (vtable +0x3C → 0x7CBA30, which reads only event +0x24/+0x28),
+  with the target skip. Hand a hit to 1.12's router as type 2 (+0x350) plus
+  GUID (+0x358), and put the latched pick back after.
+- pfUI's `ApplyFrameLayout` calls `parent:EnableMouse(true)` on every show,
+  which would cancel the change; pfUI would stop doing that.
+
+Follow-on idea, "headless" plates (opt-in, one global function): stop the
+engine plate and its health bar drawing their own parts by redirecting their
+EmitLayer slots (plate vtable 0x81DE50 slot 0x81DE94, bar vtable 0x81DFB8
+slot 0x81DFFC, both 0x76B3A0), then NotifyLayerChanged on all five layers.
+Child frames that addons parent to the plate still draw. Regions an addon
+creates on the plate itself would not.
