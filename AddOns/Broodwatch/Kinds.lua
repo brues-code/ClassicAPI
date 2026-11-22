@@ -330,7 +330,7 @@ local function LayTrap(key, def, level, x, y, z)
 	trap.left = TUNING.TRAP_ARM;
 	trap.life = TUNING.TRAP_LIFE;
 	trap.springs = Mastered(key) and def.mastery.springs or 1;
-	trap.actor:SetPosition(trap.x, trap.y, trap.z);
+	BW.PlaceActor(trap.actor, trap.x, trap.y, trap.z);
 	trap.actor:SetYaw(math.random() * 2 * math.pi);
 	trap.actor:SetAnimation(ANIM_SPAWN);
 	trap.actor:SetGroundReticle(0); -- small while it arms

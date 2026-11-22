@@ -38,6 +38,14 @@ local offers = {}  -- the three level-up choices
 ------------------------------------------------------------------------------
 -- Helpers
 
+-- An actor stands at its scale times its position (3.80.2's placement, as
+-- retail's): a scaled actor goes to a world point at the point over its
+-- scale. Set the scale first.
+BW.PlaceActor = function(actor, x, y, z)
+	local s = actor:GetScale();
+	actor:SetPosition(x / s, y / s, z / s);
+end
+
 local function FloorAt(x, y, z)
 	local _, _, hz = BW.scene:TraceSegment(x, y, z + 10, x, y, z - 50);
 	return hz or z;
@@ -160,7 +168,7 @@ local function DropGem(x, y, z, xp, scale)
 	gem.x, gem.y, gem.z = x, y, z;
 	gem.pulled = false;
 	gem.actor:SetScale(scale or 0.3);
-	gem.actor:SetPosition(x, y, z);
+	BW.PlaceActor(gem.actor, x, y, z);
 	gem.actor:Show();
 	tinsert(gems, gem);
 end
