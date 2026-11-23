@@ -561,6 +561,7 @@ build instructions.
   - [`PreClick` / `PostClick` button scripts](#preclick--postclick-button-scripts)
   - [`Button:RegisterForClicks("AnyUp" | "AnyDown" | ...)`](#buttonregisterforclicksanyup--anydown--)
   - [Atlas names in the button texture setters](#atlas-names-in-the-button-texture-setters)
+  - [`Button:SetNormalAtlas(atlas)` / `SetPushedAtlas` / `SetDisabledAtlas` / `SetHighlightAtlas(atlas [, blendMode])`](#buttonsetnormalatlasatlas--setpushedatlas--setdisabledatlas--sethighlightatlasatlas--blendmode)
   - [`button:RegisterForMouse(...)`](#buttonregisterformouse)
   - [`GetClickFrame(name)`](#getclickframename)
 
@@ -1135,6 +1136,10 @@ build instructions.
   - [`GetEventCPUUsage([event])`](#geteventcpuusageevent)
   - [`GetScriptCPUUsage()`](#getscriptcpuusage)
   - [`ResetCPUUsage()`](#resetcpuusage)
+  - [`C_AddOnProfiler.GetAddOnMetric(name, metric)`](#c_addonprofilergetaddonmetricname-metric)
+  - [`C_AddOnProfiler.GetApplicationMetric(metric)` / `C_AddOnProfiler.GetOverallMetric(metric)`](#c_addonprofilergetapplicationmetricmetric--c_addonprofilergetoverallmetricmetric)
+  - [`C_AddOnProfiler.GetTopKAddOnsForMetric(metric, k)`](#c_addonprofilergettopkaddonsformetricmetric-k)
+  - [`C_AddOnProfiler.GetTicksPerSecond()` / `C_AddOnProfiler.IsEnabled()`](#c_addonprofilergettickspersecond--c_addonprofilerisenabled)
   - [`_classicapi_LuaHeapAudit()` / `_classicapi_GcTagOf(value)`](#_classicapi_luaheapaudit--_classicapi_gctagofvalue)
 
 - [PvP](#pvp)
@@ -1949,8 +1954,9 @@ Returns an `Enum.AddOnEnableState` number:
 | `2`   | `All`                     | The addon is enabled. |
 
 `character` is the name of a character on your realm. The name is not
-case-sensitive. When `character` is `nil`, `"0"` or `""`, the function
-reads all characters on the realm.
+case-sensitive. A player GUID, such as the value of `UnitGUID("player")`,
+also names its character. When `character` is `nil`, `"0"` or `""`, the
+function reads all characters on the realm.
 
 A character that has no setting for the addon uses the state over all
 characters. When no character has a setting, the state comes from
@@ -13061,6 +13067,19 @@ A texture object, a file path, or an unknown name works as before.
 toggle:SetNormalTexture("common-button-dropdown-open")
 toggle:SetPushedTexture("common-button-dropdown-openpressed")
 print(toggle:GetNormalTexture():GetAtlas()) -- common-button-dropdown-open
+```
+
+### `Button:SetNormalAtlas(atlas)` / `SetPushedAtlas` / `SetDisabledAtlas` / `SetHighlightAtlas(atlas [, blendMode])`
+
+These methods show an atlas as one of the state textures of the button. If
+the button has no texture for the state, the method makes one. The
+highlight texture uses `blendMode`, or `"ADD"` if you do not give it.
+
+- `atlas` must be a string. Other values raise an error.
+- An unknown atlas name changes nothing.
+
+```lua
+button:SetHighlightAtlas("128-RedButton-Highlight")
 ```
 
 ### `button:RegisterForMouse(...)`
@@ -25360,6 +25379,77 @@ runs inside a different script, the time counts for both scripts.
 
 Sets all CPU times and call counts to `0`, and the event count too. Memory
 values do not change.
+
+### `C_AddOnProfiler.GetAddOnMetric(name, metric)`
+
+Returns a measurement of the time that the scripts of an addon use. The
+profiler is always on. It needs no setting and no `/reload`.
+
+A tick is one update of the screen. `metric` is an
+`Enum.AddOnProfilerMetric` value:
+
+| Value | `Enum.AddOnProfilerMetric.*` | Result |
+|------:|------------------------------|--------|
+| `0` | `SessionAverageTime` | The average milliseconds for each tick since the game started. |
+| `1` | `RecentAverageTime` | The average milliseconds for each tick in the last 60 ticks. |
+| `2` | `EncounterAverageTime` | The average milliseconds for each tick during boss encounters. |
+| `3` | `LastTime` | The milliseconds in the last tick. |
+| `4` | `PeakTime` | The highest milliseconds in one tick since the game started. |
+| `5`–`11` | `CountTimeOver1Ms` … `CountTimeOver1000Ms` | The number of ticks that used 1, 5, 10, 50, 100, 500 or 1000 ms, or more. |
+
+```lua
+local recent = Enum.AddOnProfilerMetric.RecentAverageTime
+print(C_AddOnProfiler.GetAddOnMetric("MyAddon", recent))   -- milliseconds
+```
+
+- The time of a script counts for the addon that owns its frame. A frame
+  that an addon makes while it loads belongs to that addon. A frame that a
+  script makes belongs to the owner of that script. Timers and event
+  callbacks belong to the addon that made them.
+- When a script runs inside a different script, its time counts for the
+  outer script only.
+- Scripts that run while an addon loads do not count.
+- Blizzard addons and the addons that ClassicAPI includes do not count.
+  They return `0`.
+- The values stay after `/reload`. All values start at `0` when the game
+  starts.
+- `name` is the folder name of the addon, with the same uppercase and
+  lowercase letters. An unknown name returns `0`.
+- A `metric` that is not a number from `0` to `11` raises an error.
+
+### `C_AddOnProfiler.GetApplicationMetric(metric)` / `C_AddOnProfiler.GetOverallMetric(metric)`
+
+`GetApplicationMetric` returns the same measurement for the full time of
+each tick. `GetOverallMetric` returns it for the scripts of all addons
+together.
+
+The share of one addon in the time that is not for other addons:
+
+```lua
+local m = Enum.AddOnProfilerMetric.RecentAverageTime
+local app = C_AddOnProfiler.GetApplicationMetric(m)
+local all = C_AddOnProfiler.GetOverallMetric(m)
+local mine = C_AddOnProfiler.GetAddOnMetric("MyAddon", m)
+print(format("%.2f%%", 100 * mine / (app - all + mine)))
+```
+
+### `C_AddOnProfiler.GetTopKAddOnsForMetric(metric, k)`
+
+Returns a table of the `k` addons with the largest values of `metric`, the
+largest first. Each entry is `{ addOnName = name, metricValue = value }`.
+If `k` is negative, the table has all addons.
+
+```lua
+local m = Enum.AddOnProfilerMetric.PeakTime
+for _, r in ipairs(C_AddOnProfiler.GetTopKAddOnsForMetric(m, 3)) do
+    print(r.addOnName, r.metricValue)
+end
+```
+
+### `C_AddOnProfiler.GetTicksPerSecond()` / `C_AddOnProfiler.IsEnabled()`
+
+`GetTicksPerSecond` returns the number of clock units in one second for
+the clock that the profiler uses. `IsEnabled` always returns `true`.
 
 ### `_classicapi_LuaHeapAudit()` / `_classicapi_GcTagOf(value)`
 

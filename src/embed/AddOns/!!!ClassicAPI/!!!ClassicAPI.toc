@@ -5,6 +5,7 @@
 ## Version: DEV
 ## Author: Brues
 ## X-Website: https://github.com/brues-code/ClassicAPI
+## SavedVariables: g_addonCategoriesCollapsed
 
 locales\locales.xml
 
@@ -60,6 +61,7 @@ Util\SpellBookItemLocation.lua
 Util\ItemUtil.lua
 Util\ContainerFrame.lua
 Util\AddOnCompat.lua
+Util\AddOnUtil.lua
 Util\FunctionUtil.lua
 Util\MixinUtil.lua
 Util\ObjectUpdater.lua
@@ -143,6 +145,10 @@ FrameXML\LayoutFrame.xml
 FrameXML\AnimationTemplates.xml
 FrameXML\SharedTooltipTemplates.xml
 FrameXML\SharedUIPanelTemplates.xml
+FrameXML\UIButtonTemplate.lua
+FrameXML\ThreeSliceButtonTemplate.lua
+FrameXML\ThreeSliceButtonTemplate.xml
+FrameXML\CheckButtonTemplates.xml
 FrameXML\InputBoxTemplates.xml
 FrameXML\SearchBoxTemplate.xml [ExcludeLoadGameType turtle]
 FrameXML\ColorSwatch.lua
@@ -209,6 +215,9 @@ Settings\Blizzard_Dialogs.lua
 Settings\Blizzard_SettingsLayouts.lua
 Settings\Blizzard_Registration.lua
 Settings\Blizzard_SettingsInbound.lua
+
+AddOnList\AddonList.lua
+AddOnList\AddonList.xml
 
 FrameXML\InterfaceOptions.lua
 

@@ -107,6 +107,7 @@ int g_count = 0;
 // Opaque white at (1, 1), clear white elsewhere. The engine reads these
 // whenever it uploads the texture.
 const uint32_t kRampTexels[4] = {0x00FFFFFF, 0x00FFFFFF, 0x00FFFFFF, 0xFFFFFFFF};
+Texture::Pixels g_rampPixels{2, 2, kRampTexels};
 void *g_ramp = nullptr;
 
 bool Has(const void *frame) {
@@ -124,7 +125,7 @@ int LastUnit() {
 
 void *RampTexture() {
     if (g_ramp == nullptr)
-        g_ramp = Texture::CreateFromPixels("ClassicAPI\\AlphaGradient", 2, 2, kRampTexels, Texture::DefaultFlags());
+        g_ramp = Texture::CreateFromPixels("ClassicAPI\\AlphaGradient", g_rampPixels, Texture::DefaultFlags());
     return g_ramp != nullptr
                ? Texture::DeviceTexture(g_ramp)
                : nullptr;

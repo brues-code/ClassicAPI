@@ -48,7 +48,6 @@ using Get_t = uint32_t(__fastcall *)(const char *name, const char *character, in
 using Set_t = void(__fastcall *)(const char *name, const char *character, int state);
 using Load_t = void(__fastcall *)(const char *character);
 using Save_t = void (*)();
-using GetSecurityIndex_t = uint32_t(__fastcall *)(const char *name);
 using GetByIndex_t = const char *(__fastcall *)(int idx0Based);
 using GetAddOnCount_t = int(__fastcall *)();
 
@@ -95,9 +94,7 @@ int __fastcall Script_EnableAddOn(void *L) { return SetOne(L, kEnableUsage, STAT
 // taint report, which this client has no counterpart for.
 int __fastcall Script_DisableAddOn(void *L) {
     const uint8_t *record = Addons::ResolveAddOnArg(L, kDisableUsage, nullptr);
-    if (record != nullptr &&
-        reinterpret_cast<GetSecurityIndex_t>(Offsets::FUN_ADDON_GET_SECURITY_INDEX)(
-            Addons::RecordName(record)) == 0) {
+    if (record != nullptr && Addons::SecurityIndex(Addons::RecordName(record)) == 0) {
         Game::Lua::Error(L, "DisableAddOn(): Cannot disable a Secure AddOn");
         return 0;
     }

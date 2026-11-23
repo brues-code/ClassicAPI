@@ -14,6 +14,7 @@
 #include "time/Timer.h"
 
 #include "Game.h"
+#include "profile/AddOnProfiler.h"
 #include "tick/WorldTick.h"
 
 #include <cmath>
@@ -61,6 +62,9 @@ struct Entry {
     double period;          // 0 = one-shot; >0 = ticker period
     int iterationsLeft;     // -1 = infinite; 0 = mark for removal; >0 = countdown
     bool cancelled;
+    // The addon profiler's owner as the timer was made; its callback runs
+    // inside a Scope for it.
+    Profile::AddOnProfiler::Record *profileOwner;
 };
 
 std::vector<Entry> g_timers;
@@ -217,7 +221,10 @@ void FireDue(const void *owner, double now) {
             Game::Lua::SetTop(L, -2);
             nargs = 0;
         }
-        Game::Lua::PCall(L, nargs, 0, 0);
+        {
+            const Profile::AddOnProfiler::Scope profile(t->profileOwner);
+            Game::Lua::PCall(L, nargs, 0, 0);
+        }
         Game::Lua::SetTop(L, topBefore);
 
         // Re-find — callback might have cancelled `t` (or scheduled
@@ -275,6 +282,7 @@ int Schedule(void *L, int callbackStackIdx, const void *owner, double now, doubl
     e.period = period;
     e.iterationsLeft = iterations;
     e.cancelled = false;
+    e.profileOwner = Profile::AddOnProfiler::Owner();
     g_timers.push_back(e);
     if (owner == nullptr && e.deadline < g_nextDeadline)
         g_nextDeadline = e.deadline;

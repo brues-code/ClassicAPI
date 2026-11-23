@@ -14,6 +14,8 @@
 #include "addons/Registry.h"
 
 #include "Game.h"
+#include "guid/Guid.h"
+#include "unit/Identity.h"
 
 #include <cstdio>
 #include <cstring>
@@ -105,6 +107,12 @@ const char *RecordName(const uint8_t *record) {
     return *reinterpret_cast<const char *const *>(record + Offsets::OFF_ADDON_ENTRY_NAME_PTR);
 }
 
+int SecurityIndex(const char *name) {
+    using GetSecurityIndex_t = uint32_t(__fastcall *)(const char *name);
+    return static_cast<int>(
+        reinterpret_cast<GetSecurityIndex_t>(Offsets::FUN_ADDON_GET_SECURITY_INDEX)(name));
+}
+
 const char *CharacterArg(void *L, int idx, const char *usage) {
     const int type = Game::Lua::Type(L, idx);
     if (type == Game::Lua::TYPE_NONE || type == Game::Lua::TYPE_NIL)
@@ -123,6 +131,23 @@ const char *CharacterArg(void *L, int idx, const char *usage) {
         return nullptr;
     if (_stricmp(character, "WOWGUID_NULL") == 0)
         return nullptr;
+    // 3.80.2 then turns a name into a GUID; this client's enable state is kept
+    // by character name, so a player GUID (UnitGUID's form, which retail's
+    // addon list passes for the current character) becomes its name. The
+    // logged-in character's is the name the engine's own in-game addon
+    // functions use (FUN_GET_SELECTED_CHARACTER_NAME), set before any addon
+    // loads; the name cache may not hold it yet at login.
+    uint64_t guid = 0;
+    if (Guid::Parse(character, &guid) && Guid::IsPlayer(guid)) {
+        if (guid == Unit::Identity::PlayerGuid()) {
+            using SelectedName_t = const char *(__cdecl *)();
+            if (const char *name = reinterpret_cast<SelectedName_t>(
+                    Offsets::FUN_GET_SELECTED_CHARACTER_NAME)())
+                return name;
+        }
+        if (const char *name = Unit::Identity::NameForGuid(guid))
+            return name;
+    }
     return character;
 }
 

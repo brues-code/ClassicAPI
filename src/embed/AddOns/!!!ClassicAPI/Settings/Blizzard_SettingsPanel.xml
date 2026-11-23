@@ -64,6 +64,12 @@
 					<Anchor point="BOTTOMRIGHT" x="-16" y="16"/>
 				</Anchors>
 			</Button>
+			<Button parentKey="AddOnListButton" inherits="UIPanelButtonTemplate">
+				<Size x="120" y="22"/>
+				<Anchors>
+					<Anchor point="BOTTOMLEFT" x="16" y="16"/>
+				</Anchors>
+			</Button>
 			<Button parentKey="ApplyButton" inherits="UIPanelButtonTemplate">
 				<Size x="96" y="22"/>
 				<Anchors>

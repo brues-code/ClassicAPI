@@ -100,6 +100,7 @@ struct AlphaMask {
 
 struct Portrait {
     std::array<uint32_t, kTexels> texels{}; // the texture's texel source, kept as long
+    Texture::Pixels pixels{kSize, kSize, texels.data()};
     void *texture = nullptr;                // HTEXTURE, one reference
     // The display model while it loads and dresses.
     void *scene = nullptr;
@@ -245,8 +246,8 @@ const Tick::FrameTick::AutoSubscribeBefore _tick{&Pump};
 
 // The bake's own texture over `texels`: 64x64, one mip, ARGB8888, flags (1,
 // 0, 0, 0, 0, 0, 1, 0), "Portrait1" (0x005257D3).
-void *NewTexture(std::array<uint32_t, kTexels> &texels) {
-    return Texture::CreateFromPixels("Portrait1", kSize, kSize, texels.data(), Texture::Flags(1, false, false));
+void *NewTexture(Texture::Pixels &pixels) {
+    return Texture::CreateFromPixels("Portrait1", pixels, Texture::Flags(1, false, false));
 }
 
 // The display's portrait, started on first use. Null for a display ID with no
@@ -268,7 +269,7 @@ Portrait *Acquire(uint32_t displayID) {
     p->scene = scene;
     p->model = model;
     p->dressRecord = Model::DisplayInfo::DressRecord(displayID);
-    p->texture = NewTexture(p->texels);
+    p->texture = NewTexture(p->pixels);
     if (p->texture == nullptr) {
         ReleaseModel(*p);
         return nullptr;
@@ -310,6 +311,7 @@ const Game::ModuleAutoRegister _register{&RegisterLuaFunctions};
 
 struct Live {
     std::array<uint32_t, kTexels> texels{};
+    Texture::Pixels pixels{kSize, kSize, texels.data()};
     void *texture = nullptr; // HTEXTURE, one reference
 };
 
@@ -330,7 +332,7 @@ Live *AcquireLive() {
         return live;
     }
     auto live = std::make_unique<Live>();
-    live->texture = NewTexture(live->texels);
+    live->texture = NewTexture(live->pixels);
     if (live->texture == nullptr)
         return nullptr;
     g_live.push_back(std::move(live));

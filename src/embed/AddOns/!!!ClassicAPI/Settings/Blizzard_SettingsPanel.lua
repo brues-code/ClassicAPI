@@ -27,6 +27,9 @@
 --     target, so the window shows the game menu itself.
 --   - wipe is ClassicAPI.wipe, so an addon's own global wipe cannot
 --     replace it.
+--   - An AddOn List button (bottom left) opens the addon list, which retail
+--     opens from the game menu. The window closes first, without returning
+--     to the game menu.
 
 local wipe = ClassicAPI.wipe;
 
@@ -100,6 +103,15 @@ function SettingsPanelMixin:OnLoad()
 	self.CloseButton:SetText(SETTINGS_CLOSE);
 	self.CloseButton:SetScript("OnClick", closePanel);
 	self.onCloseCallback = closePanel;
+
+	self.AddOnListButton:SetText(ADDON_LIST);
+	self.AddOnListButton:SetScript("OnClick", function(button, buttonName, down)
+		local skipTransitionBackToOpeningPanel = true;
+		self:Close(skipTransitionBackToOpeningPanel);
+		if not self:IsShown() then
+			ShowUIPanel(AddonList);
+		end
+	end);
 
 	self.ApplyButton:SetText(SETTINGS_APPLY);
 	self.ApplyButton:SetScript("OnClick", function(button, buttonName, down)

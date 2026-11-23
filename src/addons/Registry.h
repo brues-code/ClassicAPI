@@ -73,12 +73,18 @@ const uint8_t *FindRecord(const char *name);
 // The registered name of a record ResolveAddOnArg returned.
 const char *RecordName(const uint8_t *record);
 
+// The engine's security index of the addon named `name`
+// (FUN_ADDON_GET_SECURITY_INDEX): 0 SECURE, 1 INSECURE, 2 BANNED, indexing
+// VAR_ADDON_SECURITY_TABLE.
+int SecurityIndex(const char *name);
+
 // An optional character argument at `idx`, as 3.80.2 reads it
 // (FUN_140a6dc70, then its name-to-GUID step). nil or none means every
 // character and returns nullptr. A number or string is a character name,
 // except a string that reads as the zero GUID: one that is a prefix of
 // "0000000000000000" (so "", "0" and the number 0) or "WOWGUID_NULL", which
-// also mean every character. Any other type raises
+// also mean every character. A player GUID string is that character's name.
+// Any other type raises
 // `bad argument #<idx> to '<fn>' (<usage>)`.
 const char *CharacterArg(void *L, int idx, const char *usage);
 

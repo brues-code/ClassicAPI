@@ -518,7 +518,8 @@ functions but that consumer code still expects to find as globals —
 `HorizontalLayoutFrame`, `ResizeLayoutFrame`, `GridLayoutFrame`,
 `StaticGridLayoutFrame`), and the retail Settings window (`Settings`,
 `SettingsPanel`) with the `InterfaceOptions_AddCategory` functions on
-top. It also holds the conditional slash commands and
+top, and the retail addon list (`AddonList`), which `/addons` and the
+AddOn List button of the Settings window open. It also holds the conditional slash commands and
 `SecureCmdOptionParse`, the parser that reads `[conditions]` and `@unit`
 for them.
 

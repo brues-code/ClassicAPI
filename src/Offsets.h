@@ -11552,6 +11552,11 @@ enum Offsets {
     OFF_BLP_VERSION = 0x08,
     // byte: 1 palette, 2 DXT, 3 raw BGRA (DecodeLevel's switch, 0x5A7F6B)
     OFF_BLP_COMPRESSION = 0x0C,
+    // byte: the alpha depth (0, 1, 4 or 8), the header byte after the
+    // compression. 0 means the image has no alpha: the engine's loader then
+    // sets bit 0 of the CTexture's +0x110 (benilla gx/textures, 0x449840) and
+    // the decoded texels' alpha carries nothing.
+    OFF_BLP_ALPHA_DEPTH = 0x0D,
     // byte: for DXT, 0 DXT1, 1 DXT3, 7 DXT5 (DecodeLevel takes its class
     // at 0x5A7FC3)
     OFF_BLP_ALPHA_TYPE = 0x0E,
@@ -16592,6 +16597,9 @@ enum Offsets {
     // device texture (OFF_GXTEX_FLAGS).
     OFF_HTEXTURE_NAME = 0x0C,
     OFF_HTEXTURE_SOURCE = 0x110,
+    // bit 0: the image has no alpha, set by the BLP load (0x00449840) for an
+    // alpha depth of 0 (OFF_BLP_ALPHA_DEPTH).
+    HTEXTURE_SOURCE_NO_ALPHA = 0x1,
     HTEXTURE_SOURCE_FILE = 0x2,
     OFF_HTEXTURE_DEVICE = 0x140,
     OFF_HTEXTURE_TEX_FLAGS = 0x150,

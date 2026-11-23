@@ -98,9 +98,30 @@ function GameTooltip_SuppressAutomaticCompareItem(tooltip)
 	tooltip.suppressAutomaticCompareItem = true;
 end
 
+function GameTooltip_AddBlankLinesToTooltip(tooltip, numLines)
+	if numLines ~= nil then
+		for i = 1, numLines do
+			tooltip:AddLine(" ");
+		end
+	end
+end
+
+function GameTooltip_AddBlankLineToTooltip(tooltip)
+	GameTooltip_AddBlankLinesToTooltip(tooltip, 1);
+end
+
 function GameTooltip_SetTitle(tooltip, text, overrideColor, wrap)
 	tooltip:ClearLines();
 	GameTooltip_AddColoredLine(tooltip, text, overrideColor or HIGHLIGHT_FONT_COLOR, wrap)
+end
+
+function GameTooltip_ShowDisabledTooltip(tooltip, owner, text, tooltipAnchor, offsetX, offsetY)
+	tooltip:SetOwner(owner, tooltipAnchor, offsetX, offsetY);
+
+	local wrap = true;
+	GameTooltip_SetTitle(tooltip, text, RED_FONT_COLOR, wrap);
+
+	tooltip:Show();
 end
 
 function GameTooltip_AddNormalLine(tooltip, text, wrap, leftOffset)

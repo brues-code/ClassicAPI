@@ -471,3 +471,33 @@ DropdownWithSteppersAndLabelMixin = CreateFromMixins(DropdownWithSteppersMixin);
 function DropdownWithSteppersAndLabelMixin:SetText(text)
 	self.Label:SetText(text);
 end
+
+-- Allows inheriting buttons to override OnLoad and OnShow
+ButtonControllerMixin = {};
+
+function ButtonControllerMixin:OnLoad()
+	if self:GetParent().InitButton then
+		self:GetParent():InitButton();
+	end
+end
+
+function ButtonControllerMixin:OnShow()
+	if self:GetParent().UpdateButton then
+		self:GetParent():UpdateButton();
+	end
+end
+
+-- Retail keeps this one in SecureUIPanelTemplates.lua. FitToText reads the
+-- unscaled width, where retail calls GetWidth.
+UIButtonFitToTextBehaviorMixin = {};
+
+function UIButtonFitToTextBehaviorMixin:SetTextToFit(text)
+	self:SetText(text);
+	self:FitToText();
+end
+
+function UIButtonFitToTextBehaviorMixin:FitToText()
+	local minWidth = self.fitTextCanWidthDecrease and 0 or self:GetUnscaledWidth();
+	local padding = self.fitTextWidthPadding or 0;
+	self:SetWidth(math.max(minWidth, self:GetTextWidth() + padding));
+end

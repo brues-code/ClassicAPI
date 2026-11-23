@@ -445,6 +445,29 @@ constexpr Entry kAtlases[] = {
     {"minimal-scrollbar-small-thumb-middle-over", "Interface\\Buttons\\MinimalScrollbarSmallVertical", 8, 715, 0.328125f, 0.453125f, 0.0009765625f, 0.69921875f, 2403, 23485, false, false}, // interface/buttons/minimalscrollbarsmallvertical
     {"minimal-scrollbar-small-thumb-middle-down", "Interface\\Buttons\\MinimalScrollbarSmallVertical", 8, 715, 0.171875f, 0.296875f, 0.0009765625f, 0.69921875f, 2403, 23484, false, false}, // interface/buttons/minimalscrollbarsmallvertical
     {"common-search-clearbutton", "Interface\\Common\\CommonSearchClearButton", 20, 20, 0.03125f, 0.65625f, 0.03125f, 0.65625f, 3172, 11710, false, false}, // interface/shop/catalogshop
+    // The addon list's category arrow. The 1.60.1 sheet carries it only as
+    // the -2x member (20x32 on canvas 2), so the size is the 1x 10x16 the
+    // list's XML draws it at. The sheet ships whole at its retail path,
+    // decoded from its raw BGRA and re-encoded palettized, which keeps its
+    // pixels exactly.
+    {"bag-arrow", "Interface\\ContainerFrame\\BagSlots2x", 10, 16, 0.9453125f, 0.984375f, 0.0078125f, 0.2578125f, 2098, 20252, false, false}, // interface/containerframe/bagslots2x
+    // The red three-slice button (ThreeSliceButtonTemplate's "128-RedButton"
+    // kit: SharedButtonSmallTemplate and its siblings). Retail's sheet
+    // (atlas 3556, the higher ID of the two that name these members) is
+    // 512x2048 for some forty sprites; only the button's ten are cut out of
+    // it, 4-pixel gaps apart, into a 512x1024 sheet, re-encoded palettized
+    // from the raw BGRA (a DXT3 encoding drew a line down the end caps' edge).
+    // Sizes are the member table's.
+    {"128-RedButton-Right", "Interface\\Buttons\\128RedButton", 292, 128, 0.0f, 0.5703125f, 0.0f, 0.125f, 3556, 11952, false, false}, // interface/buttons/128redbutton
+    {"128-RedButton-Right-Disabled", "Interface\\Buttons\\128RedButton", 292, 128, 0.0f, 0.5703125f, 0.12890625f, 0.25390625f, 3556, 11950, false, false}, // interface/buttons/128redbutton
+    {"128-RedButton-Right-Pressed", "Interface\\Buttons\\128RedButton", 292, 128, 0.0f, 0.5703125f, 0.2578125f, 0.3828125f, 3556, 11951, false, false}, // interface/buttons/128redbutton
+    {"128-RedButton-Left", "Interface\\Buttons\\128RedButton", 114, 128, 0.578125f, 0.80078125f, 0.0f, 0.125f, 3556, 11949, false, false}, // interface/buttons/128redbutton
+    {"128-RedButton-Left-Disabled", "Interface\\Buttons\\128RedButton", 114, 128, 0.578125f, 0.80078125f, 0.12890625f, 0.25390625f, 3556, 11947, false, false}, // interface/buttons/128redbutton
+    {"128-RedButton-Left-Pressed", "Interface\\Buttons\\128RedButton", 114, 128, 0.578125f, 0.80078125f, 0.2578125f, 0.3828125f, 3556, 11948, false, false}, // interface/buttons/128redbutton
+    {"_128-RedButton-Center", "Interface\\Buttons\\128RedButton", 64, 128, 0.8046875f, 0.9296875f, 0.0f, 0.125f, 3556, 11955, true, false}, // interface/buttons/128redbutton
+    {"_128-RedButton-Center-Disabled", "Interface\\Buttons\\128RedButton", 64, 128, 0.8046875f, 0.9296875f, 0.12890625f, 0.25390625f, 3556, 11953, true, false}, // interface/buttons/128redbutton
+    {"_128-RedButton-Center-Pressed", "Interface\\Buttons\\128RedButton", 64, 128, 0.8046875f, 0.9296875f, 0.2578125f, 0.3828125f, 3556, 11954, true, false}, // interface/buttons/128redbutton
+    {"128-RedButton-Highlight", "Interface\\Buttons\\128RedButton", 441, 128, 0.0f, 0.861328125f, 0.38671875f, 0.51171875f, 3556, 5451, false, false}, // interface/buttons/128redbutton
 };
 
 constexpr int kAtlasCount = sizeof(kAtlases) / sizeof(kAtlases[0]);

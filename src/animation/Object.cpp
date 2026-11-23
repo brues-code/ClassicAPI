@@ -18,6 +18,7 @@
 #include "baselib/Ascii.h"
 #include "frame/ScriptArgs.h"
 #include "frame/ScriptSlots.h"
+#include "profile/AddOnProfiler.h"
 
 #include <cstring>
 
@@ -109,11 +110,14 @@ Object::Object(const Class &cls, void *parent, const char *name) : cls(&cls), pa
     if (name != nullptr && *name != '\0')
         this->name = CreateName(name, parent);
     reinterpret_cast<Lock_t>(Offsets::FUN_FRAMESCRIPT_OBJECT_SCRIPT_REGISTER)(this, nullptr, Name());
+    // A script object takes its profiler owner when it is made, as 3.80.2's do.
+    Profile::AddOnProfiler::Stamp(this);
 }
 
 bool Object::s_detached = false;
 
 Object::~Object() {
+    Profile::AddOnProfiler::Forget(this);
     if (s_detached)
         return;
     for (auto &slot : scripts)
