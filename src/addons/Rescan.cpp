@@ -16,15 +16,33 @@
 // a stock 1.12 client, each fixed here with the engine's own machinery:
 //
 //   1. FILE VISIBILITY. Every relative-path read resolves through a
-//      loose-file hash index (see Offsets.h, `FUN_VFS_INDEX_CLEAR`);
-//      a file created after the index was built — a new addon's TOC, a
-//      new .lua in an existing addon — is invisible until it is rebuilt.
-//      We call the engine's own clear, the same one the engine calls
-//      after writing a new SavedVariables file: the next lookup rebuilds
-//      the index from disk as boot does, so new files appear and deleted
-//      ones drop out. New files in EXISTING addons need nothing more —
-//      the per-addon loader `FUN_0051F240` re-reads the TOC from disk on
-//      every load pass, so once the files are visible they load.
+//      loose-file hash index (see Offsets.h, `VAR_VFS_INDEX_BUILT`); a
+//      file created after the index was built — a new addon's TOC, a new
+//      .lua in an existing addon — is invisible until it is in the index.
+//      3.80.2 has the same kind of table (the CAS loose map, CAS +0x108)
+//      and fills it the same way at every registry rebuild: before it
+//      scans the addons, `0x141AF9AE0` walks `Interface/AddOns/` (each
+//      folder below it, 17 deep at most, through `0x141AF9560`) and adds
+//      every file with `0x142A2A2D0`, which keeps an entry already there.
+//      We do the same with 1.12's own walker: `FUN_VFS_INDEX_ADD_FOLDER`
+//      on `Interface\AddOns`, from the root the build used, so new files
+//      get the keys a full build gives them. The rest of the index (the
+//      install folder and `Data\`, ~20k files) is not walked again.
+//      New files in EXISTING addons need nothing more — the per-addon
+//      loader `FUN_0051F240` re-reads the TOC from disk on every load
+//      pass, so once the files are visible they load.
+//      3.80.2's callback also decides which folders it enters: none whose
+//      name starts with a dot (`.git`), and none 17 or more levels below
+//      `Interface/AddOns/` (the addon folders are depth 1, and it recurses
+//      while depth < 17). 1.12's walker enters every folder but `Data\`
+//      through one call to itself (`SITE_VFS_INDEX_SUBFOLDER`), so that
+//      call is redirected to the same rules for folders below
+//      `Interface\AddOns\`. Every walk of that tree takes them, the
+//      engine's own rebuilds after its clears included.
+//      One difference remains, 1.12's own index rule: a deleted file keeps
+//      its entry, and its open fails (1.12 does not fall back to the
+//      archives after an index hit, where 3.80.2 checks the disk and
+//      does).
 //
 //   2. REGISTRY MEMBERSHIP. The addon registry is built once at login;
 //      new folders are never walked. We replay the login scan's disk
@@ -87,10 +105,11 @@
 // registration gets. New entries come from the same parser call
 // `Addons::Embedded` has exercised every login.
 //
-// Thread note: the loose-file index has no lock in 1.12. We clear it on
+// Thread note: the loose-file index has no lock in 1.12. We add to it on
 // the main thread during the reload loading screen — the same context
 // in which the engine's own unload pass clears it.
 
+#include "Common.h"
 #include "Game.h"
 #include "Offsets.h"
 #include "addons/LoadGate.h"
@@ -113,7 +132,9 @@ namespace {
 
 // ── Engine entry points (all verified by disassembly; see Offsets.h) ──
 
-using IndexClear_t = void(__cdecl *)();
+using IndexAddFolder_t = void(__fastcall *)(const char *root, const char *prefix, void *listing);
+using SDirOpen_t = void *(__stdcall *)(const char *path);
+using SDirClose_t = void(__stdcall *)(void *listing);
 using ScanDiskDirs_t = int(__fastcall *)(const char *basePath,
                                          const char *pattern, void *callback,
                                          void *userParam, int includeHidden);
@@ -168,11 +189,64 @@ uintptr_t ResolveEntryByName(const char *name) {
     return desc != 0 ? desc - Offsets::OFF_ADDON_REQDEPS_DESC : 0;
 }
 
-// ── Step 1: loose-file index refresh ──────────────────────────────────
+// ── Step 1: add the AddOns folder to the loose-file index ─────────────
 
-// Drop the loose-file index; the next file lookup rebuilds it from disk.
-void RefreshLooseFileIndex() {
-    reinterpret_cast<IndexClear_t>(Offsets::FUN_VFS_INDEX_CLEAR)();
+constexpr const char *kAddOnsFolder = "Interface\\AddOns";
+constexpr const char kAddOnsPrefix[] = "Interface\\AddOns\\";
+constexpr int kMaxAddOnsDepth = 17; // 0x141AF9560: recurses while depth < 0x11
+
+// 0x141AF9560's folder rules, for a folder `rel` below the index root.
+bool IsSkippedAddOnsFolder(const char *rel) {
+    constexpr size_t prefixLength = sizeof(kAddOnsPrefix) - 1;
+    if (_strnicmp(rel, kAddOnsPrefix, prefixLength) != 0)
+        return false;
+    const char *name = rel + prefixLength;
+    int depth = 1;
+    for (const char *c = name; *c != '\0'; ++c) {
+        if (*c == '\\') {
+            ++depth;
+            name = c + 1;
+        }
+    }
+    return name[0] == '.' || depth >= kMaxAddOnsDepth;
+}
+
+// SITE_VFS_INDEX_SUBFOLDER: the walker's call into a subfolder. Same ABI as
+// the walker; a skipped folder returns, and the caller closes its listing.
+void __fastcall IndexSubfolder(const char *root, const char *rel, void *listing) {
+    if (IsSkippedAddOnsFolder(rel))
+        return;
+    reinterpret_cast<IndexAddFolder_t>(Offsets::FUN_VFS_INDEX_ADD_FOLDER)(root, rel, listing);
+}
+
+// Walks `Interface\AddOns` into the index as the build would have. Before
+// the build there is nothing to add to: the first lookup builds the whole
+// index, this folder included. The root is the build's: the base path, or
+// "." when that cannot be listed (0x00646EA0).
+void IndexAddOnsFolder() {
+    Common::RedirectCall(Offsets::SITE_VFS_INDEX_SUBFOLDER, Offsets::FUN_VFS_INDEX_ADD_FOLDER,
+                         reinterpret_cast<const void *>(&IndexSubfolder));
+    if (Game::Read<uint8_t>(Offsets::VAR_VFS_INDEX_BUILT) == 0)
+        return;
+    const auto open = reinterpret_cast<SDirOpen_t>(Offsets::FUN_SDIR_OPEN);
+    const auto close = reinterpret_cast<SDirClose_t>(Offsets::FUN_SDIR_CLOSE);
+
+    const char *root = reinterpret_cast<const char *>(Offsets::VAR_VFS_BASE_PATH);
+    if (void *listing = open(root))
+        close(listing);
+    else
+        root = reinterpret_cast<const char *>(Offsets::VAR_VFS_BASE_FALLBACK);
+
+    char folder[260];
+    const size_t length = std::strlen(root);
+    const bool slash = length != 0 && root[length - 1] == '\\';
+    std::snprintf(folder, sizeof(folder), "%s%s%s", root, slash ? "" : "\\", kAddOnsFolder);
+    void *listing = open(folder);
+    if (listing == nullptr)
+        return;
+    reinterpret_cast<IndexAddFolder_t>(Offsets::FUN_VFS_INDEX_ADD_FOLDER)(root, kAddOnsFolder,
+                                                                         listing);
+    close(listing);
 }
 
 // ── Step 1.5: `##` metadata refresh (evict + re-register on change) ──
@@ -403,14 +477,12 @@ void RebuildDisplayArray() {
 void Run() {
     // Registry populated (login scan ran) — always true by the first
     // in-world LoadScriptFunctions, false at the first glue boot before
-    // any account login, and it is the state the steps below mutate. No gate on the index being built: the
-    // unload pass clears it whenever it wrote a new SV file, and the
-    // clear below is safe either way.
+    // any account login, and it is the state the steps below mutate.
     if (*reinterpret_cast<const uint8_t *>(
             static_cast<uintptr_t>(Offsets::VAR_ADDON_INITIALIZED)) == 0)
         return;
 
-    RefreshLooseFileIndex();
+    IndexAddOnsFolder();
 
     // Metadata refresh runs BEFORE the snapshot: a re-registered entry
     // is alive by snapshot time, so it lands in `before` and can never

@@ -12785,22 +12785,45 @@ enum Offsets {
     // cleared by early boot (`FUN_00402210` → `FUN_00648C20`). So a file
     // created after the index was built is invisible until it is rebuilt.
     //
-    // `FUN_VFS_INDEX_CLEAR` — `void __cdecl()`, no args. Frees every index
-    // node and zeroes the latch, so the NEXT lookup rebuilds the index
-    // from disk exactly as boot does — new files appear, deleted files
-    // drop out. The analog of 3.3.5's `SFile::RebuildHash`. The engine
-    // calls it mid-session itself, after creating or deleting a file it
-    // will later read back (decompiled):
-    //   - `FUN_0051F650` — the /reload/logout SavedVariables unload pass,
-    //     when it created or deleted any SV file;
-    //   - `FUN_0051EF20` — the AddOns.txt writer, when it created the file;
-    //   - `FUN_00491730` — another WTF writer, when it created its file;
-    //   - `FUN_0051FB50` — after renaming loose GlueXML/FrameXML to `.old`.
-    // So a freshly written SavedVariables file IS readable on the same
-    // /reload — the engine handles that itself. Neither the clear, the
-    // builder, nor the lookup takes a lock (unlike 3.3.5); the engine runs
-    // all of them on the main thread.
-    FUN_VFS_INDEX_CLEAR = 0x00646FC0,
+    // The clear `0x00646FC0` frees every node and zeroes the latch, so the
+    // next lookup rebuilds the whole index. The engine calls it itself
+    // after creating or deleting a file it will read back (the
+    // SavedVariables unload pass `0x0051F650`, the AddOns.txt writer
+    // `0x0051EF20`, the WTF writer `0x00491730`, the `.old` rename
+    // `0x0051FB50`), so a new SavedVariables file is readable on the same
+    // /reload. Neither the clear, the builder, nor the lookup takes a lock;
+    // the engine runs all of them on the main thread.
+    //
+    // `VAR_VFS_INDEX_BUILT` — the latch: u8, 1 once the build ran.
+    VAR_VFS_INDEX_BUILT = 0x00C5251C,
+    // The build `0x00646EA0` walks `VAR_VFS_BASE_PATH` (the install folder
+    // with a trailing backslash), or `VAR_VFS_BASE_FALLBACK` (".") when
+    // SDirOpen cannot list it, then that root with `Data\` appended:
+    // listing = FUN_SDIR_OPEN(root), FUN_VFS_INDEX_ADD_FOLDER(root,
+    // VAR_STR_EMPTY, listing), FUN_SDIR_CLOSE(listing). Bytes checked in
+    // C:\WoW\Octo\WoW.exe (0x00646EAB..0x00646EF0).
+    VAR_VFS_BASE_PATH = 0x00C52418,
+    VAR_VFS_BASE_FALLBACK = 0x008003D4,
+    // `IndexLooseFolder(root, prefix, listing)` — __fastcall(root /*ecx*/,
+    // prefix /*edx*/, listing /*stack*/), RET 4. Lists `root\prefix\`
+    // through `listing`, skips `.`, `..` and a folder whose path below root
+    // is a prefix of `Data\`, recurses into the other folders (opening each
+    // one's listing itself), and adds every regular file keyed by its path
+    // below root (`prefix\...`), the value its full path; `.bz` / `.MPQ`
+    // are cut from the key as kinds 1 / 2. A key already present keeps its
+    // entry (the new value is freed, 0x00646D66). benilla-re
+    // systems/storm/mount.md "Loose-file index".
+    FUN_VFS_INDEX_ADD_FOLDER = 0x00646910,
+    // Its walk into a subfolder: `call 0x00646910` (`E8 B3 FE FF FF`) with
+    // ecx = root, edx = the subfolder's path below root, the subfolder's
+    // listing pushed; the caller opened that listing just before
+    // (0x00646A43) and closes it right after (0x00646A5E). The one call
+    // site of the recursion. Bytes checked in C:\WoW\Octo\WoW.exe.
+    SITE_VFS_INDEX_SUBFOLDER = 0x00646A58,
+    // Storm's folder listing: `SDirOpen(path)` → listing or 0 when the path
+    // is not a folder; `SDirClose(listing)`. Both __stdcall.
+    FUN_SDIR_OPEN = 0x006674A0,
+    FUN_SDIR_CLOSE = 0x006676A0,
 
     // ── Login scan walk #2 (loose-addon discovery) — replayed per /reload
     //
