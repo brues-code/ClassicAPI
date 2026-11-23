@@ -1,9 +1,8 @@
 <Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\FrameXML\UI.xsd">
 	<!--
 	Templates from retail's Blizzard_SharedXML/Mainline/SharedUIPanelTemplates.xml.
-	Retail draws the close button, the resize grip and some controls with
-	atlases this client does not have, so:
-	- The close button is 1.12's own (UIPanelCloseButton's art).
+	Retail draws the resize grip and some controls with atlases this client
+	does not have, so:
 	- The resize grip is the chat frame's expand arrow, turned to point at
 	  the corner.
 	- No FrameGlow, gamepad jump hints, TopTileStreaks or button bar, and
@@ -13,6 +12,14 @@
 	  unanchored region no points.
 	- DropdownWithSteppersAndLabelTemplate's label is GameFontHighlightMedium:
 	  this client has no GameFontHighlightMed2.
+	- The close button's OnClick is set in UIPanelCloseButtonDefaultAnchors:
+	  1.12's FrameXML has its own UIPanelCloseButton, and the client keeps the
+	  first template registered under a name.
+	- UIMenuButtonStretchTemplate's pieces and text have no names. 1.12 names
+	  a `$parent` region under an unnamed frame after the nearest named
+	  ancestor, so every pooled binding button would claim the same globals.
+	  The pieces anchor by key, as retail's do. Its fonts are 1.12's
+	  inherits form of retail's style attribute.
 	-->
 	<Script file="NineSlice.lua"/>
 	<Script file="NineSliceLayouts.lua"/>
@@ -49,16 +56,111 @@
 
 	<Button name="UIPanelCloseButtonNoScripts" frameLevel="510" virtual="true">
 		<Size x="24" y="24"/>
-		<DisabledTexture file="Interface\Buttons\UI-Panel-MinimizeButton-Disabled"/>
-		<NormalTexture file="Interface\Buttons\UI-Panel-MinimizeButton-Up"/>
-		<PushedTexture file="Interface\Buttons\UI-Panel-MinimizeButton-Down"/>
-		<HighlightTexture file="Interface\Buttons\UI-Panel-MinimizeButton-Highlight" alphaMode="ADD"/>
+		<DisabledTexture atlas="RedButton-Exit-Disabled"/>
+		<NormalTexture atlas="RedButton-Exit"/>
+		<PushedTexture atlas="RedButton-exit-pressed"/>
+		<HighlightTexture atlas="RedButton-Highlight" alphaMode="ADD"/>
 	</Button>
 	<Button name="UIPanelCloseButtonDefaultAnchors" mixin="UIPanelCloseButtonDefaultAnchorsMixin" inherits="UIPanelCloseButtonNoScripts" virtual="true">
 		<Scripts>
 			<OnLoad method="OnLoad"/>
 			<OnClick function="UIPanelCloseButton_OnClick"/>
 		</Scripts>
+	</Button>
+
+	<Button name="UIMenuButtonStretchTemplate" mixin="UIMenuButtonStretchMixin" virtual="true">
+		<Size x="40" y="26"/>
+		<Layers>
+			<Layer level="BACKGROUND">
+				<Texture parentKey="TopLeft" file="Interface\Buttons\UI-Silver-Button-Up">
+					<Size x="12" y="6"/>
+					<Anchors>
+						<Anchor point="TOPLEFT"/>
+					</Anchors>
+					<TexCoords left="0" right="0.09375" top="0" bottom="0.1875"/>
+				</Texture>
+				<Texture parentKey="TopRight" file="Interface\Buttons\UI-Silver-Button-Up">
+					<Size x="12" y="6"/>
+					<Anchors>
+						<Anchor point="TOPRIGHT"/>
+					</Anchors>
+					<TexCoords left="0.53125" right="0.625" top="0" bottom="0.1875"/>
+				</Texture>
+				<Texture parentKey="BottomLeft" file="Interface\Buttons\UI-Silver-Button-Up">
+					<Size x="12" y="6"/>
+					<Anchors>
+						<Anchor point="BOTTOMLEFT"/>
+					</Anchors>
+					<TexCoords left="0" right="0.09375" top="0.625" bottom="0.8125"/>
+				</Texture>
+				<Texture parentKey="BottomRight" file="Interface\Buttons\UI-Silver-Button-Up">
+					<Size x="12" y="6"/>
+					<Anchors>
+						<Anchor point="BOTTOMRIGHT"/>
+					</Anchors>
+					<TexCoords left="0.53125" right="0.625" top="0.625" bottom="0.8125"/>
+				</Texture>
+				<Texture parentKey="TopMiddle" file="Interface\Buttons\UI-Silver-Button-Up">
+					<Size x="56" y="6"/>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeKey="$parent.TopLeft" relativePoint="TOPRIGHT"/>
+						<Anchor point="BOTTOMRIGHT" relativeKey="$parent.TopRight" relativePoint="BOTTOMLEFT"/>
+					</Anchors>
+					<TexCoords left="0.09375" right="0.53125" top="0" bottom="0.1875"/>
+				</Texture>
+				<Texture parentKey="MiddleLeft" file="Interface\Buttons\UI-Silver-Button-Up">
+					<Size x="12" y="14"/>
+					<Anchors>
+						<Anchor point="TOPRIGHT" relativeKey="$parent.TopLeft" relativePoint="BOTTOMRIGHT"/>
+						<Anchor point="BOTTOMLEFT" relativeKey="$parent.BottomLeft" relativePoint="TOPLEFT"/>
+					</Anchors>
+					<TexCoords left="0" right="0.09375" top="0.1875" bottom="0.625"/>
+				</Texture>
+				<Texture parentKey="MiddleRight" file="Interface\Buttons\UI-Silver-Button-Up">
+					<Size x="12" y="14"/>
+					<Anchors>
+						<Anchor point="TOPRIGHT" relativeKey="$parent.TopRight" relativePoint="BOTTOMRIGHT"/>
+						<Anchor point="BOTTOMLEFT" relativeKey="$parent.BottomRight" relativePoint="TOPLEFT"/>
+					</Anchors>
+					<TexCoords left="0.53125" right="0.625" top="0.1875" bottom="0.625"/>
+				</Texture>
+				<Texture parentKey="BottomMiddle" file="Interface\Buttons\UI-Silver-Button-Up">
+					<Size x="56" y="6"/>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeKey="$parent.BottomLeft" relativePoint="TOPRIGHT"/>
+						<Anchor point="BOTTOMRIGHT" relativeKey="$parent.BottomRight" relativePoint="BOTTOMLEFT"/>
+					</Anchors>
+					<TexCoords left="0.09375" right="0.53125" top="0.625" bottom="0.8125"/>
+				</Texture>
+				<Texture parentKey="MiddleMiddle" file="Interface\Buttons\UI-Silver-Button-Up">
+					<Size x="56" y="14"/>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeKey="$parent.TopLeft" relativePoint="BOTTOMRIGHT"/>
+						<Anchor point="BOTTOMRIGHT" relativeKey="$parent.BottomRight" relativePoint="TOPLEFT"/>
+					</Anchors>
+					<TexCoords left="0.09375" right="0.53125" top="0.1875" bottom="0.625"/>
+				</Texture>
+			</Layer>
+		</Layers>
+		<Scripts>
+			<OnMouseDown method="OnMouseDown"/>
+			<OnMouseUp method="OnMouseUp"/>
+			<OnShow method="OnShow"/>
+			<OnEnable method="OnEnable"/>
+			<OnEnter method="OnEnter"/>
+			<OnLeave method="OnLeave"/>
+		</Scripts>
+		<ButtonText parentKey="Text">
+			<Anchors>
+				<Anchor point="CENTER" x="0" y="-1"/>
+			</Anchors>
+		</ButtonText>
+		<NormalFont inherits="GameFontHighlightSmall"/>
+		<HighlightFont inherits="GameFontHighlightSmall"/>
+		<DisabledFont inherits="GameFontDisableSmall"/>
+		<HighlightTexture file="Interface\Buttons\UI-Silver-Button-Highlight" alphaMode="ADD">
+			<TexCoords left="0" right="1.0" top="0.03" bottom="0.7175"/>
+		</HighlightTexture>
 	</Button>
 
 	<Frame name="NineSliceCodeTemplate" mixin="NineSlicePanelMixin" virtual="true">

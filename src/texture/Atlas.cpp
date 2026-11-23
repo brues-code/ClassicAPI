@@ -845,6 +845,8 @@ bool ToSprite(void *region, float corners[8]) {
     return true;
 }
 
+int __fastcall SetAtlas(void *L) { return Script_SetAtlas(L); }
+
 const Info *Current(void *region) {
     const Applied *entry = LiveEntry(region);
     return entry != nullptr ? entry->info : nullptr;

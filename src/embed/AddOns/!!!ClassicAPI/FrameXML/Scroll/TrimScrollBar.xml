@@ -14,8 +14,8 @@
 	      its unanchored branch textures from Lua with one SetPoint).
 	    * The stepper highlights draw with alphaMode="ADD": this client's
 	      highlight art is a glow on black, which its own scroll buttons add.
-	- WowTrimScrollBar and MinimalScrollBar, retail's two vertical scroll bars,
-	  are WowClassicScrollBar: their art does not exist in this client.
+	- WowTrimScrollBar is WowClassicScrollBar: its art does not exist in this
+	  client. MinimalScrollBar is retail's (MinimalScrollBar.xml).
 	- WowTrimHorizontalScrollBar is WowClassicScrollBar with x and y swapped,
 	  the way retail's horizontal bar is its vertical one: top is left, bottom
 	  is right. Classic Era has no horizontal bar and this client no
@@ -316,5 +316,4 @@
 	</EventFrame>
 
 	<EventFrame name="WowTrimScrollBar" inherits="WowClassicScrollBar" virtual="true"/>
-	<EventFrame name="MinimalScrollBar" inherits="WowClassicScrollBar" virtual="true"/>
 </Ui>

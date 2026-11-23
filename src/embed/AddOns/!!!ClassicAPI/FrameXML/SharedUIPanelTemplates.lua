@@ -11,8 +11,8 @@
 --   - DropdownWithSteppersMixin has no gamepad cursor anchors: this client
 --     has no gamepad navigation.
 --   - 1.12's Button:IsEnabled returns 1 or 0, and 0 is true in Lua, so
---     DropdownWithSteppersMixin and PanelResizeButtonMixin compare it
---     with 1.
+--     DropdownWithSteppersMixin, PanelResizeButtonMixin and
+--     UIMenuButtonStretchMixin compare it with 1.
 
 function TruncatedTooltipScript_OnEnter(self)
 	local text = self.truncatedTooltipScriptText or self.Text;
@@ -190,6 +190,61 @@ function UIPanelCloseButton_OnClick(self)
 		if continueHide then
 			HideUIPanel(parent);
 		end
+	end
+end
+
+UIMenuButtonStretchMixin = {}
+
+function UIMenuButtonStretchMixin:SetTextures(texture)
+	self.TopLeft:SetTexture(texture);
+	self.TopRight:SetTexture(texture);
+	self.BottomLeft:SetTexture(texture);
+	self.BottomRight:SetTexture(texture);
+	self.TopMiddle:SetTexture(texture);
+	self.MiddleLeft:SetTexture(texture);
+	self.MiddleRight:SetTexture(texture);
+	self.BottomMiddle:SetTexture(texture);
+	self.MiddleMiddle:SetTexture(texture);
+end
+
+function UIMenuButtonStretchMixin:OnMouseDown(button)
+	if self:IsEnabled() == 1 then
+		self:SetTextures("Interface\\Buttons\\UI-Silver-Button-Down");
+		if self.Icon then
+			self.Icon:AdjustPointsOffset(1, -1);
+		end
+	end
+end
+
+function UIMenuButtonStretchMixin:OnMouseUp(button)
+	if self:IsEnabled() == 1 then
+		self:SetTextures("Interface\\Buttons\\UI-Silver-Button-Up");
+		if self.Icon then
+			self.Icon:AdjustPointsOffset(-1, 1);
+		end
+	end
+end
+
+function UIMenuButtonStretchMixin:OnShow()
+	-- we need to reset our textures just in case we were hidden before a mouse up fired
+	self:SetTextures("Interface\\Buttons\\UI-Silver-Button-Up");
+end
+
+function UIMenuButtonStretchMixin:OnEnable()
+	self:SetTextures("Interface\\Buttons\\UI-Silver-Button-Up");
+end
+
+function UIMenuButtonStretchMixin:OnEnter()
+	if(self.tooltipText ~= nil) then
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT");
+		GameTooltip_SetTitle(GameTooltip, self.tooltipText);
+		GameTooltip:Show();
+	end
+end
+
+function UIMenuButtonStretchMixin:OnLeave()
+	if(self.tooltipText ~= nil) then
+		GameTooltip:Hide();
 	end
 end
 

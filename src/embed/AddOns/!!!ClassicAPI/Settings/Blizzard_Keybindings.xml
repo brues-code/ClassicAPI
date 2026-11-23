@@ -2,24 +2,33 @@
 	<!--
 	Retail's Blizzard_Settings_Shared/Blizzard_Keybindings.xml.
 	Differences:
-	- A binding button is 1.12's panel button (UIPanelButtonTemplate).
-	  Retail's UIMenuButtonStretchTemplate and its UI-Silver-Button art do not
-	  exist here. 1.12's Key Bindings window uses UIPanelButtonTemplate2, but
-	  that template anchors its middle slice by the name $parentLeft, and a
-	  pooled row has no name of its own. The selected key shows the panel
-	  button's highlight.
+	- The button text is one line by wordwrap="false": 1.12 font strings have
+	  no maxLines. It has no name, as UIMenuButtonStretchTemplate's pieces
+	  have none (see SharedUIPanelTemplates.xml). The fonts are 1.12's
+	  inherits form of retail's style attribute.
 	- The label takes no mouse: 1.12 font strings have no scripts, so a cut-off
 	  binding name shows no tooltip.
+	- The row sets enableMouse: retail's OnEnter script turns mouse input on,
+	  and 1.12's does not.
 	- No NewFeature label, because nothing in this client is new.
 	-->
-	<Button name="KeyBindingFrameBindingButtonTemplate" inherits="UIPanelButtonTemplate" mixin="KeyBindingButtonMixin" virtual="true">
+	<Button name="KeyBindingFrameBindingButtonTemplate" inherits="UIMenuButtonStretchTemplate" mixin="KeyBindingButtonMixin" virtual="true">
 		<Layers>
 			<Layer level="OVERLAY">
-				<Texture parentKey="SelectedHighlight" file="Interface\Buttons\UI-Panel-Button-Highlight" alphaMode="ADD" setAllPoints="true" hidden="true">
-					<TexCoords left="0" right="0.625" top="0" bottom="0.6875"/>
+				<Texture parentKey="SelectedHighlight" file="Interface\Buttons\UI-Silver-Button-Select" alphaMode="ADD" hidden="true">
+					<Size x="160" y="20"/>
+					<Anchors>
+						<Anchor point="CENTER" x="0" y="-3"/>
+					</Anchors>
 				</Texture>
 			</Layer>
 		</Layers>
+		<ButtonText parentKey="Text" wordwrap="false">
+			<Size x="150" y="0"/>
+			<Anchors>
+				<Anchor point="CENTER" x="0" y="-1"/>
+			</Anchors>
+		</ButtonText>
 		<Scripts>
 			<OnLoad method="OnLoad"/>
 		</Scripts>

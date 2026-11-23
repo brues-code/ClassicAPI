@@ -2,10 +2,6 @@
 	<!--
 	Retail's Blizzard_Settings_Shared/Blizzard_CategoryList.xml.
 	Differences:
-	- The header band and the row highlight fill their frame: retail sizes
-	  them from atlases this client does not have (Blizzard_CategoryList.lua
-	  sets the art). The row highlight blends additively, as the quest log
-	  draws the same art.
 	- No NewFeature label on the rows: nothing in this client is new.
 	- The toggle's textures have no names. 1.12 names a `$parent` region under
 	  an unnamed frame after the nearest named ancestor, so every pooled row
@@ -40,7 +36,11 @@
 		<Size x="175" y="30"/>
 		<Layers>
 			<Layer level="ARTWORK">
-				<Texture parentKey="Background" setAllPoints="true"/>
+				<Texture parentKey="Background">
+					<Anchors>
+						<Anchor point="TOPLEFT"/>
+					</Anchors>
+				</Texture>
 			</Layer>
 			<Layer level="OVERLAY">
 				<FontString parentKey="Label" inherits="GameFontHighlightMedium" justifyH="LEFT">
@@ -67,7 +67,11 @@
 		</Frames>
 		<Layers>
 			<Layer level="BACKGROUND">
-				<Texture parentKey="Texture" alphaMode="ADD" setAllPoints="true"/>
+				<Texture parentKey="Texture">
+					<Anchors>
+						<Anchor point="CENTER"/>
+					</Anchors>
+				</Texture>
 			</Layer>
 			<Layer level="ARTWORK">
 				<FontString parentKey="Label" inherits="GameFontNormal" justifyH="LEFT">

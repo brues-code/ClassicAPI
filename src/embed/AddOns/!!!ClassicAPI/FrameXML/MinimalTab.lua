@@ -1,24 +1,9 @@
--- Backport of retail's Blizzard_SharedXML/Shared/Tabs/MinimalTab.lua.
---
--- The one difference: retail sets the three pieces from Options_Tab
--- atlases, which this client does not have. The tab is the tooltip backdrop
--- the Settings window frames its lists with, and UpdateAtlas colors it by
--- state: the selected tab is lighter with a gold edge, a hovered tab a little
--- lighter than the others.
-
-local TAB_BACKDROP =
-{
-	bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-	edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-	tile = true, tileSize = 16, edgeSize = 16,
-	insets = { left = 5, right = 5, top = 5, bottom = 5 },
-};
+-- Backport of retail's Blizzard_SharedXML/Shared/Tabs/MinimalTab.lua, verbatim.
 
 MinimalTabMixin = {};
 
 function MinimalTabMixin:OnLoad()
 	SelectableButtonMixin.OnLoad(self);
-	self:SetBackdrop(TAB_BACKDROP);
 
 	self.Text:SetText(self.tabText);
 	self:SetWidth(self.Text:GetStringWidth() + 40);
@@ -26,26 +11,32 @@ function MinimalTabMixin:OnLoad()
 	self:OnSelected(false);
 end
 
-function MinimalTabMixin:UpdateAtlas()
+function MinimalTabMixin:GetAtlas()
 	if self:IsSelected() then
-		self:SetBackdropColor(0.25, 0.25, 0.25, 0.9);
-		self:SetBackdropBorderColor(1, 0.82, 0);
-	elseif self.over then
-		self:SetBackdropColor(0.15, 0.15, 0.15, 0.8);
-		self:SetBackdropBorderColor(0.8, 0.8, 0.8);
-	else
-		self:SetBackdropColor(0, 0, 0, 0.5);
-		self:SetBackdropBorderColor(0.6, 0.6, 0.6);
+		return self.selectedLeftTexture, self.selectedRightTexture, self.selectedMiddleTexture;
 	end
+
+	if self.over then
+		return self.overLeftTexture, self.overRightTexture, self.overMiddleTexture;
+	end
+	return self.upLeftTexture, self.upRightTexture, self.upMiddleTexture;
+end
+
+function MinimalTabMixin:UpdateAtlas()
+	local leftAtlas, rightAtlas, middleAtlas = self:GetAtlas();
+	self.Left:SetAtlas(leftAtlas, TextureKitConstants.UseAtlasSize);
+	self.Right:SetAtlas(rightAtlas, TextureKitConstants.UseAtlasSize);
+	self.Middle:SetAtlas(middleAtlas, TextureKitConstants.UseAtlasSize);
 end
 
 function MinimalTabMixin:OnSelected(newSelected)
 	self:UpdateAtlas();
 
-	self.Text:SetPoint("CENTER", 0, 0);
 	if newSelected then
+		self.Text:SetPoint("BOTTOM", 0, 6);
 		self.Text:SetFontObject("GameFontHighlightSmall");
 	else
+		self.Text:SetPoint("BOTTOM", 0, 4);
 		self.Text:SetFontObject(self.over and "GameFontHighlightSmall" or "GameFontNormalSmall");
 	end
 end

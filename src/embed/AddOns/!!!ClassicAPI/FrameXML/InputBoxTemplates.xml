@@ -3,9 +3,6 @@
 	Two templates from retail's Blizzard_SharedXML/Shared/InputBox/InputBoxTemplates.xml.
 	- InputBoxTemplate is this client's own (1.12 FrameXML, same border art and
 	  geometry), so it is not redefined.
-	- The search and clear icons are atlases this client does not have. The
-	  search icon is the world map's magnifying glass, cropped square. The
-	  clear icon is the cancel button art, cropped to the button.
 	- SearchBoxTemplate has no narration mixin.
 	- Turtle's FrameXML has its own SearchBoxTemplate (a different box, which
 	  its UI uses), and the client keeps the first template registered under a
@@ -49,12 +46,11 @@
 		</KeyValues>
 		<Layers>
 			<Layer level="OVERLAY">
-				<Texture name="$parentSearchIcon" file="Interface\WorldMap\WorldMap-MagnifyingGlass" parentKey="searchIcon">
+				<Texture name="$parentSearchIcon" atlas="common-search-magnifyingglass" useAtlasSize="false" parentKey="searchIcon">
 					<Size x="10" y="10"/>
 					<Anchors>
 						<Anchor point="LEFT" x="1" y="-1"/>
 					</Anchors>
-					<TexCoords left="0.09375" right="0.90625" top="0.03125" bottom="0.84375"/>
 				</Texture>
 			</Layer>
 		</Layers>
@@ -66,12 +62,11 @@
 				</Anchors>
 				<Layers>
 					<Layer level="ARTWORK">
-						<Texture parentKey="Icon" file="Interface\Buttons\CancelButton-Up" alpha="0.5">
+						<Texture parentKey="Icon" atlas="common-search-clearbutton" useAtlasSize="false" alpha="0.5">
 							<Size x="10" y="10"/>
 							<Anchors>
 								<Anchor point="TOPLEFT" x="3" y="-3"/>
 							</Anchors>
-							<TexCoords left="0.21875" right="0.78125" top="0.21875" bottom="0.78125"/>
 						</Texture>
 					</Layer>
 				</Layers>

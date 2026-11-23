@@ -2,8 +2,6 @@
 	<!--
 	Retail's Blizzard_Settings_Shared/Blizzard_SettingsList.xml.
 	Differences:
-	- The divider under the title is a plain line: retail draws it with the
-	  Options_HorizontalDivider atlas (630x1), which this client does not have.
 	- No tutorial button: this client has no help plates.
 	-->
 	<Frame name="SettingsListTemplate" mixin="SettingsListMixin" virtual="true">
@@ -21,12 +19,10 @@
 								<Anchor point="TOPLEFT" x="7" y="-22"/>
 							</Anchors>
 						</FontString>
-						<Texture parentKey="Divider">
-							<Size x="630" y="1"/>
+						<Texture atlas="Options_HorizontalDivider" useAtlasSize="true">
 							<Anchors>
 								<Anchor point="TOP" y="-50"/>
 							</Anchors>
-							<Color r="0.5" g="0.5" b="0.5" a="0.6"/>
 						</Texture>
 					</Layer>
 				</Layers>

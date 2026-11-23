@@ -1,29 +1,14 @@
 -- Backport of retail's Blizzard_SharedXML/Shared/Slider/MinimalSlider.lua.
 --
--- Differences from the retail source:
---   - The bar is 1.12's OptionsSliderTemplate backdrop (see MinimalSlider.xml),
---     set here because the template has no atlas pieces.
---   - Thumb is the slider's thumb texture, read here: retail's template names
---     it with a parentKey.
---   - No narration: this client has none.
+-- The one difference from the retail source: no narration, because this
+-- client has none.
 
 local STEPPER_DISABLED_ALPHA = 0.5;
-
-local SLIDER_BACKDROP = {
-	bgFile = "Interface\\Buttons\\UI-SliderBar-Background",
-	edgeFile = "Interface\\Buttons\\UI-SliderBar-Border",
-	tile = true,
-	tileSize = 8,
-	edgeSize = 8,
-	insets = { left = 3, right = 3, top = 6, bottom = 6 },
-};
 
 MinimalSliderMixin = {};
 
 function MinimalSliderMixin:OnLoad()
 	self:SetObeyStepOnDrag(self.obeyStepOnDrag);
-	self:SetBackdrop(SLIDER_BACKDROP);
-	self.Thumb = self:GetThumbTexture();
 end
 
 function MinimalSliderMixin:Release()

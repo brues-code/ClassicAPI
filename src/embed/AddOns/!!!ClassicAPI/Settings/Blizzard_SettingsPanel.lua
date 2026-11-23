@@ -17,10 +17,6 @@
 --     UpdateWindow, so the window-update flag does nothing.
 --   - The Close, Apply and Defaults buttons are 1.12's UIPanelButtonTemplate,
 --     which has no Text key, so their labels go through SetText.
---   - Retail draws the frames around the category list and the settings with
---     the Options_InnerFrame atlas, which this client does not have. Each is a
---     frame with the tooltip backdrop the earlier Interface Options window
---     used, CategoryListBorder and ContainerBorder (see below).
 --   - Retail hides the Game and AddOns tabs while no addon has a category.
 --     Here the tabs show only while both sets have a category, so a game
 --     category registered without ClassicAPI's pages leaves no empty tab. A
@@ -50,30 +46,6 @@ local securecallfunction = securecallfunction;
 local pairs = pairs;
 
 local reservedVariables = {};
-
--- The art that stands in for retail's Options_InnerFrame atlas.
-local INNER_FRAME_BACKDROP =
-{
-	bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-	edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-	tile = true, tileSize = 16, edgeSize = 16,
-	insets = { left = 5, right = 5, top = 5, bottom = 5 },
-};
-
--- Retail's atlas sits at the window's (17, -64), 12 above the tops of the list
--- and the settings, which start at -76. The border keeps that 12 above them
--- and stands off their other edges by the backdrop's inset, so no row or
--- setting is drawn under the border.
-local function CreateInnerFrameBorder(panel, frame)
-	local border = CreateFrame("Frame", nil, panel);
-	border:SetFrameLevel(panel:GetFrameLevel());
-	border:SetPoint("TOPLEFT", frame, "TOPLEFT", -5, 12);
-	border:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 5, -5);
-	border:SetBackdrop(INNER_FRAME_BACKDROP);
-	border:SetBackdropColor(0, 0, 0, 0.5);
-	border:SetBackdropBorderColor(0.6, 0.6, 0.6);
-	return border;
-end
 
 -- Matches a similar function reused in multiple places
 local function EnumerateTaintedKeysTable(tableToIterate)
@@ -120,9 +92,6 @@ function SettingsPanelMixin:OnLoad()
 	self.tabsGroup:RegisterCallback(ButtonGroupBaseMixin.Event.Selected, self.OnTabSelected, self);
 
 	self:SetParent(GetAppropriateTopLevelParent());
-
-	self.CategoryListBorder = CreateInnerFrameBorder(self, self:GetCategoryList());
-	self.ContainerBorder = CreateInnerFrameBorder(self, self.Container);
 
 	local function closePanel()
 		self:Close();

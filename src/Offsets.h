@@ -4396,6 +4396,27 @@ enum Offsets {
     // registers those names over them.
     FUN_SCRIPT_BUTTON_SET_TEXT_FONT_OBJECT = 0x00780400,
     FUN_SCRIPT_BUTTON_GET_TEXT_FONT_OBJECT = 0x007804C0,
+    // The engine's state-texture setters and getters: Button table entries
+    // 23-30 (0x00879D00) and CheckButton table entries 2-5 (0x0087BF74, ctx
+    // VAR_CHECKBUTTON_METHOD_REGISTRY), docs/raw_methods.txt; benilla-re
+    // symbols/functions.tsv names each the same. Standard `int __fastcall
+    // (void *L)`. A setter takes a texture object or a file path at index 2;
+    // a getter pushes the state texture. `Frame::StateAtlas` re-registers the
+    // setters to accept an atlas name, as retail's do.
+    FUN_SCRIPT_BUTTON_SET_NORMAL_TEXTURE = 0x00781960,
+    FUN_SCRIPT_BUTTON_GET_NORMAL_TEXTURE = 0x00781BB0,
+    FUN_SCRIPT_BUTTON_SET_PUSHED_TEXTURE = 0x00781CC0,
+    FUN_SCRIPT_BUTTON_GET_PUSHED_TEXTURE = 0x00781CD0,
+    FUN_SCRIPT_BUTTON_SET_DISABLED_TEXTURE = 0x00781CE0,
+    FUN_SCRIPT_BUTTON_GET_DISABLED_TEXTURE = 0x00781CF0,
+    FUN_SCRIPT_BUTTON_SET_HIGHLIGHT_TEXTURE = 0x00781D00,
+    FUN_SCRIPT_BUTTON_GET_HIGHLIGHT_TEXTURE = 0x00781F40,
+    FUN_SCRIPT_CHECKBUTTON_GET_CHECKED_TEXTURE = 0x00799D60,
+    FUN_SCRIPT_CHECKBUTTON_SET_CHECKED_TEXTURE = 0x00799E50,
+    FUN_SCRIPT_CHECKBUTTON_GET_DISABLED_CHECKED_TEXTURE = 0x0079A050,
+    FUN_SCRIPT_CHECKBUTTON_SET_DISABLED_CHECKED_TEXTURE = 0x0079A140,
+    // CheckButton — 6 methods (table 0x0087BF74), ctx per docs/raw_methods.txt.
+    VAR_CHECKBUTTON_METHOD_REGISTRY = 0x00CF53B4,
     // The engine's `Button:RegisterForClicks(...)` (Button table entry 35) —
     // standard `int __fastcall(void *L)`. Loops `lua_isstring(L, i)` from
     // index 2 until the first non-string, SStrCmpI's each against exactly ten

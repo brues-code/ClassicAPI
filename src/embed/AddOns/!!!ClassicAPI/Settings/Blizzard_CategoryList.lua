@@ -1,10 +1,6 @@
 -- Backport of retail's Blizzard_Settings_Shared/Blizzard_CategoryList.lua.
 --
 -- Differences from the retail source:
---   - Retail draws the group headers, the selected and hovered rows and the
---     expand toggle with atlases this client does not have. The rows use the
---     quest log's title highlights, the toggle uses the client's plus and
---     minus buttons, and a group header is a dark band (see below).
 --   - No gamepad navigation and no narration: those systems do not exist
 --     here.
 --   - No "new" tags: nothing in this client is new, so the rows have no
@@ -22,11 +18,6 @@
 local securecallfunction = securecallfunction;
 
 local g_selectionBehavior;
-
--- The art that stands in for retail's Options_List_Active and
--- Options_List_Hover atlases.
-local ROW_SELECTED_TEXTURE = "Interface\\QuestFrame\\UI-QuestLogTitleHighlight";
-local ROW_HOVER_TEXTURE = "Interface\\QuestFrame\\UI-QuestTitleHighlight";
 
 local function CreateHeaderInitializer(label, headerIndex)
 	local initializer = CreateFromMixins(ScrollBoxFactoryInitializerMixin);
@@ -52,11 +43,10 @@ end
 
 SettingsCategoryListHeaderMixin = {};
 
--- Retail picks one of three Options_CategoryHeader atlases by headerIndex.
--- The band is the same for every header here.
 function SettingsCategoryListHeaderMixin:Init(initializer)
 	self.Label:SetText(initializer.data.label);
-	self.Background:SetColorTexture(0, 0, 0, 0.5);
+	local atlas = string.format("Options_CategoryHeader_%d", initializer.data.headerIndex);
+	self.Background:SetAtlas(atlas, TextureKitConstants.UseAtlasSize);
 end
 
 SettingsCategoryListButtonMixin = CreateFromMixins(ButtonStateBehaviorMixin);
@@ -72,7 +62,7 @@ end
 function SettingsCategoryListButtonMixin:UpdateStateInternal(selected)
 	if selected then
 		self.Label:SetFontObject("GameFontHighlight");
-		self.Texture:SetTexture(ROW_SELECTED_TEXTURE);
+		self.Texture:SetAtlas("Options_List_Active", TextureKitConstants.UseAtlasSize);
 		self.Texture:Show();
 	else
 		local initializer = self:GetElementData();
@@ -86,7 +76,7 @@ function SettingsCategoryListButtonMixin:UpdateStateInternal(selected)
 
 		self.Label:SetFontObject(fontObject);
 		if self.over then
-			self.Texture:SetTexture(ROW_HOVER_TEXTURE);
+			self.Texture:SetAtlas("Options_List_Hover", TextureKitConstants.UseAtlasSize);
 			self.Texture:Show();
 		else
 			self.Texture:Hide();
@@ -112,18 +102,16 @@ function SettingsCategoryListButtonMixin:SetSelected(selected)
 	self:UpdateStateInternal(selected);
 end
 
--- Retail's toggle atlases are an open and a closed arrow; here the toggle
--- is a minus when the category is expanded and a plus when it is not.
 function SettingsCategoryListButtonMixin:SetExpanded(expanded)
 	local initializer = self:GetElementData();
 	initializer.data.category:SetExpanded(expanded);
 
 	if expanded then
-		self.Toggle:SetNormalTexture("Interface\\Buttons\\UI-MinusButton-UP");
-		self.Toggle:SetPushedTexture("Interface\\Buttons\\UI-MinusButton-DOWN");
+		self.Toggle:SetNormalTexture("common-button-dropdown-open");
+		self.Toggle:SetPushedTexture("common-button-dropdown-openpressed");
 	else
-		self.Toggle:SetNormalTexture("Interface\\Buttons\\UI-PlusButton-UP");
-		self.Toggle:SetPushedTexture("Interface\\Buttons\\UI-PlusButton-DOWN");
+		self.Toggle:SetNormalTexture("common-button-dropdown-closed");
+		self.Toggle:SetPushedTexture("common-button-dropdown-closedpressed");
 	end
 end
 

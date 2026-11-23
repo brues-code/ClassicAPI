@@ -136,6 +136,8 @@ FrameXML\Scroll\ScrollTemplates.lua
 FrameXML\Scroll\ScrollTemplates.xml
 FrameXML\Scroll\TrimScrollBar.lua
 FrameXML\Scroll\TrimScrollBar.xml
+FrameXML\Scroll\MinimalScrollBar.lua
+FrameXML\Scroll\MinimalScrollBar.xml
 FrameXML\LayoutFrame.lua
 FrameXML\LayoutFrame.xml
 FrameXML\AnimationTemplates.xml

@@ -560,6 +560,7 @@ build instructions.
   - [`SecureButton_GetAttribute` / `SecureButton_GetUnit`](#securebutton_getattribute--securebutton_getunit)
   - [`PreClick` / `PostClick` button scripts](#preclick--postclick-button-scripts)
   - [`Button:RegisterForClicks("AnyUp" | "AnyDown" | ...)`](#buttonregisterforclicksanyup--anydown--)
+  - [Atlas names in the button texture setters](#atlas-names-in-the-button-texture-setters)
   - [`button:RegisterForMouse(...)`](#buttonregisterformouse)
   - [`GetClickFrame(name)`](#getclickframename)
 
@@ -13032,6 +13033,29 @@ a `RegisterForClicks` call in `OnLoad` replaces the attribute.
 ```xml
 <Button name="MyButton" registerForClicks="AnyUp"/>
 <Button name="MyRowButton" registerForClicks="LeftButtonUp, RightButtonUp"/>
+```
+
+### Atlas names in the button texture setters
+
+These methods accept the name of an atlas in place of a file path:
+
+- `Button:SetNormalTexture(asset)`
+- `Button:SetPushedTexture(asset)`
+- `Button:SetDisabledTexture(asset)`
+- `Button:SetHighlightTexture(asset [, blendMode])`
+- `CheckButton:SetCheckedTexture(asset)`
+- `CheckButton:SetDisabledCheckedTexture(asset)`
+
+If `asset` is a known atlas name, the state texture shows that atlas. The
+texture fills the button, as it does for a file path. `GetAtlas()` on the
+state texture returns the atlas name.
+
+A texture object, a file path, or an unknown name works as before.
+
+```lua
+toggle:SetNormalTexture("common-button-dropdown-open")
+toggle:SetPushedTexture("common-button-dropdown-openpressed")
+print(toggle:GetNormalTexture():GetAtlas()) -- common-button-dropdown-open
 ```
 
 ### `button:RegisterForMouse(...)`

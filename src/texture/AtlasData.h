@@ -380,6 +380,71 @@ constexpr Entry kAtlases[] = {
     {"common-dropdown-icon-next-disabled", "Interface\\Common\\CommonDropdown", 17, 17, 0.59765625f, 0.630859375f, 0.4765625f, 0.54296875f, 2634, 25736, false, false}, // interface/common/commondropdown
     {"common-dropdown-icon-back", "Interface\\Common\\CommonDropdown", 17, 17, 0.634765625f, 0.66796875f, 0.4765625f, 0.54296875f, 2634, 25735, false, false}, // interface/common/commondropdown
     {"common-dropdown-icon-back-disabled", "Interface\\Common\\CommonDropdown", 17, 17, 0.671875f, 0.705078125f, 0.4765625f, 0.54296875f, 2634, 25734, false, false}, // interface/common/commondropdown
+    // EMBEDDED ART, retail's own sheets. The Settings window (Settings\) and
+    // the shared controls it draws (MinimalTab, MinimalSlider, MinimalScrollBar,
+    // the search box, the panel close button) take their art from these
+    // _forever_ (1.60.1.70959) sheets. Each sheet ships whole at its retail
+    // game path, re-encoded as a palettized BLP (1.12's BLP reader has no DXT5
+    // converter), so every row is the member table's own rect on it, with no
+    // repacking. The sheets carry their own 1-pixel gaps; the 1-pixel tiling
+    // middles stretch, which draws the same as a repeat. The clear button is
+    // named on two sheets: this is the catalog shop's (the higher atlas ID,
+    // the sheet the magnifying glass above was cut from), cut alone into a
+    // small file because that sheet is 2048 wide. The track middle is also on
+    // a catalog shop sheet, with identical pixels.
+    {"Options_InnerFrame", "Interface\\OptionsFrame\\Options", 886, 618, 0.0009765625f, 0.8662109375f, 0.146484375f, 0.75f, 733, 18651, false, false}, // interface/optionsframe/options
+    {"Options_HorizontalDivider", "Interface\\OptionsFrame\\Options", 630, 1, 0.0009765625f, 0.6162109375f, 0.1435546875f, 0.14453125f, 733, 18647, false, false}, // interface/optionsframe/options
+    {"Options_List_Active", "Interface\\OptionsFrame\\Options", 187, 21, 0.58984375f, 0.7724609375f, 0.0009765625f, 0.021484375f, 733, 18648, false, false}, // interface/optionsframe/options
+    {"Options_List_Hover", "Interface\\OptionsFrame\\Options", 187, 21, 0.7744140625f, 0.95703125f, 0.0009765625f, 0.021484375f, 733, 18649, false, false}, // interface/optionsframe/options
+    {"Options_CategoryHeader_1", "Interface\\OptionsFrame\\Options", 199, 144, 0.0009765625f, 0.1953125f, 0.0009765625f, 0.1416015625f, 733, 18644, false, false}, // interface/optionsframe/options
+    {"Options_CategoryHeader_2", "Interface\\OptionsFrame\\Options", 199, 144, 0.3935546875f, 0.587890625f, 0.0009765625f, 0.1416015625f, 733, 18645, false, false}, // interface/optionsframe/options
+    {"Options_CategoryHeader_3", "Interface\\OptionsFrame\\Options", 199, 144, 0.197265625f, 0.3916015625f, 0.0009765625f, 0.1416015625f, 733, 18646, false, false}, // interface/optionsframe/options
+    {"Options_Tab_Left", "Interface\\OptionsFrame\\Options", 7, 23, 0.5927734375f, 0.599609375f, 0.05078125f, 0.0732421875f, 733, 18671, false, false}, // interface/optionsframe/options
+    {"Options_Tab_Middle", "Interface\\OptionsFrame\\Options", 1, 23, 0.58984375f, 0.5908203125f, 0.0234375f, 0.0458984375f, 733, 18672, false, false}, // interface/optionsframe/options
+    {"Options_Tab_Right", "Interface\\OptionsFrame\\Options", 7, 23, 0.5927734375f, 0.599609375f, 0.1025390625f, 0.125f, 733, 18673, false, false}, // interface/optionsframe/options
+    {"Options_Tab_Active_Left", "Interface\\OptionsFrame\\Options", 7, 26, 0.5927734375f, 0.599609375f, 0.0234375f, 0.048828125f, 733, 18666, false, false}, // interface/optionsframe/options
+    {"Options_Tab_Active_Middle", "Interface\\OptionsFrame\\Options", 1, 26, 0.58984375f, 0.5908203125f, 0.0478515625f, 0.0732421875f, 733, 18667, false, false}, // interface/optionsframe/options
+    {"Options_Tab_Active_Right", "Interface\\OptionsFrame\\Options", 7, 26, 0.5927734375f, 0.599609375f, 0.0751953125f, 0.1005859375f, 733, 18668, false, false}, // interface/optionsframe/options
+    {"checkbox-minimal", "Interface\\Common\\MinimalCheckbox", 30, 29, 0.015625f, 0.484375f, 0.015625f, 0.46875f, 1983, 18779, false, false}, // interface/common/minimalcheckbox
+    {"checkmark-minimal", "Interface\\Common\\MinimalCheckbox", 30, 29, 0.015625f, 0.484375f, 0.5f, 0.953125f, 1983, 18781, false, false}, // interface/common/minimalcheckbox
+    {"checkmark-minimal-disabled", "Interface\\Common\\MinimalCheckbox", 30, 29, 0.515625f, 0.984375f, 0.015625f, 0.46875f, 1983, 18780, false, false}, // interface/common/minimalcheckbox
+    {"Options_ListExpand_Left", "Interface\\Options\\OptionsExpandListButton", 12, 26, 0.0078125f, 0.1015625f, 0.65625f, 0.859375f, 1974, 18661, false, false}, // interface/options/optionsexpandlistbutton
+    {"Options_ListExpand_Right", "Interface\\Options\\OptionsExpandListButton", 28, 26, 0.0078125f, 0.2265625f, 0.4375f, 0.640625f, 1974, 18662, false, false}, // interface/options/optionsexpandlistbutton
+    {"Options_ListExpand_Right_Expanded", "Interface\\Options\\OptionsExpandListButton", 28, 26, 0.2421875f, 0.4609375f, 0.4375f, 0.640625f, 1974, 18659, false, false}, // interface/options/optionsexpandlistbutton
+    {"_Options_ListExpand_Middle", "Interface\\Options\\OptionsExpandListButton", 1, 26, 0.0f, 0.0078125f, 0.21875f, 0.421875f, 1974, 18660, true, false}, // interface/options/optionsexpandlistbutton
+    {"common-button-dropdown-closed", "Interface\\Common\\CommonButtonsDropdown", 22, 22, 0.015625f, 0.359375f, 0.015625f, 0.359375f, 1938, 18374, false, false}, // interface/common/commonbuttonsdropdown
+    {"common-button-dropdown-closedpressed", "Interface\\Common\\CommonButtonsDropdown", 22, 22, 0.390625f, 0.734375f, 0.015625f, 0.359375f, 1938, 18375, false, false}, // interface/common/commonbuttonsdropdown
+    {"common-button-dropdown-open", "Interface\\Common\\CommonButtonsDropdown", 22, 22, 0.015625f, 0.359375f, 0.390625f, 0.734375f, 1938, 18376, false, false}, // interface/common/commonbuttonsdropdown
+    {"common-button-dropdown-openpressed", "Interface\\Common\\CommonButtonsDropdown", 22, 22, 0.390625f, 0.734375f, 0.390625f, 0.734375f, 1938, 18377, false, false}, // interface/common/commonbuttonsdropdown
+    {"Minimal_SliderBar_Left", "Interface\\Buttons\\MinimalSliderBar", 11, 17, 0.4375f, 0.78125f, 0.3203125f, 0.453125f, 1973, 18655, false, false}, // interface/buttons/minimalsliderbar
+    {"Minimal_SliderBar_Right", "Interface\\Buttons\\MinimalSliderBar", 11, 17, 0.03125f, 0.375f, 0.484375f, 0.6171875f, 1973, 18656, false, false}, // interface/buttons/minimalsliderbar
+    {"_Minimal_SliderBar_Middle", "Interface\\Buttons\\MinimalSliderBar", 1, 17, 0.0f, 0.03125f, 0.0078125f, 0.140625f, 1973, 18657, true, false}, // interface/buttons/minimalsliderbar
+    {"Minimal_SliderBar_Button", "Interface\\Buttons\\MinimalSliderBar", 20, 19, 0.03125f, 0.65625f, 0.15625f, 0.3046875f, 1973, 18652, false, false}, // interface/buttons/minimalsliderbar
+    {"Minimal_SliderBar_Button_Left", "Interface\\Buttons\\MinimalSliderBar", 11, 19, 0.03125f, 0.375f, 0.3203125f, 0.46875f, 1973, 18653, false, false}, // interface/buttons/minimalsliderbar
+    {"Minimal_SliderBar_Button_Right", "Interface\\Buttons\\MinimalSliderBar", 9, 18, 0.03125f, 0.3125f, 0.6328125f, 0.7734375f, 1973, 18654, false, false}, // interface/buttons/minimalsliderbar
+    {"RedButton-Exit", "Interface\\Buttons\\RedButtons", 18, 19, 0.1640625f, 0.3046875f, 0.015625f, 0.3125f, 2196, 20574, false, false}, // interface/buttons/redbuttons
+    {"RedButton-exit-pressed", "Interface\\Buttons\\RedButtons", 18, 19, 0.1640625f, 0.3046875f, 0.671875f, 0.96875f, 2196, 20576, false, false}, // interface/buttons/redbuttons
+    {"RedButton-Exit-Disabled", "Interface\\Buttons\\RedButtons", 18, 19, 0.1640625f, 0.3046875f, 0.34375f, 0.640625f, 2196, 20575, false, false}, // interface/buttons/redbuttons
+    {"RedButton-Highlight", "Interface\\Buttons\\RedButtons", 18, 19, 0.4765625f, 0.6171875f, 0.015625f, 0.3125f, 2196, 20580, false, false}, // interface/buttons/redbuttons
+    {"minimal-scrollbar-arrow-top", "Interface\\Buttons\\MinimalScrollbarProportional", 17, 11, 0.6875f, 0.8203125f, 0.015625f, 0.1875f, 1921, 18212, false, false}, // interface/buttons/minimalscrollbarproportional
+    {"minimal-scrollbar-arrow-top-over", "Interface\\Buttons\\MinimalScrollbarProportional", 17, 11, 0.390625f, 0.5234375f, 0.21875f, 0.390625f, 1921, 18229, false, false}, // interface/buttons/minimalscrollbarproportional
+    {"minimal-scrollbar-arrow-top-down", "Interface\\Buttons\\MinimalScrollbarProportional", 17, 11, 0.8359375f, 0.96875f, 0.015625f, 0.1875f, 1921, 18228, false, false}, // interface/buttons/minimalscrollbarproportional
+    {"minimal-scrollbar-arrow-bottom", "Interface\\Buttons\\MinimalScrollbarProportional", 17, 11, 0.2421875f, 0.375f, 0.8125f, 0.984375f, 1921, 18211, false, false}, // interface/buttons/minimalscrollbarproportional
+    {"minimal-scrollbar-arrow-bottom-over", "Interface\\Buttons\\MinimalScrollbarProportional", 17, 11, 0.5390625f, 0.671875f, 0.015625f, 0.1875f, 1921, 18227, false, false}, // interface/buttons/minimalscrollbarproportional
+    {"minimal-scrollbar-arrow-bottom-down", "Interface\\Buttons\\MinimalScrollbarProportional", 17, 11, 0.390625f, 0.5234375f, 0.015625f, 0.1875f, 1921, 18226, false, false}, // interface/buttons/minimalscrollbarproportional
+    {"minimal-scrollbar-track-top", "Interface\\Buttons\\MinimalScrollbarProportional", 8, 8, 0.1640625f, 0.2265625f, 0.609375f, 0.734375f, 1921, 18216, false, false}, // interface/buttons/minimalscrollbarproportional
+    {"minimal-scrollbar-track-bottom", "Interface\\Buttons\\MinimalScrollbarProportional", 8, 8, 0.0859375f, 0.1484375f, 0.765625f, 0.890625f, 1921, 18215, false, false}, // interface/buttons/minimalscrollbarproportional
+    {"!minimal-scrollbar-track-middle", "Interface\\Buttons\\MinimalScrollbarVertical", 8, 1, 0.015625f, 0.140625f, 0.0f, 0.0009765625f, 1922, 18217, false, true}, // interface/buttons/minimalscrollbarvertical
+    {"minimal-scrollbar-small-thumb-top", "Interface\\Buttons\\MinimalScrollbarSmallProportional", 8, 8, 0.3125f, 0.4375f, 0.84375f, 0.96875f, 2404, 23501, false, false}, // interface/buttons/minimalscrollbarsmallproportional
+    {"minimal-scrollbar-small-thumb-bottom", "Interface\\Buttons\\MinimalScrollbarSmallProportional", 8, 8, 0.609375f, 0.734375f, 0.484375f, 0.609375f, 2404, 23498, false, false}, // interface/buttons/minimalscrollbarsmallproportional
+    {"minimal-scrollbar-small-thumb-top-over", "Interface\\Buttons\\MinimalScrollbarSmallProportional", 8, 8, 0.46875f, 0.59375f, 0.84375f, 0.96875f, 2404, 23500, false, false}, // interface/buttons/minimalscrollbarsmallproportional
+    {"minimal-scrollbar-small-thumb-bottom-over", "Interface\\Buttons\\MinimalScrollbarSmallProportional", 8, 8, 0.3125f, 0.4375f, 0.6875f, 0.8125f, 2404, 23497, false, false}, // interface/buttons/minimalscrollbarsmallproportional
+    {"minimal-scrollbar-small-thumb-top-down", "Interface\\Buttons\\MinimalScrollbarSmallProportional", 8, 8, 0.46875f, 0.59375f, 0.6875f, 0.8125f, 2404, 23499, false, false}, // interface/buttons/minimalscrollbarsmallproportional
+    {"minimal-scrollbar-small-thumb-bottom-down", "Interface\\Buttons\\MinimalScrollbarSmallProportional", 8, 8, 0.765625f, 0.890625f, 0.484375f, 0.609375f, 2404, 23496, false, false}, // interface/buttons/minimalscrollbarsmallproportional
+    {"minimal-scrollbar-small-thumb-middle", "Interface\\Buttons\\MinimalScrollbarSmallVertical", 8, 715, 0.484375f, 0.609375f, 0.0009765625f, 0.69921875f, 2403, 23486, false, false}, // interface/buttons/minimalscrollbarsmallvertical
+    {"minimal-scrollbar-small-thumb-middle-over", "Interface\\Buttons\\MinimalScrollbarSmallVertical", 8, 715, 0.328125f, 0.453125f, 0.0009765625f, 0.69921875f, 2403, 23485, false, false}, // interface/buttons/minimalscrollbarsmallvertical
+    {"minimal-scrollbar-small-thumb-middle-down", "Interface\\Buttons\\MinimalScrollbarSmallVertical", 8, 715, 0.171875f, 0.296875f, 0.0009765625f, 0.69921875f, 2403, 23484, false, false}, // interface/buttons/minimalscrollbarsmallvertical
+    {"common-search-clearbutton", "Interface\\Common\\CommonSearchClearButton", 20, 20, 0.03125f, 0.65625f, 0.03125f, 0.65625f, 3172, 11710, false, false}, // interface/shop/catalogshop
 };
 
 constexpr int kAtlasCount = sizeof(kAtlases) / sizeof(kAtlases[0]);

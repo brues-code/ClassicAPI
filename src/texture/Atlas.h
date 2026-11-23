@@ -87,6 +87,10 @@ bool ToSprite(void *region, float corners[8]);
 // The atlas `region` shows, or null (the same test as Shows).
 const Info *Current(void *region);
 
+// `texture:SetAtlas` itself, for engine code that builds its stack:
+// (texture, atlas [, useAtlasSize, filterMode, resetTexCoords]).
+int __fastcall SetAtlas(void *L);
+
 // Records an unresolved atlas name for `_classicapi_DumpAtlasMisses()`. This is
 // how the built-in table grows: load a real addon, read what it actually asked
 // for, bind those names instead of guessing at thousands.
