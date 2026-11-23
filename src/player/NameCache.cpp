@@ -33,9 +33,7 @@
 //       tab-separated (a realm can hold spaces, and is empty for a player
 //       on this realm):
 //           `guid  name  realm  classID  raceID  sex`
-//       Loaded once the realm name is available post-login (migrating
-//       the v4 file in on first load, and deleting it once v5 is saved;
-//       see `V4CachePath`). Saved when
+//       Loaded once the realm name is available post-login. Saved when
 //       (a) a recent write hasn't been flushed AND (b) `kFlushIntervalMs`
 //       has elapsed since the prior save, OR (c) `Flush()` is called
 //       (/reload, /logout, process exit).
@@ -75,6 +73,7 @@
 #include "dbc/Names.h"
 #include "guid/Guid.h"
 #include "net/PacketDispatch.h"
+#include "os/File.h"
 #include "settings/Account.h"
 #include "settings/Paths.h"
 #include "unit/Identity.h"
@@ -84,7 +83,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <fstream>
 #include <istream>
 #include <ostream>
 #include <sstream>
@@ -148,8 +146,6 @@ bool g_enabled = false;
 std::string g_loadedPath;
 bool g_dirty = false;
 uint32_t g_lastSaveTick = 0;
-// The v4 file this session migrated from, deleted once the v5 file is saved.
-std::string g_migratedV4Path;
 // Set once the process is exiting (`Shutdown`). The engine's exit handler is
 // about to free its name cache, or a fatal exit skipped that handler and left
 // the cache in a crashing process. Nothing walks the cache after that.
@@ -169,18 +165,24 @@ const char *ReadRealmList() {
         static_cast<uintptr_t>(Offsets::FUN_CVAR_REALM_LIST))(0);
 }
 
-// Filesystem-safe file-name part. Any character Windows rejects in a path —
-// or that could surprise, like the apostrophe in "N'Zoth" or a realmlist's
-// ":port" — becomes '_'. Deterministic, so a realm always maps to the same
+// A file-name part that keeps the name, UTF-8 and all (the path is opened
+// through Os::File): a byte Windows rejects in a file name (control
+// characters, `<>:"/\|?*`, such as a realmlist's ":port"), and the `%` and
+// `@` this format uses itself, becomes `%XX`. Every other byte stays. Two
+// different names never map to the same part, so two realms never share a
 // file.
-std::string SanitizeComponent(const char *s) {
+std::string EscapeComponent(const char *s) {
+    static constexpr char kHex[] = "0123456789ABCDEF";
     std::string out;
     for (const char *p = s; p != nullptr && *p; ++p) {
-        const char c = *p;
-        const bool safe = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
-                          (c >= '0' && c <= '9') || c == '.' || c == '-' ||
-                          c == '_';
-        out.push_back(safe ? c : '_');
+        const auto c = static_cast<unsigned char>(*p);
+        if (c < 0x20 || std::strchr("<>:\"/\\|?*%@", c) != nullptr) {
+            out += '%';
+            out += kHex[c >> 4];
+            out += kHex[c & 0xF];
+        } else {
+            out += static_cast<char>(c);
+        }
     }
     return out;
 }
@@ -188,7 +190,7 @@ std::string SanitizeComponent(const char *s) {
 // Shared, server-specific cache path:
 //   WTF\ClassicAPI\NameCache-<realm>@<realmList>.txt
 // Not under Account\, so alts on different accounts of the same server
-// share one pool. SanitizeComponent never writes '@', so the two names
+// share one pool. EscapeComponent never writes '@', so the two names
 // can't run into each other. Empty (defer) until both realmlist + realm
 // are known.
 std::string CachePath() {
@@ -200,29 +202,10 @@ std::string CachePath() {
         return {};
     std::string out = kCacheDir;
     out += "\\NameCache-";
-    out += SanitizeComponent(realm.c_str());
+    out += EscapeComponent(realm.c_str());
     out += '@';
-    out += SanitizeComponent(realmList);
+    out += EscapeComponent(realmList);
     out += ".txt";
-    return out;
-}
-
-// The v4 file the v5 one replaced, for the one-time migration:
-//   WTF\ClassicAPI\<realmList>\<realm>\ClassicAPI_NameCache.txt
-// Built exactly as v4 wrote it, so it matches the file already on disk.
-std::string V4CachePath() {
-    const char *realmList = ReadRealmList();
-    if (realmList == nullptr || realmList[0] == '\0')
-        return {};
-    const std::string realm = Settings::Paths::RealmName();
-    if (realm.empty())
-        return {};
-    std::string out = kCacheDir;
-    out += '\\';
-    out += SanitizeComponent(realmList);
-    out += '\\';
-    out += SanitizeComponent(realm.c_str());
-    out += "\\ClassicAPI_NameCache.txt";
     return out;
 }
 
@@ -459,46 +442,6 @@ void LoadFromStream(std::istream &file) {
     }
 }
 
-// Parses v4 cache lines (`name\tguid\tclass\trace\tsex`) for the one-time
-// migration. v4 kept no realm, so every entry is a player on this realm. Names
-// hold no whitespace, so the whitespace split v4 itself used is safe here.
-void LoadV4FromStream(std::istream &file) {
-    std::string line;
-    while (std::getline(file, line)) {
-        if (line.empty() || line[0] == '#')
-            continue;
-
-        std::istringstream is(line);
-        std::string name, guidStr, classStr, raceStr, sexStr;
-        if (!(is >> name >> guidStr >> classStr >> raceStr >> sexStr))
-            continue;
-
-        const uint64_t guid = std::strtoull(guidStr.c_str(), nullptr, 16);
-        const uint32_t classID = static_cast<uint32_t>(std::strtoul(classStr.c_str(), nullptr, 10));
-        const uint32_t raceID = static_cast<uint32_t>(std::strtoul(raceStr.c_str(), nullptr, 10));
-        const uint32_t sex = static_cast<uint32_t>(std::strtoul(sexStr.c_str(), nullptr, 10));
-        if (guid == 0 || classID > kMaxClassID || raceID > kMaxRaceID || sex > kMaxSex)
-            continue;
-        Upsert(guid, SanitizeName(name.c_str()), std::string(), classID, raceID, sex);
-    }
-}
-
-// Deletes the migrated v4 file, then its `<realm>` and `<realmList>` folders.
-// RemoveDirectory only removes an empty folder, so a server whose other
-// realms have not migrated yet keeps its folder.
-void DeleteMigratedV4() {
-    if (g_migratedV4Path.empty())
-        return;
-    DeleteFileA(g_migratedV4Path.c_str());
-    std::string dir = g_migratedV4Path;
-    for (int level = 0; level < 2; ++level) {
-        dir.erase(dir.find_last_of('\\'));
-        if (!RemoveDirectoryA(dir.c_str()))
-            break;
-    }
-    g_migratedV4Path.clear();
-}
-
 // One cache line. GUID first since it's the key. Variable-width hex — 1-8
 // digits for player GUIDs (the high dword is always 0), up to 16 if a
 // non-player GUID ever lands here.
@@ -514,30 +457,18 @@ void WriteLine(std::ostream &out, uint64_t guid, const Entry &e) {
 void SaveCache() {
     if (g_loadedPath.empty())
         return;
-    const std::string &path = g_loadedPath;
-    // WoW doesn't make `WTF\ClassicAPI\`, and the ofstream open below
-    // won't either. On an existing directory this is a no-op.
-    CreateDirectoryA(kCacheDir, nullptr);
-    const std::string tmp = path + ".tmp";
-    {
-        std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
-        if (!out.is_open())
-            return;
-        out << "# ClassicAPI name cache v5 (per-realm, shared across accounts)\n";
-        out << "# guid\tname\trealm\tclassID\traceID\tsex\n";
-        for (const auto &kv : g_entries)
-            WriteLine(out, kv.first, kv.second);
-        auto write = [&out](uint64_t guid, const Entry &e) { WriteLine(out, guid, e); };
-        ForEachEngineEntry(write);
-        if (!out)
-            return;
-    }
-    std::remove(path.c_str());
-    if (std::rename(tmp.c_str(), path.c_str()) != 0)
+    std::ostringstream out;
+    out << "# ClassicAPI name cache v5 (per-realm, shared across accounts)\n";
+    out << "# guid\tname\trealm\tclassID\traceID\tsex\n";
+    for (const auto &kv : g_entries)
+        WriteLine(out, kv.first, kv.second);
+    auto write = [&out](uint64_t guid, const Entry &e) { WriteLine(out, guid, e); };
+    ForEachEngineEntry(write);
+    // Os::File makes `WTF\ClassicAPI\`, which WoW doesn't.
+    if (!Os::File::Write(g_loadedPath, out.str()))
         return; // stays dirty, so the next flush tries again
     g_dirty = false;
     g_lastSaveTick = Time::Clock::NowMs();
-    DeleteMigratedV4();
 }
 
 // Makes the store hold the current realm's cache: loads it on first use, and
@@ -553,24 +484,12 @@ void LoadCacheIfNeeded() {
     g_entries.clear();
     g_byName.clear();
     g_dirty = false;
-    g_migratedV4Path.clear();
     g_loadedPath = path;
 
-    std::ifstream file(path);
-    if (file.is_open()) {
+    std::string text;
+    if (Os::File::Read(path, text)) {
+        std::istringstream file(text);
         LoadFromStream(file);
-        return;
-    }
-
-    // No v5 file yet. One-time migration: seed from the v4 file if it
-    // exists, then mark dirty so the next save writes v5. That save
-    // deletes the v4 file.
-    const std::string v4Path = V4CachePath();
-    std::ifstream v4File(v4Path);
-    if (v4File.is_open()) {
-        LoadV4FromStream(v4File);
-        g_dirty = true;
-        g_migratedV4Path = v4Path;
     }
 }
 
