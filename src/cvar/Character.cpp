@@ -12,17 +12,26 @@
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
 // Character-scoped cvars, on 3.3.5's design (AccountData.cpp, GameUI.cpp):
-// CVAR_SCOPE_CHARACTER cvars are saved with CVar::SaveAll(file, 0x20) into
-// the per-character section's `config-cache.wtf` and loaded from it with
-// CVar::Load before VARIABLES_LOADED. 1.12 already has that section — record
-// 1 of the account-data table 0x0085DCF0, same file name — but nothing in
-// 1.12 reads or writes the file, so the file is ours. The engine's server
-// sync still sees it: at login it hashes section 1 and uploads it when the
-// server's copy differs, as it does sections 2-7.
+// CVAR_SCOPE_CHARACTER cvars live in account-data section 1, the character's
+// `config-cache.wtf`. 3.3.5 reads them with LoadAccountData and writes them
+// with SaveAccountData. 1.12 has the same section and the same two calls
+// (FUN_ACCOUNT_DATA_READ / FUN_ACCOUNT_DATA_WRITE), but no 1.12 code uses
+// section 1, so the file is ours. All file access goes through those two
+// calls:
+//   - the path is the engine's own (OpenAccountDataFile: the realmName cvar,
+//     the selected character, the UTF-8 name opened through CreateFileW). A
+//     path built here and opened through the ANSI code page names a
+//     different folder for a character or realm name outside ASCII, and
+//     the saved values were never found again.
+//   - the read waits for the server sync, as the engine's own section readers
+//     (layout, bindings, macros, chat) do, so a newer server copy is what
+//     gets applied.
+//   - the write arms the section's save timer, which uploads the file and
+//     stores its digest. Then the next sync sees the file as up to date.
 //
-// The file is read the way the engine reads Config.wtf (FUN_CVAR_LOAD_FILE):
-// the whole file through Storm's reader, split into lines, each `SET` line
-// tokenized with the console `set` command's delimiters.
+// The file is parsed the way the engine reads Config.wtf (FUN_CVAR_LOAD_FILE):
+// lines, then each `SET` line tokenized with the console `set` command's
+// delimiters.
 //
 // Where 3.3.5 saves at logout, this saves on every accepted change. 1.12
 // writes Config.wtf on the world→glue path and at process exit, and a quit
@@ -31,23 +40,16 @@
 //
 // Config.wtf: the registrar forces CVAR_FLAG_ARCHIVE on at every call, and
 // FUN_CVAR_CONFIG_WRITE writes only flagged cvars, so the bit is cleared
-// after each registration. A line an older build wrote to Config.wtf still
-// creates the cvar at start-up, but the registration pass overwrites its
-// value and the next config write drops the line.
+// after each registration.
 
 #include "cvar/Character.h"
 
-#include "Common.h"
-#include "Game.h"
 #include "Offsets.h"
-#include "settings/Paths.h"
-#include "storm/File.h"
-#include "storm/Memory.h"
+#include "os/File.h"
 #include "storm/String.h"
 
 #include <cstdint>
 #include <cstring>
-#include <fstream>
 #include <memory>
 #include <string>
 #include <vector>
@@ -55,6 +57,11 @@
 namespace CVar::Character {
 
 namespace {
+
+// Both section calls and their callback are __fastcall with one stack
+// argument (`ret 4`); see Offsets.h.
+using SectionCallback = void(__fastcall *)(void *localFile, void *cacheFile, void *arg);
+using SectionCall_t = void(__fastcall *)(uint32_t section, SectionCallback callback, void *arg);
 
 struct Entry {
     const char *name;
@@ -66,28 +73,26 @@ struct Entry {
 // Heap entries: the engine keeps each one's address as the cvar's userData.
 std::vector<std::unique_ptr<Entry>> g_entries;
 
-// Set while registration applies values; the file is written only for
-// changes made afterwards.
+// Set while values are applied; the file is written only for changes made
+// outside that.
 bool g_applying = false;
 
-std::string FilePath() {
-    return Settings::Paths::CharacterFile(
-        reinterpret_cast<const char *>(Offsets::VAR_STR_CONFIG_CACHE_FILE));
+// Set by ApplySaved; tells Register whether the read ran at once or waits for
+// the sync.
+bool g_applied = false;
+
+void Section(uintptr_t fn, SectionCallback callback, void *arg) {
+    reinterpret_cast<SectionCall_t>(fn)(Offsets::ACCOUNT_DATA_SECTION_CHARACTER_CONFIG, callback,
+                                        arg);
 }
 
-// The value of `name`'s `SET name "value"` line in the character's file.
-bool FindSaved(const char *name, std::string &out) {
-    const std::string path = FilePath();
-    void *buf = nullptr;
-    if (path.empty() || !Storm::File::Read(path.c_str(), &buf, nullptr, 1))
-        return false;
-
+// The value of `name`'s `SET name "value"` line in `text`.
+bool FindSaved(const std::string &text, const char *name, std::string &out) {
     const char *lineDelims = reinterpret_cast<const char *>(Offsets::VAR_MACRO_LINE_DELIMS);
     const char *setDelims = reinterpret_cast<const char *>(Offsets::VAR_CONSOLE_SET_DELIMS);
-    bool found = false;
-    const char *cursor = static_cast<const char *>(buf);
+    const char *cursor = text.c_str();
     char line[0x80]; // the line length FUN_CVAR_LOAD_FILE keeps
-    while (!found && cursor != nullptr && *cursor != '\0') {
+    while (cursor != nullptr && *cursor != '\0') {
         Storm::Tokenize(&cursor, line, sizeof line, lineDelims);
         if (_strnicmp(line, "SET ", 4) != 0)
             continue;
@@ -98,38 +103,72 @@ bool FindSaved(const char *name, std::string &out) {
             continue;
         Storm::Tokenize(&p, token, sizeof token, setDelims);
         out = token;
-        found = true;
+        return true;
     }
-    Storm::Free(buf, __FILE__, __LINE__);
-    return found;
+    return false;
 }
 
-// Rewrites the file from the live values, with `changed` about to take
-// `newValue`. A value equal to its default (case-blind) is left out, as
-// Config.wtf's writer does.
-void Save(const Entry *changed, const char *newValue) {
-    const std::string path = FilePath();
-    if (path.empty())
+// Sets `value` without writing the file; nothing when it already holds it.
+void Apply(Factory::Handle cvar, const char *value) {
+    const char *current = Factory::GetString(cvar);
+    if (value == nullptr || (current != nullptr && std::strcmp(current, value) == 0))
         return;
-    Common::EnsureParentDirs(path.c_str());
-    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    g_applying = true;
+    Factory::SetString(cvar, value, /*persist*/ false);
+    g_applying = false;
+}
+
+// The section's read callback: every registered cvar takes its saved value,
+// or its default when the file has none. It runs at once when the section is
+// not pending (/reload) and from the sync otherwise, and the engine keeps it
+// stored afterwards, so a later server copy is applied too.
+void __fastcall ApplySaved(void * /*localFile*/, void *cacheFile, void * /*arg*/) {
+    g_applied = true;
+    std::string text;
+    Os::File::ReadOpen(cacheFile, text);
     for (const auto &e : g_entries) {
         if (e->cvar == nullptr)
             continue;
-        const char *value = e.get() == changed ? newValue : Factory::GetString(e->cvar);
-        const char *def = Factory::GetDefaultString(e->cvar);
-        if (value == nullptr || *value == '\0' || (def != nullptr && _stricmp(value, def) == 0))
-            continue;
-        out << "SET " << e->name << " \"" << value << "\"\n";
+        std::string saved;
+        Apply(e->cvar, FindSaved(text, e->name, saved) ? saved.c_str()
+                                                       : Factory::GetDefaultString(e->cvar));
     }
 }
 
+struct Change {
+    const Entry *entry;
+    const char *newValue;
+};
+
+// The section's writer: the file from the live values, with the changed cvar
+// about to take its new value. A value equal to its default (case-blind) is
+// left out, as Config.wtf's writer does.
+void __fastcall WriteValues(void * /*localFile*/, void *cacheFile, void *arg) {
+    const auto *change = static_cast<const Change *>(arg);
+    std::string text;
+    for (const auto &e : g_entries) {
+        if (e->cvar == nullptr)
+            continue;
+        const char *value =
+            e.get() == change->entry ? change->newValue : Factory::GetString(e->cvar);
+        const char *def = Factory::GetDefaultString(e->cvar);
+        if (value == nullptr || *value == '\0' || (def != nullptr && _stricmp(value, def) == 0))
+            continue;
+        text += std::string("SET ") + e->name + " \"" + value + "\"\r\n";
+    }
+    Os::File::WriteOpen(cacheFile, text);
+}
+
+// While the section is pending the engine drops the write, as it does for its
+// own sections; the sync's read then applies the file's values.
 int __fastcall OnChange(Factory::Handle cvar, const char *prevValue, const char *newValue,
                         void *userData) {
     const auto *e = static_cast<const Entry *>(userData);
     const int accepted = e->callback ? e->callback(cvar, prevValue, newValue, e->userData) : 1;
-    if (accepted && !g_applying)
-        Save(e, newValue);
+    if (accepted && !g_applying) {
+        Change change{e, newValue};
+        Section(Offsets::FUN_ACCOUNT_DATA_WRITE, &WriteValues, &change);
+    }
     return accepted;
 }
 
@@ -155,18 +194,20 @@ Factory::Handle Register(const char *name, const char *help, int category,
 
     g_applying = true;
     e->cvar = Factory::Register(name, help, category, defaultValue, &OnChange, e);
-    if (e->cvar != nullptr) {
-        auto &flags = *reinterpret_cast<uint32_t *>(static_cast<uint8_t *>(e->cvar) +
-                                                    Offsets::OFF_CVAR_FLAGS);
-        flags &= ~static_cast<uint32_t>(Offsets::CVAR_FLAG_ARCHIVE);
-
-        std::string saved;
-        const char *value = FindSaved(name, saved) ? saved.c_str() : defaultValue;
-        const char *current = Factory::GetString(e->cvar);
-        if (value != nullptr && (current == nullptr || std::strcmp(current, value) != 0))
-            Factory::SetString(e->cvar, value, /*persist*/ false);
-    }
     g_applying = false;
+    if (e->cvar == nullptr)
+        return nullptr;
+
+    auto &flags = *reinterpret_cast<uint32_t *>(static_cast<uint8_t *>(e->cvar) +
+                                                Offsets::OFF_CVAR_FLAGS);
+    flags &= ~static_cast<uint32_t>(Offsets::CVAR_FLAG_ARCHIVE);
+
+    g_applied = false;
+    Section(Offsets::FUN_ACCOUNT_DATA_READ, &ApplySaved, nullptr);
+    // At login the section waits for the sync. Until then the cvar holds its
+    // default, so the next character never inherits the last one's value.
+    if (!g_applied)
+        Apply(e->cvar, defaultValue);
     return e->cvar;
 }
 

@@ -250,13 +250,36 @@ enum Offsets {
     CALL_SV_READ_ACCOUNT_EXISTS = 0x0051F4A2,
     CALL_SV_READ_CHAR_EXISTS = 0x0051F4F0,
     CALL_SV_READ_CHAR_NO_REALM_EXISTS = 0x0051F529,
-    // "config-cache.wtf" — the file of account-data sections 0 (account) and
-    // 1 (character): the +8 name pointer of records 0x0085DCF0 and 0x0085DD1C
-    // in the 44-byte section table (read from the image). 1.12 lists both
-    // sections in its server sync but never reads or writes the file; 3.3.5
-    // keeps its character-scoped cvars in section 1
-    // (CVar::SaveAll(file, CVAR_SCOPE_CHARACTER)).
-    VAR_STR_CONFIG_CACHE_FILE = 0x0085DEB0,
+    // Account data: eight sections of player files, kept both under
+    // WTF\Account and on the server (table 0x0085DCF0, 44-byte records).
+    // Every section starts pending at world entry (FUN_005AF840, called at
+    // 0x004015E7, before the interface initializer) and stays pending until
+    // the server sync (SMSG_ACCOUNT_DATA_MD5 0x209, then SMSG_UPDATE_ACCOUNT_DATA
+    // 0x20C when the server copy is newer, which overwrites the file).
+    // Section 1 is the character's `config-cache.wtf`: listed in the sync, but
+    // no 1.12 code reads or writes it. 3.3.5 keeps its character-scoped cvars
+    // there (LoadAccountData / SaveAccountData of
+    // ACCOUNT_DATA_CHARACTER_CONFIG).
+    ACCOUNT_DATA_SECTION_CHARACTER_CONFIG = 1,
+    // ReadAccountData — `void __fastcall(uint32_t section, Callback, void
+    // *arg)`, `ret 4`. While the section is pending it stores the callback and
+    // arg, and the sync runs it once the section arrives (CheckAccountData
+    // 0x005AFACA, the 0x20C handler 0x005AFD19); the stored callback stays
+    // set. Otherwise it opens the section's files for reading through
+    // OpenAccountDataFile (0x005AF6B0: the UTF-8 path
+    // WTF\Account\<account>\<realmName cvar>\<character>\<file>, opened with
+    // FUN_OS_CREATE_FILE) and calls it at once. Callback: `void
+    // __fastcall(HANDLE localFile, HANDLE cacheFile, void *arg)`, `ret 4`; a
+    // file that does not open is -1 (section 1 has no local file, so that one
+    // is always -1). Disassembled; LayoutCacheRead 0x00490380 is an engine
+    // callback of the same shape.
+    FUN_ACCOUNT_DATA_READ = 0x005AFE50,
+    // WriteAccountData — same signature: opens the section's files for writing
+    // (creates the folder, truncates the file), calls the writer, closes them
+    // and restarts the section's 30 s save timer, which uploads the file and
+    // stores its digest in cache.md5. Does nothing while the section is
+    // pending. Disassembled; WriteBindingSets 0x004B65E0 is an engine caller.
+    FUN_ACCOUNT_DATA_WRITE = 0x005AFED0,
     // " " — the token delimiter LoadBindings splits a `bind` line's key with.
     VAR_STR_SPACE_DELIM = 0x0082EE00,
     // " ,;\t\"\r\n" — the console `set` command's token delimiters, which it
