@@ -61,6 +61,7 @@
 #include "cvar/Factory.h"
 #include "glue/EnterWorld.h"
 #include "guid/Guid.h"
+#include "os/File.h"
 #include "settings/Paths.h"
 
 #include <algorithm>
@@ -68,7 +69,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <fstream>
+#include <sstream>
 #include <limits>
 #include <numeric>
 #include <string>
@@ -93,7 +94,9 @@ struct Line {
 // Every well-formed line of the file; a missing file reads as none.
 std::vector<Line> ReadFile(const std::string &path) {
     std::vector<Line> lines;
-    std::ifstream file(path);
+    std::string contents;
+    Os::File::Read(path, contents);
+    std::istringstream file(contents);
     std::string text;
     while (std::getline(file, text)) {
         while (!text.empty() && (text.back() == '\r' || text.back() == ' '))
@@ -120,14 +123,13 @@ std::vector<Line> ReadFile(const std::string &path) {
 }
 
 void WriteFile(const std::string &path, const std::vector<Line> &lines) {
-    std::ofstream file(path, std::ios::trunc);
-    if (!file.is_open())
-        return;
+    std::ostringstream file;
     file << kVersionLine << '\n';
     char guid[Guid::STRING_SIZE];
     for (const Line &l : lines)
         file << l.realm << ' ' << Guid::FormatAsString(l.guid, guid, sizeof guid) << ' '
              << l.slot << '\n';
+    Os::File::Write(path, file.str());
 }
 
 // ---- Last character ---------------------------------------------------------

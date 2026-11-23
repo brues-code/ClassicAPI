@@ -29,6 +29,9 @@
 // Every function returns an empty string until the session globals it needs are
 // populated, so a caller can treat "empty" as "not available yet" and never has
 // to null-check the individual names.
+//
+// The paths are UTF-8, like the names in them. Open them with `Os::File`, never
+// with std::fstream or the CRT, which read a narrow path in the ANSI code page.
 namespace Settings::Paths {
 
 // The logged-in account name, upper-cased by the engine. Empty before login.

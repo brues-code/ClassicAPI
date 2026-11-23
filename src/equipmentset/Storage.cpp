@@ -14,12 +14,13 @@
 #include "Storage.h"
 
 #include "Offsets.h"
+#include "os/File.h"
 #include "settings/Paths.h"
 
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
-#include <fstream>
+#include <sstream>
 
 namespace EquipmentSet::Storage {
 
@@ -63,10 +64,11 @@ std::string ResolveFilePath() {
 
 bool Load(const std::string &path, std::vector<Set> *outSets) {
     outSets->clear();
-    std::ifstream file(path);
-    if (!file.is_open())
+    std::string text;
+    if (!Os::File::Read(path, text))
         return true; // first run on this character — empty list is OK
 
+    std::istringstream file(text);
     std::string line;
     Set *current = nullptr;
     while (std::getline(file, line)) {
@@ -156,11 +158,8 @@ bool Load(const std::string &path, std::vector<Set> *outSets) {
 }
 
 bool Save(const std::string &path, const std::vector<Set> &sets) {
-    const std::string tmp = path + ".tmp";
+    std::ostringstream out;
     {
-        std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
-        if (!out.is_open())
-            return false;
         out << "# ClassicAPI Equipment Sets v1\n";
         out << "# Written by ClassicAPI. Hand-edits survive but lose comments.\n";
         for (const auto &s : sets) {
@@ -187,17 +186,8 @@ bool Save(const std::string &path, const std::vector<Set> &sets) {
                 }
             }
         }
-        if (!out)
-            return false;
     }
-    // Win32: rename fails if destination exists. Remove first; the
-    // file is small so the brief window without a valid file on disk
-    // is acceptable (and crashing here just preserves the prior copy
-    // via the .tmp on the next save).
-    std::remove(path.c_str());
-    if (std::rename(tmp.c_str(), path.c_str()) != 0)
-        return false;
-    return true;
+    return Os::File::Write(path, out.str());
 }
 
 } // namespace EquipmentSet::Storage

@@ -10,7 +10,11 @@
 
 // See `Paths.h`. The account / realm / character names each come from a
 // different engine global, so the three reads live here together rather than
-// once per module that wants a file path.
+// once per module that wants a file path. The folder names are the engine's
+// own: the per-character SavedVariables path (FUN_0051F240) and
+// OpenAccountDataFile (0x005AF6B0) take the realm from the `realmName` cvar
+// (FUN_GET_REALM_NAME) and the character from FUN_GET_SELECTED_CHARACTER_NAME's
+// buffer, so ClassicAPI's files sit next to the engine's.
 
 #include "Paths.h"
 
@@ -34,6 +38,11 @@ const char *ReadRealmName() {
     if (info == nullptr)
         return nullptr;
     return Game::Read<const char *>(info, Offsets::OFF_REALM_INFO_NAME);
+}
+
+const char *ReadRealmFolder() {
+    using Fn = const char *(__cdecl *)();
+    return reinterpret_cast<Fn>(static_cast<uintptr_t>(Offsets::FUN_GET_REALM_NAME))();
 }
 
 // The global is an inline buffer rather than a pointer, so "absent" reads as an
@@ -72,7 +81,7 @@ std::string CharacterFile(const char *leaf) {
     const char *account = ReadAccountName();
     if (!Usable(account))
         return {};
-    const char *realm = ReadRealmName();
+    const char *realm = ReadRealmFolder();
     if (!Usable(realm))
         return {};
     const char *character = ReadCharacterName();

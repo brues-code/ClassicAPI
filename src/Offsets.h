@@ -181,6 +181,14 @@ enum Offsets {
     // OsWriteFile — `int __fastcall(HANDLE /*ecx*/, const void *buffer /*edx*/,
     // uint32_t size, uint32_t *written)`, `ret 8`.
     FUN_OS_WRITE_FILE = 0x0042A5D0,
+    // OsReadFile — `int __fastcall(HANDLE /*ecx*/, void *buffer /*edx*/,
+    // uint32_t size, uint32_t *read)`, `ret 8`: ReadFile, retried on
+    // ERROR_NOT_ENOUGH_MEMORY / ERROR_WORKING_SET_QUOTA. OsGetFileSize —
+    // `uint64_t __fastcall(HANDLE)` (GetFileSize; low dword in EAX, high in
+    // EDX). Both disassembled; LayoutCacheRead 0x00490380 reads a section file
+    // with the pair.
+    FUN_OS_READ_FILE = 0x0042A520,
+    FUN_OS_GET_FILE_SIZE = 0x0042A670,
     // The other OS file wrappers, all UTF-8 paths converted for the W calls:
     //   CREATE `HANDLE __fastcall(path, access, 4 stack args)`, `ret 0x10`
     //          (CreateFileW; the SV writer passes GENERIC_WRITE, CREATE_ALWAYS);
@@ -194,6 +202,11 @@ enum Offsets {
     FUN_OS_FILE_EXISTS = 0x0042A4E0,
     FUN_OS_MOVE_FILE = 0x0042A820,
     FUN_OS_DELETE_FILE = 0x0042A910,
+    // OsCreateDirectory — `int __fastcall(const char *path, int recursive)`:
+    // with `recursive` it first creates every parent folder below the root;
+    // then the folder itself. Each through CreateDirectoryW of the UTF-8 path.
+    // Decompiled; OpenAccountDataFile (0x005AF741) calls it with 1.
+    FUN_OS_CREATE_DIRECTORY = 0x0042A960,
     // Writes one saved variable, `\r\n<name> = <value>`, from the global of
     // that name - `void __fastcall(HANDLE, const char *name)`.
     FUN_SV_WRITE_VARIABLE = 0x007043F0,

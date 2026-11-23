@@ -15,9 +15,11 @@
 
 #include "Paths.h"
 
+#include "os/File.h"
+
 #include <cstdint>
 #include <cstdio>
-#include <fstream>
+#include <sstream>
 
 namespace Settings::Account {
 
@@ -73,10 +75,11 @@ bool EnsureLoaded() {
     g_loadedAccount = account;
     g_anyLoadAttempted = true;
 
-    std::ifstream file(Path());
-    if (!file.is_open())
+    std::string text;
+    if (!Os::File::Read(Path(), text))
         return true; // first run on this account; defaults stand
 
+    std::istringstream file(text);
     std::string line;
     while (std::getline(file, line)) {
         RightTrim(&line);
@@ -98,26 +101,12 @@ bool Save() {
     const std::string path = Path();
     if (path.empty())
         return false;
-    const std::string tmp = path + ".tmp";
-    {
-        std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
-        if (!out.is_open())
-            return false;
-        out << "# ClassicAPI account settings — auto-generated.\n";
-        out << "# Hand-edits survive, though sections may be re-ordered on next save.\n";
-        for (auto *s = g_head; s != nullptr; s = s->next)
-            s->serialize(out);
-        if (!out)
-            return false;
-    }
-    // Win32: rename fails if destination exists. Remove first; the
-    // file is small so the brief window without a valid file is
-    // acceptable, and a crash here leaves the .tmp for the next
-    // save's recovery path to potentially use.
-    std::remove(path.c_str());
-    if (std::rename(tmp.c_str(), path.c_str()) != 0)
-        return false;
-    return true;
+    std::ostringstream out;
+    out << "# ClassicAPI account settings — auto-generated.\n";
+    out << "# Hand-edits survive, though sections may be re-ordered on next save.\n";
+    for (auto *s = g_head; s != nullptr; s = s->next)
+        s->serialize(out);
+    return Os::File::Write(path, out.str());
 }
 
 } // namespace Settings::Account

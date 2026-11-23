@@ -18,12 +18,13 @@
 
 #include "Notes.h"
 
+#include "os/File.h"
 #include "settings/Paths.h"
 
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
-#include <fstream>
+#include <sstream>
 #include <string>
 #include <unordered_map>
 
@@ -59,10 +60,11 @@ void Sanitize(std::string *s) {
 
 void Load() {
     g_notes.clear();
-    std::ifstream file(g_path);
-    if (!file.is_open())
+    std::string text;
+    if (!Os::File::Read(g_path, text))
         return; // first run for this character — empty store is fine
 
+    std::istringstream file(text);
     std::string line;
     while (std::getline(file, line)) {
         while (!line.empty() && (line.back() == '\r' || line.back() == '\n'))
@@ -90,22 +92,15 @@ void Load() {
 void Save() {
     if (g_path.empty())
         return;
-    const std::string tmp = g_path + ".tmp";
-    {
-        std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
-        if (!out.is_open())
-            return;
-        out << "# ClassicAPI Friend Notes v1\n";
-        out << "# <0xGUID>\\t<name>\\t<note>  (per-character, GUID-keyed)\n";
-        for (const auto &kv : g_notes) {
-            char buf[24];
-            std::snprintf(buf, sizeof(buf), "0x%016llX",
-                          static_cast<unsigned long long>(kv.first));
-            out << buf << '\t' << kv.second.name << '\t' << kv.second.note << '\n';
-        }
+    std::ostringstream out;
+    out << "# ClassicAPI Friend Notes v1\n";
+    out << "# <0xGUID>\\t<name>\\t<note>  (per-character, GUID-keyed)\n";
+    for (const auto &kv : g_notes) {
+        char buf[24];
+        std::snprintf(buf, sizeof(buf), "0x%016llX", static_cast<unsigned long long>(kv.first));
+        out << buf << '\t' << kv.second.name << '\t' << kv.second.note << '\n';
     }
-    std::remove(g_path.c_str());
-    std::rename(tmp.c_str(), g_path.c_str());
+    Os::File::Write(g_path, out.str());
 }
 
 // Re-resolve the path each call; reload when it changes. The DLL survives a
