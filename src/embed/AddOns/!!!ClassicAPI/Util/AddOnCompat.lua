@@ -5,15 +5,6 @@ if C_AddOns.DoesAddOnExist('pfUI') then
         -- to it.
         if pfUI.handlesHookScript then return end
 
-        -- pfUI\pfUI.lua redeclares the RAID_CLASS_COLORS object at least 14 times (insane!!)
-        -- This stops it from replacing all our ColorMixin values
-        pfUI.UpdateColors = function() end
-        RAID_CLASS_COLORS = setmetatable(RAID_CLASS_COLORS, { __index = function()
-            local unknownColor = CreateColor(0.6, 0.6, 0.6)
-            unknownColor.colorStr = unknownColor:GenerateHexColor()
-            return unknownColor
-        end})
-
         -- Compatibility with OLDER forks of pfUI. Our DLL adds the modern
         -- HookScript widget method; older pfUI forks branch on
         -- `if button.HookScript` and take a modern code path they were never
@@ -306,28 +297,6 @@ EventRegistry:RegisterFrameEventAndCallback("ADDON_LOADED",
 EventRegistry:RegisterFrameEventAndCallback("PLAYER_LOGIN",
                                             EnsureCompostErasesInPlace)
 EnsureCompostErasesInPlace()
-
--- Some addons carry a copy of Blizzard's own color definitions -- a plain
--- `NORMAL_FONT_COLOR = {r=1.0, g=0.82, b=0}` and its friends -- and assign
--- them at file scope. That takes ColorMixin off those globals for every addon
--- that loads later, which is what breaks pfUI's who list when it calls
--- `NORMAL_FONT_COLOR:GetRGB()` (brues-code/pfUI#56).
---
--- RAID_CLASS_COLORS gets the same treatment: an addon that swaps in its own
--- plain class colors breaks every `RAID_CLASS_COLORS[class]:GetRGB()`, such as
--- the damage meter's bars.
---
--- Re-apply after each addon loads, so a clobbered color is repaired before the
--- next addon reads it. This also covers an addon loaded on demand mid-session.
--- Login and entering the world cover addons that write their colors from those
--- events rather than at file scope. The pass mixes the methods back into the
--- table that is there, and costs one lookup per color when nothing is broken.
-EventRegistry:RegisterFrameEventAndCallback("ADDON_LOADED",
-                                            CAPI_ApplyStandardColorGlobals)
-EventRegistry:RegisterFrameEventAndCallback("PLAYER_LOGIN",
-                                            CAPI_ApplyStandardColorGlobals)
-EventRegistry:RegisterFrameEventAndCallback("PLAYER_ENTERING_WORLD",
-                                            CAPI_ApplyStandardColorGlobals)
 
 -- Outfitter keeps its minimap button's drag state in a plain field,
 -- `OutfitterMinimapButton.IsDragging`, that it never initializes: the field is

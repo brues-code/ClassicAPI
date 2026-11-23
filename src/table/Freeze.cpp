@@ -11,6 +11,8 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
+#include "table/Freeze.h"
+
 #include "Game.h"
 #include "gc/Hooks.h"
 #include "gc/Tag.h"
@@ -82,40 +84,6 @@ const auto RunError = reinterpret_cast<RunError_t>(Offsets::FUN_LUAG_RUNERROR);
 [[noreturn]] void RaiseFrozen(void *L, const char *verb) {
     RunError(L, "attempted to %s a frozen table", verb);
     __assume(0);
-}
-
-// --- luaV_settable ---------------------------------------------------------
-
-using SetTable_t = void(__fastcall *)(void *L, const void *t, void *key, void *val);
-using GetTmByObj_t = const void *(__fastcall *)(void *L, const void *o, int event);
-using CallTM_t = void(__fastcall *)(void *L, const void *f, const void *p1, const void *p2, const void *p3);
-SetTable_t g_setTable = nullptr;
-
-// 3.80.2's frozen branch of luaV_settable: a frozen table goes to its
-// __newindex. A value that is not a frozen table continues in the engine's
-// own luaV_settable (its loop count starts again there).
-void __fastcall SetTable_h(void *L, const void *t, void *key, void *val) {
-    if (g_frozen.empty()) {
-        g_setTable(L, t, key, val);
-        return;
-    }
-    for (int loop = 0; loop < kMaxTagLoop; ++loop) {
-        if (!IsFrozenValue(t)) {
-            g_setTable(L, t, key, val);
-            return;
-        }
-        const void *tm =
-            reinterpret_cast<GetTmByObj_t>(Offsets::FUN_LUAT_GETTMBYOBJ)(L, t, kTmNewIndex);
-        const int tt = Game::Read<int>(tm, Offsets::OFF_LUA_TVALUE_TT);
-        if (tt == Game::Lua::TYPE_NIL)
-            RaiseFrozen(L, kAssign);
-        if (tt == Game::Lua::TYPE_FUNCTION) {
-            reinterpret_cast<CallTM_t>(Offsets::FUN_LUA_CALLTM)(L, tm, t, key, val);
-            return;
-        }
-        t = tm;
-    }
-    RunError(L, "loop in settable");
 }
 
 // --- lua_rawset / lua_rawseti / lua_setmetatable / luaL_setn ----------------
@@ -216,8 +184,6 @@ void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction("table", "isfrozen", &Script_table_isfrozen, &kIsFrozen);
 }
 
-const Game::HookAutoRegister _setTable{Offsets::FUN_LUAV_SETTABLE, reinterpret_cast<void *>(&SetTable_h),
-                                       reinterpret_cast<void **>(&g_setTable)};
 const Game::HookAutoRegister _rawSet{Offsets::LUA_RAW_SET, reinterpret_cast<void *>(&RawSet_h),
                                      reinterpret_cast<void **>(&g_rawSet)};
 const Game::HookAutoRegister _rawSetI{Offsets::LUA_RAW_SET_I, reinterpret_cast<void *>(&RawSetI_h),
@@ -235,5 +201,37 @@ const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 const Game::GlueModuleAutoRegister _glueAutoreg{&RegisterLuaFunctions};
 
 } // namespace
+
+// --- luaV_settable ---------------------------------------------------------
+
+using GetTmByObj_t = const void *(__fastcall *)(void *L, const void *o, int event);
+using CallTM_t = void(__fastcall *)(void *L, const void *f, const void *p1, const void *p2, const void *p3);
+
+// 3.80.2's frozen branch of luaV_settable: a frozen table goes to its
+// __newindex. A value that is not a frozen table continues in the engine's
+// own luaV_settable (its loop count starts again there).
+void SetTable(void *L, const void *t, void *key, void *val, SetTable_t store) {
+    if (g_frozen.empty()) {
+        store(L, t, key, val);
+        return;
+    }
+    for (int loop = 0; loop < kMaxTagLoop; ++loop) {
+        if (!IsFrozenValue(t)) {
+            store(L, t, key, val);
+            return;
+        }
+        const void *tm =
+            reinterpret_cast<GetTmByObj_t>(Offsets::FUN_LUAT_GETTMBYOBJ)(L, t, kTmNewIndex);
+        const int tt = Game::Read<int>(tm, Offsets::OFF_LUA_TVALUE_TT);
+        if (tt == Game::Lua::TYPE_NIL)
+            RaiseFrozen(L, kAssign);
+        if (tt == Game::Lua::TYPE_FUNCTION) {
+            reinterpret_cast<CallTM_t>(Offsets::FUN_LUA_CALLTM)(L, tm, t, key, val);
+            return;
+        }
+        t = tm;
+    }
+    RunError(L, "loop in settable");
+}
 
 } // namespace Table::Freeze

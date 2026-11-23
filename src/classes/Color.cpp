@@ -20,7 +20,7 @@
 // triples and for the hex strings, no hits.
 //
 // What this client does have is `RAID_CLASS_COLORS`, defined by FrameXML in
-// `Fonts.xml` and given the mixin by `!!!ClassicAPI/Util/Color*.lua`. Every
+// `Fonts.xml` and kept a ColorMixin table by `classes/ColorWatch.cpp`. Every
 // UI on the client already colors classes from it, so this reads that table
 // instead of carrying a second copy of the nine colors — the same choice
 // `C_UnitAuras.GetAuraDispelTypeColor` makes with the `DEBUFF_TYPE_*_COLOR`
@@ -29,9 +29,8 @@
 // CUSTOM_CLASS_COLORS).
 //
 // The lookup goes through metamethods, so a `RAID_CLASS_COLORS` that answers
-// for unknown keys answers here too — the pfUI shim in `Util/AddOnCompat.lua`
-// hands back grey. A name that is not a string, and a missing table, both
-// return nil.
+// for unknown keys answers here too — pfUI hands back grey. A name that is not
+// a string, and a missing table, both return nil.
 
 #include "Game.h"
 
