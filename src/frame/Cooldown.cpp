@@ -592,8 +592,12 @@ void SetPaused(void *frame, bool paused) {
 
 // ---- countdown numbers ----------------------------------------------------------
 
-// Retail's switch for the numbers, with its default, help and category.
-CVar::Factory::Handle g_countdownForCooldowns = nullptr;
+// Retail's countdownForCooldowns, registered as its engine registers it (default
+// 0, help, category). Nothing here reads it: retail's countdown reads no cvar
+// (3.80.2 0x141942380), and only its action-button Lua does, setting
+// SetHideCountdownNumbers(not countdownForCooldowns) on its own buttons
+// (ActionButton_UpdateCooldownNumberHidden). 1.12's buttons are indicator
+// Models, so the cvar is there for action-bar addons that follow retail.
 
 // The numbers' font string, as the later clients make it (retail probe:
 // Fonts\FRIZQT__.TTF 16 OUTLINE whatever the frame size, CENTER on the
@@ -668,8 +672,7 @@ void UpdateCountdown(void *frame) {
     const uint32_t duration = ScaledMs(f, f.duration);
     const uint32_t left = f.elapsed < f.duration ? duration - ScaledMs(f, f.elapsed) : 0;
     const bool shown = !f.hideCountdownNumbers && !f.flashing && !f.done &&
-                       duration > f.minCountdownDuration && left > 0 &&
-                       CVar::Factory::GetInt(g_countdownForCooldowns) != 0;
+                       duration > f.minCountdownDuration && left > 0;
     char numbers[16] = "";
     const char *text = numbers;
     void *L = nullptr;
@@ -1485,8 +1488,7 @@ const Game::Doc::Field kCircularEdgeArg[] = {
 const Game::Doc::Function kSetUseCircularEdge{
     "Sets the edge scale to 1 when true, or to the square root of 2 when false.", kCircularEdgeArg, {}};
 const Game::Doc::Function kSetHideCountdownNumbers{
-    "Sets whether the countdown numbers are hidden. The numbers show only while the "
-    "countdownForCooldowns CVar is 1.",
+    "Sets whether the countdown numbers are hidden. They show by default.",
     kBoolArg, {}};
 const Game::Doc::Function kGetHideCountdownNumbers{
     "Returns whether the countdown numbers are hidden.", {}, kBoolRet};
@@ -1586,7 +1588,7 @@ void RegisterLuaFunctions() {
     // This pass runs before FrameXML loads (CGGameUI::Initialize calls
     // LoadScriptFunctions first), like the engine's own game-UI list
     // FUN_00495940, where 4.3.4 registers "Cooldown".
-    g_countdownForCooldowns = CVar::Factory::Register(
+    CVar::Factory::Register(
         "countdownForCooldowns",
         "Whether to use number countdown instead of radial swipe for action button cooldowns or not.",
         Offsets::CVAR_CATEGORY_GAME, "0");

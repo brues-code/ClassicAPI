@@ -232,7 +232,6 @@ local function RegisterCombat()
 
 	AddHeader(layout, CLASSICAPI_ACTION_BARS);
 	AddCVarCheckbox(category, "ActionButtonUseKeyDown", ACTION_BUTTON_USE_KEY_DOWN, OPTION_TOOLTIP_ACTION_BUTTON_USE_KEY_DOWN);
-	AddCVarCheckbox(category, "countdownForCooldowns", COUNTDOWN_FOR_COOLDOWNS_TEXT, OPTION_TOOLTIP_COUNTDOWN_FOR_COOLDOWNS);
 
 	AddHeader(layout, CLASSICAPI_CASTING_AND_ATTACKING);
 	AddCVarCheckbox(category, "autoStand", CLASSICAPI_AUTO_STAND, CLASSICAPI_AUTO_STAND_TOOLTIP);

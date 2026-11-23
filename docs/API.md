@@ -10211,12 +10211,16 @@ The draw-edge flag applies from the next `SetCooldown` call.
 
 Only cooldown frames have these methods.
 
-The countdown numbers show only when the `countdownForCooldowns` CVar is
-`1`. The default is `0`, so a cooldown shows no numbers until you set it:
+A cooldown frame shows countdown numbers by default. To hide them, call
+`SetHideCountdownNumbers(true)` or set `hideCountdownNumbers="true"` in XML:
 
 ```lua
-SetCVar("countdownForCooldowns", "1")
+cooldown:SetHideCountdownNumbers(true)
 ```
+
+The `countdownForCooldowns` CVar does not change cooldown frames. It is
+the player's setting for numbers on action buttons. An action bar addon
+can read it and call `SetHideCountdownNumbers` on its own buttons.
 
 The numbers show the time left, rounded up: tenths below the
 milliseconds threshold (`3.3`), seconds below one minute (`57`), then
