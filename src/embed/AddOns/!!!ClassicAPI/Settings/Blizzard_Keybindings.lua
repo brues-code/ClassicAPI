@@ -418,7 +418,7 @@ end
 
 function CreateKeybindingEntryInitializer(bindingIndex, search)
 	local data = {bindingIndex = bindingIndex, search = search};
-	local initializer = Settings.CreateElementInitializer("KeyBindingFrameBindingTemplate", data);
+	local initializer = Settings.CreateElementInitializer("SettingsKeybindingTemplate", data);
 	local oldMatchesSearchTags = initializer.MatchesSearchTags;
 
 	initializer.GetBindingText = function(self, bindingIndex, actionIndex)

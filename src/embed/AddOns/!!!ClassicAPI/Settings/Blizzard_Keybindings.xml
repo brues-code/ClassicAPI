@@ -2,6 +2,13 @@
 	<!--
 	Retail's Blizzard_Settings_Shared/Blizzard_Keybindings.xml.
 	Differences:
+	- The templates are named SettingsKeybinding*, not retail's
+	  KeyBindingFrameBinding*. 1.12's Blizzard_BindingUI defines its own
+	  templates with those names for its KeyBindingFrame rows, and the game
+	  menu still opens that frame. With one name for both, its rows got this
+	  template and lost $parentKey1Button, $parentHeader and the rest. Retail
+	  never loads Blizzard_BindingUI, so it has no clash. The mixin names
+	  stay retail's, as 1.12 has no globals with those names.
 	- The button text is one line by wordwrap="false": 1.12 font strings have
 	  no maxLines. It has no name, as UIMenuButtonStretchTemplate's pieces
 	  have none (see SharedUIPanelTemplates.xml). The fonts are 1.12's
@@ -12,7 +19,7 @@
 	  and 1.12's does not.
 	- No NewFeature label, because nothing in this client is new.
 	-->
-	<Button name="KeyBindingFrameBindingButtonTemplate" inherits="UIMenuButtonStretchTemplate" mixin="KeyBindingButtonMixin" virtual="true">
+	<Button name="SettingsKeybindingButtonTemplate" inherits="UIMenuButtonStretchTemplate" mixin="KeyBindingButtonMixin" virtual="true">
 		<Layers>
 			<Layer level="OVERLAY">
 				<Texture parentKey="SelectedHighlight" file="Interface\Buttons\UI-Silver-Button-Select" alphaMode="ADD" hidden="true">
@@ -37,7 +44,7 @@
 		<HighlightFont inherits="GameFontHighlightSmall"/>
 	</Button>
 
-	<Button name="KeyBindingFrameBindingButtonTemplateWithLabel" inherits="KeyBindingFrameBindingButtonTemplate" virtual="true">
+	<Button name="SettingsKeybindingButtonTemplateWithLabel" inherits="SettingsKeybindingButtonTemplate" virtual="true">
 		<Layers>
 			<Layer level="BACKGROUND">
 				<FontString parentKey="KeyLabel" inherits="GameFontNormalSmall">
@@ -49,7 +56,7 @@
 		</Layers>
 	</Button>
 
-	<Frame name="KeyBindingFrameBindingTemplate" mixin="KeyBindingFrameBindingTemplateMixin" enableMouse="true" virtual="true">
+	<Frame name="SettingsKeybindingTemplate" mixin="KeyBindingFrameBindingTemplateMixin" enableMouse="true" virtual="true">
 		<Size x="560" y="25"/>
 		<Layers>
 			<Layer level="BACKGROUND">
@@ -66,7 +73,7 @@
 			</Layer>
 		</Layers>
 		<Frames>
-			<Button parentKey="Button1" parentArray="Buttons" inherits="KeyBindingFrameBindingButtonTemplate">
+			<Button parentKey="Button1" parentArray="Buttons" inherits="SettingsKeybindingButtonTemplate">
 				<KeyValues>
 					<KeyValue key="SlotIndex" value="1" type="number"/>
 				</KeyValues>
@@ -75,7 +82,7 @@
 					<Anchor point="LEFT" relativePoint="CENTER" x="-80"/>
 				</Anchors>
 			</Button>
-			<Button parentKey="Button2" parentArray="Buttons" inherits="KeyBindingFrameBindingButtonTemplate">
+			<Button parentKey="Button2" parentArray="Buttons" inherits="SettingsKeybindingButtonTemplate">
 				<KeyValues>
 					<KeyValue key="SlotIndex" value="2" type="number"/>
 				</KeyValues>
