@@ -116,8 +116,8 @@ const Game::Doc::Function kConsoleAddMessage{
 
 // `ConsoleIsActive()` — whether the console is open right now.
 //
-// False when the client was started without `-console`, since the toggle key
-// is gated on that and the console can then never open.
+// False while VAR_CONSOLE_ENABLED is clear (no `-console`, no `/console
+// enable`), since the toggle key is gated on it and the console cannot open.
 int __fastcall Script_ConsoleIsActive(void *L) {
     const uint32_t enabled = Game::Read<uint32_t>(Offsets::VAR_CONSOLE_ENABLED);
     const uint32_t visible = Game::Read<uint32_t>(Offsets::VAR_CONSOLE_VISIBLE);
@@ -127,7 +127,7 @@ int __fastcall Script_ConsoleIsActive(void *L) {
 
 const Game::Doc::Field kConsoleIsActiveRets[] = {
     Game::Doc::Req("consoleIsActive", "bool",
-                   "Always false when the client was started without -console."),
+                   "Always false while the console is off: no -console and no /console enable."),
 };
 const Game::Doc::Function kConsoleIsActive{"Returns whether the console is open.", {},
                                            kConsoleIsActiveRets, "ConsoleGlobals"};

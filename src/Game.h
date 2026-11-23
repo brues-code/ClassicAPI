@@ -773,6 +773,10 @@ enum Category {
 void RegisterCommand(const char *name, CommandHandler handler, int category,
                      const char *description);
 
+// Removes a console command (FUN_CONSOLE_COMMAND_UNREGISTER). A name that is
+// not registered is a no-op. Safe from inside the command's own handler.
+void UnregisterCommand(const char *name);
+
 // Line colour types — 4.3.4's `COLOR_T`, indexing the nine-entry
 // VAR_CONSOLE_COLORS table. The engine's `help` writes WARNING (yellow),
 // its failures ERROR (red), and its plain output DEFAULT.

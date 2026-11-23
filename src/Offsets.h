@@ -11830,6 +11830,15 @@ enum Offsets {
     // via the bulk graphics registrar `FUN_0066F6C0` and the `help`
     // command's own registration in `FUN_006400E0`.
     FUN_CONSOLE_COMMAND_REGISTER = 0x0063F9E0,
+    // ConsoleCommandUnregister — `void __fastcall(const char *name)`, plain
+    // RET (benilla-re console/commands): hashes the name (FUN_0064B3F0),
+    // finds its node by case-blind compare, unlinks it from the list and the
+    // hash and frees the node (not the name, which is held by pointer). A
+    // name with no node does nothing. UnregisterPlayerCommands (0x00405390)
+    // calls it once per name. The executor (FUN_CONSOLE_EXEC) reads nothing
+    // of the node after calling its handler (0x0063CE9A, then RET), so a
+    // handler can unregister its own command.
+    FUN_CONSOLE_COMMAND_UNREGISTER = 0x0063FB40,
 
     // The registry that registrar fills: a Storm intrusive list plus a by-name
     // hash. `Console::Commands` walks the list to back `C_Console.GetAllCommands`,
@@ -11894,7 +11903,12 @@ enum Offsets {
     VAR_CONSOLE_VISIBLE = 0x00C4EAC8,
     // Set at startup from the `-console` command-line switch (FUN_00419C10(0x22)
     // in ConsoleDeviceInitialize). Without it the toggle key does nothing, so
-    // the console can never open.
+    // the console can never open. That is all the switch does: the image has
+    // one store (0x0063A2BF) and four readers, all console-key handlers (key
+    // down 0x0063C49B, repeat 0x0063C86E, OnChar 0x0063BEA6, OnKeyUp
+    // 0x0063C97A), and switch 0x22 is read nowhere else, so the console's
+    // lines and device are built either way and setting it later equals the
+    // switch.
     VAR_CONSOLE_ENABLED = 0x00C4EC20,
     VAR_CONSOLE_TOGGLE_KEY = 0x00864554,
     // Nine ARGB uint32 colours indexed by a line's colour type — the second

@@ -623,6 +623,7 @@ namespace Console {
 namespace {
 using RegisterCommand_t = int(__fastcall *)(const char *name, void *handler,
                                             int category, const char *description);
+using UnregisterCommand_t = void(__fastcall *)(const char *name);
 using Write_t = void(__fastcall *)(const char *line, int color);
 } // namespace
 
@@ -630,6 +631,10 @@ void RegisterCommand(const char *name, CommandHandler handler, int category,
                      const char *description) {
     auto fn = reinterpret_cast<RegisterCommand_t>(Offsets::FUN_CONSOLE_COMMAND_REGISTER);
     fn(name, reinterpret_cast<void *>(handler), category, description);
+}
+
+void UnregisterCommand(const char *name) {
+    reinterpret_cast<UnregisterCommand_t>(Offsets::FUN_CONSOLE_COMMAND_UNREGISTER)(name);
 }
 
 void Write(const char *line, Color color) {

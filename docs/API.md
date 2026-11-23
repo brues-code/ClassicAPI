@@ -171,6 +171,7 @@ build instructions.
   - [`SetConsoleKey(keyCode)`](#setconsolekeykeycode)
   - [`CalculateStringEditDistance(a, b)`](#calculatestringeditdistancea-b)
   - [`ConsoleGetAllCommands()`](#consolegetallcommands)
+  - [`enable` (console command)](#enable-console-command)
   - [`ExportInterfaceFiles art|code` (console command)](#exportinterfacefiles-artcode-console-command)
   - [`ExportDBCFiles` (console command)](#exportdbcfiles-console-command)
   - [`ExportSoundFiles [subpath]` (console command)](#exportsoundfiles-subpath-console-command)
@@ -4303,9 +4304,10 @@ log. `COMBAT_LOG_REPLAY_LOADED` fires when a `LoadReplay` is complete. When
 
 ## Console
 
-The developer console is the overlay you open with `~` when the client is
-started with `-console`. These functions run commands in it, write to it, and
-read its state.
+The developer console is the overlay you open with `~`. The key works when the
+client is started with `-console`, or after
+[`/console enable`](#enable-console-command). These functions run commands in
+it, write to it, and read its state.
 
 ### `ConsoleExec(command)`
 
@@ -4361,8 +4363,9 @@ nothing; use [`ConsoleGetAllCommands`](#consolegetallcommands) to get everything
 
 ### `ConsoleIsActive()`
 
-Returns whether the console is open right now. Always `false` when the client
-was started without `-console`, because the key that opens it does nothing then.
+Returns whether the console is open right now. Always `false` while the console
+is off (no `-console` and no `/console enable`), because the key that opens it
+does nothing then.
 
 ### `ConsoleGetColorFromType(colorType)`
 
@@ -4392,7 +4395,8 @@ Sets the key that opens and closes the console.
 
 `keyCode` is the client's own numeric key code, not a key name — the console
 compares raw key codes and nothing in it reads names. The key still only works
-when the client was started with `-console`.
+when the console is on: the client was started with `-console`, or
+`/console enable` was used.
 
 ### `CalculateStringEditDistance(a, b)`
 
@@ -4443,11 +4447,25 @@ Every command reports one of `Debug` through `Gm`.
 The list is live: a command added while the game runs, such as one of the export
 commands below, appears in the next call.
 
+### `enable` (console command)
+
+Turns the console on, the same as starting the client with `-console`. Type it
+in the chat box:
+
+```
+/console enable
+```
+
+The command does not open the console. After it, the `~` key opens and closes
+the console until the client exits. The command then removes itself, so it is
+not in [`ConsoleGetAllCommands`](#consolegetallcommands) anymore. When the
+client is started with `-console`, the command does not exist.
+
 ### `ExportInterfaceFiles art|code` (console command)
 
 A **developer-console command** (not a Lua function) — type it into the
 `~` console, which is available when the client is launched with
-`-console`. It extracts Blizzard's stock UI files out of the game's MPQ
+`-console` or after [`/console enable`](#enable-console-command). It extracts Blizzard's stock UI files out of the game's MPQ
 archives onto disk. Useful for reading the FrameXML / GlueXML source you're
 backporting addons against, or pulling out the default art.
 
