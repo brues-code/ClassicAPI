@@ -29563,11 +29563,10 @@ Soft interact picks the best object in front of you that you can
 interact with. Bind **Interact With Target** to a key, then press it to
 interact with that object. This is the Interact Key.
 
-Soft interact is on by default. It does nothing until you bind the key.
-To turn it off:
+Soft interact is off by default. To turn it on:
 
 ```
-/console SoftTargetInteract 0
+/console SoftTargetInteract 3
 ```
 
 **What it picks.** It picks only an object that shows an interact cursor
@@ -29604,7 +29603,7 @@ the GUID of that object. Functions that read unit data, such as
 
 | cvar | default | values |
 |---|---|---|
-| `SoftTargetInteract` | `3` | `0` off, `1` gamepad, `2` keyboard and mouse, `3` always. Only `2` and `3` turn soft interact on. |
+| `SoftTargetInteract` | `0` | `0` off, `1` gamepad, `2` keyboard and mouse, `3` always. Only `2` and `3` turn soft interact on. |
 | `SoftTargetInteractArc` | `0` | `0`: directly in front. The object is very near, or the center line of the camera or of your character goes through it. `1`: also inside a small cone in front of the camera. `2`: anywhere on the screen. |
 | `SoftTargetInteractRange` | `10` | The maximum distance in yards. A soft object farther away is removed. |
 | `SoftTargetInteractRangeIsHard` | `0` | `0`: an object that you can interact with now is picked also when it is past the range. `1`: the range always applies. |
@@ -29797,9 +29796,9 @@ with `"target"` and one time with `"softenemy"`. `"anyenemy"` and
 
 | cvar | default | values |
 |---|---|---|
-| `SoftTargetEnemy` | `1` | `0` off, `1` gamepad, `2` keyboard and mouse, `3` always. Only `2` and `3` turn soft enemy on. |
+| `SoftTargetEnemy` | `0` | `0` off, `1` gamepad, `2` keyboard and mouse, `3` always. Only `2` and `3` turn soft enemy on. |
 | `SoftTargetFriend` | `0` | The same values, for soft friend. |
-| `SoftTargetEnemyArc` / `SoftTargetFriendArc` | `0` | `0`: directly in front. The unit is very near, or the center line of the camera or of your character goes through it. `1`: also inside a small cone in front of the camera. `2`: anywhere on the screen. |
+| `SoftTargetEnemyArc` / `SoftTargetFriendArc` | `2` | `0`: directly in front. The unit is very near, or the center line of the camera or of your character goes through it. `1`: also inside a small cone in front of the camera. `2`: anywhere on the screen. |
 | `SoftTargetEnemyRange` / `SoftTargetFriendRange` | `45` | The maximum distance in yards. A soft unit farther away is removed. `0` turns the side off. |
 | `SoftTargetMatchLocked` | `1` | `1`: a locked target is the soft unit when it qualifies. `2`: a loose target that your spell set also counts. `0`: the soft unit is always the best unit. |
 | `SoftTargetWithLocked` | `1` | `0`: no soft enemy and no soft friend while you have a target. `1`: they are picked also while you have a target. `2`: the same, and your attacked target can also be the soft enemy. |

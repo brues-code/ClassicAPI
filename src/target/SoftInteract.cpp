@@ -34,9 +34,8 @@
 //   - PLAYER_SOFT_INTERACT_CHANGED(old, new), first of the three soft events,
 //     when the object changes or becomes usable / unusable.
 // SoftTargetInteract's 1 is "gamepad"; 1.12 has no gamepad, so only 2 (KBM)
-// and 3 (always) turn it on. It defaults to 3, what the "Enable Interact
-// Key" setting writes: the key does nothing until bound. The other defaults
-// are Classic Era's (0, 10, 0).
+// and 3 (always) turn it on. The defaults are Classic Era's (1.15.9): off,
+// arc 0, range 10, not a hard range.
 //
 // Not here: 3.80.2 also drops the object the player is already interacting
 // with (its open gossip / vendor / loot) — 1.12 keeps no single GUID for it.
@@ -120,7 +119,7 @@ void Register() {
                                        &SettingChanged);
     };
     g_enable = reg("SoftTargetInteract",
-        "Sets when soft interact should be enabled. 0=off, 1=gamepad, 2=KBM, 3=always", "3");
+        "Sets when soft interact should be enabled. 0=off, 1=gamepad, 2=KBM, 3=always", "0");
     g_arc = reg("SoftTargetInteractArc",
         "0 = No yaw arc allowance, must be directly in front. 1 = Must be in front yaw arc. 2 = Can be anywhere in targeting area.", "0");
     g_range = reg("SoftTargetInteractRange",

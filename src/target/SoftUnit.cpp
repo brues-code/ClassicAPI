@@ -43,10 +43,9 @@
 // and a range above 0. The tokens read the last result; nothing picks on a
 // read.
 //
-// Defaults: SoftTargetEnemy 1 (gamepad, so off here), SoftTargetFriend 0,
-// both ranges 45, SoftTargetMatchLocked 1, SoftTargetWithLocked 1 — Classic
-// Era's and 3.80.2's. Both arcs default to 0 (in front: point blank, or the
-// camera's or the facing's line through the unit), not their 2.
+// Defaults are Classic Era's (1.15.9) and 3.80.2's: SoftTargetEnemy and
+// SoftTargetFriend 0, both arcs 2, both ranges 45, SoftTargetMatchLocked 1,
+// SoftTargetWithLocked 1.
 // The softenemy / softfriend unit events (UNIT_HEALTH, …) follow the pick via
 // Unit::TokenEvents, as they do for focus.
 
@@ -197,15 +196,15 @@ void Register() {
         return CVar::Factory::Register(name, help, Offsets::CVAR_CATEGORY_GAME, value);
     };
     g_enemy.enable = reg("SoftTargetEnemy",
-        "Sets when enemy soft targeting should be enabled. 0=off, 1=gamepad, 2=KBM, 3=always", "1");
+        "Sets when enemy soft targeting should be enabled. 0=off, 1=gamepad, 2=KBM, 3=always", "0");
     g_enemy.arc = reg("SoftTargetEnemyArc",
-        "0 = No yaw arc allowance, must be directly in front. 1 = Must be in front yaw arc. 2 = Can be anywhere in tab targeting area.", "0");
+        "0 = No yaw arc allowance, must be directly in front. 1 = Must be in front yaw arc. 2 = Can be anywhere in tab targeting area.", "2");
     g_enemy.range = reg("SoftTargetEnemyRange",
         "Max range to soft target enemies (limited to tab targeting range)", "45");
     g_friend.enable = reg("SoftTargetFriend",
         "Sets when friend soft targeting should be enabled. 0=off, 1=gamepad, 2=KBM, 3=always", "0");
     g_friend.arc = reg("SoftTargetFriendArc",
-        "0 = No yaw arc allowance, must be directly in front. 1 = Must be in front yaw arc. 2 = Can be anywhere in targeting area.", "0");
+        "0 = No yaw arc allowance, must be directly in front. 1 = Must be in front yaw arc. 2 = Can be anywhere in targeting area.", "2");
     g_friend.range = reg("SoftTargetFriendRange",
         "Max range to soft target friends (limited to tab targeting range)", "45");
     g_matchLocked = reg("SoftTargetMatchLocked",
