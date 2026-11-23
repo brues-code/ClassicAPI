@@ -310,6 +310,7 @@ local function RegisterInterface()
 		}) do
 			AddCVarCheckbox(category, row[1], row[2]):SetParentInitializer(friendlyMinionsInitializer, AreFriendlyMinionsShown);
 		end
+		AddCVarCheckbox(category, "nameplateUseClassColorForFriendlyPlayerUnitNames", UNIT_NAMEPLATES_FRIENDLY_PLAYER_NAME_USE_CLASS_COLOR, OPTION_TOOLTIP_UNIT_NAMEPLATES_FRIENDLY_PLAYER_NAME_USE_CLASS_COLOR):SetParentInitializer(friendlyPlayersInitializer, function() return friendlyPlayers:GetValue(); end);
 
 		AddCVarCheckbox(category, "nameplateShowFriendlyNpcs", UNIT_NAMEPLATES_SHOW_FRIENDLY_NPCS, UNIT_NAMEPLATES_SHOW_FRIENDLY_NPCS_TOOLTIP);
 	end

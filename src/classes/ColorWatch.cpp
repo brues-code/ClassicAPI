@@ -27,7 +27,8 @@
 //   - `NAME = x` into the globals table, for each watched name, and
 //   - `NAME[k] = x` into the table ITEM_QUALITY_COLORS or RAID_CLASS_COLORS
 //     holds now,
-// and after either one calls `CAPI_RepairColorGlobal(NAME)` in the addon. The
+// and after either one calls `CAPI_RepairColorGlobal(NAME)` in the addon, then,
+// for RAID_CLASS_COLORS, refreshes Classes::ColorCache. The
 // call goes out from inside the writer's assignment, the way a __newindex
 // handler's would, so the next statement already sees ColorMixin colors.
 // Before the addon has defined the function (FrameXML's own assignments) there
@@ -41,6 +42,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "classes/ColorCache.h"
 #include "gc/Hooks.h"
 #include "table/Border.h"
 #include "table/Settable.h"
@@ -59,11 +61,18 @@ constexpr const char *kRepair = "CAPI_RepairColorGlobal";
 struct ColorTable {
     const char *name;
     const void *table; // the table the global holds now, compared, never followed
+    // Runs after the repair of any write to the global or into its table.
+    void (*changed)(void *L);
 };
 ColorTable g_tables[] = {
-    {"ITEM_QUALITY_COLORS", nullptr},
-    {"RAID_CLASS_COLORS", nullptr},
+    {"ITEM_QUALITY_COLORS", nullptr, nullptr},
+    {"RAID_CLASS_COLORS", nullptr, &Classes::ColorCache::Refresh},
 };
+
+void Repaired(void *L, const ColorTable &watched) {
+    if (watched.changed != nullptr)
+        watched.changed(L);
+}
 
 // Per Lua state, set when the game state registers its functions. 5.0 interns
 // every string, so a string key is one of the watched names exactly when its
@@ -97,6 +106,7 @@ void OnWrite(void *L, const Table::Settable::Write &write) {
     for (const ColorTable &watched : g_tables) {
         if (write.table == watched.table) {
             Repair(L, watched.name);
+            Repaired(L, watched);
             return;
         }
     }
@@ -105,10 +115,15 @@ void OnWrite(void *L, const Table::Settable::Write &write) {
     const auto it = g_names.find(write.key);
     if (it == g_names.end())
         return;
+    ColorTable *table = nullptr;
     for (ColorTable &watched : g_tables)
-        if (watched.name == it->second)
+        if (watched.name == it->second) {
             watched.table = CurrentTable(L, watched.name);
+            table = &watched;
+        }
     Repair(L, it->second);
+    if (table != nullptr)
+        Repaired(L, *table);
 }
 
 // Interns `name`, keeps it in the anchor table at the top of the stack, and

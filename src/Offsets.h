@@ -3205,6 +3205,24 @@ enum Offsets {
     // benilla-re ui/nameplates "Name, flash and dim"; bytes from its
     // tables/signatures.tsv row for 0x7cb950 (offset 0x87).
     SITE_NAMEPLATE_DIM_SELECTION = 0x007CB9D7,
+    // CGNamePlateFrame parts and the name flash (benilla-re ui/nameplates
+    // "Name, flash and dim"; read in the disassembly below): the glow
+    // texture (shown while hovered; OnUpdate reads its
+    // OFF_REGION_ACTUALLY_SHOWN), the name font string, and the flash timer
+    // in ms (Flash 0x007CBA70 stores 5000; above 0 the name is flashing red).
+    OFF_NAMEPLATE_GLOW = 0x4F0,
+    OFF_NAMEPLATE_NAME = 0x4FC,
+    OFF_NAMEPLATE_FLASH_MS = 0x514,
+    // The three `call FUN_REGION_SET_COLOR` (E8 rel32; ECX = the name font
+    // string, stack = &colour, ESI = the plate) where the plate gives its
+    // name the resting colour: the bind (white, `mov [ebp+8],0xFFFFFFFF` at
+    // 0x007CB6FA), OnLeave once no flash runs (white, 0x007CB8ED), and
+    // OnUpdate when the flash ends (0x007CB991 yellow while the glow is
+    // shown, 0x007CB99E white; both reach this one call). OnEnter's yellow
+    // (0x007CB89E) and Flash's red (0x007CBA8F) are their own calls.
+    CALL_NAMEPLATE_BIND_NAME_COLOR = 0x007CB701,
+    CALL_NAMEPLATE_LEAVE_NAME_COLOR = 0x007CB8F4,
+    CALL_NAMEPLATE_UPDATE_NAME_COLOR = 0x007CB9AC,
 
     // CGCreature client-side creature-data cache row. Populated by the
     // engine when an NPC GUID becomes visible (the same row the

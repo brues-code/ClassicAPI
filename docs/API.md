@@ -24408,6 +24408,32 @@ switch. A friendly totem of an NPC never gets a plate.
 /dump SetCVar("nameplateShowEnemyTotems", "0")
 ```
 
+### `nameplateUseClassColorForFriendlyPlayerUnitNames`
+
+When this cvar is `1`, the nameplate of a friendly player shows the name
+in the class color of that player. At the default `0`, the names are
+white.
+
+The class color comes from `RAID_CLASS_COLORS`. If the table has no
+entry for the class, the name is white. When an addon writes a new entry
+or a new table, the plates use the new colors the next time that they
+set a name color. A change to one field of an entry
+(`RAID_CLASS_COLORS.MAGE.r = 1`) has no effect until the next write of
+an entry or a table.
+
+The hover and hit colors stay above the class color. While the mouse is
+on the plate, the name is yellow. For 5 seconds after the unit is hit,
+the name is red. Then the name changes back to the class color.
+
+If a player stops being friendly (for example, in a duel), the name
+changes to white. This change occurs when the mouse leaves the plate or
+when a hit flash ends. When the cvar changes, all shown plates change
+color at once. Addons that draw their own plates keep their own colors.
+
+```lua
+/dump SetCVar("nameplateUseClassColorForFriendlyPlayerUnitNames", "1")
+```
+
 ### `C_NamePlate.GetNamePlates()`
 
 Returns a 1-based table of nameplate `Frame` objects — one per
