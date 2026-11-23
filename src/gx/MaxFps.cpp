@@ -13,7 +13,8 @@
 
 // Frame-rate caps: `useMaxFPS` / `maxFPS` and `useMaxFPSBk` / `maxFPSBk`,
 // ported from the 3.80.2 Classic client (WowClassicGM-China.exe 3.80.2.69496).
-// Names, help lines and the Graphics category are 3.80.2's.
+// Names, help lines and the Graphics category are 3.80.2's. maxFPSLoading,
+// the loading screen's cap, is gx/MaxFpsLoading.cpp.
 //
 // Choosing the cap (0x14243F900). The foreground cap is maxFPS when useMaxFPS
 // is set, otherwise none. The background cap is maxFPSBk when useMaxFPSBk is
@@ -53,8 +54,6 @@
 // Not ported:
 //   - 3.80.2 also limits the rate to 60 while game state 0x1446E3148 is 0
 //     (before the world). That would change 1.12's default.
-//   - maxFPSLoading has only a validator (10..100, 0x1401FD0B0); nothing
-//     reads its value.
 //   - targetFPS / useTargetFPS lower the render scale.
 
 #include "Game.h"

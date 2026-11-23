@@ -11909,6 +11909,26 @@ enum Offsets {
     // and nothing calls that copy (benilla-re core/loop "One tick",
     // "Frame time", verified against C:\WoW\Octo\WoW.exe).
     FUN_EVENT_FRAME_TIME = 0x00420F70,
+    // `RepaintLoadingScreen()` — __cdecl, no arguments: recompute the bar's
+    // fill (0x00406920), paint the loading screen (0x00406A60), present
+    // (0x0058A960 with 3). Four callers: the raise CreateLoadingScreen
+    // (0x004068EF) and the three progress setters below (benilla-re
+    // systems/loadingscreen/screen.md "Progress fraction").
+    FUN_LOADING_SCREEN_REPAINT = 0x00406900,
+    // The progress setters, __fastcall(ctx, edx, float fraction), RET 4. Each
+    // stores the fraction in its input only when it is greater (or a NaN),
+    // then repaints from the `E8 rel32` at +0x1B. Bytes checked in
+    // C:\WoW\Octo\WoW.exe: `fcomp [input]` at +6, `mov [input], eax` at +0x16,
+    // `call 0x00406900` at +0x1B, for each pair below.
+    //   async loads  0x00407F70 (the wait 0x00443D30 reports through 0x00443620)
+    //   map load     0x00407FA0 (CMap::Load / CMap::Update through 0x0066FC70)
+    //   UI load      0x00407FD0 (each TOC file; set by Initialize at 0x0048FFCF)
+    SITE_LOADING_PROGRESS_ASYNC_REPAINT = 0x00407F8B,
+    SITE_LOADING_PROGRESS_MAP_REPAINT = 0x00407FBB,
+    SITE_LOADING_PROGRESS_UI_REPAINT = 0x00407FEB,
+    VAR_LOADING_PROGRESS_ASYNC = 0x00882BD0,
+    VAR_LOADING_PROGRESS_MAP = 0x00882DF4,
+    VAR_LOADING_PROGRESS_UI = 0x00882894,
     // Event id of a key press. The console's RegisterHandlers (FUN_0063BC90)
     // registers ids 1, 5, 8, 9, 10, 11, 14, 12 in 4.3.4's order CHAR, IDLE,
     // KEYDOWN, KEYUP, KEYDOWN_REPEATING, MOUSEDOWN, MOUSEUP, MOUSEMOVE; id 8's

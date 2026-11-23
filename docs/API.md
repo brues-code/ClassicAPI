@@ -1308,7 +1308,7 @@ build instructions.
   - [`GetPhysicalScreenSize()`](#getphysicalscreensize)
   - [`CopyToClipboard(text [, removeMarkup])`](#copytoclipboardtext--removemarkup)
   - [`FlashClientIcon([briefly])`](#flashclienticonbriefly)
-  - [Frame rate limits (`useMaxFPS`, `maxFPS`, `useMaxFPSBk`, `maxFPSBk`)](#frame-rate-limits-usemaxfps-maxfps-usemaxfpsbk-maxfpsbk)
+  - [Frame rate limits (`useMaxFPS`, `maxFPS`, `useMaxFPSBk`, `maxFPSBk`, `maxFPSLoading`)](#frame-rate-limits-usemaxfps-maxfps-usemaxfpsbk-maxfpsbk-maxfpsloading)
 
 - [Talent](#talent)
   - [`GetTalentSpellID(tabIndex, talentIndex, [rank[, classID]])`](#gettalentspellidtabindex-talentindex-rank-classid)
@@ -28939,7 +28939,7 @@ FlashClientIcon()       -- flash until focused (e.g. a battleground queue pops w
 FlashClientIcon(true)   -- brief flash
 ```
 
-### Frame rate limits (`useMaxFPS`, `maxFPS`, `useMaxFPSBk`, `maxFPSBk`)
+### Frame rate limits (`useMaxFPS`, `maxFPS`, `useMaxFPSBk`, `maxFPSBk`, `maxFPSLoading`)
 
 These settings limit the frame rate. The game keeps them in
 `WTF\Config.wtf`, so you do not need an addon. You can also change the
@@ -28951,6 +28951,7 @@ settings in the ClassicAPI options, on the Graphics page.
 | `maxFPS` | `120` | The frame rate limit while WoW is the active window. |
 | `useMaxFPSBk` | `0` | `1` limits the frame rate to `maxFPSBk` while another window is active. |
 | `maxFPSBk` | `30` | The frame rate limit while another window is active. |
+| `maxFPSLoading` | `10` | The highest number of times each second that the loading screen is drawn again while the game loads. |
 
 - By default, `useMaxFPS` and `useMaxFPSBk` are `0`, and the frame rate has
   no limit.
@@ -28959,6 +28960,11 @@ settings in the ClassicAPI options, on the Graphics page.
 - `maxFPS` does not apply while another window is active. If `useMaxFPSBk`
   is `0` at that time, the frame rate has no limit.
 - The limits also apply on the login screen and the character screens.
+- The value of `maxFPSLoading` must be from 10 to 100. Each time the
+  loading screen is drawn, the game can wait for the monitor (vertical sync).
+  Thus a lower value makes loading faster, mostly with many addons.
+- The loading screen is always drawn when a part of the load is complete, so
+  the bar is always full at the end.
 
 ```
 /console useMaxFPS 1
