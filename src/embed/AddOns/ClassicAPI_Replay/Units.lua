@@ -166,14 +166,16 @@ local function Hold(u, time, held1, held2, held3)
 	end
 end
 
--- The name over a unit, none once dead. A player's is the world's overhead
+-- The name over a unit, none once dead or while the Names option is off.
+-- A player's is the world's overhead
 -- name (0x00608F50): its name with its PvP rank title while
 -- UnitNamePlayerPVPTitle is on, and under it <its guild> while
 -- UnitNamePlayerGuild is on. Made again only when a part changes; u.named
 -- nil asks for it again (a new actor, a name that arrived).
 local function ShowName(u, time, isDead)
 	local pvpName, guild;
-	if u.isPlayer and not isDead then
+	local named = not isDead and ns.settings.showNames;
+	if u.isPlayer and named then
 		if GetCVar("UnitNamePlayerPVPTitle") ~= "0" then
 			pvpName = C_CombatLogReplay.GetUnitPVPName(u.index, time);
 		end
@@ -181,7 +183,6 @@ local function ShowName(u, time, isDead)
 			guild = C_CombatLogReplay.GetUnitGuild(u.index, time);
 		end
 	end
-	local named = not isDead;
 	if u.named == named and u.namedPvP == pvpName and u.namedGuild == guild then
 		return;
 	end

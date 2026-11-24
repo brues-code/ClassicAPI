@@ -1,5 +1,5 @@
 -- ClassicAPI Replay: what shows over a unit's name: its health, its cast bar
--- and its raid target icon.
+-- and its raid target icon, none of them through a wall.
 
 local _, ns = ...;
 
@@ -54,7 +54,10 @@ end
 ns.HideBar = HideBar;
 
 -- Where a unit's name point appears on the scene, in the scene's units; nil
--- when it is behind the camera or off the scene.
+-- when it is behind the camera, off the scene, or behind a wall. A wall is
+-- a face the world's line of sight tests (TraceSegment: the WMO's walls,
+-- floors and roofs, and the terrain) between the camera and the name point.
+-- The bars are frames over the scene, so nothing in the scene hides them.
 local function ScenePoint(actor)
 	local x, y, z = actor:GetNamePosition();
 	if not x then
@@ -67,6 +70,10 @@ local function ScenePoint(actor)
 	local scale = ns.scene:GetEffectiveScale();
 	px, py = px / scale, py / scale;
 	if px < 0 or py < 0 or px > ns.scene:GetWidth() or py > ns.scene:GetHeight() then
+		return nil;
+	end
+	local eyeX, eyeY, eyeZ = ns.scene:GetCameraPosition();
+	if ns.scene:TraceSegment(eyeX, eyeY, eyeZ, x, y, z) then
 		return nil;
 	end
 	return px, py;
@@ -220,10 +227,11 @@ local function ShowRaidIcon(u, px, py, rise)
 end
 
 -- Over a living unit's name: its health below its full health, its cast bar
--- while it casts or channels, and its raid target mark above them.
+-- while it casts or channels (the two only while the Nameplates option is
+-- on), and its raid target mark above them.
 local function ShowBars(u, time, isDead)
 	local health, maxHealth, fill, color, text, alpha;
-	if not isDead then
+	if not isDead and ns.settings.showNameplates then
 		health, maxHealth = C_CombatLogReplay.GetUnitHealth(u.index, time);
 		fill, color, text, alpha = CastBarState(u, time);
 	end

@@ -11,6 +11,8 @@ local OUT_OF_VIEW_ALPHA = 0.4;
 -- A pet's row is under its owner's, its name this much further in.
 local PET_INDENT = 10;
 local TEXT_INSET = 4;
+-- A player's faction icon (the row template's, 12 pixels) and the space after it.
+local FACTION_ICON_SIZE, FACTION_ICON_GAP = 12, 2;
 
 ------------------------------------------------------------------------------
 -- The unit list
@@ -69,9 +71,20 @@ local function OnUnitRowLeave(row)
 	ns.HideUnitTooltip(row);
 end
 
+-- A player's row starts with its faction icon, its name after it.
 local function InitUnitRow(row, u)
 	row.unit = u;
-	row.Text:SetPoint("LEFT", row, "LEFT", TEXT_INSET + (u.listDepth or 0) * PET_INDENT, 0);
+	local inset = TEXT_INSET + (u.listDepth or 0) * PET_INDENT;
+	if u.factionGroup then
+		row.Faction:SetTexture("Interface\\TargetingFrame\\UI-PVP-" .. u.factionGroup);
+		row.Faction:ClearAllPoints();
+		row.Faction:SetPoint("LEFT", row, "LEFT", inset, 0);
+		row.Faction:Show();
+		inset = inset + FACTION_ICON_SIZE + FACTION_ICON_GAP;
+	else
+		row.Faction:Hide();
+	end
+	row.Text:SetPoint("LEFT", row, "LEFT", inset, 0);
 	row.Text:SetText(u.name ~= "" and u.name or UNKNOWN);
 	row:SetScript("OnClick", OnUnitRowClick);
 	row:SetScript("OnEnter", OnUnitRowEnter);
@@ -172,3 +185,12 @@ local function NameColor(isPlayer, appearances)
 	return isPlayer and PLAYER_NAME_COLOR or CREATURE_NAME_COLOR;
 end
 ns.NameColor = NameColor;
+
+-- A player's faction group from its race ("Alliance", "Horde"), the
+-- English name UnitFactionGroup gives; nil for a creature.
+local function FactionGroup(appearances)
+	local appearance = appearances and appearances[1];
+	local info = appearance and C_CreatureInfo.GetFactionInfo(appearance.raceID);
+	return info and info.groupTag;
+end
+ns.FactionGroup = FactionGroup;

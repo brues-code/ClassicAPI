@@ -4,6 +4,8 @@
 ## Author: ClassicAPI
 ## Version: DEV
 ## LoadOnDemand: 1
+## LoadSavedVariablesFirst: 1
+## SavedVariables: ClassicAPIReplaySettings
 locales\enUS.lua
 Core.lua
 Bars.lua

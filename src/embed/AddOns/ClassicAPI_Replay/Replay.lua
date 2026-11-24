@@ -10,7 +10,9 @@
 -- log's casts, auras, swings and deaths play on the actors; a jump in time
 -- sets each unit's auras and death as they were then. A hurt unit shows its
 -- health over its head in its nameplate's color, from the log's advanced
--- data, a casting unit its cast bar, a marked unit its raid target icon, and
+-- data, a casting unit its cast bar (the Options menu turns these two
+-- nameplate bars off), a marked unit its raid target icon, none of them
+-- through a wall, and
 -- the log's lines scroll by in the corner in the client's own combat log
 -- words: each starts with its time, a link that goes there, players show in
 -- class colors, a name links to its unit and a spell is a spell link. Scene
@@ -109,6 +111,15 @@ local function SetupMenus()
 				function() return selectedLog == name; end,
 				function() SelectLog(name); end);
 		end
+	end);
+	ns.frame.OptionsDropdown:SetText(REPLAY_OPTIONS);
+	ns.frame.OptionsDropdown:SetupMenu(function(dropdown, rootDescription)
+		rootDescription:CreateCheckbox(REPLAY_SHOW_NAMES,
+			function() return ns.settings.showNames; end,
+			function() ns.settings.showNames = not ns.settings.showNames; end);
+		rootDescription:CreateCheckbox(REPLAY_SHOW_NAMEPLATES,
+			function() return ns.settings.showNameplates; end,
+			function() ns.settings.showNameplates = not ns.settings.showNameplates; end);
 	end);
 	ns.frame.SegmentDropdown:SetDefaultText(REPLAY_CHOOSE_SEGMENT);
 	ns.frame.SegmentDropdown:SetupMenu(function(dropdown, rootDescription)

@@ -29,6 +29,19 @@ ns.areas = {};      -- the replay's ground areas, from GetGroundAreas, each with
 -- ns.unitListChanged: a unit was named since the list was filled
 -- ns.unitFrame: the followed unit's frame (Replay.xml)
 
+-- The window's options (its Options menu), saved for the account. They are
+-- loaded before the files run (## LoadSavedVariablesFirst).
+-- showNames: the names over the units; showNameplates: their health and
+-- cast bars.
+ClassicAPIReplaySettings = ClassicAPIReplaySettings or {};
+ns.settings = ClassicAPIReplaySettings;
+if ns.settings.showNames == nil then
+	ns.settings.showNames = true;
+end
+if ns.settings.showNameplates == nil then
+	ns.settings.showNameplates = true;
+end
+
 ------------------------------------------------------------------------------
 -- Text
 
@@ -58,6 +71,6 @@ end
 ns.LogText = LogText;
 
 local function SetStatus(text)
-	ns.frame.Status:SetText(text or "");
+	ns.frame.Status.Text:SetText(text or "");
 end
 ns.SetStatus = SetStatus;

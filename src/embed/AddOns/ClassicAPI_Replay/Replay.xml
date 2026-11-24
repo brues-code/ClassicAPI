@@ -1,6 +1,8 @@
 <Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/
 ..\FrameXML\UI.xsd">
-	<!-- A unit in the unit list: its name, and a mark while the camera follows it. -->
+	<!-- A unit in the unit list: a player's faction icon, its name, and a mark
+	     while the camera follows it. The faction icon is the target frame's
+	     PvP icon (UI-PVP-<faction group>), cut to the art in its top left. -->
 	<Button name="ClassicAPIReplayUnitRowTemplate" virtual="true">
 		<Size x="100" y="16"/>
 		<Layers>
@@ -10,6 +12,10 @@
 				</Texture>
 			</Layer>
 			<Layer level="ARTWORK">
+				<Texture parentKey="Faction" hidden="true">
+					<Size x="12" y="12"/>
+					<TexCoords left="0" right="0.625" top="0" bottom="0.625"/>
+				</Texture>
 				<FontString parentKey="Text" inherits="GameFontHighlightSmall" justifyH="LEFT">
 					<Size y="16"/>
 					<Anchors>
@@ -104,12 +110,6 @@
 						<Anchor point="TOP" x="0" y="-18"/>
 					</Anchors>
 				</FontString>
-				<FontString parentKey="Status" inherits="GameFontHighlightSmall" justifyH="RIGHT">
-					<Size x="300" y="20"/>
-					<Anchors>
-						<Anchor point="TOPRIGHT" x="-40" y="-42"/>
-					</Anchors>
-				</FontString>
 				<FontString parentKey="Time" inherits="GameFontHighlightSmall" justifyH="RIGHT">
 					<Size x="110" y="20"/>
 					<Anchors>
@@ -136,6 +136,25 @@
 					<Anchor point="TOPLEFT" x="292" y="-38"/>
 				</Anchors>
 			</DropdownButton>
+			<!-- The window's options, over the unit list's right edge. -->
+			<DropdownButton parentKey="OptionsDropdown" inherits="WowStyle1FilterDropdownTemplate">
+				<Anchors>
+					<Anchor point="TOPRIGHT" x="-16" y="-42"/>
+				</Anchors>
+			</DropdownButton>
+			<!-- The status text, between the stretch's dropdown and the options. -->
+			<Frame parentKey="Status">
+				<Size y="20"/>
+				<Anchors>
+					<Anchor point="LEFT" relativeKey="$parent.SegmentDropdown" relativePoint="RIGHT" x="8" y="0"/>
+					<Anchor point="RIGHT" relativeKey="$parent.OptionsDropdown" relativePoint="LEFT" x="-8" y="0"/>
+				</Anchors>
+				<Layers>
+					<Layer level="ARTWORK">
+						<FontString parentKey="Text" inherits="GameFontHighlightSmall" justifyH="RIGHT" setAllPoints="true"/>
+					</Layer>
+				</Layers>
+			</Frame>
 			<Frame parentKey="UnitList">
 				<Size x="180"/>
 				<Anchors>
