@@ -80,6 +80,8 @@
 #include "storm/List.h"
 #include "xml/FrameLoad.h"
 
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <map>
 #include <utility>
@@ -212,11 +214,65 @@ bool ClipRect(const void *root, float rect[4]) {
     return !first;
 }
 
+// DrawInside on the D3D9 device, on whole pixels. The device truncates the
+// viewport to pixels (OFF_GXDEV_DRAW_RECT), and a quad covers the pixels whose
+// centres, at whole coordinates (the UI's ortho has no half-pixel shift), lie
+// inside it: an edge at pixel position e is covered up to ceil(e) - 1. So the
+// clip takes the pixels ceil(e0) .. ceil(e1) - 1 of each axis, the ones an
+// unclipped quad with the clip rect's edges covers, intersected with the
+// current viewport's own pixels. The ortho goes over exactly those pixel
+// edges, so clipped content keeps the screen's pixel grid; over the float
+// rect, as the ScrollFrame's draw does, it is squeezed into the truncated
+// viewport and ends a pixel short on the right and at the bottom. The
+// viewport fractions carry half a pixel, so the truncation lands on the
+// chosen pixels.
+bool DrawInsidePixels(float rect[4], const Gx::Viewport &vp, Callback_t draw, void *arg) {
+    void *dev = Game::Read<void *>(Offsets::VAR_GX_DEVICE);
+    if (dev == nullptr)
+        return false;
+    const float *drawRect = Game::Ptr<float>(static_cast<uint8_t *>(dev), Offsets::OFF_GXDEV_DRAW_RECT);
+    const float w = drawRect[3];
+    const float h = drawRect[2];
+    if (w <= 0.0f || h <= 0.0f)
+        return false;
+    // The current viewport's pixels, as the device made them.
+    const int vx0 = static_cast<int>(vp.minX * w);
+    const int vx1 = static_cast<int>(vp.maxX * w);
+    const int vy0 = static_cast<int>((1.0f - vp.maxY) * h); // top, counted down
+    const int vy1 = static_cast<int>((1.0f - vp.minY) * h);
+    // The clip rect's edges in pixels.
+    float left = 0, bottom = 0, right = 0, top = 0;
+    Frame::Layout::DdcToNdc(&left, &bottom, rect[LEFT], rect[BOTTOM]);
+    Frame::Layout::DdcToNdc(&right, &top, rect[RIGHT], rect[TOP]);
+    int x0 = static_cast<int>(std::ceil(left * w));
+    int x1 = static_cast<int>(std::ceil(right * w));
+    int y0 = static_cast<int>(std::ceil((1.0f - top) * h));
+    int y1 = static_cast<int>(std::ceil((1.0f - bottom) * h));
+    x0 = (std::max)(x0, vx0);
+    x1 = (std::min)(x1, vx1);
+    y0 = (std::max)(y0, vy0);
+    y1 = (std::min)(y1, vy1);
+    if (x0 >= x1 || y0 >= y1)
+        return true;
+    float exact[4];
+    Frame::Layout::NdcToDdc(&exact[LEFT], &exact[BOTTOM], x0 / w, 1.0f - y1 / h);
+    Frame::Layout::NdcToDdc(&exact[RIGHT], &exact[TOP], x1 / w, 1.0f - y0 / h);
+    const float point[2] = {0, 0};
+    reinterpret_cast<SetupOrtho_t>(Offsets::FUN_SETUP_ORTHO_TRANSFORMS)(exact, point, 0);
+    Gx::SetViewport({(x0 + 0.5f) / w, (x1 + 0.5f) / w, 1.0f - (y1 + 0.5f) / h, 1.0f - (y0 + 0.5f) / h, 0.0f, 1.0f});
+    draw(arg);
+    return true;
+}
+
 // The ScrollFrame's draw (0x00787220) with `rect` in place of its hit rect
-// and `draw(arg)` in place of its scroll child's.
+// and `draw(arg)` in place of its scroll child's; on the D3D9 device, on whole
+// pixels (DrawInsidePixels). The OpenGL device keeps the ScrollFrame's float
+// rect.
 void DrawInside(float rect[4], Callback_t draw, void *arg) {
     const Gx::SavedTransforms saved;
     const Gx::Viewport &vp = saved.SavedViewport();
+    if (Gx::IsD3d() && DrawInsidePixels(rect, vp, draw, arg))
+        return;
     float minX = 0, minY = 0, maxX = 0, maxY = 0;
     Frame::Layout::NdcToDdc(&minX, &minY, vp.minX, vp.minY);
     Frame::Layout::NdcToDdc(&maxX, &maxY, vp.maxX, vp.maxY);

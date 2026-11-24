@@ -15364,6 +15364,13 @@ enum Offsets {
     // 0x0059A20D); SetRenderTarget (0x00592230) puts the draw rectangle back
     // to it when no target is bound. Base-class field, both backends.
     OFF_GXDEV_WINDOW_RECT = 0x1DC,
+    // The draw rectangle, float[4] {y0, x0, y1, x1} in pixels, origin 0
+    // (CGxDevice 0x005922E0 returns its address). The D3D viewport build
+    // (0x005A1100) reads its height at +8 and width at +0xC and makes the
+    // viewport from the fractions with _ftol (truncation): X = ftol(minX*W),
+    // Width = ftol(maxX*W - X), Y = ftol((1-maxY)*H), Height =
+    // ftol((1-minY)*H - Y).
+    OFF_GXDEV_DRAW_RECT = 0x1EC,
     // The device's CGxFormat, 0x38 bytes copied in by CGxDevice::DeviceSetFormat
     // (0x00591FD0, `rep movsd` of 14 dwords to +0x204), which first raises a
     // size below 320x240 to that minimum. Base-class field, both backends.
