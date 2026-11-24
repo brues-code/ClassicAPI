@@ -121,6 +121,11 @@ void SetCollisionSize(Body &body, float width, float height, float scale, float 
 // when time passed, where the client then runs the unit's step
 // (CGUnit_C::OnMoverStepped 0x005FAC70): the swim decision below.
 bool Tick(Body &body, uint32_t now);
+// Holds a paused actor's body still up to `now` (a scene extension: the world
+// does not pause). The body's two absolute ticks, its clock and its spline's
+// start, slide forward by the time held, so the move resumes where it was
+// instead of jumping ahead.
+void Hold(Body &body, uint32_t now);
 // The position reset (0x007C69A0): put down at `p` facing `facing`, at rest.
 void Reset(Body &body, const float (&p)[3], float facing);
 // SetFacing (0x007C6F30).

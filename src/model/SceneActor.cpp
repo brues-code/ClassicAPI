@@ -1614,6 +1614,10 @@ bool Actor::FinishLoad() {
 }
 
 void Actor::Update(float elapsedSec, float sceneSec) {
+    // A paused actor holds its walk as it holds its animation: a MoveTo, or a
+    // move it was told to start, waits for the pause to end.
+    if (mover != nullptr && model != nullptr && (paused || globalPaused))
+        Mover::Hold(*mover, ClockMs(SceneFrame()));
     if (mover != nullptr) {
         Advance(*this);
         StandAt(mover->position);

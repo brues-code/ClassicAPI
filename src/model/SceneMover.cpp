@@ -2004,6 +2004,15 @@ bool Tick(Body &body, uint32_t now) {
     return true;
 }
 
+void Hold(Body &body, uint32_t now) {
+    const auto held = static_cast<int32_t>(now - body.clock);
+    if (held <= 0)
+        return;
+    body.clock = now;
+    if (body.spline)
+        body.spline->start += static_cast<uint32_t>(held);
+}
+
 // The position reset frees a live spline (0x007C69A0 with free_spline 1).
 void Reset(Body &body, const float (&p)[3], float facing) {
     std::memcpy(body.position, p, sizeof body.position);

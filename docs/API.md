@@ -23022,7 +23022,10 @@ error.
 The pause belongs to the model of the actor. An actor without a model does
 not change, and `GetPaused` returns `false, false` for it. A new model
 plays: it does not keep the pause of the old model. The actor still moves, turns and fades when you change it, and
-its animation does not end, so `OnAnimFinished` does not run. The flight
+its animation does not end, so `OnAnimFinished` does not run. A move of
+`actor:MoveTo`, `actor:StartMovingForward` or another movement method
+stops where it is. When you unpause the actor, the move continues from
+that point. The flight
 sounds of its missiles and the sound of its spell ground area stop. When
 you unpause it, the animation continues from the same frame, and the
 sounds start again.
