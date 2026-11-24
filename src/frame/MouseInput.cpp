@@ -61,6 +61,20 @@
 // EnableMouseMotion and SetMouse*Enabled read a missing argument as false,
 // SetPropagateMouseClicks requires its argument, SetPassThroughButtons
 // raises the usage error for an argument that is not a string.
+//
+// Textures and font strings take clicks too (Frame::RegionInput). The click
+// walk merges them with the frames in draw order (RegionInput::Above), so the
+// press target, and each one a propagated press reaches, can be a region,
+// which runs its OnMouseDown (self, button) and, on the release, OnMouseUp
+// (self, button, upInside), upInside true when the cursor is still over it.
+// 1.12's press handler knows only frames, so a press whose target is a
+// region is run here: the target step answers no frame and sets the
+// handler's [ebp-8], which makes it report the press taken instead of passed
+// on. While that press is held, both handlers' host-button gates read it as
+// a pressed frame (the host's callback does not run), a second button goes
+// to it, and the release's no-frame branch runs its OnMouseUp. A region that
+// is hidden, has its clicks turned off or is destroyed leaves the press and
+// gets no OnMouseUp.
 
 #include "frame/MouseInput.h"
 
@@ -72,6 +86,8 @@
 #include "frame/ClickEvents.h"
 #include "frame/Destruction.h"
 #include "frame/MotionFocus.h"
+#include "frame/RegionInput.h"
+#include "frame/RegionScripts.h"
 #include "xml/FrameLoad.h"
 
 #include <algorithm>
@@ -107,6 +123,15 @@ struct Press {
 };
 Press g_pending; // the click walk's answer for the press being handled
 Press g_pressed; // the press whose release is outstanding
+
+// 1 while the press outstanding is one a region took (g_pressed.primary is
+// that region, or null once it left the press): no frame is pressed, but the
+// press handlers treat it as held. An int, read by the gate thunks.
+int g_regionPress = 0;
+// Set by PressTarget when it ran the press itself; the thunk stores it in the
+// handler's [ebp-8], so the null target reports the press taken.
+int g_regionTook = 0;
+constexpr uintptr_t kReleasePassedOn = Offsets::ADDR_UI_RELEASE_PASSED_ON;
 
 uint8_t *Context() { return Game::Read<uint8_t *>(Offsets::VAR_UI_CONTEXT_PTR); }
 
@@ -199,12 +224,29 @@ void SetHalves(void *frame, bool click, bool motion) {
 // The click walk: the top click-enabled frame under the cursor that does not
 // let `button` through, then the next ones while the last one taken
 // propagates clicks.
+//
+// The regions under the cursor that take the button join in draw order: each
+// region that draws over the next frame hit is taken before it.
 void ClickTargets(uint8_t *ctx, uint32_t button, std::vector<void *> &out) {
     void *const primary = Game::Read<void *>(ctx, Offsets::OFF_UI_CONTEXT_MOUSE_FOCUS);
-    const float *mouse = Game::Ptr<float>(ctx, Offsets::OFF_UI_CONTEXT_MOUSE_POSITION);
     float point[2] = {0.0f, 0.0f};
-    Frame::Layout::NdcToDdc(&point[0], &point[1], mouse[0], mouse[1]);
+    Frame::RegionInput::Cursor(ctx, point);
     const auto hitTest = reinterpret_cast<HitTest_t>(Offsets::FUN_FRAME_HIT_TEST);
+    std::vector<void *> regions;
+    if (Frame::RegionInput::Any())
+        Frame::RegionInput::Candidates(Frame::RegionInput::CLICK, point, button, regions);
+    size_t next = 0;
+    // Takes the regions over `frame` (all that are left for null); true when
+    // one taken stops the walk.
+    const auto regionsOver = [&](const void *frame) {
+        while (next < regions.size() && (frame == nullptr || Frame::RegionInput::Above(regions[next], frame))) {
+            void *region = regions[next++];
+            out.push_back(region);
+            if (!Frame::RegionInput::PropagatesClicks(region))
+                return true;
+        }
+        return false;
+    };
 
     bool pastPrimary = primary == nullptr;
     for (int strata = Offsets::FRAME_STRATA_COUNT - 1; strata >= 0; --strata) {
@@ -228,29 +270,56 @@ void ClickTargets(uint8_t *ctx, uint32_t button, std::vector<void *> &out) {
                 hit = hitTest(frame, point) != 0;
             if (!hit)
                 continue;
+            if (regionsOver(frame))
+                return;
             out.push_back(frame);
             if (!PropagatesClicks(frame))
                 return;
         }
     }
+    regionsOver(nullptr);
 }
 
-void *__stdcall PressTarget(uint8_t *ctx, const void *event) {
-    g_pending = Press{};
-    if (g_clickOff.empty() && g_motionOff.empty() && g_propagatesClicks.empty() && g_passThrough.empty())
-        return Game::Read<void *>(ctx, Offsets::OFF_UI_CONTEXT_MOUSE_FOCUS);
-    std::vector<void *> targets;
-    ClickTargets(ctx, Game::Read<uint32_t>(event, Offsets::OFF_UI_MOUSE_EVENT_BUTTON), targets);
-    if (targets.empty())
-        return nullptr;
-    g_pending.primary = targets.front();
-    g_pending.extras.assign(targets.begin() + 1, targets.end());
-    return g_pending.primary;
+bool IsRegion(const void *object) { return Frame::RegionScripts::IsRegion(object); }
+
+const char *ButtonName(const void *event) {
+    return Frame::ClickEvents::ButtonNameForMask(Game::Read<uint32_t>(event, Offsets::OFF_UI_MOUSE_EVENT_BUTTON));
 }
 
-void RunButton(void *frame, uintptr_t slot, const void *event) {
-    const void *vtable = Game::Read<const void *>(frame, 0);
-    Game::Read<Button_t>(vtable, slot)(frame, event);
+void RegionDown(void *region, const void *event) {
+    const char *name = ButtonName(event);
+    Frame::RegionScripts::Run(region, Frame::RegionScripts::ON_MOUSE_DOWN, [name](void *L) {
+        Game::Lua::PushString(L, name);
+        return 1;
+    });
+}
+
+void RegionUp(void *region, const void *event) {
+    const char *name = ButtonName(event);
+    bool inside = false;
+    if (uint8_t *ctx = Context()) {
+        float point[2];
+        Frame::RegionInput::Cursor(ctx, point);
+        inside = Frame::RegionInput::Under(region, point);
+    }
+    Frame::RegionScripts::Run(region, Frame::RegionScripts::ON_MOUSE_UP, [name, inside](void *L) {
+        Game::Lua::PushString(L, name);
+        Game::Lua::PushBool(L, inside);
+        return 2;
+    });
+}
+
+// A frame's button slot, or a region's OnMouseDown / OnMouseUp.
+void RunButton(void *object, uintptr_t slot, const void *event) {
+    if (IsRegion(object)) {
+        if (slot == Offsets::VTBL_FRAME_ON_MOUSE_DOWN)
+            RegionDown(object, event);
+        else
+            RegionUp(object, event);
+        return;
+    }
+    const void *vtable = Game::Read<const void *>(object, 0);
+    Game::Read<Button_t>(vtable, slot)(object, event);
 }
 
 // Runs a list's button slot; entries a script nulls out are skipped.
@@ -259,6 +328,56 @@ void RunExtras(std::vector<void *> extras, uintptr_t slot, const void *event) {
         if (f != nullptr && std::find(g_pressed.extras.begin(), g_pressed.extras.end(), f) != g_pressed.extras.end())
             RunButton(f, slot, event);
     }
+}
+
+// Runs a press whose target is a region: down on the target, then on each
+// object the press propagated to.
+void RunRegionPress(const void *event) {
+    if (g_pressed.primary != nullptr)
+        RegionDown(g_pressed.primary, event);
+    RunExtras(g_pressed.extras, Offsets::VTBL_FRAME_ON_MOUSE_DOWN, event);
+}
+
+void *__stdcall PressTarget(uint8_t *ctx, const void *event) {
+    g_pending = Press{};
+    g_regionTook = 0;
+    if (g_regionPress != 0) { // another button while a region's press is held
+        RunRegionPress(event);
+        g_regionTook = 1;
+        return nullptr;
+    }
+    if (g_clickOff.empty() && g_motionOff.empty() && g_propagatesClicks.empty() && g_passThrough.empty() &&
+        !Frame::RegionInput::Any())
+        return Game::Read<void *>(ctx, Offsets::OFF_UI_CONTEXT_MOUSE_FOCUS);
+    std::vector<void *> targets;
+    ClickTargets(ctx, Game::Read<uint32_t>(event, Offsets::OFF_UI_MOUSE_EVENT_BUTTON), targets);
+    if (targets.empty())
+        return nullptr;
+    if (IsRegion(targets.front())) {
+        g_pressed = Press{targets.front(), std::vector<void *>(targets.begin() + 1, targets.end())};
+        g_regionPress = 1;
+        RunRegionPress(event);
+        g_regionTook = 1;
+        return nullptr;
+    }
+    g_pending.primary = targets.front();
+    g_pending.extras.assign(targets.begin() + 1, targets.end());
+    return g_pending.primary;
+}
+
+// The release with no pressed frame: a region's press, if one is held.
+// Returns what the handler's [ebp-8] takes, 1 for taken.
+int __stdcall ReleaseRegion(const void *event) {
+    if (g_regionPress == 0)
+        return 0;
+    if (g_pressed.primary != nullptr)
+        RegionUp(g_pressed.primary, event);
+    RunExtras(g_pressed.extras, Offsets::VTBL_FRAME_ON_MOUSE_UP, event);
+    if (Game::Read<int>(event, Offsets::OFF_MOUSE_EVENT_BUTTONS) == 0) {
+        g_pressed = Press{};
+        g_regionPress = 0;
+    }
+    return 1;
 }
 
 void __stdcall PressDispatch(uint8_t * /*ctx*/, void *frame, const void *event) {
@@ -282,6 +401,8 @@ void __stdcall ReleaseDispatch(uint8_t * /*ctx*/, void *frame, const void *event
 // Replaces `mov esi,[ebx+0x7C]; test esi,esi`: context in ebx, the event
 // copy at ebp-0x40 (the press's own frame); the `jz` after it reads the
 // flags this leaves.
+// A press PressTarget ran itself sets [ebp-8], so the `jz` to the no-target
+// return reports it taken.
 __declspec(naked) void PressTargetThunk() {
     __asm {
         lea eax, [ebp - 40h]
@@ -289,7 +410,28 @@ __declspec(naked) void PressTargetThunk() {
         push ebx
         call PressTarget
         mov esi, eax
+        mov ecx, g_regionTook
+        or dword ptr [ebp - 8], ecx
         test esi, esi
+        ret
+    }
+}
+
+// Replaces the press's `mov ecx,[ebx+0x80]` before the host gate's `test
+// ecx,ecx; jne`: a held region press reads as a pressed frame.
+__declspec(naked) void PressHostGateThunk() {
+    __asm {
+        mov ecx, dword ptr [ebx + 80h]
+        or ecx, g_regionPress
+        ret
+    }
+}
+
+// The release's twin, context in esi.
+__declspec(naked) void ReleaseHostGateThunk() {
+    __asm {
+        mov ecx, dword ptr [esi + 80h]
+        or ecx, g_regionPress
         ret
     }
 }
@@ -306,26 +448,45 @@ __declspec(naked) void PressDispatchThunk() {
     }
 }
 
-// Replaces the release's button-up call: frame in ebx, context in esi, the
-// event at ebp-0x3C.
+// Replaces the release's null test and button-up call: frame in ebx (null
+// when none is pressed), context in esi, the event at ebp-0x3C. With a frame
+// it runs the dispatch and returns after the call; without one it runs a held
+// region's release, stores the answer in [ebp-8] and goes on to the
+// handler's no-frame return.
 __declspec(naked) void ReleaseDispatchThunk() {
     __asm {
+        test ebx, ebx
+        jz none
         lea eax, [ebp - 3Ch]
         push eax
         push ebx
         push esi
         call ReleaseDispatch
         ret
+    none:
+        lea eax, [ebp - 3Ch]
+        push eax
+        call ReleaseRegion
+        mov dword ptr [ebp - 8], eax
+        add esp, 4
+        push kReleasePassedOn
+        ret
     }
 }
 
 const uint8_t kPressTarget[] = {0x8B, 0x73, 0x7C, 0x85, 0xF6};
 const uint8_t kPressDispatch[] = {0x8B, 0x16, 0x50, 0x8B, 0xCE, 0xFF, 0x52, 0x68};
-const uint8_t kReleaseDispatch[] = {0x8B, 0x03, 0x8D, 0x4D, 0xC4, 0x51, 0x8B, 0xCB, 0xFF, 0x50, 0x6C};
+const uint8_t kReleaseDispatch[] = {0x85, 0xDB, 0x74, 0x31, 0x8B, 0x03, 0x8D, 0x4D,
+                                    0xC4, 0x51, 0x8B, 0xCB, 0xFF, 0x50, 0x6C};
+const uint8_t kPressHostGate[] = {0x8B, 0x8B, 0x80, 0x00, 0x00, 0x00};
+const uint8_t kReleaseHostGate[] = {0x8B, 0x8E, 0x80, 0x00, 0x00, 0x00};
 
 void Forget(void *frame) {
-    for (Press *p : {&g_pending, &g_pressed})
+    for (Press *p : {&g_pending, &g_pressed}) {
         std::replace(p->extras.begin(), p->extras.end(), frame, static_cast<void *>(nullptr));
+        if (p->primary == frame && IsRegion(frame))
+            p->primary = nullptr;
+    }
 }
 
 void OnFrameDestroyed(void *frame) {
@@ -543,6 +704,10 @@ void RegisterLuaFunctions() {
                             reinterpret_cast<const void *>(&PressDispatchThunk));
     Common::ReplaceWithCall(Offsets::ADDR_UI_RELEASE_DISPATCH, kReleaseDispatch, sizeof kReleaseDispatch,
                             reinterpret_cast<const void *>(&ReleaseDispatchThunk));
+    Common::ReplaceWithCall(Offsets::ADDR_UI_PRESS_HOST_GATE, kPressHostGate, sizeof kPressHostGate,
+                            reinterpret_cast<const void *>(&PressHostGateThunk));
+    Common::ReplaceWithCall(Offsets::ADDR_UI_RELEASE_HOST_GATE, kReleaseHostGate, sizeof kReleaseHostGate,
+                            reinterpret_cast<const void *>(&ReleaseHostGateThunk));
     Game::Lua::RegisterFrameMethods(
         reinterpret_cast<void *>(Offsets::VAR_FRAME_METHOD_REGISTRY), g_methods, g_methodDocs);
 }
@@ -566,6 +731,8 @@ void ProbePressed(const void *event) {
         Game::Read<Probe_t>(vtable, Offsets::VTBL_FRAME_ON_MOUSE_MOVE)(f, event);
     }
 }
+
+void DropRegion(void *region) { Forget(region); }
 
 void OnInputRemoved(void *frame) {
     g_pressed.extras.erase(std::remove(g_pressed.extras.begin(), g_pressed.extras.end(), frame),

@@ -297,12 +297,13 @@ bool BuildCornerMatrix(const float tx[4], const float ty[4], float midY, float o
 }
 
 // `region`'s drawn corners (its rotation and vertex offsets), from its resolved
-// rect as the corner store takes it ({top, left, bottom, right} in `rect`).
-bool DrawnCorners(void *region, float (&rect)[4], float tx[4], float ty[4]) {
+// rect as the corner store takes it (`rect`). Transform's rect space is y-down,
+// so the rect's bottom is its top.
+bool DrawnCorners(void *region, Frame::Layout::Rect &rect, float tx[4], float ty[4]) {
     if (!Frame::Layout::GetResolvedRect(region, rect))
         return false;
     Texture::CornerStore::CropInput(region, rect);
-    Texture::Transform::TargetCorners(region, rect[1], rect[3], rect[0], rect[2], tx, ty);
+    Texture::Transform::TargetCorners(region, rect.left, rect.right, rect.bottom, rect.top, tx, ty);
     return true;
 }
 
@@ -383,11 +384,11 @@ bool MaskedRegionDrawImpl(void *base, void *pathMaskH, void *const *masks, int m
     if (usable < 1)
         return false;
 
-    float br[4]; // base rect {top, left, bottom, right}, as the corner store takes it
+    Frame::Layout::Rect br; // base rect, as the corner store takes it
     float btx[4], bty[4];
     if (!DrawnCorners(base, br, btx, bty))
         return false;
-    const float midY = br[0] + br[2]; // the store's midline
+    const float midY = br.bottom + br.top; // the store's midline
 
     void *cgx[7];
     float mtx[7][16];
@@ -416,7 +417,8 @@ bool MaskedRegionDrawImpl(void *base, void *pathMaskH, void *const *masks, int m
         cgx[units] = Texture::DeviceTexture(hTex);
         if (cgx[units] == nullptr)
             return false;
-        float mr[4], mtx4[4], mty4[4];
+        Frame::Layout::Rect mr;
+        float mtx4[4], mty4[4];
         if (!DrawnCorners(masks[i], mr, mtx4, mty4) || !BuildCornerMatrix(mtx4, mty4, midY, mtx[units]))
             return false;
     }

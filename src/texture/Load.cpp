@@ -43,14 +43,15 @@ struct TexLoadDesc {
 };
 
 // The texel source of CreateFromPixels, the portrait cache's 0x00525AE0 with
-// the array as the owner.
-void __fastcall LatchPixels(uint32_t command, uint32_t width, uint32_t /*height*/,
-                            uint32_t /*face*/, uint32_t /*level*/, void *owner, uint32_t *stride,
-                            const void **texels) {
+// a Pixels as the owner. The portrait's own hands its array over for every
+// level, which is right only for its one-level filter; this answers each
+// level at its size.
+void __fastcall LatchPixels(uint32_t command, uint32_t width, uint32_t height, uint32_t /*face*/,
+                            uint32_t level, void *owner, uint32_t *stride, const void **texels) {
     if (command != Offsets::GXTEX_CMD_LATCH)
         return;
     *stride = width * 4;
-    *texels = owner;
+    *texels = static_cast<Pixels *>(owner)->Level(level, width, height);
 }
 
 } // namespace
@@ -126,11 +127,40 @@ bool IsLooseFile(const char *path) {
     return false;
 }
 
-void *CreateFromPixels(const char *name, uint32_t width, uint32_t height,
-                       const uint32_t *texels, uint32_t flags) {
+const uint32_t *Pixels::Level(uint32_t slot, uint32_t width, uint32_t height) {
+    if ((width == width_ && height == height_) || width == 0 || height == 0)
+        return texels_;
+    std::vector<uint32_t> &out = levels_[slot < kSlots ? slot : kSlots - 1];
+    out.resize(size_t{width} * height);
+    // Each texel averages the block of full-size texels it covers, per
+    // channel, alpha included.
+    for (uint32_t y = 0; y < height; ++y) {
+        const uint32_t y0 = y * height_ / height;
+        const uint32_t y1 = (y + 1) * height_ / height > y0 ? (y + 1) * height_ / height : y0 + 1;
+        for (uint32_t x = 0; x < width; ++x) {
+            const uint32_t x0 = x * width_ / width;
+            const uint32_t x1 = (x + 1) * width_ / width > x0 ? (x + 1) * width_ / width : x0 + 1;
+            uint32_t sum[4] = {};
+            for (uint32_t sy = y0; sy < y1; ++sy)
+                for (uint32_t sx = x0; sx < x1; ++sx) {
+                    const uint32_t c = texels_[size_t{sy} * width_ + sx];
+                    for (int k = 0; k < 4; ++k)
+                        sum[k] += (c >> (8 * k)) & 0xFF;
+                }
+            const uint32_t n = (y1 - y0) * (x1 - x0);
+            uint32_t c = 0;
+            for (int k = 0; k < 4; ++k)
+                c |= ((sum[k] + n / 2) / n) << (8 * k);
+            out[size_t{y} * width + x] = c;
+        }
+    }
+    return out.data();
+}
+
+void *CreateFromPixels(const char *name, Pixels &pixels, uint32_t flags) {
     return reinterpret_cast<CreateWithCallback_t>(Offsets::FUN_TEXTURE_CREATE_WITH_CALLBACK)(
-        width, height, 1, Offsets::GXTEX_FORMAT_ARGB8888, flags,
-        const_cast<uint32_t *>(texels), reinterpret_cast<void *>(&LatchPixels), name, 0);
+        pixels.Width(), pixels.Height(), 1, Offsets::GXTEX_FORMAT_ARGB8888, flags, &pixels,
+        reinterpret_cast<void *>(&LatchPixels), name, 0);
 }
 
 void *CreateSolid(uint32_t bgra) {

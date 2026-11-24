@@ -39,7 +39,6 @@ namespace {
 
 using FieldByName_t = const char *(__fastcall *)(const char *name);
 using EntryByteFn_t = uint8_t(__fastcall *)(const char *name);
-using GetSecurityIndex_t = uint32_t(__fastcall *)(const char *name);
 // FUN_ADDON_CAN_LOAD: `demand` 1 adds NOT_DEMAND_LOADED for an addon without
 // `## LoadOnDemand`; `character` NULL reads the enable state over every
 // character.
@@ -63,10 +62,7 @@ const char *NotesOf(const uint8_t *record) {
         Addons::RecordName(record));
 }
 
-int SecurityOf(const uint8_t *record) {
-    return static_cast<int>(reinterpret_cast<GetSecurityIndex_t>(
-        Offsets::FUN_ADDON_GET_SECURITY_INDEX)(Addons::RecordName(record)));
-}
+int SecurityOf(const uint8_t *record) { return Addons::SecurityIndex(Addons::RecordName(record)); }
 
 // 3.80.2's check FUN_141af6140 as GetAddOnInfo and IsAddOnLoadable call it:
 // MISSING; then 1.12's check, called with no demand flag: DISABLED for the

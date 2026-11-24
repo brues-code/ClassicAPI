@@ -42,6 +42,16 @@
 //   the next listed frame, which keeps `GetMouseFoci()[1] == GetMouseFocus()`.
 //   Hiding a frame removes it before its children, so the hidden frame
 //   leaves first and its focused children after it, as retail orders it.
+//
+// Textures and font strings take motion too (Frame::RegionInput), and 3.80.2
+// sorts them with the frames by one draw-order key. The pass merges them: the
+// next object taken is the frame the engine's walk reaches or the region
+// under the cursor that draws over it (RegionInput::Above), whichever is on
+// top, and propagation goes on through the merged order. A region in the list
+// enters and leaves through its own OnEnter / OnLeave (self, motion). +0x7C
+// stays the list's first FRAME, so every engine reader keeps seeing a frame;
+// when a region alone takes the motion, +0x7C is null and the pass still
+// reports the move taken, so it does not reach the world below.
 
 #include "frame/MotionFocus.h"
 
@@ -51,6 +61,8 @@
 #include "baselib/Ascii.h"
 #include "frame/Destruction.h"
 #include "frame/MouseInput.h"
+#include "frame/RegionInput.h"
+#include "frame/RegionScripts.h"
 #include "xml/FrameLoad.h"
 
 #include <algorithm>
@@ -84,7 +96,21 @@ bool Contains(const std::vector<void *> &list, const void *frame) {
     return std::find(list.begin(), list.end(), frame) != list.end();
 }
 
-bool Propagates(void *frame) { return g_propagates.count(frame) != 0 && g_suppressed.count(frame) == 0; }
+bool IsRegion(const void *object) { return Frame::RegionScripts::IsRegion(object); }
+
+bool Propagates(void *object) {
+    if (IsRegion(object))
+        return Frame::RegionInput::PropagatesMotion(object);
+    return g_propagates.count(object) != 0 && g_suppressed.count(object) == 0;
+}
+
+// The list's first frame: what +0x7C holds.
+void *FirstFrame(const std::vector<void *> &list) {
+    for (void *object : list)
+        if (object != nullptr && !IsRegion(object))
+            return object;
+    return nullptr;
+}
 
 uint8_t *Context() { return Game::Read<uint8_t *>(Offsets::VAR_UI_CONTEXT_PTR); }
 
@@ -94,14 +120,25 @@ void *&Focus(uint8_t *ctx) { return Game::Ref<void *>(ctx, Offsets::OFF_UI_CONTE
 // the context's state before these blocks were patched in.
 void Sync(uint8_t *ctx) {
     void *focus = Focus(ctx);
-    if ((g_list.empty() ? nullptr : g_list.front()) == focus)
+    if (FirstFrame(g_list) == focus)
         return;
     g_list.clear();
     if (focus != nullptr)
         g_list.push_back(focus);
 }
 
+// A region's OnEnter / OnLeave takes `motion`: false when it is taken out
+// (hidden, its motion turned off), true for a change the cursor made.
 void Notify(void *frame, bool enter, int removal, void *notifying) {
+    if (IsRegion(frame)) {
+        const bool motion = removal == 0;
+        Frame::RegionScripts::Run(frame, enter ? Frame::RegionScripts::ON_ENTER : Frame::RegionScripts::ON_LEAVE,
+                                  [motion](void *L) {
+                                      Game::Lua::PushBool(L, motion);
+                                      return 1;
+                                  });
+        return;
+    }
     void *const saved = g_notifying;
     g_notifying = notifying;
     const void *vtable = Game::Read<const void *>(frame, 0);
@@ -131,7 +168,7 @@ void Apply(uint8_t *ctx, std::vector<void *> list) {
         if (!Contains(g_list, f))
             entered.push_back(f);
     g_list = std::move(list);
-    Focus(ctx) = g_list.empty() ? nullptr : g_list.front();
+    Focus(ctx) = FirstFrame(g_list);
 
     const PendingScope leftScope(&left);
     const PendingScope enteredScope(&entered);
@@ -151,41 +188,73 @@ int __stdcall Probe(void *frame, const void *event) {
     return Game::Read<Probe_t>(vtable, Offsets::VTBL_FRAME_ON_MOUSE_MOVE)(frame, event);
 }
 
-// Appends the frames the walk reaches past `primary` while the last one
-// taken propagates: the rest of the mouse lists in the pass's order, each
-// probed as the pass probes it.
-void ContinueWalk(uint8_t *ctx, void *primary, const void *event, std::vector<void *> &list) {
-    bool past = false;
-    for (int strata = Offsets::FRAME_STRATA_COUNT - 1; strata >= 0; --strata) {
-        const uint8_t *queue = ctx + Offsets::OFF_UI_CONTEXT_EVENT_QUEUES +
-                               (strata + Offsets::FRAME_STRATA_COUNT * Offsets::SIMPLE_EVENT_MOUSE) *
-                                   Offsets::EVENT_QUEUE_STRIDE;
-        for (uint32_t i = 0; i < Game::Read<uint32_t>(queue, Offsets::OFF_EVENT_QUEUE_COUNT); ++i) {
-            auto *const *nodes = Game::Read<void *const *>(queue, Offsets::OFF_EVENT_QUEUE_DATA);
-            void *frame = Game::Read<void *>(nodes[i], 0);
-            if (!past) {
-                past = frame == primary;
-                continue;
-            }
-            if (Probe(frame, event) == 0)
-                continue;
-            list.push_back(frame);
-            if (!Propagates(frame))
-                return;
-        }
-    }
-}
+// The frames the pass's walk reaches past `primary`, one at a time: the rest
+// of the mouse lists in the pass's order, each probed as the pass probes it,
+// each list re-read as the engine's loop does.
+class FrameWalk {
+  public:
+    FrameWalk(uint8_t *ctx, void *primary, const void *event) : ctx_(ctx), primary_(primary), event_(event) {}
 
-void __stdcall CommitPass(uint8_t *ctx, void *primary, const void *event) {
+    void *Next() {
+        for (; strata_ >= 0; --strata_, index_ = 0) {
+            const uint8_t *queue = ctx_ + Offsets::OFF_UI_CONTEXT_EVENT_QUEUES +
+                                   (strata_ + Offsets::FRAME_STRATA_COUNT * Offsets::SIMPLE_EVENT_MOUSE) *
+                                       Offsets::EVENT_QUEUE_STRIDE;
+            while (index_ < Game::Read<uint32_t>(queue, Offsets::OFF_EVENT_QUEUE_COUNT)) {
+                auto *const *nodes = Game::Read<void *const *>(queue, Offsets::OFF_EVENT_QUEUE_DATA);
+                void *frame = Game::Read<void *>(nodes[index_++], 0);
+                if (!past_) {
+                    past_ = frame == primary_;
+                    continue;
+                }
+                if (Probe(frame, event_) != 0)
+                    return frame;
+            }
+        }
+        return nullptr;
+    }
+
+  private:
+    uint8_t *ctx_;
+    void *primary_;
+    const void *event_;
+    int strata_ = Offsets::FRAME_STRATA_COUNT - 1;
+    uint32_t index_ = 0;
+    bool past_ = false;
+};
+
+// The pass's commit: the engine's walk picked `primary`. Returns what the
+// pass reads at [ebp-4] for its answer, nonzero when anything took the move.
+void *__stdcall CommitPass(uint8_t *ctx, void *primary, const void *event) {
     Frame::MouseInput::ProbePressed(event);
     Sync(ctx);
-    std::vector<void *> list;
-    if (primary != nullptr) {
-        list.push_back(primary);
-        if (Propagates(primary))
-            ContinueWalk(ctx, primary, event, list);
+    std::vector<void *> regions;
+    if (Frame::RegionInput::Any()) {
+        float point[2];
+        Frame::RegionInput::Cursor(ctx, point);
+        Frame::RegionInput::Candidates(Frame::RegionInput::MOTION, point, 0, regions);
     }
+    std::vector<void *> list;
+    FrameWalk walk(ctx, primary, event);
+    void *frame = primary;
+    size_t next = 0;
+    while (frame != nullptr || next < regions.size()) {
+        void *region = next < regions.size() ? regions[next] : nullptr;
+        const bool takeRegion = region != nullptr && (frame == nullptr || Frame::RegionInput::Above(region, frame));
+        void *taken = takeRegion ? region : frame;
+        list.push_back(taken);
+        if (!Propagates(taken))
+            break;
+        if (takeRegion)
+            ++next;
+        else
+            frame = walk.Next();
+    }
+    void *answer = FirstFrame(list);
+    if (answer == nullptr && !list.empty())
+        answer = list.front();
     Apply(ctx, std::move(list));
+    return answer;
 }
 
 void __stdcall SetFocus(uint8_t *ctx, void *frame) {
@@ -202,9 +271,11 @@ void __stdcall Remove(uint8_t *ctx, void *frame) {
     if (it == g_list.end())
         return;
     g_list.erase(it);
-    Focus(ctx) = g_list.empty() ? nullptr : g_list.front();
+    Focus(ctx) = FirstFrame(g_list);
     Game::Ref<int>(ctx, Offsets::OFF_UI_CONTEXT_REPICK) = 1;
-    if (Game::Read<int>(frame, Offsets::OFF_FRAME_OBJECT_STATE) != Offsets::FRAME_OBJECT_STATE_DESTROYING)
+    // A region has no object state; one being destroyed leaves through Forget.
+    if (IsRegion(frame) ||
+        Game::Read<int>(frame, Offsets::OFF_FRAME_OBJECT_STATE) != Offsets::FRAME_OBJECT_STATE_DESTROYING)
         Notify(frame, false, 1, nullptr);
 }
 
@@ -216,7 +287,7 @@ void __stdcall RemoveInput(uint8_t *ctx, void *frame) {
 
 // Replaces the pass's commit block: context [ebp-8], picked frame [ebp-4],
 // the event's copy at ebp-0x44. The NOPs after the call run on to 0x0076623C,
-// which reads [ebp-4] for the pass's return value.
+// which reads [ebp-4] for the pass's return value: 0 passes the move on.
 __declspec(naked) void PassCommitThunk() {
     __asm {
         lea eax, [ebp - 44h]
@@ -224,6 +295,7 @@ __declspec(naked) void PassCommitThunk() {
         push dword ptr [ebp - 4]
         push dword ptr [ebp - 8]
         call CommitPass
+        mov dword ptr [ebp - 4], eax
         ret
     }
 }
@@ -273,9 +345,7 @@ const uint8_t kRemovalFocus[] = {0x3B, 0x78, 0x7C, 0x75, 0x1F, 0x89, 0x70, 0x7C,
 void OnFrameDestroyed(void *frame) {
     g_propagates.erase(frame);
     g_suppressed.erase(frame);
-    g_list.erase(std::remove(g_list.begin(), g_list.end(), frame), g_list.end());
-    for (std::vector<void *> *pending : g_pending)
-        std::replace(pending->begin(), pending->end(), frame, static_cast<void *>(nullptr));
+    Forget(frame);
 }
 
 const Frame::Destruction::AutoSubscribe _destructionSub{&OnFrameDestroyed};
@@ -335,6 +405,7 @@ int __fastcall Script_IsMouseMotionFocus(void *L) {
     return 1;
 }
 
+// 3.80.2's (0x140CDD4B0): the motion focus top-first, frames and regions.
 int __fastcall Script_GetMouseFoci(void *L) {
     Game::Lua::SetTop(L, 0);
     Game::Lua::NewTable(L);
@@ -367,13 +438,14 @@ const Game::Doc::Field kFocusRets[] = {
     Game::Doc::Req("isMouseMotionFocus", "bool", "True when the frame is one of the frames under the cursor that get motion."),
 };
 const Game::Doc::Field kFociRets[] = {
-    Game::Doc::Req("region", "table", "The frames that get mouse motion, from top to bottom."),
+    Game::Doc::Req("region", "table", "The frames and regions that get mouse motion, from top to bottom."),
 };
 const Game::Doc::Function kSetPropagate{
     "Sets whether the frame passes mouse motion on to the next frame under the cursor.", kPropagateArgs, {}};
 const Game::Doc::Function kCanPropagate{"Returns whether the frame passes mouse motion on.", {}, kPropagateRets};
 const Game::Doc::Function kIsFocus{"Returns whether the frame gets mouse motion at the cursor.", {}, kFocusRets};
-const Game::Doc::Function kGetMouseFoci{"Returns the frames that get mouse motion at the cursor.", {}, kFociRets,
+const Game::Doc::Function kGetMouseFoci{"Returns the frames and regions that get mouse motion at the cursor.", {},
+                                        kFociRets,
                                         "InputGlobals"};
 
 const Game::Doc::Method g_methodDocs[] = {
@@ -407,6 +479,12 @@ bool IsFocus(void *frame) { return Contains(g_list, frame); }
 void Drop(void *frame) {
     if (uint8_t *ctx = Context())
         Remove(ctx, frame);
+}
+
+void Forget(void *object) {
+    g_list.erase(std::remove(g_list.begin(), g_list.end(), object), g_list.end());
+    for (std::vector<void *> *pending : g_pending)
+        std::replace(pending->begin(), pending->end(), object, static_cast<void *>(nullptr));
 }
 
 } // namespace Frame::MotionFocus

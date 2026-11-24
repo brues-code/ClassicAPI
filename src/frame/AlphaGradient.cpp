@@ -79,9 +79,6 @@ namespace {
 using SetProjection_t = void(__fastcall *)(const float *m);
 using SetViewport_t = void(__stdcall *)(float minX, float maxX, float minY, float maxY, float minZ, float maxZ);
 
-// A rect: {bottom, left, top, right}.
-enum { BOTTOM, LEFT, TOP, RIGHT };
-
 // Fade lengths in the frame's own units, per index.
 struct Gradient {
     float x[2];
@@ -107,6 +104,7 @@ int g_count = 0;
 // Opaque white at (1, 1), clear white elsewhere. The engine reads these
 // whenever it uploads the texture.
 const uint32_t kRampTexels[4] = {0x00FFFFFF, 0x00FFFFFF, 0x00FFFFFF, 0xFFFFFFFF};
+Texture::Pixels g_rampPixels{2, 2, kRampTexels};
 void *g_ramp = nullptr;
 
 bool Has(const void *frame) {
@@ -124,7 +122,7 @@ int LastUnit() {
 
 void *RampTexture() {
     if (g_ramp == nullptr)
-        g_ramp = Texture::CreateFromPixels("ClassicAPI\\AlphaGradient", 2, 2, kRampTexels, Texture::DefaultFlags());
+        g_ramp = Texture::CreateFromPixels("ClassicAPI\\AlphaGradient", g_rampPixels, Texture::DefaultFlags());
     return g_ramp != nullptr
                ? Texture::DeviceTexture(g_ramp)
                : nullptr;
@@ -169,7 +167,7 @@ int AddStages(const void *frame, int n, int lastUnit) {
     auto it = g_gradients.find(frame);
     if (it == g_gradients.end())
         return n;
-    float rect[4];
+    Frame::Layout::Rect rect;
     if (!Frame::Layout::GetRect(frame, rect))
         return n;
     const float scale = Game::Read<float>(frame, Offsets::OFF_REGION_EFFECTIVE_SCALE);
@@ -180,8 +178,8 @@ int AddStages(const void *frame, int n, int lastUnit) {
         if (g_count + n >= kMaxStages || 1 + g_count + n > lastUnit)
             return n;
         // Index 0 fades in from the left and top, index 1 from the right and bottom.
-        const float ex = index == 0 ? rect[LEFT] : rect[RIGHT];
-        const float ey = index == 0 ? rect[TOP] : rect[BOTTOM];
+        const float ex = index == 0 ? rect.left : rect.right;
+        const float ey = index == 0 ? rect.top : rect.bottom;
         const float dx = Game::PixelToInternal(lx * scale) * (index == 0 ? 1.0f : -1.0f);
         const float dy = Game::PixelToInternal(ly * scale) * (index == 0 ? -1.0f : 1.0f);
         Stage &s = g_stages[g_count + n];

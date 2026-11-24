@@ -96,9 +96,9 @@ void SetScalar(void *camera, uint32_t id, float value) {
     reinterpret_cast<SetScalar_t>(Offsets::FUN_CAMERA_SET_SCALAR)(camera, id, value);
 }
 
-void SetDeviceTransforms(void *camera, const float (&rect)[4]) {
-    using Fn = void(__fastcall *)(void *camera, const float *rect, uint32_t unused);
-    reinterpret_cast<Fn>(Offsets::FUN_CAMERA_SET_DEVICE_TRANSFORMS)(camera, rect, 0);
+void SetDeviceTransforms(void *camera, const Frame::Layout::Rect &rect) {
+    using Fn = void(__fastcall *)(void *camera, const Frame::Layout::Rect *rect, uint32_t unused);
+    reinterpret_cast<Fn>(Offsets::FUN_CAMERA_SET_DEVICE_TRANSFORMS)(camera, &rect, 0);
 }
 
 namespace {

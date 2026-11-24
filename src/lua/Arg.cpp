@@ -227,6 +227,24 @@ bool Index(void *L, int arg, const char *usage, uint32_t &out, Error *error) {
     return true;
 }
 
+bool Enum(void *L, int arg, const char *usage, uint32_t maxValue, uint32_t &out, bool optional,
+          Error *error) {
+    const Slot at{arg, nullptr};
+    const int present = Present(L, at, usage, optional, error);
+    if (present <= 0)
+        return present == 0;
+    if (!IsNumber(L, arg))
+        return Fail(L, at, nullptr, usage, error);
+    // lua_tointeger on x64: a truncating cast to int64, 0x8000000000000000
+    // out of range, then compared as unsigned.
+    const double v = ToNumber(L, arg);
+    const int64_t i = v > -9223372036854775808.0 && v < 9223372036854775808.0 ? static_cast<int64_t>(v) : INT64_MIN;
+    if (static_cast<uint64_t>(i) > maxValue)
+        return Fail(L, at, nullptr, usage, error);
+    out = static_cast<uint32_t>(i);
+    return true;
+}
+
 bool Bool(void *L, int arg, const char *usage, bool &out, bool optional, Error *error) {
     return ReadBool(L, Slot{arg, nullptr}, usage, out, optional, error);
 }

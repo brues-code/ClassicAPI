@@ -1385,7 +1385,7 @@ LoadBuffer_t g_origLoadBuffer = nullptr;
 // ported body that says `self:Hide()` indexes a nil global.
 //
 // A chunk compiled by the XML script funnel (return address
-// RET_LUA_SCRIPT_COMPILE, engine-built chunkname "<Frame>:<Script>") whose body
+// RET_LUA_SCRIPT_COMPILE, chunkname "*<file>:<line>_<Script>") whose body
 // reads `self`, uses a `...` expression (a Lua 5.0 compile error, so only a
 // body written for later clients has one), or reads one of its script's
 // parameter names and none of the vanilla `this` / `argN` globals, is wrapped
@@ -1440,16 +1440,18 @@ const ScriptParams kScriptParams[] = {
     {"OnLoop", "loopState"},
 };
 
-// The parameter list for an engine-built "<Frame>:<Script>" handler chunkname
-// ("" when the script takes only `self`), or nullptr when the chunkname does
-// not name a script.
+// The parameter list for a handler chunkname ("" when the script takes only
+// `self`), or nullptr when the chunkname does not name a script. The name is
+// "*<file>:<line>_<Script>" (Xml::ScriptChunkName) for a handler whose node
+// an XML file built, else the engine's own "<Object>:<Script>" (a node
+// Xml::NodeLine has no line for).
 const char *HandlerParamsFor(const char *chunkname) {
     if (chunkname == nullptr)
         return nullptr;
-    const char *colon = std::strrchr(chunkname, ':');
-    if (colon == nullptr || colon == chunkname)
+    const char *sep = std::strrchr(chunkname, chunkname[0] == '*' ? '_' : ':');
+    if (sep == nullptr || sep == chunkname)
         return nullptr;
-    const char *script = colon + 1;
+    const char *script = sep + 1;
     if (std::strncmp(script, "On", 2) != 0 && std::strcmp(script, "PreClick") != 0 &&
         std::strcmp(script, "PostClick") != 0)
         return nullptr;

@@ -435,7 +435,7 @@ void FSSetShown(void *fs, bool shown) {
         return;
     Game::Ref<int>(fs, Offsets::OFF_FONTSTRING_SHOWN_FLAG) = shown ? 1 : 0;
     reinterpret_cast<ShowHideFS_t>(
-        shown ? Offsets::FUN_FONTSTRING_SHOW : Offsets::FUN_FONTSTRING_HIDE)(fs);
+        shown ? Offsets::FUN_REGION_SHOW : Offsets::FUN_REGION_HIDE)(fs);
 }
 
 // Copies `src`'s content (text + color) onto `dst`, replicating the shown

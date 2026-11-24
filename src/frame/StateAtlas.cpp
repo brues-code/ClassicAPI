@@ -26,11 +26,19 @@
 // texture and runs texture:SetAtlas on it (Texture::Atlas::SetAtlas), which
 // selects the sprite. Any other argument goes to the engine's setter as it is.
 //
+// Button:SetNormalAtlas, SetPushedAtlas, SetDisabledAtlas and
+// SetHighlightAtlas(atlas [, blendMode]) are the same path with the atlas
+// required: 3.80.2's (SetHighlightAtlas 0x140acc450) read the name and hand it
+// to the button's state-texture setter FUN_1428b6550 as an atlas asset, which
+// makes the state texture when there is none (the highlight one with blend
+// mode ADD unless given) and sets the atlas on it, as for a file.
+//
 // Registered on the Button and CheckButton method registries over the
 // engine's entries (the most recent registration wins; see Frame::ClickMask).
 
 #include "Game.h"
 #include "Offsets.h"
+#include "lua/Arg.h"
 #include "texture/Atlas.h"
 
 #include <cstdint>
@@ -64,6 +72,18 @@ int Set(void *L, uintptr_t setter, uintptr_t getter) {
     return 0;
 }
 
+// The Set*Atlas form: the atlas is a required string. A name no atlas has
+// changes nothing; it goes to the miss log as texture:SetAtlas's would.
+int SetAtlas(void *L, const char *usage, uintptr_t setter, uintptr_t getter) {
+    Game::Lua::Arg::Text atlas;
+    Game::Lua::Arg::String(L, 2, usage, atlas);
+    if (Texture::Atlas::Find(atlas.data) == nullptr) {
+        Texture::Atlas::RecordMiss(atlas.data);
+        return 0;
+    }
+    return Set(L, setter, getter);
+}
+
 int __fastcall Script_SetNormalTexture(void *L) {
     return Set(L, Offsets::FUN_SCRIPT_BUTTON_SET_NORMAL_TEXTURE,
                Offsets::FUN_SCRIPT_BUTTON_GET_NORMAL_TEXTURE);
@@ -89,11 +109,33 @@ int __fastcall Script_SetDisabledCheckedTexture(void *L) {
                Offsets::FUN_SCRIPT_CHECKBUTTON_GET_DISABLED_CHECKED_TEXTURE);
 }
 
+int __fastcall Script_SetNormalAtlas(void *L) {
+    return SetAtlas(L, "Usage: self:SetNormalAtlas(atlas)", Offsets::FUN_SCRIPT_BUTTON_SET_NORMAL_TEXTURE,
+                    Offsets::FUN_SCRIPT_BUTTON_GET_NORMAL_TEXTURE);
+}
+int __fastcall Script_SetPushedAtlas(void *L) {
+    return SetAtlas(L, "Usage: self:SetPushedAtlas(atlas)", Offsets::FUN_SCRIPT_BUTTON_SET_PUSHED_TEXTURE,
+                    Offsets::FUN_SCRIPT_BUTTON_GET_PUSHED_TEXTURE);
+}
+int __fastcall Script_SetDisabledAtlas(void *L) {
+    return SetAtlas(L, "Usage: self:SetDisabledAtlas(atlas)", Offsets::FUN_SCRIPT_BUTTON_SET_DISABLED_TEXTURE,
+                    Offsets::FUN_SCRIPT_BUTTON_GET_DISABLED_TEXTURE);
+}
+int __fastcall Script_SetHighlightAtlas(void *L) {
+    return SetAtlas(L, "Usage: self:SetHighlightAtlas(atlas [, blendMode])",
+                    Offsets::FUN_SCRIPT_BUTTON_SET_HIGHLIGHT_TEXTURE,
+                    Offsets::FUN_SCRIPT_BUTTON_GET_HIGHLIGHT_TEXTURE);
+}
+
 const Game::Lua::FrameMethodEntry g_buttonMethods[] = {
     {"SetNormalTexture", &Script_SetNormalTexture},
     {"SetPushedTexture", &Script_SetPushedTexture},
     {"SetDisabledTexture", &Script_SetDisabledTexture},
     {"SetHighlightTexture", &Script_SetHighlightTexture},
+    {"SetNormalAtlas", &Script_SetNormalAtlas},
+    {"SetPushedAtlas", &Script_SetPushedAtlas},
+    {"SetDisabledAtlas", &Script_SetDisabledAtlas},
+    {"SetHighlightAtlas", &Script_SetHighlightAtlas},
 };
 
 const Game::Lua::FrameMethodEntry g_checkButtonMethods[] = {
@@ -126,11 +168,28 @@ const Game::Doc::Function kSetDisabledCheckedTexture{
     "Sets the texture the check button shows while it is checked and disabled.",
     kStateTextureArgs, {}};
 
+const Game::Doc::Field kAtlasArgs[] = {
+    Game::Doc::Req("atlas", "textureAtlas"),
+};
+const Game::Doc::Field kHighlightAtlasArgs[] = {
+    Game::Doc::Req("atlas", "textureAtlas"),
+    Game::Doc::Opt("blendMode", "BlendMode"),
+};
+const Game::Doc::Function kSetNormalAtlas{"Shows an atlas in the button's normal state.", kAtlasArgs, {}};
+const Game::Doc::Function kSetPushedAtlas{"Shows an atlas while the button is pushed.", kAtlasArgs, {}};
+const Game::Doc::Function kSetDisabledAtlas{"Shows an atlas while the button is disabled.", kAtlasArgs, {}};
+const Game::Doc::Function kSetHighlightAtlas{"Shows an atlas while the mouse is over the button.",
+                                             kHighlightAtlasArgs, {}};
+
 const Game::Doc::Method g_buttonMethodDocs[] = {
     {"SetNormalTexture", &kSetNormalTexture},
     {"SetPushedTexture", &kSetPushedTexture},
     {"SetDisabledTexture", &kSetDisabledTexture},
     {"SetHighlightTexture", &kSetHighlightTexture},
+    {"SetNormalAtlas", &kSetNormalAtlas},
+    {"SetPushedAtlas", &kSetPushedAtlas},
+    {"SetDisabledAtlas", &kSetDisabledAtlas},
+    {"SetHighlightAtlas", &kSetHighlightAtlas},
 };
 
 const Game::Doc::Method g_checkButtonMethodDocs[] = {

@@ -50,6 +50,7 @@
 #include "event/FunctionContainer.h"
 #include "frame/Destruction.h"
 #include "frame/UnitEvent.h"
+#include "profile/AddOnProfiler.h"
 
 #include <cstdio>
 #include <string>
@@ -188,7 +189,10 @@ void Invoke(void *L, const Entry &e, int firstArg, int nargs) {
         Game::Lua::PushNil(L);
     for (int i = 0; i < nargs; ++i)
         Game::Lua::PushValue(L, firstArg + i);
-    Game::Lua::PCall(L, nargs + 1, 0, errfunc);
+    {
+        const Profile::AddOnProfiler::Scope profile(Event::FunctionContainer::Owner(e.c));
+        Game::Lua::PCall(L, nargs + 1, 0, errfunc);
+    }
     Game::Lua::SetTop(L, top);
 }
 

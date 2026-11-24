@@ -39,17 +39,13 @@ namespace Frame::BoundsRect {
 
 namespace {
 
-// bottom, left, top, right in layout units - FUN_REGION_GET_RECT's order.
-struct Rect {
-    float bottom, left, top, right;
-};
+using Frame::Layout::Rect;
 
 // Grows `rect` by a region's own rect, resolving a pending layout first.
 void AddRegionRect(void *region, Rect &rect) {
-    float r[4];
-    if (!Frame::Layout::GetResolvedRect(region, r))
+    Rect own;
+    if (!Frame::Layout::GetResolvedRect(region, own))
         return;
-    const Rect own{r[0], r[1], r[2], r[3]};
     rect.left = own.left < rect.left ? own.left : rect.left;
     rect.right = own.right > rect.right ? own.right : rect.right;
     rect.bottom = own.bottom < rect.bottom ? own.bottom : rect.bottom;

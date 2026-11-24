@@ -52,6 +52,8 @@ uint32_t BlpReader::Width() const { return Game::Read<uint32_t>(rec_, Offsets::O
 
 uint32_t BlpReader::Height() const { return Game::Read<uint32_t>(rec_, Offsets::OFF_BLP_HEIGHT); }
 
+uint8_t BlpReader::AlphaDepth() const { return rec_[Offsets::OFF_BLP_ALPHA_DEPTH]; }
+
 const uint8_t *BlpReader::DecodeBgra() {
     if (!open_)
         return nullptr;

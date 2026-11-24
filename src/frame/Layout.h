@@ -50,11 +50,31 @@ inline void *OwnerOf(void *layout) {
     return static_cast<uint8_t *>(layout) - Offsets::OFF_REGION_ANCHOR;
 }
 
-// CLayoutFrame::GetRect (FUN_REGION_GET_RECT): {bottom, left, top, right} in
-// layout units. False while the object has no valid rect.
-inline bool GetRect(const void *object, float (&rect)[4]) {
-    using Fn = int(__thiscall *)(void *, float *);
-    return reinterpret_cast<Fn>(Offsets::FUN_REGION_GET_RECT)(Of(object), rect) != 0;
+// 4.3.4's CRect {minY, minX, maxY, maxX}, in layout units: what
+// FUN_REGION_GET_RECT writes and OFF_REGION_RECT / OFF_FRAME_HIT_RECT hold
+// (Script_GetBottom 0x007A1CE0 reads [0], Script_GetTop 0x007A1BC0 [2]).
+// Every engine rect is read and written through this type.
+struct Rect {
+    float bottom, left, top, right;
+};
+static_assert(sizeof(Rect) == 16, "CRect is four floats");
+
+// The object's stored layout rect (OFF_REGION_RECT), valid once laid out.
+inline Rect &RectOf(void *object) { return *Game::Ptr<Rect>(object, Offsets::OFF_REGION_RECT); }
+inline const Rect &RectOf(const void *object) {
+    return *Game::Ptr<Rect>(object, Offsets::OFF_REGION_RECT);
+}
+
+// A frame's hit rect (OFF_FRAME_HIT_RECT): the layout rect less the insets.
+inline const Rect &HitRectOf(const void *frame) {
+    return *Game::Ptr<Rect>(frame, Offsets::OFF_FRAME_HIT_RECT);
+}
+
+// CLayoutFrame::GetRect (FUN_REGION_GET_RECT). False while the object has no
+// valid rect.
+inline bool GetRect(const void *object, Rect &rect) {
+    using Fn = int(__thiscall *)(void *, Rect *);
+    return reinterpret_cast<Fn>(Offsets::FUN_REGION_GET_RECT)(Of(object), &rect) != 0;
 }
 
 // IsResizePending (FUN_REGION_LAYOUT_DIRTY): a layout change waits for the
@@ -74,7 +94,7 @@ inline void Resize(void *object, bool now) {
 // The edge getters' read (Script GetLeft 0x007A1A19): a pending resize run
 // now, then the rect. A hidden object, which the layout pass skips, gets a
 // rect this way.
-inline bool GetResolvedRect(void *object, float (&rect)[4]) {
+inline bool GetResolvedRect(void *object, Rect &rect) {
     if (IsResizePending(object))
         Resize(object, true);
     return GetRect(object, rect);

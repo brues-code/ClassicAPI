@@ -20,4 +20,9 @@ namespace Frame::ClipChildren {
 // level rebuild sorts their regions into batches again.
 void Regroup(void *frame);
 
+// True when `point` (DDC) is inside the hit rect of `frame`, if it clips, and
+// of each clipping frame above it, every edge inside: what the mouse reaches
+// of the frame and of its regions.
+bool Inside(const void *frame, const float *point);
+
 } // namespace Frame::ClipChildren

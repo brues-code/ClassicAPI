@@ -24,6 +24,10 @@
 // container after the userdata is collected. A registration of a plain
 // function makes a container of its own. A cancelled container (ref -1) or one
 // from an earlier Lua state is skipped by everything that would call it.
+namespace Profile::AddOnProfiler {
+struct Record;
+}
+
 namespace Event::FunctionContainer {
 
 struct Container;
@@ -39,5 +43,10 @@ void Release(Container *c);
 // Pushes the container's function and gives true, or pushes nothing and gives
 // false for a cancelled or stale container or a ref that holds no function.
 bool PushFunction(void *L, const Container *c);
+
+// The addon profiler's owner of the container: Profile::AddOnProfiler::Owner()
+// as it was made. Its calls from C run inside a Profile::AddOnProfiler::Scope
+// for it.
+Profile::AddOnProfiler::Record *Owner(const Container *c);
 
 } // namespace Event::FunctionContainer

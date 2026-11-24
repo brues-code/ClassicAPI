@@ -31,6 +31,7 @@
 
 #include "Game.h"
 #include "lua/Boxed.h"
+#include "profile/AddOnProfiler.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -43,6 +44,7 @@ struct Container {
     int fieldsRef = -1;
     uint32_t fieldsGeneration = 0;
     int refs = 0;
+    Profile::AddOnProfiler::Record *owner = nullptr;
 };
 
 namespace {
@@ -76,6 +78,7 @@ Container *Create(void *L, int idx) {
     c->fnRef = Game::Lua::Ref(L, Game::Lua::REGISTRY_INDEX);
     c->generation = g_generation;
     c->refs = 1;
+    c->owner = Profile::AddOnProfiler::Owner();
     return c;
 }
 
@@ -289,6 +292,8 @@ void Release(Container *c) {
     FreeFields(c);
     delete c;
 }
+
+Profile::AddOnProfiler::Record *Owner(const Container *c) { return c->owner; }
 
 bool PushFunction(void *L, const Container *c) {
     if (!Live(c))

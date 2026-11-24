@@ -139,7 +139,7 @@ int __fastcall Script_IsRectValid(void *L) {
     void *region = Game::Lua::ResolveRegion(L);
     if (region == nullptr)
         return 0;
-    float rect[4];
+    Frame::Layout::Rect rect;
     Game::Lua::PushBoolean(L, Frame::Layout::GetResolvedRect(region, rect));
     return 1;
 }

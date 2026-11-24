@@ -21,6 +21,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "frame/Layout.h"
 #include "gx/Matrix.h"
 
 #include <cstdint>
@@ -66,6 +67,14 @@ inline void SetViewport(const Viewport &v) {
     using Fn = void(__stdcall *)(float, float, float, float, float, float);
     reinterpret_cast<Fn>(Offsets::FUN_GX_SET_VIEWPORT)(v.minX, v.maxX, v.minY, v.maxY, v.minZ,
                                                       v.maxZ);
+}
+
+// FUN_SETUP_ORTHO_TRANSFORMS: an orthographic projection over `rect` and a
+// view offset by (x, y), the one the render pass sets over the whole screen.
+inline void SetupOrthoTransforms(const Frame::Layout::Rect &rect, float x, float y) {
+    using Fn = void(__fastcall *)(const Frame::Layout::Rect *, const float *, int);
+    const float point[2] = {x, y};
+    reinterpret_cast<Fn>(Offsets::FUN_SETUP_ORTHO_TRANSFORMS)(&rect, point, 0);
 }
 
 // ---- render states (GXRS_*) -----------------------------------------------------

@@ -78,6 +78,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "fontstring/Layout.h"
+#include "frame/Layout.h"
 
 #include <cstdint>
 #include <cstring>
@@ -109,8 +110,8 @@ using BreakArray_t = uint32_t(__fastcall *)(void *fs, void *edx, const char *tex
 // predicted /scale² — one hop of that chain models the live behaviour wrong;
 // the probe is the arbiter.)
 float WrapBudget(void *fs) {
-    const float *rc = Game::Ptr<const float>(fs, Offsets::OFF_REGION_RECT);
-    float width = (rc[3] > rc[1]) ? (rc[3] - rc[1]) : (rc[1] - rc[3]);
+    const Frame::Layout::Rect &rc = Frame::Layout::RectOf(fs);
+    float width = (rc.right > rc.left) ? (rc.right - rc.left) : (rc.left - rc.right);
     const float s = Game::Read<float>(fs, Offsets::OFF_LAYOUT_SCALE);
     if (width > 0.0f && s > 0.0f)
         width /= s;

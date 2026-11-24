@@ -109,6 +109,13 @@ bool FiniteFloat(void *L, int arg, const char *usage, float &out, bool optional 
 // gives 0.
 bool Index(void *L, int arg, const char *usage, uint32_t &out, Error *error = nullptr);
 
+// An enum argument of a generated reader (C_AddOnProfiler's metric,
+// FUN_140B27620): anything lua_isnumber takes, truncated as lua_tointeger
+// does, that is from 0 to `maxValue` compared unsigned. Anything else is the
+// usage error, with no `what`.
+bool Enum(void *L, int arg, const char *usage, uint32_t maxValue, uint32_t &out, bool optional = false,
+          Error *error = nullptr);
+
 // The usage error (no `what`) at `arg`, as the readers give it.
 bool Usage(void *L, int arg, const char *usage, Error *error = nullptr, const char *field = nullptr);
 

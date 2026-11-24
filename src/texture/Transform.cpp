@@ -170,7 +170,7 @@ void WriteCorners(void *region, float *base, float left, float right, float top,
 // when the region isn't laid out yet — the corner-store hook then applies on the
 // first real store. An identity transform restores the plain axis-aligned quad.
 bool ApplyFromRect(void *region, const Xf &xf) {
-    float rect[4];
+    Frame::Layout::Rect rect;
     if (!Frame::Layout::GetRect(region, rect))
         return false;
     // Apply the texcoord crop exactly as the engine's own store paths do
@@ -191,13 +191,14 @@ bool ApplyFromRect(void *region, const Xf &xf) {
     // (which re-derives edges from whatever rect the engine stored) can never
     // disagree about the base rect.
     Texture::CornerStore::CropInput(region, rect);
-    // rect = {top, left, bottom, right}. While a position animation plays,
+    // Rect space here is y-down, so the rect's bottom is the corners' top.
+    // While a position animation plays,
     // each update draws it on top of the corners it stored, so the new shape
     // goes there and shows from the next update on.
     float *base = Animation::Region::TextureBaseCorners(region);
     if (base == nullptr)
         base = Game::Ptr<float>(region, Offsets::OFF_SIMPLETEXTURE_CORNERS);
-    WriteCorners(region, base, rect[1], rect[3], rect[0], rect[2], xf);
+    WriteCorners(region, base, rect.left, rect.right, rect.bottom, rect.top, xf);
     return true;
 }
 
@@ -642,10 +643,12 @@ int __fastcall Script_GetCorners(void *L) {
         Game::Lua::PushNumber(L, base[i * 3 + 0]);
         Game::Lua::PushNumber(L, base[i * 3 + 1]);
     }
-    float rect[4] = {0, 0, 0, 0};
+    Frame::Layout::Rect rect{};
     Frame::Layout::GetRect(tex, rect);
-    for (int i = 0; i < 4; ++i)
-        Game::Lua::PushNumber(L, rect[i]);
+    Game::Lua::PushNumber(L, rect.bottom);
+    Game::Lua::PushNumber(L, rect.left);
+    Game::Lua::PushNumber(L, rect.top);
+    Game::Lua::PushNumber(L, rect.right);
     return 12;
 }
 

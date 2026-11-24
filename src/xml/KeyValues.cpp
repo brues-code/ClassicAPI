@@ -115,12 +115,8 @@ const void *FindKeyValues(const void *node) {
     return nullptr;
 }
 
-} // namespace
-
-void Apply(void *L, int index, const void *node, void *status, const char *owner) {
-    const void *keyValues = FindKeyValues(node);
-    if (keyValues == nullptr)
-        return;
+// One <KeyValues> block.
+void ApplyBlock(void *L, int index, const void *keyValues, void *status, const char *owner) {
     const int top = Game::Lua::GetTop(L);
     for (const void *e = FirstChild(keyValues); e != nullptr; e = NextSibling(e)) {
         if (!TagIs(e, "KeyValue")) {
@@ -160,6 +156,17 @@ void Apply(void *L, int index, const void *node, void *status, const char *owner
     }
 }
 
+} // namespace
+
+// Every <KeyValues> child counts, in order: retail templates split theirs
+// (BigRedThreeSliceButtonTemplate sets fitText* in one block, atlasName in
+// the next).
+void Apply(void *L, int index, const void *node, void *status, const char *owner) {
+    for (const void *c = FirstChild(node); c != nullptr; c = NextSibling(c))
+        if (TagIs(c, "KeyValues"))
+            ApplyBlock(L, index, c, status, owner);
+}
+
 void ApplyToRegion(void *object, const void *node, void *status) {
     if (FindKeyValues(node) == nullptr)
         return;
@@ -174,24 +181,26 @@ void ApplyToRegion(void *object, const void *node, void *status) {
 
 void PushInfo(void *L, const void *node) {
     Game::Lua::NewTable(L); // [list]
-    const void *keyValues = FindKeyValues(node);
-    if (keyValues == nullptr)
-        return;
     int n = 0;
-    for (const void *e = FirstChild(keyValues); e != nullptr; e = NextSibling(e)) {
-        const char *key = Attr(e, "key");
-        if (!TagIs(e, "KeyValue") || key == nullptr)
+    for (const void *keyValues = FirstChild(node); keyValues != nullptr;
+         keyValues = NextSibling(keyValues)) {
+        if (!TagIs(keyValues, "KeyValues"))
             continue;
-        const char *keyType = Attr(e, "keyType");
-        const char *type = Attr(e, "type");
-        const char *value = Attr(e, "value");
-        Game::Lua::PushNumber(L, static_cast<double>(++n)); // [list, n]
-        Game::Lua::NewTable(L);                             // [list, n, entry]
-        Game::Lua::SetFieldString(L, "key", key);
-        Game::Lua::SetFieldString(L, "keyType", keyType != nullptr ? keyType : "string");
-        Game::Lua::SetFieldString(L, "type", type != nullptr ? type : "string");
-        Game::Lua::SetFieldString(L, "value", value != nullptr ? value : "");
-        Game::Lua::SetTable(L, -3); // list[n] = entry
+        for (const void *e = FirstChild(keyValues); e != nullptr; e = NextSibling(e)) {
+            const char *key = Attr(e, "key");
+            if (!TagIs(e, "KeyValue") || key == nullptr)
+                continue;
+            const char *keyType = Attr(e, "keyType");
+            const char *type = Attr(e, "type");
+            const char *value = Attr(e, "value");
+            Game::Lua::PushNumber(L, static_cast<double>(++n)); // [list, n]
+            Game::Lua::NewTable(L);                             // [list, n, entry]
+            Game::Lua::SetFieldString(L, "key", key);
+            Game::Lua::SetFieldString(L, "keyType", keyType != nullptr ? keyType : "string");
+            Game::Lua::SetFieldString(L, "type", type != nullptr ? type : "string");
+            Game::Lua::SetFieldString(L, "value", value != nullptr ? value : "");
+            Game::Lua::SetTable(L, -3); // list[n] = entry
+        }
     }
 }
 

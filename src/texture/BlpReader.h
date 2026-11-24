@@ -39,6 +39,8 @@ public:
     bool IsOpen() const { return open_; }
     uint32_t Width() const;
     uint32_t Height() const;
+    // The header's alpha depth; 0 for an image with no alpha.
+    uint8_t AlphaDepth() const;
 
     // Level 0 as BGRA8888 (alpha in byte 3), valid until destruction; null
     // on failure, and for a DXT5 file, which the engine cannot convert.

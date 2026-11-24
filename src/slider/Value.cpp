@@ -47,6 +47,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "frame/Destruction.h"
+#include "frame/Layout.h"
 #include "frame/ScriptArgs.h"
 #include "frame/ScriptSlots.h"
 #include "xml/FrameLoad.h"
@@ -300,11 +301,11 @@ bool Page(void *slider, const void *event) {
         return false;
     const float x = Game::Read<float>(event, Offsets::OFF_UI_MOUSE_EVENT_X);
     const float y = Game::Read<float>(event, Offsets::OFF_UI_MOUSE_EVENT_Y);
-    const float *r = Game::Ptr<float>(thumb, Offsets::OFF_REGION_RECT); // {y, minX, y, maxX}
-    const float minX = r[1];
-    const float maxX = r[3];
-    const float minY = std::fmin(r[0], r[2]);
-    const float maxY = std::fmax(r[0], r[2]);
+    const Frame::Layout::Rect &r = Frame::Layout::RectOf(thumb);
+    const float minX = r.left;
+    const float maxX = r.right;
+    const float minY = std::fmin(r.bottom, r.top);
+    const float maxY = std::fmax(r.bottom, r.top);
     if (minX <= x && x <= maxX && minY <= y && y <= maxY)
         return false;
     const bool vertical = Game::Read<uint32_t>(slider, Offsets::OFF_SLIDER_ORIENTATION) != 0;

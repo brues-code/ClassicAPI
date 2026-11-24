@@ -732,8 +732,16 @@ enum Offsets {
     // the exact pair AddLine (FUN_00530270) and the clear use. Moving text
     // into a previously-empty (hidden) cell without this leaves it
     // unpositioned, so the line-shift must replicate it.
-    FUN_FONTSTRING_SHOW = 0x0077FCB0,             // __fastcall(fs) — realizes +0xC4
-    FUN_FONTSTRING_HIDE = 0x0077FC60,             // __fastcall(fs)
+    // The region base's register / unregister (benilla-re ui/draworder
+    // "Regions within a frame"), shared by textures and font strings. The
+    // register links the region into its owner's layer list and sets
+    // OFF_REGION_ACTUALLY_SHOWN when OFF_REGION_DESIRED_SHOWN is set, the
+    // owner is visible (OFF_FRAME_VISIBLE) and it is not yet registered; the
+    // unregister undoes it. Every visibility change of a region is one of
+    // these: its own Show / Hide, its owner's show and hide walks (0x0076AEAC,
+    // 0x0076ADBF) and FUN_REGION_SET_PARENT_AND_LAYER. `__fastcall(region)`.
+    FUN_REGION_SHOW = 0x0077FCB0,
+    FUN_REGION_HIDE = 0x0077FC60,
     OFF_FONTSTRING_SHOWN_FLAG = 0xC4,             // int — desired-shown flag
     // The per-tooltip clear only HIDES line FontStrings (sets +0xC8 = 0)
     // and clears the left text; right-column text buffers are left intact.
@@ -1022,6 +1030,7 @@ enum Offsets {
     // by SetTexture and valid while hidden) + its rect (FUN_REGION_GET_RECT); the
     // +0xC4 shown flag is OFF_REGION_DESIRED_SHOWN (defined below).
     FUN_SCRIPT_CREATE_TEXTURE = 0x00773A20,   // Script frame:CreateTexture, __fastcall(L)->int
+    FUN_SCRIPT_CREATE_FONTSTRING = 0x00773C30, // Script frame:CreateFontString, __fastcall(L)->int; pushes the region
     // CSimpleTexture::SetTexture(path). Loads via FUN_00449D90, stores the owned
     // HTEXTURE at +0xCC (releases the old via DecRef FUN_0041AED0), marks dirty.
     // `__thiscall(tex, path, 0, *VAR_TEXTURE_BLEND_DEFAULT, 0) -> u32`. The
@@ -1111,8 +1120,8 @@ enum Offsets {
     // texture/Rotation.cpp for Texture:SetRotation.
     OFF_SIMPLETEXTURE_CORNERS = 0xD4,
     // Region corner-store: `__thiscall(region, const float rect[4])` writes the
-    // drawn quad corners into region+0xD4..+0x100 from the rect ({yA,left,yB,right}
-    // screen px). The renderer only draws a region whose +0xD4 corners are
+    // drawn quad corners into region+0xD4..+0x100 from the rect (the layout
+    // rect, Frame::Layout::Rect). The renderer only draws a region whose +0xD4 corners are
     // populated (verified: the draw gate tests region+0xD4 != 0), and normally
     // SetPoint→layout-resolve calls this. We call it directly to place an icon by
     // its screen rect with NO anchors (anchoring 100+ textures/frame corrupts the
@@ -1130,9 +1139,9 @@ enum Offsets {
     // (0x004F8E30), less its playing-animation leg, which Animation::Region
     // adds back with a co-hook. Verified by decompile (benilla-re regions.md).
     FUN_TEXTURE_ON_FRAME_SIZE_CHANGED = 0x00770670,
-    // Texcoord crop applied to a {top,left,bottom,right} screen rect before the
-    // corner-store: shrinks right→left and bottom→top by the region's per-corner
-    // texcoord span (ABS of the +0x104 U/V differences). No-op for full 0..1
+    // Texcoord crop applied to the layout rect (Frame::Layout::Rect) before the
+    // corner-store: moves right toward left and top toward bottom by the
+    // region's texcoord spans (ABS of the +0x104 U/V differences; Ghidra). No-op for full 0..1
     // texcoords. `__thiscall(region, float rect[4])`, rect in/out. The crop
     // itself is unconditional; every engine call site gates it on
     // OFF_REGION_TEXCOORD_MODIFIES_RECT below — with the flag clear (the
@@ -1301,6 +1310,12 @@ enum Offsets {
     OFF_REGION_DESIRED_SHOWN = 0xC4,  // Show (FUN_0077FCB0) NO-OPS unless this is set;
                                       // engine callers always write it before show/hide
     OFF_REGION_ACTUALLY_SHOWN = 0xC8, // 1 after Show completed (the realize latch)
+    // The region's draw layer (0 BACKGROUND .. 4 HIGHLIGHT): FUN_REGION_HIDE
+    // and FUN_REGION_SHOW pass `[region+0xC0]` to the owner's layer-list
+    // unlink 0x0076A910 / link 0x0076A860 (0x0077FC87, 0x0077FCEB), and
+    // FUN_REGION_SET_PARENT_AND_LAYER stores its layer argument there
+    // (0x0077FD63, 0x0077FDC0).
+    OFF_REGION_DRAW_LAYER = 0xC0,
 
     // The level draw (benilla-re ui/draworder). CSimpleTop's render pass
     // (0x007657D0) walks strata 0..8 and each stratum's levels ascending; per
@@ -1319,6 +1334,31 @@ enum Offsets {
     FUN_FRAME_DRAWLIST_REBUILD = 0x00765920,
     FUN_FRAME_LAYER_RENDER = 0x0076FB00,
     FRAME_LAYER_COUNT = 5, // BACKGROUND, BORDER, ARTWORK, OVERLAY, HIGHLIGHT
+    // Where the draw order lives (benilla-re ui/strata, ui/draworder; read
+    // from the code). The UI context's nine strata records, one pointer per
+    // stratum (`[ctx + strata*4 + 0xCD4]`, 0x00764790); each record's array of
+    // level nodes, count at +0x10 and node pointers at +0x14 (0x0076479F,
+    // 0x00764866). The rebuild walks a level's frames from `[node+0x14]`, each
+    // next one at `[frame + [node+0x0C] + 4]` (0x007659BB, 0x007659F0), in the
+    // order it draws them.
+    OFF_UI_CONTEXT_STRATA_RECORDS = 0xCD4,
+    OFF_STRATA_RECORD_LEVEL_COUNT = 0x10,
+    OFF_STRATA_RECORD_LEVELS = 0x14,
+    OFF_LEVEL_NODE_LINK_OFFSET = 0x0C,
+    OFF_LEVEL_NODE_FIRST_FRAME = 0x14,
+    // A frame's region list per draw layer, 12 bytes each from +0x1C0: the
+    // layer emit (0x0076B3A0) walks the nodes from `[list+4]`, each node's
+    // region at +8 and next node at +4 (0x0076B3DB, 0x0076B3E4), in draw order.
+    OFF_FRAME_LAYER_LISTS = 0x1C0,
+    FRAME_LAYER_LIST_STRIDE = 0x0C,
+    OFF_LAYER_LIST_FIRST = 0x04,
+    OFF_LAYER_NODE_NEXT = 0x04,
+    OFF_LAYER_NODE_REGION = 0x08,
+    // A texture's device texture, `void *__fastcall(texture)`: null without
+    // an image, else 0x0044ACF0(handle +0xCC, 1). The quad append keys its
+    // record with it (0x00772FDC), and the batch draws its textures sorted by
+    // that key (FUN_RENDERBATCH_SORT).
+    FUN_SIMPLETEXTURE_GX_TEXTURE = 0x00770700,
     // The rebuild's per-frame call: `mov eax,[ebx]; push ecx; push esi; mov
     // ecx,ebx; call [eax+0x44]` (8B 03 51 56 8B CB FF 50 44, 9 bytes), with the
     // frame in ebx, the level's layer batch in esi and the layer in ecx.
@@ -1348,11 +1388,10 @@ enum Offsets {
     // batch this way.
     FUN_RENDERBATCH_ADD_CALLBACK = 0x00773110,
     OFF_RENDERBATCH_CALLBACKS = 0x24,
-    // Resolved on-screen rect of a region: 4 floats at regionBase+0x64 (=
-    // LayoutFrame+0x40), in GxU SCREEN PIXELS — verified: FUN_00770670 reads
-    // them and FUN_007705b0 stores them straight as GxU vertex corners. Layout is
-    // {yA, left, yB, right} (x at [1]/[3], y at [0]/[2]); use min/max to get
-    // left/top without pinning which y index is top.
+    // Resolved rect of a region: 4 floats at regionBase+0x64 (= LayoutFrame
+    // +0x40), {bottom, left, top, right} in layout units (FUN_REGION_GET_RECT's
+    // source). FUN_00770670 reads them and FUN_007705b0 stores them straight as
+    // GxU vertex corners. Read through Frame::Layout::Rect / RectOf.
     OFF_REGION_RECT = 0x64,
 
     // "Currently displayed thing" state fields on a GameTooltip frame
@@ -1740,7 +1779,8 @@ enum Offsets {
     //     base vtable+0x0C: the OnEvent slot for "OnEvent", else 0.
     //   FUN_SCRIPT_OBJECT_SET_SCRIPT_TEXT `bool __thiscall(object, name, text)`,
     //     `ret 8` - compiles an XML script body into the slot vtable+0x0C
-    //     gives (chunk name "<name>:<script>", context 0), releasing the old.
+    //     gives (chunk name "<name>:<script>", which Xml::ScriptChunkName
+    //     renames for an XML file's handler; context 0), releasing the old.
     //   FUN_SCRIPT_RELEASE `void __stdcall(uint32_t *slot)` - frees a slot's
     //     handler ref.
     // An object's methods are found through its vtable+0x08, `int
@@ -1754,6 +1794,12 @@ enum Offsets {
     FUN_SCRIPT_OBJECT_BASE_RESOLVE_SCRIPT = 0x00702590,
     FUN_SCRIPT_OBJECT_SET_SCRIPT_TEXT = 0x007025C0,
     FUN_SCRIPT_RELEASE = 0x00702670,
+    // FrameScript_CompileFunction `int __fastcall(const char *text, const char
+    // *chunkName)`: compiles `text` as a chunk named `chunkName` and answers
+    // its registry ref, or -1 with the error reported. Called by
+    // SetScriptObjectScript (0x0070263C, name "<object>:<script>" from the
+    // "%s:%s" at 0x00872A28) and the bindings loader (0x004B73F9).
+    FUN_FRAMESCRIPT_COMPILE_FUNCTION = 0x00704C70,
 
     // `this+0x04` Lua refcount, incremented by `ScriptRegister`. We
     // read it as a "has the engine ever exposed this CObject to Lua"
@@ -5269,10 +5315,23 @@ enum Offsets {
     // lea ecx,[ebp-0x3C]; push ecx; mov ecx,ebx; call [eax+0x6C]` at
     // ADDR_UI_RELEASE_DISPATCH (frame ebx, context esi, event at ebp-0x3C),
     // then forgets the pressed frame when the event's held-button field
-    // (OFF_MOUSE_EVENT_BUTTONS) is 0.
+    // (OFF_MOUSE_EVENT_BUTTONS) is 0. ADDR_UI_RELEASE_DISPATCH starts at the
+    // null test in front of that call, `test ebx,ebx; je 0x007664CD` (with no
+    // pressed frame the release returns `[ebp-8] == 0`, passed on), so one
+    // patch takes both branches.
+    // Before either, each handler runs the host's button callback (context
+    // +0x1128) only while no frame is pressed: `mov ecx,[ebx+0x80]` at
+    // ADDR_UI_PRESS_HOST_GATE (press, context ebx) and `mov ecx,[esi+0x80]` at
+    // ADDR_UI_RELEASE_HOST_GATE (release, context esi), each a `test ecx,ecx;
+    // jne` after it. The press's null target returns `[ebp-8] == 0` too
+    // (0x0076640C); [ebp-8] is 0 there unless the title-region path stored a
+    // float in it, which returns before.
     ADDR_UI_PRESS_TARGET = 0x00766389,
     ADDR_UI_PRESS_DISPATCH = 0x007663EF,
-    ADDR_UI_RELEASE_DISPATCH = 0x0076649C,
+    ADDR_UI_RELEASE_DISPATCH = 0x00766498,
+    ADDR_UI_RELEASE_PASSED_ON = 0x007664CD,
+    ADDR_UI_PRESS_HOST_GATE = 0x00766363,
+    ADDR_UI_RELEASE_HOST_GATE = 0x00766485,
     // The handlers' copy of the event (built by 0x00766F70, at [ebp-0x40] in
     // the press): a 0x10-byte header, then the nine-dword input payload, so
     // the payload's button (OFF_MOUSE_EVENT_BUTTON 0x04) sits at +0x14 and its
@@ -5283,6 +5342,18 @@ enum Offsets {
     // (0x00789C2D) against the slider's rect.
     OFF_UI_MOUSE_EVENT_X = 0x24,
     OFF_UI_MOUSE_EVENT_Y = 0x28,
+    // The payload's wheel delta, an int: the frame's wheel slot (0x0076C180)
+    // passes OnMouseWheel `[event+0x2C] >= 0 ? 1 : -1` (0x0076C1A2).
+    OFF_UI_MOUSE_EVENT_WHEEL_DELTA = 0x2C,
+    // The wheel handler 0x007664F0 walks the wheel lists from stratum 8 down:
+    // per frame the hit test `call FUN_FRAME_HIT_TEST` at ADDR_UI_WHEEL_HIT_TEST
+    // (frame in ecx and edi, the point pushed), then on a hit `call [edx+0x70]`
+    // with the event copy at ebp-0x40; the answer goes to ebx, and a nonzero
+    // one ends the walk. Its tail at ADDR_UI_WHEEL_TAIL, `pop edi; xor eax,eax;
+    // test ebx,ebx` (5F 33 C0 85 DB), then `pop esi; sete al` returns
+    // `ebx == 0` (1 = passed on).
+    ADDR_UI_WHEEL_HIT_TEST = 0x00766586,
+    ADDR_UI_WHEEL_TAIL = 0x007665A5,
     OFF_MOUSE_EVENT_BUTTONS = 0x18,
     // CSimpleFrame::EnableEvent `__thiscall(frame, kind, priority)`, ret 8:
     // sets the kind's bit in OFF_FRAME_ENABLED_EVENTS and, when the frame is
@@ -5545,6 +5616,11 @@ enum Offsets {
     // _GET_OBJECT_TYPE) and VTBL_REGION_EMIT.
     VTBL_SIMPLETEXTURE = 0x0081C718,
     VTBL_SIMPLETEXTURE_SLOTS = 13,
+    // CSimpleFontString's main vtable (benilla-re ui/regions; its constructor
+    // 0x00770D30). Slot +0x0C, the script-name resolver, holds the base
+    // FUN_SCRIPT_OBJECT_BASE_RESOLVE_SCRIPT, as the texture's does (read from
+    // the exe); Frame::RegionScripts points both at its own resolver.
+    VTBL_SIMPLEFONTSTRING = 0x0081C778,
     // CSimpleTexture's layout vtable, stored at +0x24 by the same constructor:
     // 11 slots (benilla-re ui/regions "The layout vtable"), read from the exe:
     // +0x00 OnFrameSizeChanged 0x00770670, +0x04 the deleting destructor thunk
@@ -5638,8 +5714,8 @@ enum Offsets {
     OFF_FRAME_FLAGS = 0xB4,
     FRAME_FLAG_SCROLLED = 0x2000,
     FRAME_FLAG_SCROLL_CHILD = 0x4000,
-    // The hit rect: {bottom, left, top, right} in DDC, the layout rect less the
-    // hit-rect insets. CSimpleFrame::GetHitRect (0x0076B220) copies it when
+    // The hit rect: {bottom, left, top, right} in DDC (Frame::Layout::Rect,
+    // HitRectOf), the layout rect less the hit-rect insets. CSimpleFrame::GetHitRect (0x0076B220) copies it when
     // the layout is valid; FUN_FRAME_HIT_TEST and the ScrollFrame's draw read it.
     OFF_FRAME_HIT_RECT = 0xD8,
     // Frame::ClipChildren's own bit: the frame clips its child frames. No
@@ -5699,6 +5775,11 @@ enum Offsets {
     // `int` — nonzero when the frame is shown (4.3.4's m_shown).
     // Script_IsShown (0x00775990) pushes `[frame+0xD0] != 0`.
     OFF_FRAME_SHOWN = 0xD0,
+    // `int`, nonzero while the frame loads from XML (benilla-re ui/visibility
+    // "Show and hide scripts"): the load's first step 0x00769770 stores 1, its
+    // last 0x0076A2F0 stores 0, and the show and hide slots run no OnShow /
+    // OnHide while it is set (0x0076B270, 0x0076B2A0).
+    OFF_FRAME_LOADING = 0x114,
     // The frame key slots — `int __thiscall(frame, const CKeyEvent *)`,
     // `ret 4`, nonzero = the frame takes the input. CSimpleTop's character
     // and key-down walks (0x00765DF0, 0x00765F10) stop at the first frame that
@@ -10820,7 +10901,8 @@ enum Offsets {
     // compile funnel FUN_00704C70 (the CALL is at 0x00704C87, so the pushed
     // return address is 0x00704C8C). That funnel compiles an XML handler body
     // (<OnLoad>, <OnClick>, ...) into the function the frame stores, under an
-    // engine-built chunkname "<FrameName>:<ScriptName>". Found by scanning
+    // chunkname "*<file>:<line>_<ScriptName>" (Xml::ScriptChunkName renames
+    // the engine's "<FrameName>:<ScriptName>"). Found by scanning
     // FUN_00704C70 for an `E8 rel32` whose target is FUN_LUAL_LOADBUFFER; the
     // same scan reproduces RET_LUA_FILE_COMPILE (0x00704B11) for FUN_00704AE0
     // and 0x007032B5 for loadstring's FUN_00703280. LuaSyntax uses it to give
@@ -11552,6 +11634,11 @@ enum Offsets {
     OFF_BLP_VERSION = 0x08,
     // byte: 1 palette, 2 DXT, 3 raw BGRA (DecodeLevel's switch, 0x5A7F6B)
     OFF_BLP_COMPRESSION = 0x0C,
+    // byte: the alpha depth (0, 1, 4 or 8), the header byte after the
+    // compression. 0 means the image has no alpha: the engine's loader then
+    // sets bit 0 of the CTexture's +0x110 (benilla gx/textures, 0x449840) and
+    // the decoded texels' alpha carries nothing.
+    OFF_BLP_ALPHA_DEPTH = 0x0D,
     // byte: for DXT, 0 DXT1, 1 DXT3, 7 DXT5 (DecodeLevel takes its class
     // at 0x5A7FC3)
     OFF_BLP_ALPHA_TYPE = 0x0E,
@@ -14911,6 +14998,24 @@ enum Offsets {
     // pair (0x004B6FDE / its exit).
     FUN_XML_TREE_LOAD = 0x006F2A30,
     FUN_XML_TREE_FREE = 0x006F2AC0,
+    // XMLTree_Load's expat callbacks, all __cdecl with expat's handler arg
+    // first: the tree's `{XMLNode *root, XMLNode *current}` pair. Start
+    // `(pair, name, atts)` appends a node as the last child of `current` and
+    // makes it current; end `(pair)` makes current's parent current; the
+    // character handler (0x006F29D0) grows current's text with SMemReAlloc, so
+    // the text pointer is final only once the element ends.
+    FUN_XML_START_ELEMENT = 0x006F28A0,
+    OFF_XML_TREE_PAIR_CURRENT = 0x04, // the pair's `current` node
+    FUN_XML_END_ELEMENT = 0x006F29C0,
+    // The linked expat 1.95.5. XML_SetUserData `void __cdecl(parser, data)`
+    // (parser +0 userData, +4 handlerArg; XMLTree_Load's only call passes the
+    // pair above). XML_GetCurrentLineNumber `int __cdecl(parser)`: 1-based
+    // line of the current event (updatePosition at encoding +0x90 vtable
+    // +0x34 from positionPtr +0x128 to eventPtr +0x120, then position +0x240
+    // plus 1). Linked but never called by 1.12; 3.80.2's start handler calls
+    // its twin (FUN_142A84430) to stamp each node's line.
+    FUN_XML_SET_USER_DATA = 0x007E6F70,
+    FUN_XML_GET_CURRENT_LINE_NUMBER = 0x007E75F0,
     // The loaders' status sink (their `status` argument): vtable +0xC is
     // `Add(status, level, fmt, ...)` (__cdecl, variadic) — e.g. the frame
     // loader's "Couldn't find inherited node: %s" at level 1. Levels as 4.3.4
@@ -16592,6 +16697,9 @@ enum Offsets {
     // device texture (OFF_GXTEX_FLAGS).
     OFF_HTEXTURE_NAME = 0x0C,
     OFF_HTEXTURE_SOURCE = 0x110,
+    // bit 0: the image has no alpha, set by the BLP load (0x00449840) for an
+    // alpha depth of 0 (OFF_BLP_ALPHA_DEPTH).
+    HTEXTURE_SOURCE_NO_ALPHA = 0x1,
     HTEXTURE_SOURCE_FILE = 0x2,
     OFF_HTEXTURE_DEVICE = 0x140,
     OFF_HTEXTURE_TEX_FLAGS = 0x150,

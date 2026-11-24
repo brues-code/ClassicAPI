@@ -156,10 +156,10 @@ void FormatName(void *L, void *object, char *out, size_t size) {
 // Whether the cursor (x, y) lies in the object's layout rect; false when the
 // rect cannot be resolved.
 bool UnderCursor(void *object, float x, float y) {
-    float rect[4]; // {minY, minX, maxY, maxX}
+    Frame::Layout::Rect rect;
     if (!Frame::Layout::GetRect(object, rect))
         return false;
-    return x >= rect[1] && x <= rect[3] && y <= rect[2] && y >= rect[0];
+    return x >= rect.left && x <= rect.right && y <= rect.top && y >= rect.bottom;
 }
 
 // The frame's regions under the cursor, after the frame's entry.

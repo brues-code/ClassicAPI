@@ -1,0 +1,18 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\FrameXML\UI.xsd">
+	<!--
+	The minimal check boxes from retail's
+	Blizzard_SharedXML/Shared/Button/CheckButtonTemplates.xml, unchanged.
+	-->
+
+	<CheckButton name="MinimalCheckboxArtTemplate" virtual="true">
+		<NormalTexture parentKey="NormalTexture" atlas="checkbox-minimal" useAtlasSize="true"/>
+		<PushedTexture parentKey="PushedTexture" atlas="checkbox-minimal" useAtlasSize="true"/>
+		<HighlightTexture parentKey="HighlightTexture" atlas="checkbox-minimal" useAtlasSize="true" alphaMode="ADD"/>
+		<CheckedTexture parentKey="CheckedTexture" atlas="checkmark-minimal" useAtlasSize="true"/>
+		<DisabledCheckedTexture parentKey="DisabledCheckedTexture" atlas="checkmark-minimal-disabled" useAtlasSize="true"/>
+	</CheckButton>
+
+	<CheckButton name="MinimalCheckboxTemplate" inherits="MinimalCheckboxArtTemplate" virtual="true">
+		<Size x="30" y="29"/>
+	</CheckButton>
+</Ui>

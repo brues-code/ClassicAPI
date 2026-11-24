@@ -188,13 +188,13 @@ void SetEndpoint(void *endpoint, void *relative, int relPoint, float x, float y)
 // The centre of an endpoint's rect. `resolve` lays a pending one out first,
 // as the edge getters do.
 bool Center(void *endpoint, bool resolve, float &x, float &y) {
-    float rect[4]; // bottom, left, top, right
+    Frame::Layout::Rect rect;
     const bool valid = resolve ? Frame::Layout::GetResolvedRect(AsObject(endpoint), rect)
                                : Frame::Layout::GetRect(AsObject(endpoint), rect);
     if (!valid)
         return false;
-    x = (rect[1] + rect[3]) * 0.5f;
-    y = (rect[0] + rect[2]) * 0.5f;
+    x = (rect.left + rect.right) * 0.5f;
+    y = (rect.bottom + rect.top) * 0.5f;
     return true;
 }
 
@@ -288,11 +288,11 @@ const char *__fastcall LineGetObjectType(void *, void *) { return kLineType; }
 
 // The rect normalized, then the texture's callback (which stores the corners).
 void __fastcall LineOnFrameSizeChanged(void *layout, void *, const float *oldRect) {
-    float *rect = Game::Ptr<float>(OwnerOf(layout), Offsets::OFF_REGION_RECT); // bottom, left, top, right
-    if (rect[3] < rect[1])
-        std::swap(rect[1], rect[3]);
-    if (rect[2] < rect[0])
-        std::swap(rect[0], rect[2]);
+    Frame::Layout::Rect &rect = Frame::Layout::RectOf(OwnerOf(layout));
+    if (rect.right < rect.left)
+        std::swap(rect.left, rect.right);
+    if (rect.top < rect.bottom)
+        std::swap(rect.bottom, rect.top);
     Slot<OnFrameSizeChanged_t>(Offsets::VTBL_SIMPLETEXTURE_LAYOUT, Offsets::VTBL_LAYOUT_ON_FRAME_SIZE_CHANGED)(
         layout, nullptr, oldRect);
 }

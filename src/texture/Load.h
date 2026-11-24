@@ -16,6 +16,7 @@
 // Path -> HTEXTURE, the load CSimpleTexture::SetTexture (FUN_00770200) makes.
 
 #include <cstdint>
+#include <vector>
 
 namespace Texture {
 
@@ -50,14 +51,43 @@ bool IsLooseFile(const char *path);
 // none.
 void *DeviceTexture(void *handle);
 
-// A one-mip `width` x `height` texture of ARGB8888 `texels`, through the
-// engine's own procedural path (FUN_TEXTURE_CREATE_WITH_CALLBACK) with the
-// texture flags word a loader was handed (TextureMakeFlags is idempotent on
-// it, as the path re-runs it unforced). The engine reads `texels` whenever it
-// uploads the texture, so they must outlive the handle. Never deduplicated:
-// each call is a new texture.
-void *CreateFromPixels(const char *name, uint32_t width, uint32_t height,
-                       const uint32_t *texels, uint32_t flags);
+// The texel source of a texture made by CreateFromPixels: `width` x `height`
+// ARGB8888 `texels`, and the smaller levels the device asks for. The device
+// decides the levels from the texture's flags, not from its record: with a
+// mipmapping filter it makes the whole chain and uploads from the client's
+// texture-resolution skip down (benilla-re gx/texlevels), latching each level
+// at that level's size. A smaller level is the box average of `texels`, made
+// when the level is latched, so `texels` may change between uploads (a
+// portrait re-bakes into its own).
+class Pixels {
+  public:
+    Pixels(uint32_t width, uint32_t height, const uint32_t *texels)
+        : width_(width), height_(height), texels_(texels) {}
+    Pixels(const Pixels &) = delete;
+    Pixels &operator=(const Pixels &) = delete;
+
+    uint32_t Width() const { return width_; }
+    uint32_t Height() const { return height_; }
+
+    // The texels at `width` x `height`: `texels` for the full size, else a
+    // level kept in `slot` until that slot is latched again.
+    const uint32_t *Level(uint32_t slot, uint32_t width, uint32_t height);
+
+  private:
+    static constexpr uint32_t kSlots = 16;
+    uint32_t width_;
+    uint32_t height_;
+    const uint32_t *texels_;
+    std::vector<uint32_t> levels_[kSlots];
+};
+
+// A texture of `pixels`, through the engine's own procedural path
+// (FUN_TEXTURE_CREATE_WITH_CALLBACK) with the texture flags word a loader was
+// handed (TextureMakeFlags is idempotent on it, as the path re-runs it
+// unforced). The engine latches `pixels` whenever it uploads the texture, so
+// they must outlive the handle. Never deduplicated: each call is a new
+// texture.
+void *CreateFromPixels(const char *name, Pixels &pixels, uint32_t flags);
 
 // The engine's shared solid texture of one colour (0xAARRGGBB), what a
 // <Texture>'s <Color> child loads (FUN_TEXTURE_CREATE_SOLID). The caller owns

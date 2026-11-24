@@ -527,6 +527,8 @@ build instructions.
   - [`frame:SetMouseClickEnabled(enabled)` / `frame:SetMouseMotionEnabled(enabled)`](#framesetmouseclickenabledenabled--framesetmousemotionenabledenabled)
   - [`frame:SetPropagateMouseClicks(propagate)` / `frame:CanPropagateMouseClicks()`](#framesetpropagatemouseclickspropagate--framecanpropagatemouseclicks)
   - [`frame:SetPassThroughButtons(...)`](#framesetpassthroughbuttons)
+  - [Scripts on textures and font strings](#scripts-on-textures-and-font-strings)
+  - [Mouse input on textures and font strings](#mouse-input-on-textures-and-font-strings)
   - [`frame:SetDontSavePosition([dontSave])` / `frame:GetDontSavePosition()`](#framesetdontsavepositiondontsave--framegetdontsaveposition)
   - [`frame:SetUsingParentLevel(usingParentLevel)` / `frame:IsUsingParentLevel()`](#framesetusingparentlevelusingparentlevel--frameisusingparentlevel)
   - [`frame:SetClipsChildren(clipsChildren)` / `frame:DoesClipChildren()`](#framesetclipschildrenclipschildren--framedoesclipchildren)
@@ -561,6 +563,7 @@ build instructions.
   - [`PreClick` / `PostClick` button scripts](#preclick--postclick-button-scripts)
   - [`Button:RegisterForClicks("AnyUp" | "AnyDown" | ...)`](#buttonregisterforclicksanyup--anydown--)
   - [Atlas names in the button texture setters](#atlas-names-in-the-button-texture-setters)
+  - [`Button:SetNormalAtlas(atlas)` / `SetPushedAtlas` / `SetDisabledAtlas` / `SetHighlightAtlas(atlas [, blendMode])`](#buttonsetnormalatlasatlas--setpushedatlas--setdisabledatlas--sethighlightatlasatlas--blendmode)
   - [`button:RegisterForMouse(...)`](#buttonregisterformouse)
   - [`GetClickFrame(name)`](#getclickframename)
 
@@ -1135,6 +1138,10 @@ build instructions.
   - [`GetEventCPUUsage([event])`](#geteventcpuusageevent)
   - [`GetScriptCPUUsage()`](#getscriptcpuusage)
   - [`ResetCPUUsage()`](#resetcpuusage)
+  - [`C_AddOnProfiler.GetAddOnMetric(name, metric)`](#c_addonprofilergetaddonmetricname-metric)
+  - [`C_AddOnProfiler.GetApplicationMetric(metric)` / `C_AddOnProfiler.GetOverallMetric(metric)`](#c_addonprofilergetapplicationmetricmetric--c_addonprofilergetoverallmetricmetric)
+  - [`C_AddOnProfiler.GetTopKAddOnsForMetric(metric, k)`](#c_addonprofilergettopkaddonsformetricmetric-k)
+  - [`C_AddOnProfiler.GetTicksPerSecond()` / `C_AddOnProfiler.IsEnabled()`](#c_addonprofilergettickspersecond--c_addonprofilerisenabled)
   - [`_classicapi_LuaHeapAudit()` / `_classicapi_GcTagOf(value)`](#_classicapi_luaheapaudit--_classicapi_gctagofvalue)
 
 - [PvP](#pvp)
@@ -1949,8 +1956,9 @@ Returns an `Enum.AddOnEnableState` number:
 | `2`   | `All`                     | The addon is enabled. |
 
 `character` is the name of a character on your realm. The name is not
-case-sensitive. When `character` is `nil`, `"0"` or `""`, the function
-reads all characters on the realm.
+case-sensitive. A player GUID, such as the value of `UnitGUID("player")`,
+also names its character. When `character` is `nil`, `"0"` or `""`, the
+function reads all characters on the realm.
 
 A character that has no setting for the addon uses the state over all
 characters. When no character has a setting, the state comes from
@@ -10086,15 +10094,24 @@ Returns where the region was created, as a string.
 ```lua
 local f = CreateFrame("Frame")
 print(f:GetSourceLocation())            -- "Interface\AddOns\MyAddon\Core.lua:12"
-print(PlayerFrame:GetSourceLocation())  -- "Interface\FrameXML\PlayerFrame.xml"
+print(PlayerFrame:GetSourceLocation())  -- "Interface\FrameXML\PlayerFrame.xml:4"
 ```
 
 - A frame that `CreateFrame` made returns the script file and the line of
   that call, as `file:line`. The file name is the chunk name, as in error
-  messages. A `/run` or `loadstring` chunk shows as `[string "..."]`.
-- A frame that an XML file defines returns the path of that XML file. There
-  is no line number.
-- A texture or font string returns the location of its parent frame.
+  messages.
+- Code from a `/run` line or a `loadstring` chunk has no file. The location
+  is the script file that ran that code. For a `/run` line, that is the file
+  of the slash command. When no script file ran the code, the location is
+  `[string "..."]:line`. An XML script or a macro is an example of this.
+- A frame that an XML file defines returns the path of that XML file and the
+  line of the frame's opening tag, as `file:line`. A frame that inherits a
+  template gives its own tag, not the tag of the template.
+- A texture or font string that an XML file defines returns the line of its
+  own tag. One that `CreateTexture` or `CreateFontString` made returns the
+  line of that call, but when the call uses a template, it returns the line
+  of the template's tag. Other textures and font strings return the location
+  of their parent frame.
 - The method returns nil when no script and no XML file made the frame.
 
 If `CreateFrame` runs inside `pcall`, the location is the script that called
@@ -10116,20 +10133,25 @@ AddSourceLocationExclude("MyFramePool.lua")
 
 ### `GetMouseFoci()`
 
-Returns a table of the frames that get mouse motion at the cursor, from
-top to bottom. Index 1 is the frame that `GetMouseFocus()` returns, so
-`GetMouseFocus() == GetMouseFoci()[1]` is always true.
+Returns a table of the frames, textures and font strings that get mouse
+motion at the cursor, from top to bottom.
 
-Usually the table holds one frame: the top mouse-enabled frame under the
-cursor. It holds more frames when frames pass mouse motion on with
+Usually the table holds one object: the top object under the cursor that
+takes mouse motion. It holds more objects when objects pass mouse motion on
+with
 [`frame:SetPropagateMouseMotion(true)`](#framesetpropagatemousemotionpropagate--framecanpropagatemousemotion).
-The table is empty when no frame gets mouse motion.
+The table is empty when no object gets mouse motion.
+
+`GetMouseFocus()` returns the first frame in the table. It never returns a
+texture or a font string
+([mouse input on textures and font strings](#mouse-input-on-textures-and-font-strings)).
+When no texture or font string gets mouse motion,
+`GetMouseFocus() == GetMouseFoci()[1]`.
 
 ```lua
 local foci = GetMouseFoci()
--- foci[1] == GetMouseFocus()
 for i = 1, table.getn(foci) do
-    print(foci[i]:GetName() or "<anonymous>")
+    print(foci[i]:GetObjectType(), foci[i]:GetName() or "<anonymous>")
 end
 ```
 
@@ -11987,6 +12009,93 @@ other buttons, and it still gets `OnEnter` and `OnLeave`.
 pin:SetPassThroughButtons("RightButton")
 ```
 
+### Scripts on textures and font strings
+
+Textures and font strings take scripts, as frames do. `SetScript`,
+`GetScript`, `HookScript` and `HasScript` work on them as on a frame. A
+texture or a font string takes these scripts:
+
+- `OnLoad(self)` runs once, after the object loads from XML.
+- `OnShow(self)` and `OnHide(self)` run when the object becomes visible and
+  when it stops being visible. Showing or hiding its parent frame counts.
+- `OnEnter(self, motion)` and `OnLeave(self, motion)`.
+- `OnMouseDown(self, button)` and `OnMouseUp(self, button, upInside)`.
+  `upInside` is `true` when the cursor is still over the object.
+- `OnMouseWheel(self, delta)`. `delta` is `1` or `-1`.
+
+A different script name gives the error `doesn't have a "name" script`.
+
+`SetScript` does not turn on the mouse input of the object. The mouse
+scripts run only after you turn the input on
+([mouse input on textures and font strings](#mouse-input-on-textures-and-font-strings)).
+
+In XML, put a `<Scripts>` element inside the `<Texture>` or the
+`<FontString>`. `function=` and `method=` work as on frames. An `OnEnter`,
+`OnLeave`, `OnMouseDown` or `OnMouseUp` handler turns on clicks and motion.
+An `OnMouseWheel` handler turns on the wheel. To keep the input off, add
+`autoEnableInput="false"` to the handler.
+
+```xml
+<FontString parentKey="Label" inherits="GameFontNormal" text="Hover me">
+    <Scripts>
+        <OnEnter>
+            GameTooltip:SetOwner(self, "ANCHOR_TOP")
+            GameTooltip:SetText("A tooltip on a font string")
+        </OnEnter>
+        <OnLeave function="GameTooltip_Hide"/>
+    </Scripts>
+</FontString>
+```
+
+### Mouse input on textures and font strings
+
+A texture or a font string can take mouse clicks, mouse motion and the
+mouse wheel, as a frame does. These methods work on textures and font
+strings:
+
+- `EnableMouse(enable)`, `IsMouseEnabled()`
+- `EnableMouseMotion(enable)`, `SetMouseMotionEnabled(enabled)`,
+  `IsMouseMotionEnabled()`
+- `SetMouseClickEnabled(enabled)`, `IsMouseClickEnabled()`
+- `EnableMouseWheel(enable)`, `IsMouseWheelEnabled()`
+- `SetPropagateMouseMotion(propagate)`, `CanPropagateMouseMotion()`
+- `SetPropagateMouseClicks(propagate)`, `CanPropagateMouseClicks()`
+- `SetPassThroughButtons(...)`
+- `IsMouseMotionFocus()`
+
+Each method works as the frame method of the same name. With no argument,
+the enable methods turn the input off. `IsMouseEnabled()` returns `true`
+when the object takes both clicks and motion, and `false` when it does not.
+
+The object takes input only while it is visible. Frames, textures and font
+strings under the cursor compete by draw order. The object drawn on top gets
+the input:
+
+- A higher strata, then a higher frame level, is on top.
+- At the same strata and level, a texture or a font string is on top of
+  every frame.
+- In one frame level, a higher draw layer is on top, and a font string is
+  on top of a texture in the same layer.
+
+When an object is hidden or its motion is turned off while it is under the
+cursor, it gets `OnLeave` with `motion` set to `false`. When it is hidden
+or its clicks are turned off while you hold a button on it, it does not get
+the `OnMouseUp` of that press.
+
+```lua
+local icon = frame:CreateTexture(nil, "OVERLAY")
+icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
+icon:SetWidth(24)
+icon:SetHeight(24)
+icon:SetPoint("CENTER")
+icon:EnableMouse(true)
+icon:SetScript("OnMouseUp", function(self, button, upInside)
+    if upInside then
+        print("clicked with " .. button)
+    end
+end)
+```
+
 ### `frame:SetDontSavePosition([dontSave])` / `frame:GetDontSavePosition()`
 
 Sets or gets whether the client saves the position of the frame.
@@ -13061,6 +13170,19 @@ A texture object, a file path, or an unknown name works as before.
 toggle:SetNormalTexture("common-button-dropdown-open")
 toggle:SetPushedTexture("common-button-dropdown-openpressed")
 print(toggle:GetNormalTexture():GetAtlas()) -- common-button-dropdown-open
+```
+
+### `Button:SetNormalAtlas(atlas)` / `SetPushedAtlas` / `SetDisabledAtlas` / `SetHighlightAtlas(atlas [, blendMode])`
+
+These methods show an atlas as one of the state textures of the button. If
+the button has no texture for the state, the method makes one. The
+highlight texture uses `blendMode`, or `"ADD"` if you do not give it.
+
+- `atlas` must be a string. Other values raise an error.
+- An unknown atlas name changes nothing.
+
+```lua
+button:SetHighlightAtlas("128-RedButton-Highlight")
 ```
 
 ### `button:RegisterForMouse(...)`
@@ -25360,6 +25482,77 @@ runs inside a different script, the time counts for both scripts.
 
 Sets all CPU times and call counts to `0`, and the event count too. Memory
 values do not change.
+
+### `C_AddOnProfiler.GetAddOnMetric(name, metric)`
+
+Returns a measurement of the time that the scripts of an addon use. The
+profiler is always on. It needs no setting and no `/reload`.
+
+A tick is one update of the screen. `metric` is an
+`Enum.AddOnProfilerMetric` value:
+
+| Value | `Enum.AddOnProfilerMetric.*` | Result |
+|------:|------------------------------|--------|
+| `0` | `SessionAverageTime` | The average milliseconds for each tick since the game started. |
+| `1` | `RecentAverageTime` | The average milliseconds for each tick in the last 60 ticks. |
+| `2` | `EncounterAverageTime` | The average milliseconds for each tick during boss encounters. |
+| `3` | `LastTime` | The milliseconds in the last tick. |
+| `4` | `PeakTime` | The highest milliseconds in one tick since the game started. |
+| `5`–`11` | `CountTimeOver1Ms` … `CountTimeOver1000Ms` | The number of ticks that used 1, 5, 10, 50, 100, 500 or 1000 ms, or more. |
+
+```lua
+local recent = Enum.AddOnProfilerMetric.RecentAverageTime
+print(C_AddOnProfiler.GetAddOnMetric("MyAddon", recent))   -- milliseconds
+```
+
+- The time of a script counts for the addon that owns its frame. A frame
+  that an addon makes while it loads belongs to that addon. A frame that a
+  script makes belongs to the owner of that script. Timers and event
+  callbacks belong to the addon that made them.
+- When a script runs inside a different script, its time counts for the
+  outer script only.
+- Scripts that run while an addon loads do not count.
+- Blizzard addons and the addons that ClassicAPI includes do not count.
+  They return `0`.
+- The values stay after `/reload`. All values start at `0` when the game
+  starts.
+- `name` is the folder name of the addon, with the same uppercase and
+  lowercase letters. An unknown name returns `0`.
+- A `metric` that is not a number from `0` to `11` raises an error.
+
+### `C_AddOnProfiler.GetApplicationMetric(metric)` / `C_AddOnProfiler.GetOverallMetric(metric)`
+
+`GetApplicationMetric` returns the same measurement for the full time of
+each tick. `GetOverallMetric` returns it for the scripts of all addons
+together.
+
+The share of one addon in the time that is not for other addons:
+
+```lua
+local m = Enum.AddOnProfilerMetric.RecentAverageTime
+local app = C_AddOnProfiler.GetApplicationMetric(m)
+local all = C_AddOnProfiler.GetOverallMetric(m)
+local mine = C_AddOnProfiler.GetAddOnMetric("MyAddon", m)
+print(format("%.2f%%", 100 * mine / (app - all + mine)))
+```
+
+### `C_AddOnProfiler.GetTopKAddOnsForMetric(metric, k)`
+
+Returns a table of the `k` addons with the largest values of `metric`, the
+largest first. Each entry is `{ addOnName = name, metricValue = value }`.
+If `k` is negative, the table has all addons.
+
+```lua
+local m = Enum.AddOnProfilerMetric.PeakTime
+for _, r in ipairs(C_AddOnProfiler.GetTopKAddOnsForMetric(m, 3)) do
+    print(r.addOnName, r.metricValue)
+end
+```
+
+### `C_AddOnProfiler.GetTicksPerSecond()` / `C_AddOnProfiler.IsEnabled()`
+
+`GetTicksPerSecond` returns the number of clock units in one second for
+the clock that the profiler uses. `IsEnabled` always returns `true`.
 
 ### `_classicapi_LuaHeapAudit()` / `_classicapi_GcTagOf(value)`
 

@@ -15,7 +15,8 @@
 // CSimpleAnimGroup::LoadXML, CSimpleAnim::LoadXML and the subclasses',
 // LoadXML_AnimOrigin; the attributes BinaryXML.cpp parses), on 1.12 nodes.
 // A script body compiles through the engine's own SetScriptObjectScript, so
-// it is named "<object>:<script>" and handled like a frame's.
+// it is named "*<file>:<line>_<script>" (Xml::ScriptChunkName) and handled
+// like a frame's.
 //
 // Later clients' attributes go to the same fields their methods set:
 // setToFinalAlpha and parentArray on a group; targetKey and childKey on any animation;

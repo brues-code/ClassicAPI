@@ -41,6 +41,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <memory>
 #include <vector>
 
 namespace Texture::Builtin {
@@ -68,6 +69,7 @@ struct EdgeTexels {
     }
 };
 const EdgeTexels g_edge;
+Pixels g_edgePixels{kEdgeSize, kEdgeSize, g_edge.texels};
 
 // One embedded file, decoded at most once. Like the edge texels, the texels
 // outlive every handle made from them.
@@ -75,6 +77,8 @@ struct Embedded {
     bool tried = false;
     std::vector<uint32_t> texels;
     Image image = {};
+    std::unique_ptr<Pixels> pixels;
+    bool noAlpha = false;
 };
 Embedded g_embedded[Manifest::kFileCount];
 
@@ -86,31 +90,21 @@ void Decode(const Manifest::File &file, Embedded &out) {
         return;
     out.texels.resize(size_t{blp.Width()} * blp.Height());
     std::memcpy(out.texels.data(), bgra, out.texels.size() * sizeof(uint32_t));
+    // An image with no alpha (UI-Background-Rock and -Marble, DXT1 at depth
+    // 0) decodes with an alpha byte that means nothing; the engine's loader
+    // marks such a texture opaque instead. These texels are drawn as they
+    // are, so they are made opaque.
+    out.noAlpha = blp.AlphaDepth() == 0;
+    if (out.noAlpha)
+        for (uint32_t &texel : out.texels)
+            texel |= 0xFF000000u;
     out.image = {blp.Width(), blp.Height(), out.texels.data()};
+    out.pixels = std::make_unique<Pixels>(blp.Width(), blp.Height(), out.texels.data());
 }
 
-using CreateFromBlp_t = void *(__fastcall *)(const char *path, uint32_t fileFlag, uint32_t flags,
-                                             void *log);
-CreateFromBlp_t CreateFromBlp_o = nullptr;
-
-void *__fastcall CreateFromBlp_h(const char *path, uint32_t fileFlag, uint32_t flags, void *log) {
-    void *handle = CreateFromBlp_o(path, fileFlag, flags, log);
-    if (handle != nullptr || path == nullptr)
-        return handle;
-    if (Common::SamePath(path, "interface\\cooldown\\edge.blp"))
-        return CreateFromPixels(path, kEdgeSize, kEdgeSize, g_edge.texels, flags);
-    if (const Image *image = Find(path))
-        return CreateFromPixels(path, image->width, image->height, image->texels, flags);
-    return nullptr;
-}
-
-const Game::HookAutoRegister _createFromBlpHook{Offsets::FUN_TEXTURE_CREATE_FROM_BLP,
-                                                reinterpret_cast<void *>(&CreateFromBlp_h),
-                                                reinterpret_cast<void **>(&CreateFromBlp_o)};
-
-} // namespace
-
-const Image *Find(const char *path) {
+// The embedded file at `path`, decoded on first use; null when there is none
+// or it does not decode.
+Embedded *Lookup(const char *path) {
     if (path == nullptr)
         return nullptr;
     const Manifest::File *file = Embed::FindFile(Manifest::kFiles, path);
@@ -121,7 +115,49 @@ const Image *Find(const char *path) {
         embedded.tried = true;
         Decode(*file, embedded);
     }
-    return embedded.texels.empty() ? nullptr : &embedded.image;
+    return embedded.texels.empty() ? nullptr : &embedded;
+}
+
+using CreateFromBlp_t = void *(__fastcall *)(const char *path, uint32_t fileFlag, uint32_t flags,
+                                             void *log);
+CreateFromBlp_t CreateFromBlp_o = nullptr;
+
+// A texture made with no file never gets the source bits the BLP loader sets
+// (OFF_HTEXTURE_SOURCE). This one stands in for a file, so it gets them too:
+// the file bit for a load with the file flag (Texture::Wrap makes a repeating
+// copy only of a file's texture, which horizTile and vertTile need), and the
+// no-alpha bit for an image with no alpha.
+void *AsFile(void *handle, uint32_t fileFlag, bool noAlpha) {
+    if (handle == nullptr)
+        return nullptr;
+    uint32_t &source = Game::Ref<uint32_t>(handle, Offsets::OFF_HTEXTURE_SOURCE);
+    if (fileFlag != 0)
+        source |= Offsets::HTEXTURE_SOURCE_FILE;
+    if (noAlpha)
+        source |= Offsets::HTEXTURE_SOURCE_NO_ALPHA;
+    return handle;
+}
+
+void *__fastcall CreateFromBlp_h(const char *path, uint32_t fileFlag, uint32_t flags, void *log) {
+    void *handle = CreateFromBlp_o(path, fileFlag, flags, log);
+    if (handle != nullptr || path == nullptr)
+        return handle;
+    if (Common::SamePath(path, "interface\\cooldown\\edge.blp"))
+        return AsFile(CreateFromPixels(path, g_edgePixels, flags), fileFlag, false);
+    if (Embedded *embedded = Lookup(path))
+        return AsFile(CreateFromPixels(path, *embedded->pixels, flags), fileFlag, embedded->noAlpha);
+    return nullptr;
+}
+
+const Game::HookAutoRegister _createFromBlpHook{Offsets::FUN_TEXTURE_CREATE_FROM_BLP,
+                                                reinterpret_cast<void *>(&CreateFromBlp_h),
+                                                reinterpret_cast<void **>(&CreateFromBlp_o)};
+
+} // namespace
+
+const Image *Find(const char *path) {
+    const Embedded *embedded = Lookup(path);
+    return embedded != nullptr ? &embedded->image : nullptr;
 }
 
 } // namespace Texture::Builtin

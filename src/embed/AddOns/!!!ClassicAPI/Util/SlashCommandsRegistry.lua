@@ -1035,6 +1035,13 @@ SlashCmdList["CLASSICAPI_REPLAY"] = function(msg)
 end
 SLASH_CLASSICAPI_REPLAY1 = "/replay";
 
+-- The addon list (a ClassicAPI extension: retail opens it from the game
+-- menu, which stays as it is here).
+SlashCmdList["CLASSICAPI_ADDONS"] = function(msg)
+	ShowUIPanel(AddonList);
+end
+SLASH_CLASSICAPI_ADDONS1 = "/addons";
+
 SlashCmdList["TINSPECT"] = function(msg)
 	if ( not LoadDebugTools() ) then
 		return;
