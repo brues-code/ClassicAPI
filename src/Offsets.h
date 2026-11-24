@@ -7253,6 +7253,13 @@ enum Offsets {
     // to the area's radius over the model's bounding-sphere radius when that
     // radius is above this double (0.001, fcomp at 0x005D538E).
     VAR_DYNAMIC_OBJECT_MIN_SPHERE = 0x00801608,
+    // The low byte of DYNAMICOBJECT_BYTES (dynamic fields +0x8): the hook
+    // skips that scale for 1 and 2 (0x005D5368, 0x005D536C), leaving the
+    // model its authored size (+0x194 stays 1.0). The create hook starts far
+    // sight for 2 (0x005D54A7). vmangos and tortoise-wow send 1 for a spell's
+    // area (DYNAMIC_OBJECT_AREA_SPELL) and 0x10 for Flare 1543 only.
+    DYNAMIC_OBJECT_TYPE_AREA_SPELL = 1,
+    DYNAMIC_OBJECT_TYPE_FARSIGHT_FOCUS = 2,
     // Hold (AnimationData.dbc), an effect's lasting state. The hook plays it
     // on a model that has it and no animation 0 (HasAnimation 0x9E at
     // 0x005D5345, played at 0x005D53D8), and its done callback (0x005D5580)

@@ -508,6 +508,8 @@ void ReleaseModel(Actor &actor) {
     actor.areaEffect = nullptr;
     actor.areaRadius = 0.0f;
     actor.areaVisual = nullptr;
+    actor.areaScale = 1.0f;
+    actor.areaResize = false;
     Areas::Stop(actor);
     actor.gameObjectAnim = -1;
     actor.unitGuid = 0;
@@ -1500,16 +1502,21 @@ void Actor::ApplyHighlight() {
 // to the area's radius over its bounding-sphere radius, or over the effect
 // row's size when it has no sphere, and a model with animation 158 and none
 // for 0 loops 158 (the done callback 0x005D5580 plays it again, as the
-// actor's own animation replays).
+// actor's own animation replays). The size is the object's own member
+// (+0x194), not its position's space: writing it to the actor's scale moved
+// the area to position * scale (Origin()), away from where it was put. An
+// area whose type byte is 1 or 2 keeps its authored size.
 void SizeSpellArea(Actor &actor) {
     float sphere[4];
     M2::GetBoundingSphere(actor.model, sphere);
-    if (sphere[3] > Game::Read<double>(Offsets::VAR_DYNAMIC_OBJECT_MIN_SPHERE)) {
-        actor.scale = actor.areaRadius / sphere[3];
+    if (!actor.areaResize) {
+        // The world's type 1 and 2: +0x194 stays 1.0.
+    } else if (sphere[3] > Game::Read<double>(Offsets::VAR_DYNAMIC_OBJECT_MIN_SPHERE)) {
+        actor.areaScale = actor.areaRadius / sphere[3];
     } else {
         const auto size = Game::Read<float>(actor.areaEffect, Offsets::OFF_SPELLVISUALEFFECTNAME_AREA_SIZE);
         if (size > 0.0f)
-            actor.scale = actor.areaRadius / size;
+            actor.areaScale = actor.areaRadius / size;
     }
     if (M2::HasAnimation(actor.model, Offsets::ANIM_HOLD) && !M2::HasAnimation(actor.model, 0)) {
         actor.animation = Offsets::ANIM_HOLD;
@@ -1741,7 +1748,8 @@ void Actor::Place() {
     }
     if (model == nullptr)
         return;
-    const float scales[3] = {scale, scale, scale};
+    const float drawn = scale * areaScale;
+    const float scales[3] = {drawn, drawn, drawn};
     M2::SetBaseTRS(model, Origin().p, ShownYaw(), axisZ, scales);
     float *matrix = M2::BaseMatrix(model);
     if (pitch != 0.0f)
@@ -1886,14 +1894,21 @@ int __fastcall Script_SetModelByPath(void *L) {
 // Blizzard leaves: the model the dynamic object names (slot 10, 0x005D5890 ->
 // 0x005D57C0: the spell's visual must have the area flag +0x2C, and its +0x30
 // SpellVisualEffectName row gives the file), sized to `radius` once loaded.
+// With an areaType (the low byte of the object's DYNAMICOBJECT_BYTES) the
+// loaded hook's gate applies: 1 and 2 keep the model's authored size.
 int __fastcall Script_SetModelBySpellArea(void *L) {
+    constexpr char kUsage[] = "Usage: local success = self:SetModelBySpellArea(spellID, radius [, areaType])";
     Actor *actor = Self(L);
     if (actor == nullptr)
         return 0;
-    if (Game::Lua::IsNumber(L, 2) == 0 || Game::Lua::IsNumber(L, 3) == 0 || !(FloatArg(L, 3) > 0.0f)) {
-        return MethodArg::Fail(L, Game::Lua::IsNumber(L, 2) != 0 ? 3 : 2,
-                               "Usage: local success = self:SetModelBySpellArea(spellID, radius)");
-    }
+    if (Game::Lua::IsNumber(L, 2) == 0 || Game::Lua::IsNumber(L, 3) == 0 || !(FloatArg(L, 3) > 0.0f))
+        return MethodArg::Fail(L, Game::Lua::IsNumber(L, 2) != 0 ? 3 : 2, kUsage);
+    const bool typed = Game::Lua::Type(L, 4) > Game::Lua::TYPE_NIL;
+    if (typed && Game::Lua::IsNumber(L, 4) == 0)
+        return MethodArg::Fail(L, 4, kUsage);
+    const auto areaType = typed ? static_cast<uint8_t>(static_cast<uint32_t>(Game::Lua::ToNumber(L, 4))) : 0u;
+    const bool resize = !typed || (areaType != Offsets::DYNAMIC_OBJECT_TYPE_AREA_SPELL &&
+                                   areaType != Offsets::DYNAMIC_OBJECT_TYPE_FARSIGHT_FOCUS);
     using GetVisual_t = const uint8_t *(__fastcall *)(const uint8_t *spell);
     const auto *spell = Spell::Lookup::RecordForID(static_cast<int>(Game::Lua::ToNumber(L, 2)));
     const uint8_t *visual = spell != nullptr ? reinterpret_cast<GetVisual_t>(Offsets::FUN_GET_SPELL_VISUAL)(spell) : nullptr;
@@ -1910,6 +1925,7 @@ int __fastcall Script_SetModelBySpellArea(void *L) {
         actor->areaEffect = effect;
         actor->areaRadius = radius;
         actor->areaVisual = visual;
+        actor->areaResize = resize;
         // SetModel keeps these fields: there is no model to clear.
         actor->SetModel(model, path, nullptr);
     }
@@ -4425,10 +4441,13 @@ const Game::Doc::Function kSetModelByCharacterAppearance{
 const Game::Doc::Field kSpellAreaArgs[] = {
     Req("spellID", "number", "A spell with a ground area, such as Blizzard or Consecration."),
     Req("radius", "number", "The radius of the area in yards. More than 0."),
+    Opt("areaType", "number", nullptr,
+        "The area's type, as CombatLogReplayGroundArea gives it. With 1 or 2 the model keeps its own size, "
+        "as the world shows it; omitted, the model is sized to the radius."),
 };
 const Game::Doc::Function kSetModelBySpellArea{
     "Shows the ground area of a spell, as the world shows the area that a spell such as Blizzard leaves, "
-    "sized to the radius. False when the spell has no ground area.",
+    "sized to the radius unless areaType is 1 or 2. False when the spell has no ground area.",
     kSpellAreaArgs, kSuccessRet, nullptr, true};
 const Game::Doc::Field kGameObjectDisplayArgs[] = {
     Req("gameObjectDisplayID", "number", "A GameObjectDisplayInfo.dbc id."),

@@ -283,6 +283,14 @@ class Actor : public Animation::Object {
     const uint8_t *areaEffect = nullptr;
     float areaRadius = 0.0f;
     const uint8_t *areaVisual = nullptr; // the spell's SpellVisual row
+    // The size the area's model is drawn at, as the dynamic object keeps it
+    // apart from where it stands (+0x194, slot 7 0x005D5F50): it multiplies
+    // the model's transform only, never Origin(), so the area stands at the
+    // actor's position whatever the radius.
+    float areaScale = 1.0f;
+    // Whether the loaded model is sized to areaRadius: the world sizes it
+    // unless the object's type byte is 1 or 2 (0x005D5368).
+    bool areaResize = false;
     // SetGameObjectState (model/SceneGameObject.cpp): the animation state a
     // game object's handler plays (family A's +0x10, 0 to 12; -1 for none)
     // and when it began on the scene clock.

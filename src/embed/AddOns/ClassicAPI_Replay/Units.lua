@@ -324,7 +324,7 @@ local function ApplyAreas(time)
 		if time >= area.startTime and (not area.endTime or time < area.endTime) then
 			if not area.actor then
 				area.actor = NewActor();
-				area.hasModel = area.actor:SetModelBySpellArea(area.spellID, area.radius);
+				area.hasModel = area.actor:SetModelBySpellArea(area.spellID, area.radius, area.areaType);
 				area.actor:SetPosition(area.x, area.y, area.z);
 				area.actor:SetYaw(area.facing);
 			end

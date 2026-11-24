@@ -982,7 +982,7 @@ build instructions.
   - [`actor:SetModelByCreatureDisplayID(displayID [, useActivePlayerCustomizations])`](#actorsetmodelbycreaturedisplayiddisplayid--useactiveplayercustomizations)
   - [`actor:SetModelByCharacterAppearance(appearance)`](#actorsetmodelbycharacterappearanceappearance)
   - [`actor:SetModelByPath(path [, useMips])`](#actorsetmodelbypathpath--usemips)
-  - [`actor:SetModelBySpellArea(spellID, radius)`](#actorsetmodelbyspellareaspellid-radius)
+  - [`actor:SetModelBySpellArea(spellID, radius [, areaType])`](#actorsetmodelbyspellareaspellid-radius--areatype)
   - [`actor:SetModelByGameObjectDisplayID(gameObjectDisplayID)`](#actorsetmodelbygameobjectdisplayidgameobjectdisplayid)
   - [`actor:PlaySwing(victim, result [, critical [, offHand]])`](#actorplayswingvictim-result--critical--offhand)
   - [`actor:SetPortraitTexture(texture)`](#actorsetportraittexturetexture)
@@ -4249,7 +4249,7 @@ object is a number, `objectIndex`, its index in the list of `GetGameObjects`.
 |---|---|
 | `GetGameObjects()` | An array of the game objects that were in view during the replay. Each has `guid`, `name` and `gameObjectID`. `name` is nil when neither the recorder nor your client has a name for it. |
 | `GetGameObjectInfo(objectIndex, time)` | `x, y, z, yaw, pitch, roll, scale, displayID, gameObjectType, state, flags, ownerIndex`. Nil while the object is not in view. `yaw`, `pitch` and `roll` turn the model as `actor:SetYaw`, `actor:SetPitch` and `actor:SetRoll` take them. `displayID` is a `GameObjectDisplayInfo.dbc` id. `state` is `0` for an open door and `1` for a closed door. `ownerIndex` is the unit that made the object, for example the hunter of a trap. |
-| `GetGroundAreas()` | An array of the ground areas of spells, in the order that they came into view. Each has `spellID`, `sourceIndex`, `x`, `y`, `z`, `facing`, `radius` in yards, `startTime`, and `endTime`, which is nil when the area stayed past the end of the replay. `startTime` is negative for an area that was there before the replay started. [`actor:SetModelBySpellArea`](#actorsetmodelbyspellareaspellid-radius) shows an area. |
+| `GetGroundAreas()` | An array of the ground areas of spells, in the order that they came into view. Each has `spellID`, `sourceIndex`, `x`, `y`, `z`, `facing`, `radius` in yards, `areaType`, `startTime`, and `endTime`, which is nil when the area stayed past the end of the replay. `startTime` is negative for an area that was there before the replay started. [`actor:SetModelBySpellArea`](#actorsetmodelbyspellareaspellid-radius--areatype) shows an area. |
 | `GetDamageMeterSession(type, time)` | The damage meter of the replay up to `time`, as a `DamageMeterCombatSession` from [`C_DamageMeter`](#damage-meter-functions). `type` is an `Enum.DamageMeterType`. |
 | `GetDamageMeterSessionSource(type, time, sourceGUID, sourceCreatureID)` | One source of the replay's damage meter up to `time`, as a `DamageMeterCombatSessionSource`. Give the `sourceGUID` or the `sourceCreatureID` from the session's source. |
 
@@ -22396,7 +22396,7 @@ Shows a model file, for example `"Creature\\Wolf\\Wolf.mdx"`, and returns
 `true`. When the path does not give a model, it returns `false` and keeps
 the old model. `useMips` has no effect.
 
-### `actor:SetModelBySpellArea(spellID, radius)`
+### `actor:SetModelBySpellArea(spellID, radius [, areaType])`
 
 Shows the ground area of a spell on the actor, as the world shows the area
 that a spell such as Blizzard, Rain of Fire or Consecration leaves on the
@@ -22404,6 +22404,12 @@ ground. `radius` is the radius of the area in yards. It must be more than 0.
 Returns `true`, or `false` when the spell has no ground area.
 
 - When the model loads, it gets the size of `radius`. Its animation repeats.
+- `areaType` is the type of the area, as `C_CombatLogReplay.GetGroundAreas`
+  gives it. When `areaType` is 1 or 2, the model keeps its own size, as the
+  world shows it. Usually this size is larger than `radius`. When you do not
+  give `areaType`, the model gets the size of `radius`.
+- The actor does not change its scale. The area stays at the position that
+  you give with `actor:SetPosition`.
 - For a spell such as Blizzard or Rain of Fire, shards of ice or fire fall
   on the area. They fall from 16.67 yards above the area to the floor, and
   more of them land near the centre. At the lower spell detail levels,

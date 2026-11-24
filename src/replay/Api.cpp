@@ -842,6 +842,9 @@ int __fastcall Script_GetGroundAreas(void *L) {
         Lua::SetFieldNumber(L, "z", area.z);
         Lua::SetFieldNumber(L, "facing", area.facing);
         Lua::SetFieldNumber(L, "radius", area.radius);
+        // The low byte of DYNAMICOBJECT_BYTES, the type the world's loaded
+        // hook gates its sizing on (0x005D5368).
+        Lua::SetFieldNumber(L, "areaType", area.bytes & 0xFFu);
         Lua::SetFieldNumber(L, "startTime", Seconds(area.span.from));
         if (area.span.to != INT32_MAX)
             Lua::SetFieldNumber(L, "endTime", Seconds(area.span.to));
@@ -1277,6 +1280,8 @@ const Game::Doc::Field kGroundAreaFields[] = {
     Req("z", "number"),
     Req("facing", "number", "In radians."),
     Req("radius", "number", "In yards."),
+    Req("areaType", "number",
+        "The area's type: 1 for a spell's area. ModelSceneActor:SetModelBySpellArea takes it."),
     Req("startTime", "number",
         "When it came into view, in seconds from the replay's start; negative before it."),
     Opt("endTime", "number", nullptr, "When it left view; nil when it stayed past the replay's end."),
