@@ -29,8 +29,8 @@
 //     (step 9) and the over-shoulder offset (step 10); after it, the
 //     over-shoulder and eye-offset sweeps (3.80.2's solver) and the solved
 //     pivot height for the pitch delta.
-//   - Update, after: the view-only pitch delta (step 15) and the
-//     over-shoulder self fade (step 19).
+//   - Update, after: the view-only pitch delta (step 15), target focus
+//     (step 16) and the over-shoulder self fade (step 19).
 //   - PivotBiasAllowed: 3.80.2's GetSmartPivotFlags turns the smart pivot
 //     off while dynamic pitch is on within the cutoff distance.
 
@@ -39,6 +39,7 @@
 #include "camera/DynamicPitch.h"
 #include "camera/HeadMovement.h"
 #include "camera/OverShoulder.h"
+#include "camera/TargetFocus.h"
 #include "time/Clock.h"
 
 #include <cstdint>
@@ -59,10 +60,12 @@ Frame g_frame;
 bool g_hasLastNow = false;
 uint32_t g_lastNow = 0;
 
-// What this frame's solve saw: the feet it started from and the height it
-// gave.
+// What this frame's solve saw: the feet it started from, the height it gave
+// and the pivot the eye is placed from (feet + shoulder + height, the
+// driver's own sum).
 float g_feet[3] = {0.0f, 0.0f, 0.0f};
 float g_solvedHeight = 0.0f;
+float g_pivot[3] = {0.0f, 0.0f, 0.0f};
 
 using Update_t = void(__fastcall *)(void *camera, void *edx, void *target, uint32_t now);
 Update_t Update_o = nullptr;
@@ -81,6 +84,7 @@ void __fastcall Update_h(void *camera, void *edx, void *target, uint32_t now) {
                               Offsets::CAMERA_MODE_PIVOT_HEIGHTS) == 0)
         return;
     DynamicPitch::Apply(camera, target, g_solvedHeight, g_frame.dt);
+    TargetFocus::Apply(camera, g_feet, g_pivot, g_frame.dt);
     OverShoulder::Fade(camera, g_feet);
 }
 
@@ -111,6 +115,9 @@ uint32_t __fastcall SolveLimits_h(void *camera, void *edx, float *pivot, float *
     uint32_t bits = SolveLimits_o(camera, edx, pivot, distance, height, offset, band);
     g_solvedHeight = *height;
     bits |= OverShoulder::Solve(camera, pivot, distance, height, offset, distanceIn, headOffset);
+    g_pivot[0] = pivot[0];
+    g_pivot[1] = pivot[1];
+    g_pivot[2] = pivot[2] + *height;
     return bits;
 }
 

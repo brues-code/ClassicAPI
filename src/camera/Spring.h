@@ -49,4 +49,31 @@ inline bool SmoothCriticallyDamped(Spring &s, float target, float omega, float d
     return true;
 }
 
+// Two values eased together (SmoothCriticallyDampedVec2 0x142a5bcd0): the
+// same step on each, the epsilon test on the larger difference, and the
+// crossing test on their dot product.
+inline bool SmoothCriticallyDamped2(Spring &a, Spring &b, float targetA, float targetB,
+                                    float omega, float dt, float epsilon = 0.0f) {
+    const float da = a.value - targetA;
+    const float db = b.value - targetB;
+    if (epsilon <= 1e-5f)
+        epsilon = 1e-5f;
+    const float largest = std::fabs(da) < std::fabs(db) ? std::fabs(db) : std::fabs(da);
+    if (epsilon < largest) {
+        const float k = omega * dt;
+        const float e = 1.0f / (k * k * 0.235f * k + 1.0f + k * k * 0.48f + k);
+        const float ta = (da * omega + a.velocity) * dt;
+        const float tb = (db * omega + b.velocity) * dt;
+        a.value = (ta + da) * e + targetA;
+        b.value = (tb + db) * e + targetB;
+        a.velocity = (a.velocity - ta * omega) * e;
+        b.velocity = (b.velocity - tb * omega) * e;
+        if (0.0f < (a.value - targetA) * da + (b.value - targetB) * db)
+            return false;
+    }
+    a = {targetA, 0.0f};
+    b = {targetB, 0.0f};
+    return true;
+}
+
 } // namespace Camera

@@ -35,5 +35,11 @@ float HeadMovementMovingStrength();
 float HeadMovementStandingDampRate();
 float HeadMovementMovingDampRate();
 float HeadMovementFirstPersonDampRate();
+bool TargetFocusEnemyEnable();
+float TargetFocusEnemyStrengthPitch();
+float TargetFocusEnemyStrengthYaw();
+bool TargetFocusInteractEnable();
+float TargetFocusInteractStrengthPitch();
+float TargetFocusInteractStrengthYaw();
 
 } // namespace Camera::Settings

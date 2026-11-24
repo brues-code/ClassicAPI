@@ -53,6 +53,12 @@ CVar::Factory::Handle g_headMovingStrength = nullptr;
 CVar::Factory::Handle g_headStandingDampRate = nullptr;
 CVar::Factory::Handle g_headMovingDampRate = nullptr;
 CVar::Factory::Handle g_headFirstPersonDampRate = nullptr;
+CVar::Factory::Handle g_focusEnemyEnable = nullptr;
+CVar::Factory::Handle g_focusEnemyPitch = nullptr;
+CVar::Factory::Handle g_focusEnemyYaw = nullptr;
+CVar::Factory::Handle g_focusInteractEnable = nullptr;
+CVar::Factory::Handle g_focusInteractPitch = nullptr;
+CVar::Factory::Handle g_focusInteractYaw = nullptr;
 
 bool InRange(const char *value, float min, float max) {
     const float v = Storm::ToFloat(value);
@@ -132,6 +138,19 @@ void Register() {
     g_headFirstPersonDampRate = CVar::Factory::Register(
         "test_cameraHeadMovementFirstPersonDampRate", nullptr, Offsets::CVAR_CATEGORY_GAME,
         "20.000000", &ValidateRangeTickTo50);
+    g_focusEnemyEnable = CVar::Factory::Register("test_cameraTargetFocusEnemyEnable", nullptr,
+                                                 Offsets::CVAR_CATEGORY_GAME, "0");
+    g_focusEnemyPitch = CVar::Factory::Register("test_cameraTargetFocusEnemyStrengthPitch",
+                                                nullptr, Offsets::CVAR_CATEGORY_GAME, "0.400000");
+    g_focusEnemyYaw = CVar::Factory::Register("test_cameraTargetFocusEnemyStrengthYaw", nullptr,
+                                              Offsets::CVAR_CATEGORY_GAME, "0.500000");
+    g_focusInteractEnable = CVar::Factory::Register("test_cameraTargetFocusInteractEnable",
+                                                    nullptr, Offsets::CVAR_CATEGORY_GAME, "0");
+    g_focusInteractPitch = CVar::Factory::Register(
+        "test_cameraTargetFocusInteractStrengthPitch", nullptr, Offsets::CVAR_CATEGORY_GAME,
+        "0.750000");
+    g_focusInteractYaw = CVar::Factory::Register("test_cameraTargetFocusInteractStrengthYaw",
+                                                 nullptr, Offsets::CVAR_CATEGORY_GAME, "1.000000");
 }
 
 const Game::GlueModuleAutoRegister _autoreg{&Register};
@@ -173,6 +192,17 @@ float HeadMovementMovingDampRate() {
 }
 float HeadMovementFirstPersonDampRate() {
     return CVar::Factory::GetFloat(g_headFirstPersonDampRate, 20.0f);
+}
+
+bool TargetFocusEnemyEnable() { return CVar::Factory::GetInt(g_focusEnemyEnable, 0) != 0; }
+float TargetFocusEnemyStrengthPitch() { return CVar::Factory::GetFloat(g_focusEnemyPitch, 0.4f); }
+float TargetFocusEnemyStrengthYaw() { return CVar::Factory::GetFloat(g_focusEnemyYaw, 0.5f); }
+bool TargetFocusInteractEnable() { return CVar::Factory::GetInt(g_focusInteractEnable, 0) != 0; }
+float TargetFocusInteractStrengthPitch() {
+    return CVar::Factory::GetFloat(g_focusInteractPitch, 0.75f);
+}
+float TargetFocusInteractStrengthYaw() {
+    return CVar::Factory::GetFloat(g_focusInteractYaw, 1.0f);
 }
 
 } // namespace Camera::Settings

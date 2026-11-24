@@ -13538,6 +13538,24 @@ enum Offsets {
     // CM2Model's loaded word: HasAttachment and GetAttachmentPosition wait
     // for the model file while it is 0 (0x00712CB6).
     OFF_M2MODEL_LOADED = 0x10,
+    // The live roll the view angles pass on (0x0050F720).
+    OFF_CAMERA_ROLL = 0xF8,
+    // CCamera::SetFacing — `void __thiscall(camera, float yaw, float pitch,
+    // float roll)`, `ret 0xC`: builds the basis (+0x14) from the angles
+    // (BuildYawPitchRollBasis). The view angles' last step (0x0050F866).
+    FUN_CAMERA_SET_FACING = 0x0050AB50,
+    // The camera's field of view, vtable slot 0 (0x0050D6D0): `float
+    // __thiscall(camera)`, the base +0x40 plus the eased bias, 0 in far
+    // sight, clamped to 0..179 degrees.
+    VTBL_CAMERA_FOV = 0x00,
+    // The interaction target (u64): the unit or object the player is
+    // talking to. Written only by the interaction begin 0x004930D0 (at
+    // 0x00493114, which also arms the interaction range) and the closer
+    // 0x00493310 (at 0x0049334B), which closes the window whose GUID matches
+    // (benilla-re ui/gameui, ui/loot: loot never stores it). It sits before
+    // the current target (VAR_CURRENT_SELECTION_GUID_LO), as 3.80.2's
+    // interaction object 0x144ba0d40 sits beside its target.
+    VAR_INTERACTION_TARGET_GUID = 0x00B4E2D0,
 
     // UI input controller — heap-allocated struct holding the
     // engine's master input-state bitfield (mouselook / free-look /
