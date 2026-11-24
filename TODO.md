@@ -4877,7 +4877,7 @@ What could still be done without breaking anything, if picked up again:
   3.80.2's addon would then need a 1.12-name translation table, so it would
   not be a verbatim port.
 
-## 116. ActionCam — the `test_camera*` cvars — large, layer 1 built (dynamic pitch + command)
+## 116. ActionCam — the `test_camera*` cvars — large, layers 1-2 built (command, dynamic pitch, over-shoulder)
 
 The retail camera set that the DynamicCam addon drives entirely through
 SetCVar. 3.80.2 has all 20:
@@ -4915,8 +4915,9 @@ switches off all of them except interact focus.
   basis, as the pivot bias does at `0x50EE58`.
 
 Layer 1 (2026-11-24, `src/camera/`): the cvars, the `ActionCam` command and
-dynamic pitch, including its smart-pivot cutoff. Next: 2 over-shoulder,
-3 head movement, 4 target focus.
+dynamic pitch, including its smart-pivot cutoff. Layer 2: over-shoulder,
+with 3.80.2's sweeps run after 1.12's solve, its self fade and the look-up
+zoom. Next: 3 head movement, 4 target focus.
 
 Open items:
 - UnitXP_SP3 post-hooks `0x511BC0` with its own displacement, pitch and

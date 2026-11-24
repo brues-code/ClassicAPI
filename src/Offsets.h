@@ -13499,6 +13499,34 @@ enum Offsets {
     // The pivot bias: a view-only pitch the driver applies after the eye,
     // when at least 0.001 in size (0x0050EE32).
     OFF_CAMERA_PIVOT_BIAS = 0x104,
+    // The live pitch the view angles start from (0x0050F720).
+    OFF_CAMERA_PITCH = 0xF4,
+    // CCamera::PlaceEye — `float *__thiscall(camera, float out[3], const
+    // float pivot[3], float distance, const float offset[3])`, `ret 0x10`:
+    // pivot − distance·forward + offset. The solver's trial eye (0x0050E854)
+    // and the driver's eye (0x0050EDDB).
+    FUN_CAMERA_PLACE_EYE = 0x0050DE00,
+    // CCamera::ClipNearBox — `int __thiscall(camera, float *distance, const
+    // float trialEye[3], uint32_t mask)`, `ret 0xC`: shortens the distance
+    // so the near end of the view volume clears the world; nonzero when it
+    // clipped (0x0050E861, which then sets CAMERA_MODE_BOOM_HIT).
+    FUN_CAMERA_CLIP_NEAR_BOX = 0x0050DE90,
+    // CCamera::SetTargetAlpha — `void __thiscall(camera, uint32_t alpha)`,
+    // `ret 4`: the self fade, forwarded to the world frame (0x00482C10 sets
+    // the own-model flag and the model alpha; the last call in a frame wins).
+    FUN_CAMERA_SET_TARGET_ALPHA = 0x0050F8F0,
+    // The solver's boom bit: set by the boom sweep (0x0050E82A) and the near
+    // clip (0x0050E86A).
+    CAMERA_MODE_BOOM_HIT = 0x10000,
+    // The solver's trace mask (0x0050E5EC): CAMERA_TRACE_MASK, plus
+    // CAMERA_TRACE_MASK_WATER while cameraWaterCollision (CVar* below,
+    // int at +0x28) is nonzero.
+    CAMERA_TRACE_MASK = 0x100171,
+    CAMERA_TRACE_MASK_WATER = 0xF0000,
+    VAR_CVAR_CAMERA_WATER_COLLISION = 0x00BE1088,
+    // float 1/9: how far the solver backs the distance off after a hit
+    // (0x0050E887) and the pull-in margin (0x0050EE6B).
+    VAR_CAMERA_COLLISION_BACKOFF = 0x00808A00,
 
     // UI input controller — heap-allocated struct holding the
     // engine's master input-state bitfield (mouselook / free-look /

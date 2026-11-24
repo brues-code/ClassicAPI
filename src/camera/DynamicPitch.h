@@ -23,10 +23,14 @@ namespace Camera::DynamicPitch {
 // makes with it: true when dynamic pitch turns the smart pivot off.
 bool DisablesSmartPivot(const void *camera);
 
-// Runs after the driver has built the eye and the basis: eases the blend
-// and the screen pad, then turns the basis by the pitch delta. `target` is
-// the camera's target, `solvedHeight` the pivot height the solver gave this
-// frame, `dt` the frame time in seconds.
+// Before the solve, after the view angles (3.80.2 step 9): eases the blend
+// and, with over-shoulder on, slides the camera in while looking up near the
+// character. `dt` is the frame time in seconds.
+void UpdateBlend(void *camera, const void *target, float dt);
+
+// After the driver has built the eye and the basis: eases the screen pad and
+// turns the basis by the pitch delta. `solvedHeight` is the pivot height the
+// solver gave this frame.
 void Apply(void *camera, const void *target, float solvedHeight, float dt);
 
 } // namespace Camera::DynamicPitch

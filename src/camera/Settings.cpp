@@ -24,7 +24,8 @@
 // work before every feature exists.
 // test_cameraDynamicPitchBaseFovPadFlying is not registered: 3.80.2 reads it
 // only for a unit that can fly (movement flag 0x800000), which 1.12 has no
-// counterpart for.
+// counterpart for. CameraReduceUnexpectedMovement turns over-shoulder off as
+// in 3.80.2; its vertical stabilizer is not ported.
 
 #include "camera/Settings.h"
 
@@ -38,6 +39,8 @@ namespace Camera::Settings {
 namespace {
 
 CVar::Factory::Handle g_keepCharacterCentered = nullptr;
+CVar::Factory::Handle g_reduceUnexpectedMovement = nullptr;
+CVar::Factory::Handle g_overShoulder = nullptr;
 CVar::Factory::Handle g_dynamicPitch = nullptr;
 CVar::Factory::Handle g_baseFovPad = nullptr;
 CVar::Factory::Handle g_baseFovPadDownScale = nullptr;
@@ -69,6 +72,13 @@ void Register() {
         "Motion sickness control to keep character's head at center of screen to act as "
         "motion reference point. Can override other cvar settings.",
         Offsets::CVAR_CATEGORY_GAME, "1");
+    g_reduceUnexpectedMovement = CVar::Factory::Register(
+        "CameraReduceUnexpectedMovement",
+        "Motion sickness control to reduce camera movement without player input. Can "
+        "override other cvar settings.",
+        Offsets::CVAR_CATEGORY_GAME, "0");
+    g_overShoulder = CVar::Factory::Register("test_cameraOverShoulder", nullptr,
+                                             Offsets::CVAR_CATEGORY_GAME, "0.000000");
     g_dynamicPitch = CVar::Factory::Register(
         "test_cameraDynamicPitch",
         "Adjust camera pitch according to zoom distance for a more cinematic view",
@@ -92,6 +102,12 @@ const Game::GlueModuleAutoRegister _autoreg{&Register};
 } // namespace
 
 bool KeepCharacterCentered() { return CVar::Factory::GetInt(g_keepCharacterCentered, 1) != 0; }
+
+bool ReduceUnexpectedMovement() {
+    return CVar::Factory::GetInt(g_reduceUnexpectedMovement, 0) != 0;
+}
+
+float OverShoulder() { return CVar::Factory::GetFloat(g_overShoulder, 0.0f); }
 
 float DynamicPitch() { return CVar::Factory::GetFloat(g_dynamicPitch, 0.0f); }
 

@@ -21,6 +21,8 @@
 namespace Camera::Settings {
 
 bool KeepCharacterCentered();
+bool ReduceUnexpectedMovement();
+float OverShoulder();
 float DynamicPitch();
 float DynamicPitchBaseFovPad();
 float DynamicPitchBaseFovPadDownScale();
