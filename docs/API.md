@@ -10094,7 +10094,7 @@ Returns where the region was created, as a string.
 ```lua
 local f = CreateFrame("Frame")
 print(f:GetSourceLocation())            -- "Interface\AddOns\MyAddon\Core.lua:12"
-print(PlayerFrame:GetSourceLocation())  -- "Interface\FrameXML\PlayerFrame.xml"
+print(PlayerFrame:GetSourceLocation())  -- "Interface\FrameXML\PlayerFrame.xml:4"
 ```
 
 - A frame that `CreateFrame` made returns the script file and the line of
@@ -10104,8 +10104,9 @@ print(PlayerFrame:GetSourceLocation())  -- "Interface\FrameXML\PlayerFrame.xml"
   is the script file that ran that code. For a `/run` line, that is the file
   of the slash command. When no script file ran the code, the location is
   `[string "..."]:line`. An XML script or a macro is an example of this.
-- A frame that an XML file defines returns the path of that XML file. There
-  is no line number.
+- A frame that an XML file defines returns the path of that XML file and the
+  line of the frame's opening tag, as `file:line`. A frame that inherits a
+  template gives its own tag, not the tag of the template.
 - A texture or font string returns the location of its parent frame.
 - The method returns nil when no script and no XML file made the frame.
 

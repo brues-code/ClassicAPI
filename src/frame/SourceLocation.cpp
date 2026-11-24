@@ -25,9 +25,9 @@
 //     from a string when a file's level is above it (CaptureCaller). The
 //     file is the chunk's name as luaO_chunkid writes it, with room for a
 //     whole path, where error messages cut at LUA_IDSIZE (60).
-//   - the XML file: Xml::FileStack, the file FUN_XML_LOAD_FILE is processing.
-//     Vanilla's XML nodes carry no line, so an XML frame reports the file
-//     alone.
+//   - the XML file and line: Xml::FileStack, the file FUN_XML_LOAD_FILE is
+//     processing, and Xml::NodeLine, the line of the frame element's opening
+//     tag, as 3.80.2 records it ("file:line").
 // Nesting resolves by depth: a frame built while the innermost CreateFrame
 // call is at the XML depth it started at is that call's; one built deeper
 // belongs to an XML file loaded since (LoadAddOn from an OnLoad). A
@@ -57,6 +57,7 @@
 #include "frame/Destruction.h"
 #include "xml/FileStack.h"
 #include "xml/FrameLoad.h"
+#include "xml/NodeLine.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -150,14 +151,29 @@ const char *FromLuaScope() {
     return top.location;
 }
 
-void OnFrameNode(void *object, const void *, void *) {
+// The first node the loader enters for a frame is its own element; inherited
+// template nodes re-enter it inside that call. 3.80.2 sets the location from
+// each node it loads (the region XML load FUN_1405938A0 calls vtable +0x80,
+// FUN_140595170, = SetSourceLocation(node + 0x70)), templates first and the
+// frame's own node last, so its own element wins there too.
+void OnFrameNode(void *object, const void *node, void *) {
     if (g_locations.find(object) != g_locations.end())
-        return; // inherited nodes re-enter the loader for the same frame
-    const char *location = FromLuaScope();
-    if (location == nullptr)
-        location = Xml::FileStack::Current();
-    if (location != nullptr)
+        return;
+    if (const char *location = FromLuaScope()) {
         g_locations.emplace(object, location);
+        return;
+    }
+    const char *file = Xml::FileStack::Current();
+    if (file == nullptr)
+        return;
+    const int line = Xml::NodeLine::Get(node);
+    if (line <= 0) {
+        g_locations.emplace(object, file);
+        return;
+    }
+    char location[320];
+    std::snprintf(location, sizeof location, "%s:%d", file, line);
+    g_locations.emplace(object, location);
 }
 
 void OnFrameDestroyed(void *frame) { g_locations.erase(frame); }
@@ -206,12 +222,13 @@ const Game::Doc::Function kAddSourceLocationExclude{
 
 const Game::Doc::Field kRets[] = {
     Game::Doc::Opt("location", "string", nullptr,
-                   "\"file:line\" of the CreateFrame call that made the frame, or the XML file "
-                   "that defines it; nil when neither did."),
+                   "\"file:line\" of the CreateFrame call that made the frame, or of the XML "
+                   "element that defines it; nil when neither did."),
 };
 const Game::Doc::Function kGetSourceLocation{
     "Returns where the region was created: the script file and line of the CreateFrame "
-    "call, or the XML file. A texture or font string answers for its parent frame.",
+    "call, or the XML file and line of the frame's element. A texture or font string "
+    "answers for its parent frame.",
     {}, kRets};
 const Game::Doc::Method g_methodDocs[] = {
     {"GetSourceLocation", &kGetSourceLocation},

@@ -1779,7 +1779,8 @@ enum Offsets {
     //     base vtable+0x0C: the OnEvent slot for "OnEvent", else 0.
     //   FUN_SCRIPT_OBJECT_SET_SCRIPT_TEXT `bool __thiscall(object, name, text)`,
     //     `ret 8` - compiles an XML script body into the slot vtable+0x0C
-    //     gives (chunk name "<name>:<script>", context 0), releasing the old.
+    //     gives (chunk name "<name>:<script>", which Xml::ScriptChunkName
+    //     renames for an XML file's handler; context 0), releasing the old.
     //   FUN_SCRIPT_RELEASE `void __stdcall(uint32_t *slot)` - frees a slot's
     //     handler ref.
     // An object's methods are found through its vtable+0x08, `int
@@ -1793,6 +1794,12 @@ enum Offsets {
     FUN_SCRIPT_OBJECT_BASE_RESOLVE_SCRIPT = 0x00702590,
     FUN_SCRIPT_OBJECT_SET_SCRIPT_TEXT = 0x007025C0,
     FUN_SCRIPT_RELEASE = 0x00702670,
+    // FrameScript_CompileFunction `int __fastcall(const char *text, const char
+    // *chunkName)`: compiles `text` as a chunk named `chunkName` and answers
+    // its registry ref, or -1 with the error reported. Called by
+    // SetScriptObjectScript (0x0070263C, name "<object>:<script>" from the
+    // "%s:%s" at 0x00872A28) and the bindings loader (0x004B73F9).
+    FUN_FRAMESCRIPT_COMPILE_FUNCTION = 0x00704C70,
 
     // `this+0x04` Lua refcount, incremented by `ScriptRegister`. We
     // read it as a "has the engine ever exposed this CObject to Lua"
@@ -10894,7 +10901,8 @@ enum Offsets {
     // compile funnel FUN_00704C70 (the CALL is at 0x00704C87, so the pushed
     // return address is 0x00704C8C). That funnel compiles an XML handler body
     // (<OnLoad>, <OnClick>, ...) into the function the frame stores, under an
-    // engine-built chunkname "<FrameName>:<ScriptName>". Found by scanning
+    // chunkname "*<file>:<line>_<ScriptName>" (Xml::ScriptChunkName renames
+    // the engine's "<FrameName>:<ScriptName>"). Found by scanning
     // FUN_00704C70 for an `E8 rel32` whose target is FUN_LUAL_LOADBUFFER; the
     // same scan reproduces RET_LUA_FILE_COMPILE (0x00704B11) for FUN_00704AE0
     // and 0x007032B5 for loadstring's FUN_00703280. LuaSyntax uses it to give
@@ -14990,6 +14998,23 @@ enum Offsets {
     // pair (0x004B6FDE / its exit).
     FUN_XML_TREE_LOAD = 0x006F2A30,
     FUN_XML_TREE_FREE = 0x006F2AC0,
+    // XMLTree_Load's expat callbacks, all __cdecl with expat's handler arg
+    // first: the tree's `{XMLNode *root, XMLNode *current}` pair. Start
+    // `(pair, name, atts)` appends a node as the last child of `current` and
+    // makes it current; end `(pair)` makes current's parent current; the
+    // character handler (0x006F29D0) grows current's text with SMemReAlloc, so
+    // the text pointer is final only once the element ends.
+    FUN_XML_START_ELEMENT = 0x006F28A0,
+    FUN_XML_END_ELEMENT = 0x006F29C0,
+    // The linked expat 1.95.5. XML_SetUserData `void __cdecl(parser, data)`
+    // (parser +0 userData, +4 handlerArg; XMLTree_Load's only call passes the
+    // pair above). XML_GetCurrentLineNumber `int __cdecl(parser)`: 1-based
+    // line of the current event (updatePosition at encoding +0x90 vtable
+    // +0x34 from positionPtr +0x128 to eventPtr +0x120, then position +0x240
+    // plus 1). Linked but never called by 1.12; 3.80.2's start handler calls
+    // its twin (FUN_142A84430) to stamp each node's line.
+    FUN_XML_SET_USER_DATA = 0x007E6F70,
+    FUN_XML_GET_CURRENT_LINE_NUMBER = 0x007E75F0,
     // The loaders' status sink (their `status` argument): vtable +0xC is
     // `Add(status, level, fmt, ...)` (__cdecl, variadic) — e.g. the frame
     // loader's "Couldn't find inherited node: %s" at level 1. Levels as 4.3.4
