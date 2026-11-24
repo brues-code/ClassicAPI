@@ -13453,6 +13453,53 @@ enum Offsets {
     VAR_CAMERA_PIVOT_MAX = 0x008089C8,      // float 15
     VAR_CAMERA_NEAR_DISTANCE = 0x008089B0,  // float 1.8315
 
+    // ---- The follow camera's per-frame update (benilla-re uicamera/driver,
+    // solver; Ghidra of each function) ---------------------------------------
+    // CCamera::Update — `void __thiscall(camera, CGObject_C *target, uint32_t
+    // now)`, `ret 8`. The driver: axes, transitions, view angles, solver, eye,
+    // pivot bias, pull-in, self fade. Its only caller is OnFrame 0x00511BC0,
+    // which passes OsGetAsyncTimeMs. It returns early on a null target and
+    // while BuildPivotHeights fails (mode bit CAMERA_MODE_PIVOT_HEIGHTS clear);
+    // otherwise it rebuilds the eye and the basis from scratch.
+    FUN_CAMERA_UPDATE = 0x0050E8D0,
+    // CCamera::SolveLimits — `uint32_t __thiscall(camera, float pivot[3],
+    // float *distance, float *height, float offset[3], float band)`,
+    // `ret 0x14`, one caller (0x0050ED59). Clamps the height under a ceiling
+    // and the distance along the boom; returns the collision bits the driver
+    // ORs into the mode word (CAMERA_MODE_COLLISION_BITS).
+    FUN_CAMERA_SOLVE_LIMITS = 0x0050E570,
+    // CCamera::PivotBiasAllowed — `uint32_t __thiscall(camera, CGUnit_C
+    // *unit)`, `ret 4`: the smart pivot test (cameraPivot on, no move key,
+    // pitch level or up) returning mode & CAMERA_MODE_COLLISION_BITS.
+    // Callers: MouseTurn 0x0050FEE0, PivotBiasNeedsClear 0x005107F0.
+    FUN_CAMERA_PIVOT_BIAS_ALLOWED = 0x00510690,
+    // RotateMatrix3 — `void __thiscall(float m[9], float angle, const float
+    // axis[3], uint8_t axisIsUnit)`, `ret 0xC`: m = R(axis, angle) * m. About
+    // (0, 1, 0) on the camera basis it gives forward' = cos·forward −
+    // sin·up, so a positive angle looks further down (benilla-re cmath/
+    // matrices "Axis and angle rotations"). The driver turns the basis by
+    // the pivot bias this way at 0x0050EE58.
+    FUN_ROTATE_MATRIX3 = 0x007BE730,
+    // The camera basis: rows forward, left, up (9 floats). Transport-local
+    // when the target rides one; the driver rebuilds it every frame.
+    OFF_CAMERA_BASIS = 0x14,
+    // Base field of view, radians (vtable slot 0 0x0050D6D0 adds the eased
+    // bias +0x10C and clamps; benilla-re uicamera/transitions).
+    OFF_CAMERA_BASE_FOV = 0x40,
+    // The mode word. Bit 2: pivot heights built (0x0050E8F4). Bit 3: far
+    // sight, distance forced to 0 (0x0050EDB7). Bits 0x30000: the solver's
+    // collision bits, cleared before each solve (0x0050ED39).
+    OFF_CAMERA_MODE = 0x90,
+    CAMERA_MODE_PIVOT_HEIGHTS = 0x4,
+    CAMERA_MODE_FAR_SIGHT = 0x8,
+    CAMERA_MODE_COLLISION_BITS = 0x30000,
+    // Live orbit distance and the distance it eases to (the zoom target).
+    OFF_CAMERA_DISTANCE = 0xEC,
+    OFF_CAMERA_TARGET_DISTANCE = 0x198,
+    // The pivot bias: a view-only pitch the driver applies after the eye,
+    // when at least 0.001 in size (0x0050EE32).
+    OFF_CAMERA_PIVOT_BIAS = 0x104,
+
     // UI input controller — heap-allocated struct holding the
     // engine's master input-state bitfield (mouselook / free-look /
     // turn-key / autorun / strafe-modifier / etc.). The slot at
