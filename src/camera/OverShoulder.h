@@ -29,10 +29,12 @@ bool IsActive(const void *camera);
 void Update(void *camera, const void *target, float dt);
 
 // After 1.12's solve: sweeps the offset the way 3.80.2's solver does and
-// moves the pivot by what is left of it. `distanceIn` is the distance the
-// solve started from. Returns the mode bits to add to the solver's.
+// moves the pivot by what is left of it, then sweeps the eye offset.
+// `distanceIn` is the distance the solve started from. `sweepEyeOffset`
+// asks for the eye-offset sweep even without a shoulder offset (head
+// movement's offset is in it). Returns the mode bits to add to the solver's.
 uint32_t Solve(void *camera, float *pivot, float *distance, const float *height,
-               float *offset, float distanceIn);
+               float *offset, float distanceIn, bool sweepEyeOffset);
 
 // After the driver: 3.80.2's self fade while over-shoulder is on.
 void Fade(void *camera, const float feet[3]);

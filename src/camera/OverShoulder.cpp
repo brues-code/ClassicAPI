@@ -40,9 +40,9 @@
 // is one of the bits the smart pivot test returns.
 //
 // 1.12 differences:
-//   - 3.80.2 sweeps its whole eye offset every frame; here only while an
-//     offset is in play, so the bob and shakes keep 1.12's behaviour
-//     otherwise.
+//   - 3.80.2 sweeps its whole eye offset every frame; here only while a
+//     shoulder or head-movement offset is in play, so the bob and shakes
+//     keep 1.12's behaviour otherwise.
 //   - 3.80.2's second near-box clip runs along the eye-offset sweep
 //     (FUN_141b5ca10, a segment clip); 1.12 has only the trial-eye clip, so
 //     that sweep has no clip.
@@ -177,10 +177,11 @@ void Update(void *camera, const void *target, float dt) {
 }
 
 uint32_t Solve(void *camera, float *pivot, float *distance, const float *height, float *offset,
-               float distanceIn) {
+               float distanceIn, bool sweepEyeOffset) {
     State &s = For(camera);
     const float *start = s.offset;
-    if (start[0] == 0.0f && start[1] == 0.0f && start[2] == 0.0f)
+    const bool hasShoulder = start[0] != 0.0f || start[1] != 0.0f || start[2] != 0.0f;
+    if (!hasShoulder && !sweepEyeOffset)
         return 0;
     const uint32_t mask = TraceMask();
     const float backoff = Game::Read<float>(Offsets::VAR_CAMERA_COLLISION_BACKOFF);
@@ -191,7 +192,7 @@ uint32_t Solve(void *camera, float *pivot, float *distance, const float *height,
     uint32_t bits = 0;
 
     // Steps 1 and 2.
-    if (d > kMinSweep) {
+    if (hasShoulder && d > kMinSweep) {
         bool hit = false;
         PlaceEye(camera, trial, top, d, shoulder);
         float t;
@@ -216,7 +217,8 @@ uint32_t Solve(void *camera, float *pivot, float *distance, const float *height,
     }
 
     // Step 3.
-    if (std::fabs(distanceIn - d) >= View::kEpsilon && std::fabs(d) >= View::kEpsilon)
+    if (hasShoulder && std::fabs(distanceIn - d) >= View::kEpsilon &&
+        std::fabs(d) >= View::kEpsilon)
         Scale(shoulder, d / distanceIn);
 
     // Step 4.

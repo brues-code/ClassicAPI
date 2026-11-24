@@ -27,5 +27,13 @@ float DynamicPitch();
 float DynamicPitchBaseFovPad();
 float DynamicPitchBaseFovPadDownScale();
 float DynamicPitchSmartPivotCutoffDist();
+float HeadMovementStrength();
+float HeadMovementRangeScale();
+float HeadMovementDeadZone();
+float HeadMovementStandingStrength();
+float HeadMovementMovingStrength();
+float HeadMovementStandingDampRate();
+float HeadMovementMovingDampRate();
+float HeadMovementFirstPersonDampRate();
 
 } // namespace Camera::Settings

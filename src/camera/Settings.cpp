@@ -45,6 +45,14 @@ CVar::Factory::Handle g_dynamicPitch = nullptr;
 CVar::Factory::Handle g_baseFovPad = nullptr;
 CVar::Factory::Handle g_baseFovPadDownScale = nullptr;
 CVar::Factory::Handle g_smartPivotCutoffDist = nullptr;
+CVar::Factory::Handle g_headStrength = nullptr;
+CVar::Factory::Handle g_headRangeScale = nullptr;
+CVar::Factory::Handle g_headDeadZone = nullptr;
+CVar::Factory::Handle g_headStandingStrength = nullptr;
+CVar::Factory::Handle g_headMovingStrength = nullptr;
+CVar::Factory::Handle g_headStandingDampRate = nullptr;
+CVar::Factory::Handle g_headMovingDampRate = nullptr;
+CVar::Factory::Handle g_headFirstPersonDampRate = nullptr;
 
 bool InRange(const char *value, float min, float max) {
     const float v = Storm::ToFloat(value);
@@ -63,6 +71,12 @@ int __fastcall ValidateRange0To1(CVar::Factory::Handle, const char *, const char
 int __fastcall ValidateRange0To50(CVar::Factory::Handle, const char *, const char *value,
                                   void *) {
     return InRange(value, 0.0f, 50.0f);
+}
+
+// CVarValidateRangeTickTo50 0x141b557d0.
+int __fastcall ValidateRangeTickTo50(CVar::Factory::Handle, const char *, const char *value,
+                                     void *) {
+    return InRange(value, 1.0f / 360.0f, 50.0f);
 }
 
 // Process-global, so the first glue boot covers the session.
@@ -95,6 +109,29 @@ void Register() {
         "test_cameraDynamicPitchSmartPivotCutoffDist",
         "Dynamic pitch disables Smart Pivot within this camera distance",
         Offsets::CVAR_CATEGORY_GAME, "10.000000", &ValidateRange0To50);
+    g_headStrength = CVar::Factory::Register("test_cameraHeadMovementStrength", nullptr,
+                                             Offsets::CVAR_CATEGORY_GAME, "0.000000");
+    g_headRangeScale =
+        CVar::Factory::Register("test_cameraHeadMovementRangeScale", nullptr,
+                                Offsets::CVAR_CATEGORY_GAME, "5.000000", &ValidateRange0To50);
+    g_headDeadZone =
+        CVar::Factory::Register("test_cameraHeadMovementDeadZone", nullptr,
+                                Offsets::CVAR_CATEGORY_GAME, "0.015000", &ValidateRange0To50);
+    g_headStandingStrength =
+        CVar::Factory::Register("test_cameraHeadMovementStandingStrength", nullptr,
+                                Offsets::CVAR_CATEGORY_GAME, "0.300000");
+    g_headMovingStrength = CVar::Factory::Register("test_cameraHeadMovementMovingStrength",
+                                                   nullptr, Offsets::CVAR_CATEGORY_GAME,
+                                                   "0.500000");
+    g_headStandingDampRate = CVar::Factory::Register(
+        "test_cameraHeadMovementStandingDampRate", nullptr, Offsets::CVAR_CATEGORY_GAME,
+        "10.000000", &ValidateRangeTickTo50);
+    g_headMovingDampRate = CVar::Factory::Register("test_cameraHeadMovementMovingDampRate",
+                                                   nullptr, Offsets::CVAR_CATEGORY_GAME,
+                                                   "10.000000", &ValidateRangeTickTo50);
+    g_headFirstPersonDampRate = CVar::Factory::Register(
+        "test_cameraHeadMovementFirstPersonDampRate", nullptr, Offsets::CVAR_CATEGORY_GAME,
+        "20.000000", &ValidateRangeTickTo50);
 }
 
 const Game::GlueModuleAutoRegister _autoreg{&Register};
@@ -119,6 +156,23 @@ float DynamicPitchBaseFovPadDownScale() {
 
 float DynamicPitchSmartPivotCutoffDist() {
     return CVar::Factory::GetFloat(g_smartPivotCutoffDist, 10.0f);
+}
+
+float HeadMovementStrength() { return CVar::Factory::GetFloat(g_headStrength, 0.0f); }
+float HeadMovementRangeScale() { return CVar::Factory::GetFloat(g_headRangeScale, 5.0f); }
+float HeadMovementDeadZone() { return CVar::Factory::GetFloat(g_headDeadZone, 0.015f); }
+float HeadMovementStandingStrength() {
+    return CVar::Factory::GetFloat(g_headStandingStrength, 0.3f);
+}
+float HeadMovementMovingStrength() { return CVar::Factory::GetFloat(g_headMovingStrength, 0.5f); }
+float HeadMovementStandingDampRate() {
+    return CVar::Factory::GetFloat(g_headStandingDampRate, 10.0f);
+}
+float HeadMovementMovingDampRate() {
+    return CVar::Factory::GetFloat(g_headMovingDampRate, 10.0f);
+}
+float HeadMovementFirstPersonDampRate() {
+    return CVar::Factory::GetFloat(g_headFirstPersonDampRate, 20.0f);
 }
 
 } // namespace Camera::Settings

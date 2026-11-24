@@ -13527,6 +13527,17 @@ enum Offsets {
     // float 1/9: how far the solver backs the distance off after a hit
     // (0x0050E887) and the pull-in margin (0x0050EE6B).
     VAR_CAMERA_COLLISION_BACKOFF = 0x00808A00,
+    // Mode bit 9: a movement command is active. The input control sets it
+    // when one starts and clears it when none is (0x005110F0 / 0x00511110,
+    // from 0x00514840 / 0x00514B70; benilla-re uicamera/cvars "Bobbing and
+    // pivot tests"), whatever the unit's speed. 3.80.2's +0xa8 bit 0x200,
+    // which its head movement reads as "moving", is the same bit.
+    CAMERA_MODE_MOVE_COMMAND = 0x200,
+    // The live pivot height (benilla-re uicamera/driver "Pivot height").
+    OFF_CAMERA_HEIGHT = 0xFC,
+    // CM2Model's loaded word: HasAttachment and GetAttachmentPosition wait
+    // for the model file while it is 0 (0x00712CB6).
+    OFF_M2MODEL_LOADED = 0x10,
 
     // UI input controller — heap-allocated struct holding the
     // engine's master input-state bitfield (mouselook / free-look /
