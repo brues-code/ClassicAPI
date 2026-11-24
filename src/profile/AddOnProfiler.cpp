@@ -45,12 +45,14 @@
 #include "profile/AddOnProfiler.h"
 
 #include "Game.h"
+#include "Offsets.h"
 #include "addons/Embedded.h"
 #include "addons/LoadState.h"
 #include "addons/Registry.h"
 #include "combatlog/Encounter.h"
 #include "frame/Construction.h"
 #include "frame/Destruction.h"
+#include "frame/RegionScripts.h"
 #include "frame/ScriptArgs.h"
 #include "tick/FrameTick.h"
 
@@ -154,9 +156,16 @@ void Finish(int64_t start) {
     g_timing = nullptr;
 }
 
+// A texture or a font string has no record of its own: its scripts are
+// charged to its owner frame's.
 Record *OwnerOf(const void *object) {
     const auto it = g_owners.find(object);
-    return it != g_owners.end() ? it->second : nullptr;
+    if (it != g_owners.end())
+        return it->second;
+    if (Frame::RegionScripts::IsRegion(object))
+        if (const void *owner = Game::Read<void *>(object, Offsets::OFF_REGION_PARENT))
+            return OwnerOf(owner);
+    return nullptr;
 }
 
 // FUN_141b679b0: this tick's slot against the peak and the thresholds.

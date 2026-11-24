@@ -6,9 +6,6 @@
 --   - g_addonCategoriesCollapsed is an account SavedVariable of this addon;
 --     retail keeps it per machine.
 --   - Localization.lua is not ported: its per-locale tables are empty.
---   - Font strings take no scripts here, so UpdateOverallMetric puts the
---     warning tooltip on a mouse frame over the font string, which takes the
---     mouse only while the warning shows.
 
 ADDON_BUTTON_HEIGHT = 16;
 MAX_ADDONS_DISPLAYED = 19;
@@ -749,35 +746,21 @@ function AddonListMixin:GetOverallMetric(formatString, metric)
 	return text, showWarning;
 end
 
--- The frame that carries a font string's mouse scripts (see the header).
-local function GetMouseHost(fontString)
-	local host = fontString.mouseHost;
-	if not host then
-		host = CreateFrame("Frame", nil, fontString:GetParent());
-		host:SetAllPoints(fontString);
-		fontString.mouseHost = host;
-	end
-	return host;
-end
-
 function AddonListMixin:UpdateOverallMetric(fontString, formatString, metric)
 	local text, showWarning = self:GetOverallMetric(formatString, metric);
 
 	if showWarning then
 		text = RED_FONT_COLOR:WrapTextInColorCode(text) .. CreateSimpleTextureMarkup([[Interface\DialogFrame\DialogIcon-AlertNew-16]], 16, 16);
-		local host = GetMouseHost(fontString);
-		host:EnableMouse(true);
-		host:SetScript("OnEnter", function(btn)
+		fontString:SetScript("OnEnter", function(btn)
 			AddonTooltip:SetOwner(btn, "ANCHOR_BOTTOM", 0, 0)
 			AddonTooltip:SetText(ADDON_LIST_PERFORMANCE_WARNING_TOOLTIP);
 		end);
-		host:SetScript("OnLeave", function(btn)
+		fontString:SetScript("OnLeave", function(btn)
 			AddonTooltip:Hide();
 		end);
-	elseif fontString.mouseHost then
-		fontString.mouseHost:EnableMouse(false);
-		fontString.mouseHost:SetScript("OnEnter", nil);
-		fontString.mouseHost:SetScript("OnLeave", nil);
+	else
+		fontString:SetScript("OnEnter", nil);
+		fontString:SetScript("OnLeave", nil);
 	end
 
 	fontString:SetText(text);

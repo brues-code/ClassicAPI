@@ -395,16 +395,7 @@ HitTest_t g_origHitTest = nullptr;
 // clipping ancestor, every edge inside (3.80.2's 0x140594EE0).
 int __fastcall HitTest_h(void *frame, void *edx, const float *point) {
     const int hit = g_origHitTest(frame, edx, point);
-    if (hit == 0 || g_clipping == 0)
-        return hit;
-    for (const void *p = frame; p != nullptr; p = Parent(p)) {
-        if (!Clips(p))
-            continue;
-        const float *rect = HitRect(p);
-        if (point[0] < rect[LEFT] || rect[RIGHT] < point[0] || point[1] < rect[BOTTOM] || rect[TOP] < point[1])
-            return 0;
-    }
-    return hit;
+    return hit != 0 && Inside(frame, point) ? hit : 0;
 }
 
 const Game::HookAutoRegister _hitTestHook{Offsets::FUN_FRAME_HIT_TEST, reinterpret_cast<void *>(&HitTest_h),
@@ -533,6 +524,19 @@ const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 void Regroup(void *frame) {
     MarkLayers(frame);
     MarkSubtree(frame);
+}
+
+bool Inside(const void *frame, const float *point) {
+    if (g_clipping == 0)
+        return true;
+    for (const void *p = frame; p != nullptr; p = Parent(p)) {
+        if (!Clips(p))
+            continue;
+        const float *rect = HitRect(p);
+        if (point[0] < rect[LEFT] || rect[RIGHT] < point[0] || point[1] < rect[BOTTOM] || rect[TOP] < point[1])
+            return false;
+    }
+    return true;
 }
 
 } // namespace Frame::ClipChildren

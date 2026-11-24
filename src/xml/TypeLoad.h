@@ -49,4 +49,9 @@ struct AutoSubscribe {
     AutoSubscribe *next;
 };
 
+// Inside an observer: true when this load is an inherited template's, run
+// inside the load of the node that inherits it; false for the outermost load,
+// the last one an object's node gets.
+bool Nested(Loader loader);
+
 } // namespace Xml::TypeLoad

@@ -111,8 +111,8 @@ void SetShown(Icon &icon, bool shown) {
     icon.shown = shown;
     *reinterpret_cast<uint32_t *>(static_cast<uint8_t *>(icon.tex) +
                                   Offsets::OFF_REGION_DESIRED_SHOWN) = shown ? 1 : 0;
-    reinterpret_cast<ShowHide_t>(shown ? Offsets::FUN_FONTSTRING_SHOW
-                                       : Offsets::FUN_FONTSTRING_HIDE)(icon.tex);
+    reinterpret_cast<ShowHide_t>(shown ? Offsets::FUN_REGION_SHOW
+                                       : Offsets::FUN_REGION_HIDE)(icon.tex);
 }
 
 // 3.80.2's smoothing step (FUN_142a5c1d0): toward `target` by

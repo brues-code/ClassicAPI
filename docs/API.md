@@ -527,6 +527,8 @@ build instructions.
   - [`frame:SetMouseClickEnabled(enabled)` / `frame:SetMouseMotionEnabled(enabled)`](#framesetmouseclickenabledenabled--framesetmousemotionenabledenabled)
   - [`frame:SetPropagateMouseClicks(propagate)` / `frame:CanPropagateMouseClicks()`](#framesetpropagatemouseclickspropagate--framecanpropagatemouseclicks)
   - [`frame:SetPassThroughButtons(...)`](#framesetpassthroughbuttons)
+  - [Scripts on textures and font strings](#scripts-on-textures-and-font-strings)
+  - [Mouse input on textures and font strings](#mouse-input-on-textures-and-font-strings)
   - [`frame:SetDontSavePosition([dontSave])` / `frame:GetDontSavePosition()`](#framesetdontsavepositiondontsave--framegetdontsaveposition)
   - [`frame:SetUsingParentLevel(usingParentLevel)` / `frame:IsUsingParentLevel()`](#framesetusingparentlevelusingparentlevel--frameisusingparentlevel)
   - [`frame:SetClipsChildren(clipsChildren)` / `frame:DoesClipChildren()`](#framesetclipschildrenclipschildren--framedoesclipchildren)
@@ -10122,20 +10124,25 @@ AddSourceLocationExclude("MyFramePool.lua")
 
 ### `GetMouseFoci()`
 
-Returns a table of the frames that get mouse motion at the cursor, from
-top to bottom. Index 1 is the frame that `GetMouseFocus()` returns, so
-`GetMouseFocus() == GetMouseFoci()[1]` is always true.
+Returns a table of the frames, textures and font strings that get mouse
+motion at the cursor, from top to bottom.
 
-Usually the table holds one frame: the top mouse-enabled frame under the
-cursor. It holds more frames when frames pass mouse motion on with
+Usually the table holds one object: the top object under the cursor that
+takes mouse motion. It holds more objects when objects pass mouse motion on
+with
 [`frame:SetPropagateMouseMotion(true)`](#framesetpropagatemousemotionpropagate--framecanpropagatemousemotion).
-The table is empty when no frame gets mouse motion.
+The table is empty when no object gets mouse motion.
+
+`GetMouseFocus()` returns the first frame in the table. It never returns a
+texture or a font string
+([mouse input on textures and font strings](#mouse-input-on-textures-and-font-strings)).
+When no texture or font string gets mouse motion,
+`GetMouseFocus() == GetMouseFoci()[1]`.
 
 ```lua
 local foci = GetMouseFoci()
--- foci[1] == GetMouseFocus()
 for i = 1, table.getn(foci) do
-    print(foci[i]:GetName() or "<anonymous>")
+    print(foci[i]:GetObjectType(), foci[i]:GetName() or "<anonymous>")
 end
 ```
 
@@ -11991,6 +11998,93 @@ other buttons, and it still gets `OnEnter` and `OnLeave`.
 -- A map pin that shows a tooltip and takes left-clicks.
 -- A right-click goes to the map under the pin.
 pin:SetPassThroughButtons("RightButton")
+```
+
+### Scripts on textures and font strings
+
+Textures and font strings take scripts, as frames do. `SetScript`,
+`GetScript`, `HookScript` and `HasScript` work on them as on a frame. A
+texture or a font string takes these scripts:
+
+- `OnLoad(self)` runs once, after the object loads from XML.
+- `OnShow(self)` and `OnHide(self)` run when the object becomes visible and
+  when it stops being visible. Showing or hiding its parent frame counts.
+- `OnEnter(self, motion)` and `OnLeave(self, motion)`.
+- `OnMouseDown(self, button)` and `OnMouseUp(self, button, upInside)`.
+  `upInside` is `true` when the cursor is still over the object.
+- `OnMouseWheel(self, delta)`. `delta` is `1` or `-1`.
+
+A different script name gives the error `doesn't have a "name" script`.
+
+`SetScript` does not turn on the mouse input of the object. The mouse
+scripts run only after you turn the input on
+([mouse input on textures and font strings](#mouse-input-on-textures-and-font-strings)).
+
+In XML, put a `<Scripts>` element inside the `<Texture>` or the
+`<FontString>`. `function=` and `method=` work as on frames. An `OnEnter`,
+`OnLeave`, `OnMouseDown` or `OnMouseUp` handler turns on clicks and motion.
+An `OnMouseWheel` handler turns on the wheel. To keep the input off, add
+`autoEnableInput="false"` to the handler.
+
+```xml
+<FontString parentKey="Label" inherits="GameFontNormal" text="Hover me">
+    <Scripts>
+        <OnEnter>
+            GameTooltip:SetOwner(self, "ANCHOR_TOP")
+            GameTooltip:SetText("A tooltip on a font string")
+        </OnEnter>
+        <OnLeave function="GameTooltip_Hide"/>
+    </Scripts>
+</FontString>
+```
+
+### Mouse input on textures and font strings
+
+A texture or a font string can take mouse clicks, mouse motion and the
+mouse wheel, as a frame does. These methods work on textures and font
+strings:
+
+- `EnableMouse(enable)`, `IsMouseEnabled()`
+- `EnableMouseMotion(enable)`, `SetMouseMotionEnabled(enabled)`,
+  `IsMouseMotionEnabled()`
+- `SetMouseClickEnabled(enabled)`, `IsMouseClickEnabled()`
+- `EnableMouseWheel(enable)`, `IsMouseWheelEnabled()`
+- `SetPropagateMouseMotion(propagate)`, `CanPropagateMouseMotion()`
+- `SetPropagateMouseClicks(propagate)`, `CanPropagateMouseClicks()`
+- `SetPassThroughButtons(...)`
+- `IsMouseMotionFocus()`
+
+Each method works as the frame method of the same name. With no argument,
+the enable methods turn the input off. `IsMouseEnabled()` returns `true`
+when the object takes both clicks and motion, and `false` when it does not.
+
+The object takes input only while it is visible. Frames, textures and font
+strings under the cursor compete by draw order. The object drawn on top gets
+the input:
+
+- A higher strata, then a higher frame level, is on top.
+- At the same strata and level, a texture or a font string is on top of
+  every frame.
+- In one frame level, a higher draw layer is on top, and a font string is
+  on top of a texture in the same layer.
+
+When an object is hidden or its motion is turned off while it is under the
+cursor, it gets `OnLeave` with `motion` set to `false`. When it is hidden
+or its clicks are turned off while you hold a button on it, it does not get
+the `OnMouseUp` of that press.
+
+```lua
+local icon = frame:CreateTexture(nil, "OVERLAY")
+icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
+icon:SetWidth(24)
+icon:SetHeight(24)
+icon:SetPoint("CENTER")
+icon:EnableMouse(true)
+icon:SetScript("OnMouseUp", function(self, button, upInside)
+    if upInside then
+        print("clicked with " .. button)
+    end
+end)
 ```
 
 ### `frame:SetDontSavePosition([dontSave])` / `frame:GetDontSavePosition()`

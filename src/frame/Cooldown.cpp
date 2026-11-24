@@ -619,7 +619,7 @@ void *CreateCountdown(void *frame) {
     // Shown as the engine's callers show a region: the desired flag, then Show.
     using Show_t = void(__fastcall *)(void *region);
     Game::Ref<uint32_t>(fs, Offsets::OFF_REGION_DESIRED_SHOWN) = 1;
-    reinterpret_cast<Show_t>(Offsets::FUN_FONTSTRING_SHOW)(fs);
+    reinterpret_cast<Show_t>(Offsets::FUN_REGION_SHOW)(fs);
     return fs;
 }
 

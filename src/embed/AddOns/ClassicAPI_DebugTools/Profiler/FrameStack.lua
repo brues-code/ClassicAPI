@@ -8,8 +8,8 @@ end
 
 function ns.AddFrameStackLines(tooltip, region)
   if not region then return end
-  -- a texture or font string runs no scripts: report its frame's
-  local frame = region.GetScript and region or region:GetParent()
+  -- a texture or font string has no OnUpdate or OnEvent: report its frame's
+  local frame = region:IsObjectType("Frame") and region or region:GetParent()
 
   tooltip:AddLine(" ")
   Line(tooltip, PROFILER_LABEL_OWNER, ns.OwnerLabel(ns.Owner(region)))

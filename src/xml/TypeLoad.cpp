@@ -38,6 +38,8 @@ constexpr Site kSites[LOADER_COUNT] = {
 
 Loader_t g_orig[LOADER_COUNT] = {};
 AutoSubscribe *g_head[LOADER_COUNT] = {};
+// Loads of each kind in progress; a template's load runs inside its node's.
+int g_depth[LOADER_COUNT] = {};
 
 template <int I> uintptr_t __fastcall Hook(void *self, void *edx, const void *node, void *status) {
     if (self == nullptr || node == nullptr)
@@ -45,7 +47,9 @@ template <int I> uintptr_t __fastcall Hook(void *self, void *edx, const void *no
     void *object = static_cast<uint8_t *>(self) - Offsets::OFF_XML_LOADER_SUBOBJECT;
     if (kSites[I].region)
         Xml::Mixin::Begin(object, node, status, false);
+    ++g_depth[I];
     const uintptr_t r = g_orig[I](self, edx, node, status);
+    --g_depth[I];
     if (kSites[I].region)
         Xml::Mixin::End(object);
     for (AutoSubscribe *s = g_head[I]; s != nullptr; s = s->next)
@@ -66,5 +70,7 @@ const Game::HookAutoRegister _hooks[LOADER_COUNT] = {
 } // namespace
 
 AutoSubscribe::AutoSubscribe(Loader loader, Observer f) : fn(f), next(g_head[loader]) { g_head[loader] = this; }
+
+bool Nested(Loader loader) { return g_depth[loader] > 0; }
 
 } // namespace Xml::TypeLoad

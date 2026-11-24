@@ -93,7 +93,7 @@ void *CreateLine(void *parent, const char *name, void *fontSource, int point,
     // The clear only hides lines below `numLines`, so a spare line has to
     // start hidden — the same `+0xC4 = 0` + hide the clear does.
     Game::Ref<int>(fs, Offsets::OFF_FONTSTRING_SHOWN_FLAG) = 0;
-    reinterpret_cast<HideFontString_t>(Offsets::FUN_FONTSTRING_HIDE)(fs);
+    reinterpret_cast<HideFontString_t>(Offsets::FUN_REGION_HIDE)(fs);
     return fs;
 }
 

@@ -732,8 +732,16 @@ enum Offsets {
     // the exact pair AddLine (FUN_00530270) and the clear use. Moving text
     // into a previously-empty (hidden) cell without this leaves it
     // unpositioned, so the line-shift must replicate it.
-    FUN_FONTSTRING_SHOW = 0x0077FCB0,             // __fastcall(fs) — realizes +0xC4
-    FUN_FONTSTRING_HIDE = 0x0077FC60,             // __fastcall(fs)
+    // The region base's register / unregister (benilla-re ui/draworder
+    // "Regions within a frame"), shared by textures and font strings. The
+    // register links the region into its owner's layer list and sets
+    // OFF_REGION_ACTUALLY_SHOWN when OFF_REGION_DESIRED_SHOWN is set, the
+    // owner is visible (OFF_FRAME_VISIBLE) and it is not yet registered; the
+    // unregister undoes it. Every visibility change of a region is one of
+    // these: its own Show / Hide, its owner's show and hide walks (0x0076AEAC,
+    // 0x0076ADBF) and FUN_REGION_SET_PARENT_AND_LAYER. `__fastcall(region)`.
+    FUN_REGION_SHOW = 0x0077FCB0,
+    FUN_REGION_HIDE = 0x0077FC60,
     OFF_FONTSTRING_SHOWN_FLAG = 0xC4,             // int — desired-shown flag
     // The per-tooltip clear only HIDES line FontStrings (sets +0xC8 = 0)
     // and clears the left text; right-column text buffers are left intact.
@@ -1301,6 +1309,12 @@ enum Offsets {
     OFF_REGION_DESIRED_SHOWN = 0xC4,  // Show (FUN_0077FCB0) NO-OPS unless this is set;
                                       // engine callers always write it before show/hide
     OFF_REGION_ACTUALLY_SHOWN = 0xC8, // 1 after Show completed (the realize latch)
+    // The region's draw layer (0 BACKGROUND .. 4 HIGHLIGHT): FUN_REGION_HIDE
+    // and FUN_REGION_SHOW pass `[region+0xC0]` to the owner's layer-list
+    // unlink 0x0076A910 / link 0x0076A860 (0x0077FC87, 0x0077FCEB), and
+    // FUN_REGION_SET_PARENT_AND_LAYER stores its layer argument there
+    // (0x0077FD63, 0x0077FDC0).
+    OFF_REGION_DRAW_LAYER = 0xC0,
 
     // The level draw (benilla-re ui/draworder). CSimpleTop's render pass
     // (0x007657D0) walks strata 0..8 and each stratum's levels ascending; per
@@ -1319,6 +1333,31 @@ enum Offsets {
     FUN_FRAME_DRAWLIST_REBUILD = 0x00765920,
     FUN_FRAME_LAYER_RENDER = 0x0076FB00,
     FRAME_LAYER_COUNT = 5, // BACKGROUND, BORDER, ARTWORK, OVERLAY, HIGHLIGHT
+    // Where the draw order lives (benilla-re ui/strata, ui/draworder; read
+    // from the code). The UI context's nine strata records, one pointer per
+    // stratum (`[ctx + strata*4 + 0xCD4]`, 0x00764790); each record's array of
+    // level nodes, count at +0x10 and node pointers at +0x14 (0x0076479F,
+    // 0x00764866). The rebuild walks a level's frames from `[node+0x14]`, each
+    // next one at `[frame + [node+0x0C] + 4]` (0x007659BB, 0x007659F0), in the
+    // order it draws them.
+    OFF_UI_CONTEXT_STRATA_RECORDS = 0xCD4,
+    OFF_STRATA_RECORD_LEVEL_COUNT = 0x10,
+    OFF_STRATA_RECORD_LEVELS = 0x14,
+    OFF_LEVEL_NODE_LINK_OFFSET = 0x0C,
+    OFF_LEVEL_NODE_FIRST_FRAME = 0x14,
+    // A frame's region list per draw layer, 12 bytes each from +0x1C0: the
+    // layer emit (0x0076B3A0) walks the nodes from `[list+4]`, each node's
+    // region at +8 and next node at +4 (0x0076B3DB, 0x0076B3E4), in draw order.
+    OFF_FRAME_LAYER_LISTS = 0x1C0,
+    FRAME_LAYER_LIST_STRIDE = 0x0C,
+    OFF_LAYER_LIST_FIRST = 0x04,
+    OFF_LAYER_NODE_NEXT = 0x04,
+    OFF_LAYER_NODE_REGION = 0x08,
+    // A texture's device texture, `void *__fastcall(texture)`: null without
+    // an image, else 0x0044ACF0(handle +0xCC, 1). The quad append keys its
+    // record with it (0x00772FDC), and the batch draws its textures sorted by
+    // that key (FUN_RENDERBATCH_SORT).
+    FUN_SIMPLETEXTURE_GX_TEXTURE = 0x00770700,
     // The rebuild's per-frame call: `mov eax,[ebx]; push ecx; push esi; mov
     // ecx,ebx; call [eax+0x44]` (8B 03 51 56 8B CB FF 50 44, 9 bytes), with the
     // frame in ebx, the level's layer batch in esi and the layer in ecx.
@@ -5269,10 +5308,23 @@ enum Offsets {
     // lea ecx,[ebp-0x3C]; push ecx; mov ecx,ebx; call [eax+0x6C]` at
     // ADDR_UI_RELEASE_DISPATCH (frame ebx, context esi, event at ebp-0x3C),
     // then forgets the pressed frame when the event's held-button field
-    // (OFF_MOUSE_EVENT_BUTTONS) is 0.
+    // (OFF_MOUSE_EVENT_BUTTONS) is 0. ADDR_UI_RELEASE_DISPATCH starts at the
+    // null test in front of that call, `test ebx,ebx; je 0x007664CD` (with no
+    // pressed frame the release returns `[ebp-8] == 0`, passed on), so one
+    // patch takes both branches.
+    // Before either, each handler runs the host's button callback (context
+    // +0x1128) only while no frame is pressed: `mov ecx,[ebx+0x80]` at
+    // ADDR_UI_PRESS_HOST_GATE (press, context ebx) and `mov ecx,[esi+0x80]` at
+    // ADDR_UI_RELEASE_HOST_GATE (release, context esi), each a `test ecx,ecx;
+    // jne` after it. The press's null target returns `[ebp-8] == 0` too
+    // (0x0076640C); [ebp-8] is 0 there unless the title-region path stored a
+    // float in it, which returns before.
     ADDR_UI_PRESS_TARGET = 0x00766389,
     ADDR_UI_PRESS_DISPATCH = 0x007663EF,
-    ADDR_UI_RELEASE_DISPATCH = 0x0076649C,
+    ADDR_UI_RELEASE_DISPATCH = 0x00766498,
+    ADDR_UI_RELEASE_PASSED_ON = 0x007664CD,
+    ADDR_UI_PRESS_HOST_GATE = 0x00766363,
+    ADDR_UI_RELEASE_HOST_GATE = 0x00766485,
     // The handlers' copy of the event (built by 0x00766F70, at [ebp-0x40] in
     // the press): a 0x10-byte header, then the nine-dword input payload, so
     // the payload's button (OFF_MOUSE_EVENT_BUTTON 0x04) sits at +0x14 and its
@@ -5283,6 +5335,18 @@ enum Offsets {
     // (0x00789C2D) against the slider's rect.
     OFF_UI_MOUSE_EVENT_X = 0x24,
     OFF_UI_MOUSE_EVENT_Y = 0x28,
+    // The payload's wheel delta, an int: the frame's wheel slot (0x0076C180)
+    // passes OnMouseWheel `[event+0x2C] >= 0 ? 1 : -1` (0x0076C1A2).
+    OFF_UI_MOUSE_EVENT_WHEEL_DELTA = 0x2C,
+    // The wheel handler 0x007664F0 walks the wheel lists from stratum 8 down:
+    // per frame the hit test `call FUN_FRAME_HIT_TEST` at ADDR_UI_WHEEL_HIT_TEST
+    // (frame in ecx and edi, the point pushed), then on a hit `call [edx+0x70]`
+    // with the event copy at ebp-0x40; the answer goes to ebx, and a nonzero
+    // one ends the walk. Its tail at ADDR_UI_WHEEL_TAIL, `pop edi; xor eax,eax;
+    // test ebx,ebx` (5F 33 C0 85 DB), then `pop esi; sete al` returns
+    // `ebx == 0` (1 = passed on).
+    ADDR_UI_WHEEL_HIT_TEST = 0x00766586,
+    ADDR_UI_WHEEL_TAIL = 0x007665A5,
     OFF_MOUSE_EVENT_BUTTONS = 0x18,
     // CSimpleFrame::EnableEvent `__thiscall(frame, kind, priority)`, ret 8:
     // sets the kind's bit in OFF_FRAME_ENABLED_EVENTS and, when the frame is
@@ -5545,6 +5609,11 @@ enum Offsets {
     // _GET_OBJECT_TYPE) and VTBL_REGION_EMIT.
     VTBL_SIMPLETEXTURE = 0x0081C718,
     VTBL_SIMPLETEXTURE_SLOTS = 13,
+    // CSimpleFontString's main vtable (benilla-re ui/regions; its constructor
+    // 0x00770D30). Slot +0x0C, the script-name resolver, holds the base
+    // FUN_SCRIPT_OBJECT_BASE_RESOLVE_SCRIPT, as the texture's does (read from
+    // the exe); Frame::RegionScripts points both at its own resolver.
+    VTBL_SIMPLEFONTSTRING = 0x0081C778,
     // CSimpleTexture's layout vtable, stored at +0x24 by the same constructor:
     // 11 slots (benilla-re ui/regions "The layout vtable"), read from the exe:
     // +0x00 OnFrameSizeChanged 0x00770670, +0x04 the deleting destructor thunk
@@ -5699,6 +5768,11 @@ enum Offsets {
     // `int` — nonzero when the frame is shown (4.3.4's m_shown).
     // Script_IsShown (0x00775990) pushes `[frame+0xD0] != 0`.
     OFF_FRAME_SHOWN = 0xD0,
+    // `int`, nonzero while the frame loads from XML (benilla-re ui/visibility
+    // "Show and hide scripts"): the load's first step 0x00769770 stores 1, its
+    // last 0x0076A2F0 stores 0, and the show and hide slots run no OnShow /
+    // OnHide while it is set (0x0076B270, 0x0076B2A0).
+    OFF_FRAME_LOADING = 0x114,
     // The frame key slots — `int __thiscall(frame, const CKeyEvent *)`,
     // `ret 4`, nonzero = the frame takes the input. CSimpleTop's character
     // and key-down walks (0x00765DF0, 0x00765F10) stop at the first frame that

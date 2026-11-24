@@ -20,14 +20,18 @@ namespace Frame::MotionFocus {
 // exactly that frame's script.
 void *Notifying();
 
-// True when the frame is in the motion focus: one of the frames under the
-// cursor that take motion (GetMouseFoci).
-bool IsFocus(void *frame);
+// True when the frame or region is in the motion focus: one of the objects
+// under the cursor that take motion (GetMouseFoci).
+bool IsFocus(void *object);
 
-// Takes the frame out of the motion focus at once, as the engine takes out a
-// frame that leaves the mouse lists: it leaves with motion false, and the
-// focus is picked again. Frame::MouseInput calls it when the frame's motion
-// is turned off while its clicks stay on (3.80.2: OnLeave(false) at once).
-void Drop(void *frame);
+// Takes the frame or region out of the motion focus at once, as the engine
+// takes out a frame that leaves the mouse lists: it leaves with motion false,
+// and the focus is picked again. Frame::MouseInput calls it when a frame's
+// motion is turned off while its clicks stay on (3.80.2: OnLeave(false) at
+// once), Frame::RegionInput when a region is hidden or its motion goes off.
+void Drop(void *object);
+
+// Takes an object being destroyed out of the motion focus, with no leave.
+void Forget(void *object);
 
 } // namespace Frame::MotionFocus
