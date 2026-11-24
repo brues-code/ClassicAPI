@@ -10099,7 +10099,11 @@ print(PlayerFrame:GetSourceLocation())  -- "Interface\FrameXML\PlayerFrame.xml"
 
 - A frame that `CreateFrame` made returns the script file and the line of
   that call, as `file:line`. The file name is the chunk name, as in error
-  messages. A `/run` or `loadstring` chunk shows as `[string "..."]`.
+  messages.
+- Code from a `/run` line or a `loadstring` chunk has no file. The location
+  is the script file that ran that code. For a `/run` line, that is the file
+  of the slash command. When no script file ran the code, the location is
+  `[string "..."]:line`. An XML script or a macro is an example of this.
 - A frame that an XML file defines returns the path of that XML file. There
   is no line number.
 - A texture or font string returns the location of its parent frame.

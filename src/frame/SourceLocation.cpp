@@ -21,10 +21,10 @@
 //     inside Script_CreateFrame (Frame::CreateFrame holds a LuaScope across
 //     the engine's builder), the way luaL_where names the caller of a C
 //     function for an error message. Level 1 is the caller; a C level in
-//     between (pcall, xpcall) is stepped over. The file is the chunk's name
-//     as luaO_chunkid writes it, so a `/run` or loadstring chunk reads
-//     `[string "..."]:1` here as in its errors — but with room for a whole
-//     path, where error messages cut at LUA_IDSIZE (60).
+//     between (pcall, xpcall) is stepped over, and so is a chunk compiled
+//     from a string when a file's level is above it (CaptureCaller). The
+//     file is the chunk's name as luaO_chunkid writes it, with room for a
+//     whole path, where error messages cut at LUA_IDSIZE (60).
 //   - the XML file: Xml::FileStack, the file FUN_XML_LOAD_FILE is processing.
 //     Vanilla's XML nodes carry no line, so an XML frame reports the file
 //     alone.
@@ -99,26 +99,44 @@ bool Excluded(const char *source) {
 }
 
 // "file:line" of the nearest Lua function above the running C function on
-// L's call stack that is not in an excluded file. False when there is none.
+// L's call stack that is not in an excluded file, preferring one loaded from
+// a file. False when there is none.
+//
+// 3.80.2 records a location as a file id and a line (FUN_1405C7870 formats
+// object +0x124), and a chunk compiled from a string has no file: a frame a
+// `/run` line makes reports the slash command file that ran the line
+// (SlashCommands.lua). 1.12 names a file's chunk "@path" (FUN_LUA_LOAD_FILE's
+// format at 0x008716E0) and a string's after its text, so the walk takes the
+// first level whose source starts with '@'. With none (an XML handler the
+// engine runs, a macro's /run), the nearest level answers, as
+// `[string "..."]:line`.
 bool CaptureCaller(void *L, char *out, size_t size) {
     alignas(4) uint8_t ar[Offsets::SIZEOF_LUA_DEBUG];
+    char nearest[320] = "";
     for (int level = 1; level < 32; ++level) {
         if (!Game::Lua::GetStack(L, level, ar) || !Game::Lua::GetInfo(L, "Sl", ar))
-            return false;
+            break;
         const int line = Game::Read<int>(ar, Offsets::OFF_LUA_DEBUG_CURRENTLINE);
         if (line <= 0)
             continue; // a C function: no source of its own
         const char *source = Game::Read<const char *>(ar, Offsets::OFF_LUA_DEBUG_SOURCE);
         if (source == nullptr)
-            return false;
+            break;
         if (Excluded(source))
             continue;
         char name[256];
         reinterpret_cast<ChunkId_t>(Offsets::LUAO_CHUNKID)(name, source, sizeof(name));
-        std::snprintf(out, size, "%s:%d", name, line);
-        return true;
+        if (source[0] == '@') {
+            std::snprintf(out, size, "%s:%d", name, line);
+            return true;
+        }
+        if (nearest[0] == '\0')
+            std::snprintf(nearest, sizeof nearest, "%s:%d", name, line);
     }
-    return false;
+    if (nearest[0] == '\0')
+        return false;
+    std::snprintf(out, size, "%s", nearest);
+    return true;
 }
 
 // The innermost CreateFrame call's location, when the frames being built
