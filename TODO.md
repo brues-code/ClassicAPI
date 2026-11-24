@@ -4715,3 +4715,205 @@ EmitLayer slots (plate vtable 0x81DE50 slot 0x81DE94, bar vtable 0x81DFB8
 slot 0x81DFFC, both 0x76B3A0), then NotifyLayerChanged on all five layers.
 Child frames that addons parent to the plate still draw. Regions an addon
 creates on the plate itself would not.
+
+## 114. Pet battles — the 3.80.2 client side, idle until a server speaks — large, layered
+
+Build the pet battle client exactly as the 3.80.2 Classic client
+(WowClassicGM-China.exe) has it: compiled in, registered, and idle until a
+server sends battle data. ClassicAPI ships no battle rules and no art. A
+server that wants battles ships the tables and models in its MPQs, runs the
+rules, and speaks our protocol. Server-facing docs (protocol spec, table
+formats) go in `docs/petbattle/`. Branch `feat/pet-battle`.
+
+Notes: [docs/notes/pet-battle-scene-3802.md](docs/notes/pet-battle-scene-3802.md)
+(the 3.80.2 read, data inventory, visual scoping, design checks),
+[docs/notes/scenescript-api-3802.md](docs/notes/scenescript-api-3802.md)
+(the full SceneScript API, 68 classes / 672 members, from the engine's own
+doc builders), [docs/notes/world-actors-112.md](docs/notes/world-actors-112.md)
+(world actors in 1.12, layers 1 and 2).
+
+### How 3.80.2 builds it
+
+- **SceneScript runtime + CActorScene**: the client's in-world cutscene
+  system. Own sandboxed Lua state (or the UI state with the cvar
+  `SceneScriptInAddonState`), scripts from the SceneScript* tables, each
+  script a coroutine paced by `Wait(Timer(s))`, actors = client-created
+  units in the live world.
+- **CPetBattleScene**: a thin CActorScene subclass. The client picks the
+  battle spot itself, takes over the game camera, fades nearby units, and
+  queues each round's server effects; Blizzard's script (package 426) pulls
+  them, plays them, and acknowledges each (`SignalEffectApplied`), which
+  is what updates the battle state and the UI.
+- **C_PetBattles / C_PetJournal**: state readers and actions sent to the
+  server; never touch the scene.
+- **Blizzard_PetBattleUI**: plain 2D frames, paced by
+  `PET_BATTLE_OPENING_START` / `_DONE` / `PET_BATTLE_PET_ROUND_PLAYBACK_COMPLETE`.
+  3.80.2 never loads it (Mists-only TOC); MoP Classic 5.5.4 ships the same
+  file and runs battles.
+- The server computes every round. `PetBattleSceneClientSimulate` /
+  `UseTestPlayers` only answer script getters; nothing creates the scene
+  without a server packet.
+
+### Layers
+
+1. ~~World actors~~ — DONE (5a727ee2, verified in game). `Net::LocalMessage`
+   delivers a crafted server message to the engine's own leaf handler;
+   `ClientScene::Actor` spawns a real CGUnit_C from a SMSG_UPDATE_OBJECT
+   create block, moves it with SMSG_MONSTER_MOVE, removes it with
+   SMSG_DESTROY_OBJECT. GUID prefix 0xF1A0, UNIT_FLAG_NOT_SELECTABLE.
+2. ~~Driving units~~ — DONE (de94b134, verified in game).
+   `ClientScene::UnitDisplay`: PlayAnimation, PlayEmote, kits through
+   PlayUnitSpellVisualKit keyed by spell ID and stopped by StopSpellKits,
+   SubmitWorldText, FadeTo. `ClientScene::Camera`: SetCameraTargetByGuid.
+   Debug Lua in `src/clientscene/Debug.cpp`.
+3. **SceneScript runtime** — next. Sandbox env "Client Scene" (whitelist,
+   `print`, `getfenv`, `GetGlobalString`), the class tables, coroutines with
+   Timer/Wait/AddCoroutine, the package loader (member order, script chains,
+   child packages, global package 5, loose-file packages = package 0 + path),
+   then the engine methods the battle scripts call (93 distinct: Scene 16,
+   Actor 33, UnitDisplay 26, PetBattleScene 15, AnimKit/Sync), each on
+   layers 1-2. Test with a loose-file package of our own driving 1.12 actors.
+4. **Battle scene + protocol** — CPetBattleScene (event queue, pull and
+   acknowledge, placement + location check 0x14171A850's grid probe,
+   fade region, camera), the envelope packet handlers and sends. Test with
+   a harness that injects the server's packets through `LocalMessage`.
+5. **C_PetBattles / C_PetJournal + events** — journal empty without data.
+6. **UI port** — Blizzard_PetBattleUI (from `_classic_` 5.5.4), gated on the
+   tables being present. Missing in our embed: `GameFont_Gigantic`,
+   `TooltipBackdropTemplate`, `SharedPetBattleAbilityTooltipTemplate`,
+   `Blizzard_MicroMenu`, `Blizzard_Colors`, `TextStatusBar:SetBarTextPrefix`,
+   the pet battle SOUNDKIT entries. Its 47 `Interface\PetBattles` textures
+   are art: the server's MPQ, not ours.
+7. **`docs/petbattle/`** — the protocol spec and the table formats a server
+   implements.
+
+### Decisions made
+
+- World hosting (actors in the live world), not ModelScene.
+- No Lua "server addon", no shipped art: idle client, server provides data,
+  art and rules.
+- One envelope opcode **0x33A** (the only number tortoise-wow and vmangos
+  leave undefined, and the client neither handles nor sends) with a
+  sub-opcode inside, both directions. The client never sends it until the
+  server has sent one first (a hello with a protocol version), so a server
+  that knows nothing about pet battles never sees anything new.
+
+### Open decisions
+
+- **Where scene scripts run**: the UI state under the sandbox (3.80.2's
+  official `SceneScriptInAddonState` mode; every Lua 5.1 backport works
+  there) vs a private state (3.80.2's default; full isolation, but our
+  UI-state C globals `__len`, `__mod`, `select`, coroutines and the
+  per-state string-method capture would have to be wired into it, and the
+  GC tag / profiler hooks checked against two states). Leaning: UI state.
+- What a `/reload` does to live actors and a running scene.
+- Camera zoom range: 1.12's camera has no per-target range (3.80.2 sets
+  min/max with the target).
+
+### Checks done (2026-11-24)
+
+- **New tables**: 1.12 has no generic loader (each of its 149 stores has
+  its own `WowClientDB<T>::Load`, and a missing file is fatal). Ours mirrors
+  the template with the engine's SFile calls and the same 5-dword store; a
+  missing table leaves the feature idle.
+- **Opcodes**: 828-entry handler table (+0x74 / contexts +0xD64), no bound
+  check anywhere, so nothing at or above 0x33C. Read slot 0x33A at runtime
+  once (SuperWoWhook.dll's handlers can't be read offline).
+- **Lua 5.1 in a second state**: the transpile co-hooks `luaL_loadbuffer`,
+  so it reaches every state; the C globals it relies on are UI-state only.
+
+### Data (for the spec, and for testing with real rows)
+
+- 5.5.4.71089 CSVs in Downloads: BattlePetAbility, AbilityEffect,
+  AbilityState, AbilityTurn, BreedQuality, BreedState, EffectProperties,
+  Species, SpeciesState, SpeciesXAbility, State, Visual (DisplayOverride
+  only as 12.1.7; NPCTeamMember is server-side, in neither); SceneScript,
+  SceneScriptText, SceneScriptPackage, PackageMember, GlobalText;
+  SpellVisual, SpellVisualEvent, SpellVisualKit, SpellVisualKitEffect,
+  SpellVisualKitModelAttach, SpellVisualEffectName, SpellVisualMissile,
+  SpellVisualAnim, AnimKit, AnimKitSegment, CameraEffect(Entry),
+  SoundKit(Entry), CreatureDisplayInfo, CreatureModelData.
+- Package 426 ships complete in the data (~171k chars, nine child
+  packages); with the 12 per-ability packages and the visual strings the
+  battle scripts are ~571k chars.
+- The scripts name 707 SpellVisuals (1001 kits, 3152 kit effects), 19
+  AnimKits and 57 `fid()` models. Only 194 of the 535 effect models exist in
+  1.12 by path, and 1.12 cannot load a MoP-format M2; 182 of 505 sound kits
+  are also 1.12 SoundEntries ids. That is the server's art problem under
+  this design: a server ships 1.12-format rows and models, and the modern
+  `PlaySpell*Visual(id)` maps onto 1.12's SpellVisual row (precast / cast /
+  impact / state / channel kit columns).
+- 64 of the 883 species use creature ids that exist in 1.12 (the vanilla
+  companions); wild battle pets are separate creature ids in MoP.
+
+## 115. Floating combat text — the TBC/WotLK system (cvars, `COMBAT_TEXT_UPDATE`, Blizzard_CombatText) — medium-large, not scoped
+
+1.12 has a sliver of it: the world-text damage number on your target, gated
+by `CombatDamage` / `PetMeleeDamage` (CGUnit_C::ShowDamageNumber 0x6128B0
+→ SubmitWorldText 0x6C7840). The 3.80.2 client has the full system:
+
+- **24 `floatingCombatText*` cvars**: AuraFade, Auras, CombatDamage,
+  CombatDamageAllAutos, CombatDamageDirectionalOffset /
+  DirectionalScale, CombatHealing, CombatHealingAbsorbSelf /
+  AbsorbTarget, CombatLogPeriodicSpells, CombatState, ComboPoints,
+  DamageReduction, DodgeParryMiss, EnergyGains, FloatMode, FriendlyHealers,
+  HonorGains, LowManaHealth, PeriodicEnergyGains, PetMeleeDamage,
+  PetSpellDamage, Reactives, RepChanges.
+- **`COMBAT_TEXT_UPDATE`**, the engine event the screen-centre text reads.
+  1.12 already has the event with one message type: FUN_FIRE_USABLE_EVENTS
+  raises `SPELL_ACTIVE` for each reactive spell that becomes usable
+  (Offsets.h at VAR_REACTIVE_SPELL_COUNT, 0x004B3231; read by
+  Spell::ActivationOverlay). 3.80.2 raises it for every other kind.
+- **Blizzard_CombatText**, the FrameXML addon that draws the screen-centre
+  text: on disk in `_classic_titan_` (3.80.2: Shared/CombatText.lua/.xml,
+  CombatTextConstants, CombatTextUtil, Classic overrides) and in the stock
+  dumps `C:\WoW\Blizzard-WoW-Interface\2.4.3` and `3.3.5`.
+
+Two halves:
+1. **World text over units** (CombatHealing on targets, absorbs, pet
+   spell damage, the directional damage offset/scale, periodic spells):
+   the engine's own SubmitWorldText path, already driven and verified in
+   game by ClientScene::UnitDisplay (category 0 hit, 2 crit, colour
+   override). Read where 3.80.2 submits each kind and from which message.
+2. **Screen-centre text**: fire `COMBAT_TEXT_UPDATE(messageType, data...)`
+   where 3.80.2 fires it (damage, heals, misses, auras, energy, combo
+   points, honor, reputation, entering/leaving combat, low health/mana,
+   reactives), from the packets and descriptor changes we already observe
+   (Net::PacketDispatch, the combat log modules, the descriptor observers),
+   and port Blizzard_CombatText as an embedded addon. 3.80.2's message
+   types and argument order are the contract.
+
+First step: the 3.80.2 read — each cvar's reader, every COMBAT_TEXT_UPDATE
+raise site with its message type and arguments, the world-text submitters —
+into `docs/notes/combat-text-3802.md`.
+
+## 116. ActionCam — the `test_camera*` cvars — large, not scoped
+
+The retail camera set that the DynamicCam addon drives entirely through
+SetCVar. 3.80.2 has all 20:
+
+- **Over the shoulder**: `test_cameraOverShoulder`.
+- **Dynamic pitch**: `test_cameraDynamicPitch`, `…BaseFovPad`,
+  `…BaseFovPadDownScale`, `…BaseFovPadFlying`, `…SmartPivotCutoffDist`.
+- **Head movement**: `test_cameraHeadMovementStrength`, `…DeadZone`,
+  `…RangeScale`, `…StandingStrength`, `…StandingDampRate`,
+  `…MovingStrength`, `…MovingDampRate`, `…FirstPersonDampRate`.
+- **Target focus**: `test_cameraTargetFocusEnemyEnable`,
+  `…EnemyStrengthPitch`, `…EnemyStrengthYaw`,
+  `test_cameraTargetFocusInteractEnable`, `…InteractStrengthPitch`,
+  `…InteractStrengthYaw`.
+- **The `ActionCam` console command** (`Syntax: ActionCam [option]`, with
+  the "Basic ActionCam" and "Default ActionCam settings" presets), retail's
+  `/console ActionCam basic|full|default|off` that sets groups of the cvars.
+
+1.12's camera is mapped in benilla-re `systems/uicamera` (driver, solver,
+follow, view) and our ModelScene FollowCamera already transcribes its boom
+solver (0x50E570) and pivot heights (0x50CA90 / SetTarget 0x50D0F0).
+The port adds 3.80.2's offsets and focus terms to 1.12's per-frame camera
+update, so it needs a hook site in the camera update: check it against
+the other DLLs first (MinHook collision risk on per-frame paths).
+
+First step: the 3.80.2 read — each cvar's reader and the camera math it
+feeds (shoulder offset, the pitch/FoV pad, the head-bob filter, the
+target-focus yaw/pitch blend), plus the ActionCam command's presets — into
+`docs/notes/actioncam-3802.md`, then pick the 1.12 hook site.
