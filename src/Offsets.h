@@ -7998,6 +7998,12 @@ enum Offsets {
     // +0x08. Either way it pushes nil,nil and returns 2 on a miss. Co-hooked by
     // unit/FactionGroup.cpp so "player" resolves while addons load.
     FUN_SCRIPT_UNIT_FACTION_GROUP = 0x00516630,
+    // `Script_UnitLevel` — `int __fastcall(lua_State *L)`. With the unit's
+    // object it pushes UNIT_FIELD_LEVEL (with the -1 / drunk rules); with no
+    // object, the level of the party/raid record for the token, else 0 — so
+    // `UnitLevel("player")` is 0 until the player object spawns (benilla-re
+    // ui/unitlevels).
+    FUN_SCRIPT_UNIT_LEVEL = 0x00517FC0,
     // `Script_UnitPowerType`: slot 31 of the same registration table
     // (docs/raw_globals.txt). Pushes the power type and returns 1, or returns
     // 0 on its usage-error path. unit/Power.cpp chains to it.
@@ -8272,6 +8278,22 @@ enum Offsets {
     // NPC flag 0x2 with a quest status other than 0 and 1. ClassifyHoveredUnit
     // shows Speak for it (disassembled 0x5DF490-0x5DF4C4).
     FUN_IS_QUEST_GIVER_TO_TALK = 0x005DF490,
+
+    // The engine's copy of the selected character's list entry: 0x110 bytes
+    // (`rep movsd` of 0x44 dwords) from `[VAR_GLUE_SELECTED_CHAR]`, written
+    // only by SetSelectedCharacterRecord (0x005ABD90), whose one caller is
+    // CGlueMgr::EnterWorld (0x0046B60F) — before the interface load, so it
+    // holds the character at addon-load time. Never cleared (keeps the last
+    // character through a logout). +0x00 is the login GUID: glue Idle
+    // (0x0046C1D6) copies `[VAR_GLUE_SELECTED_CHAR]+0/+4` into
+    // 0x00B41E30/34, which 0x0046C272 sends as CMSG_PLAYER_LOGIN via
+    // 0x005AAE20. The race/class/sex bytes below are +0x100/+0x101/+0x102 of
+    // this record (benilla-re ui/unitplayer).
+    VAR_SELECTED_CHAR_RECORD = 0x00C27D80,
+    OFF_SELECTED_CHAR_RECORD_GUID = 0x00,
+    // The character-list level byte (no engine code reads it from this
+    // copy; the list's own +0x108 is what Script_GetCharacterInfo pushes).
+    OFF_SELECTED_CHAR_RECORD_LEVEL = 0x108,
 
     // The local player's UNIT_FIELD_BYTES_0 race/class/sex bytes, mirrored
     // into a login-time global that is populated at character-enter —

@@ -1406,6 +1406,7 @@ build instructions.
   - [`UnitTokenFromName(name [, exactMatch])`](#unittokenfromnamename--exactmatch)
   - [`SetUnitCursorTexture(texture, unit [, style [, includeLowPriority]])`](#setunitcursortexturetexture-unit--style--includelowpriority)
   - [`UnitFactionGroup("player")` while addons load](#unitfactiongroupplayer-while-addons-load)
+  - [`UnitLevel("player")` while addons load](#unitlevelplayer-while-addons-load)
   - [`UnitSubName(unit)`](#unitsubnameunit)
   - [`UnitSelectionColor(unit [, useExtendedColors])` / `UnitSelectionType(unit [, useExtendedColors])`](#unitselectioncolorunit--useextendedcolors--unitselectiontypeunit--useextendedcolors)
   - [`UnitCreatureFamilyID(unit)`](#unitcreaturefamilyidunit)
@@ -31051,6 +31052,22 @@ game uses the same race-to-faction rule for a player it cannot see, and
 [`C_CreatureInfo.GetFactionInfo`](#c_creatureinfogetfactioninforaceid)
 uses it for a race. After you enter the world, the result is the same as
 stock, `nil` included. Results for other units do not change.
+
+### `UnitLevel("player")` while addons load
+
+`UnitLevel("player")` gives the level of your character while addons load
+(at file scope, `ADDON_LOADED` and `VARIABLES_LOADED`). `UnitName`,
+`UnitRace`, `UnitClass` and `UnitSex` also answer at that time.
+
+```lua
+-- at file scope, on a level 42 character
+UnitLevel("player")   -- 42
+```
+
+Before you enter the world, the answer is the level that the character list
+showed when you selected the character. After you enter the world, the
+answer is the live level of the player. Only the token `"player"` uses this
+rule. Results for other units do not change.
 
 ### `UnitSubName(unit)`
 

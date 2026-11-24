@@ -18,7 +18,6 @@
 
 #include "Game.h"
 #include "Offsets.h"
-#include "glue/EnterWorld.h"
 #include "guid/Guid.h"
 #include "nameplate/Walk.h"
 #include "object/Resolve.h"
@@ -40,23 +39,6 @@ using FindUnitByName_t = uint64_t(__fastcall *)(const char *name, uint32_t typeM
                                                uint32_t maxDistance);
 static constexpr uint32_t kMaxDistanceFltMax = 0x7F7FFFFF;
 
-// The selected character's GUID, captured at the glue "Enter World" click
-// (the Glue::EnterWorld subscriber below) — i.e. before the engine has
-// created the in-world player object whose +0xC0 holds the live GUID.
-// `PlayerGuid()` serves this as a fallback during the early-login window so
-// `UnitGUID("player")` answers from addon-load time instead of returning nil
-// until SMSG_UPDATE_OBJECT lands (≈PLAYER_LOGIN). 0 = not captured yet.
-// Overwritten on every enter, so a character switch can't serve a stale GUID;
-// only ever read when the live engine value is still 0, and identical to it
-// once that's populated.
-static uint64_t g_charSelectGuid = 0;
-
-static void OnEnterWorld(const uint8_t *character) {
-    g_charSelectGuid = Game::Read<uint64_t>(character, Offsets::OFF_GLUE_CHAR_GUID);
-}
-
-static const Glue::EnterWorld::AutoSubscribe _enterWorld{&OnEnterWorld};
-
 // FUN_TOKEN_TO_GUID's `"player"` path resolves the GUID by looking the
 // local player up in the engine's object manager: it calls FUN_00468550
 // to read `[VAR_LOCAL_PLAYER_PTR + 0xC0]`, then `FUN_00468460(type=0x10,
@@ -72,10 +54,13 @@ static const Glue::EnterWorld::AutoSubscribe _enterWorld{&OnEnterWorld};
 // The engine populates `+0xC0` from SMSG_UPDATE_OBJECT processing in the
 // main loop, which happens AFTER `FrameScript_Initialize` (and the addon
 // load pass it triggers) finishes — so the engine value is 0 at addon
-// file-load on first login. We bridge that window with `g_charSelectGuid`,
-// captured at the glue "Enter World" click (see the co-hook above): the
-// selected character's GUID is known well before the player object exists,
-// and it's the same value `+0xC0` will hold once it's live. So
+// file-load on first login. We bridge that window with the GUID in the
+// engine's own selected-character record (`VAR_SELECTED_CHAR_RECORD`), the
+// copy CGlueMgr::EnterWorld makes before the interface load and the same
+// GUID the client sends in CMSG_PLAYER_LOGIN — so it's the value `+0xC0`
+// will hold once it's live. Stock UnitName/UnitRace/UnitClass/UnitSex answer
+// "player" from that record too; 3.80.2's UnitGUID falls back to its own copy
+// of the selected character's entry the same way. So
 // `UnitGUID("player")` / `PlayerGuid()` answer correctly from addon-load
 // time. (The player *object* still doesn't exist until `+0xC0` populates —
 // this only makes the GUID *value* available early, for keying SavedVariables,
@@ -88,7 +73,9 @@ uint64_t PlayerGuid() {
         if (guid != 0)
             return guid; // live engine value — authoritative
     }
-    return g_charSelectGuid; // early-login fallback (0 until char-select)
+    // Early-login fallback: 0 until the first Enter World.
+    return Game::Read<uint64_t>(Offsets::VAR_SELECTED_CHAR_RECORD +
+                                Offsets::OFF_SELECTED_CHAR_RECORD_GUID);
 }
 
 const uint8_t *PlayerObject() {
