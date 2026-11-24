@@ -16,10 +16,10 @@
 // Where each frame was created — 9.2.5's `ScriptRegion:GetSourceLocation()`
 // and the SOURCE lines of `GameTooltip:SetFrameStack`.
 //
-// A frame a Lua `CreateFrame` builds takes the calling script's "file:line";
-// one the XML loader builds takes the XML file being processed
-// (Xml::FileStack). Regions answer for their parent frame, as retail's do
-// when a script creates them.
+// A frame, texture or font string a script creates takes the calling
+// script's "file:line"; one the XML loader builds takes its element's
+// "file:line" (Xml::NodeLine). A region with neither answers for its parent
+// frame.
 namespace Frame::SourceLocation {
 
 // Marks a Lua CreateFrame call for the frames it builds: Script_CreateFrame
@@ -33,9 +33,9 @@ public:
     LuaScope &operator=(const LuaScope &) = delete;
 };
 
-// The location recorded for `object` — a frame's own, a region's parent
-// frame's — or nullptr when no script or XML file built it. Valid until the
-// frame is destroyed.
+// The location recorded for `object` (its own, else its parent frame's), or
+// nullptr when no script or XML file built it. Valid until the object is
+// destroyed.
 const char *Get(void *object);
 
 } // namespace Frame::SourceLocation

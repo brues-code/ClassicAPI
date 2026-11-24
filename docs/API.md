@@ -10107,7 +10107,11 @@ print(PlayerFrame:GetSourceLocation())  -- "Interface\FrameXML\PlayerFrame.xml:4
 - A frame that an XML file defines returns the path of that XML file and the
   line of the frame's opening tag, as `file:line`. A frame that inherits a
   template gives its own tag, not the tag of the template.
-- A texture or font string returns the location of its parent frame.
+- A texture or font string that an XML file defines returns the line of its
+  own tag. One that `CreateTexture` or `CreateFontString` made returns the
+  line of that call, but when the call uses a template, it returns the line
+  of the template's tag. Other textures and font strings return the location
+  of their parent frame.
 - The method returns nil when no script and no XML file made the frame.
 
 If `CreateFrame` runs inside `pcall`, the location is the script that called

@@ -15,18 +15,25 @@
 
 #include "AutoList.h"
 
-// The line of each XML element's opening tag, for the elements of the XML
-// files FUN_XML_LOAD_FILE reads (Xml::FileStack) — what 3.80.2's XMLTree start
-// handler (FUN_1405C7930) stamps on every node with XML_GetCurrentLineNumber.
+// The file and opening-tag line of each XML element, for the elements of the
+// XML files FUN_XML_LOAD_FILE reads (Xml::FileStack) — what 3.80.2's XMLTree
+// start handler (FUN_1405C7930) stamps on every node (file id and
+// XML_GetCurrentLineNumber).
 // 1.12's nodes have no field for it, so this module keeps it beside them:
 // recorded when the start handler builds the node, dropped when the node
 // destructor frees it. Read by Xml::ScriptChunkName (handler chunk names) and
-// Frame::SourceLocation (an XML frame's "file:line").
+// Frame::SourceLocation (an XML region's "file:line").
 namespace Xml::NodeLine {
 
-// The node's 1-based line, or 0 for a node no XML file built (Script_CreateFrame's
-// request node, a SimpleHTML or bindings tree).
-int Get(const void *node);
+struct Location {
+    const char *file; // the path FUN_XML_LOAD_FILE was given; lives for the session
+    int line;         // 1-based
+};
+
+// Where the node's element is, or nullptr for a node no XML file built
+// (Script_CreateFrame's request node, a SimpleHTML or bindings tree). A
+// template node keeps its own file after that file's load has ended.
+const Location *Get(const void *node);
 
 // Runs for each node the engine frees, before it frees it (its tag and text
 // are still readable). Declare a file-scope

@@ -31,7 +31,10 @@
 #include "Offsets.h"
 #include "xml/FileStack.h"
 
+#include <cstring>
+#include <string>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace Xml::NodeLine {
 
@@ -51,7 +54,20 @@ NodeDtor_t g_origDtor = nullptr;
 void *g_parser = nullptr;
 void *g_pair = nullptr;
 
-std::unordered_map<const void *, int> g_lines;
+std::unordered_map<const void *, Location> g_lines;
+// Each file path once; set elements keep their address, so a Location can
+// point into one.
+std::unordered_set<std::string> g_files;
+// The interned copy of the last node's file: a file's nodes arrive in a row,
+// so a compare saves a hash per node. Compared by content, since the engine
+// passes <Include> paths in reused stack buffers.
+const char *g_lastFile = nullptr;
+
+const char *Intern(const char *path) {
+    if (g_lastFile == nullptr || std::strcmp(path, g_lastFile) != 0)
+        g_lastFile = g_files.emplace(path).first->c_str();
+    return g_lastFile;
+}
 
 void __cdecl SetUserData_h(void *parser, void *data) {
     g_origSetUserData(parser, data);
@@ -61,11 +77,13 @@ void __cdecl SetUserData_h(void *parser, void *data) {
 
 void __cdecl StartElement_h(void **pair, const char *name, const char **atts) {
     g_origStart(pair, name, atts);
-    if (pair != g_pair || Xml::FileStack::Current() == nullptr)
+    const char *file = Xml::FileStack::Current();
+    if (pair != g_pair || file == nullptr)
         return;
     const void *node = pair[1];
     if (node != nullptr)
-        g_lines[node] = reinterpret_cast<GetLine_t>(Offsets::FUN_XML_GET_CURRENT_LINE_NUMBER)(g_parser);
+        g_lines[node] = {Intern(file),
+                         reinterpret_cast<GetLine_t>(Offsets::FUN_XML_GET_CURRENT_LINE_NUMBER)(g_parser)};
 }
 
 void __fastcall NodeDtor_h(void *node) {
@@ -86,9 +104,9 @@ const Game::HookAutoRegister _dtor{Offsets::FUN_XML_NODE_DTOR, reinterpret_cast<
 
 } // namespace
 
-int Get(const void *node) {
+const Location *Get(const void *node) {
     const auto it = g_lines.find(node);
-    return it != g_lines.end() ? it->second : 0;
+    return it != g_lines.end() ? &it->second : nullptr;
 }
 
 } // namespace Xml::NodeLine

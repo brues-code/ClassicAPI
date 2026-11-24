@@ -1030,6 +1030,7 @@ enum Offsets {
     // by SetTexture and valid while hidden) + its rect (FUN_REGION_GET_RECT); the
     // +0xC4 shown flag is OFF_REGION_DESIRED_SHOWN (defined below).
     FUN_SCRIPT_CREATE_TEXTURE = 0x00773A20,   // Script frame:CreateTexture, __fastcall(L)->int
+    FUN_SCRIPT_CREATE_FONTSTRING = 0x00773C30, // Script frame:CreateFontString, __fastcall(L)->int; pushes the region
     // CSimpleTexture::SetTexture(path). Loads via FUN_00449D90, stores the owned
     // HTEXTURE at +0xCC (releases the old via DecRef FUN_0041AED0), marks dirty.
     // `__thiscall(tex, path, 0, *VAR_TEXTURE_BLEND_DEFAULT, 0) -> u32`. The

@@ -34,7 +34,7 @@
 // 1.12 names the chunk "<object>:<script>" in SetScriptObjectScript. Here:
 //   - when a child of <Scripts> ends, "*<file>:<line>_<element>" is keyed by
 //     its text pointer, final only now (the character handler reallocates
-//     it). The line is Xml::NodeLine's, the file Xml::FileStack's;
+//     it). The file and line are Xml::NodeLine's;
 //   - FrameScript_CompileFunction swaps that name in for a text it knows.
 //     Every handler body loader passes the node's own text (the frame and
 //     region loaders, animations, RegionScripts), and templates keep their
@@ -45,7 +45,6 @@
 
 #include "Game.h"
 #include "Offsets.h"
-#include "xml/FileStack.h"
 #include "xml/FrameLoad.h"
 #include "xml/NodeLine.h"
 
@@ -67,22 +66,21 @@ std::unordered_map<const char *, std::string> g_names;
 
 void __cdecl EndElement_h(void **pair) {
     const void *node = pair[1];
-    const int line = node != nullptr ? Xml::NodeLine::Get(node) : 0;
-    if (line > 0) {
+    const Xml::NodeLine::Location *loc = node != nullptr ? Xml::NodeLine::Get(node) : nullptr;
+    if (loc != nullptr) {
         const void *parent = Game::Read<const void *>(node, Offsets::OFF_XML_NODE_PARENT);
         const char *text = Game::Read<const char *>(node, Offsets::OFF_XML_NODE_TEXT);
-        const char *file = Xml::FileStack::Current();
         const char *script = Xml::Tag(node);
         if (parent != nullptr && Xml::TagIs(parent, "Scripts") && text != nullptr && *text != '\0' &&
-            file != nullptr && script != nullptr) {
-            const char *base = file;
-            for (const char *p = file; *p != '\0'; ++p)
+            script != nullptr) {
+            const char *base = loc->file;
+            for (const char *p = loc->file; *p != '\0'; ++p)
                 if (*p == '\\' || *p == '/')
                     base = p + 1;
             std::string chunk = "*";
             chunk += base;
             chunk += ':';
-            chunk += std::to_string(line);
+            chunk += std::to_string(loc->line);
             chunk += '_';
             chunk += script;
             g_names[text] = std::move(chunk);
