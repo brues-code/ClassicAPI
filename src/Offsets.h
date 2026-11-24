@@ -1120,8 +1120,8 @@ enum Offsets {
     // texture/Rotation.cpp for Texture:SetRotation.
     OFF_SIMPLETEXTURE_CORNERS = 0xD4,
     // Region corner-store: `__thiscall(region, const float rect[4])` writes the
-    // drawn quad corners into region+0xD4..+0x100 from the rect ({yA,left,yB,right}
-    // screen px). The renderer only draws a region whose +0xD4 corners are
+    // drawn quad corners into region+0xD4..+0x100 from the rect (the layout
+    // rect, Frame::Layout::Rect). The renderer only draws a region whose +0xD4 corners are
     // populated (verified: the draw gate tests region+0xD4 != 0), and normally
     // SetPoint→layout-resolve calls this. We call it directly to place an icon by
     // its screen rect with NO anchors (anchoring 100+ textures/frame corrupts the
@@ -1139,9 +1139,9 @@ enum Offsets {
     // (0x004F8E30), less its playing-animation leg, which Animation::Region
     // adds back with a co-hook. Verified by decompile (benilla-re regions.md).
     FUN_TEXTURE_ON_FRAME_SIZE_CHANGED = 0x00770670,
-    // Texcoord crop applied to a {top,left,bottom,right} screen rect before the
-    // corner-store: shrinks right→left and bottom→top by the region's per-corner
-    // texcoord span (ABS of the +0x104 U/V differences). No-op for full 0..1
+    // Texcoord crop applied to the layout rect (Frame::Layout::Rect) before the
+    // corner-store: moves right toward left and top toward bottom by the
+    // region's texcoord spans (ABS of the +0x104 U/V differences; Ghidra). No-op for full 0..1
     // texcoords. `__thiscall(region, float rect[4])`, rect in/out. The crop
     // itself is unconditional; every engine call site gates it on
     // OFF_REGION_TEXCOORD_MODIFIES_RECT below — with the flag clear (the
@@ -1388,11 +1388,10 @@ enum Offsets {
     // batch this way.
     FUN_RENDERBATCH_ADD_CALLBACK = 0x00773110,
     OFF_RENDERBATCH_CALLBACKS = 0x24,
-    // Resolved on-screen rect of a region: 4 floats at regionBase+0x64 (=
-    // LayoutFrame+0x40), in GxU SCREEN PIXELS — verified: FUN_00770670 reads
-    // them and FUN_007705b0 stores them straight as GxU vertex corners. Layout is
-    // {yA, left, yB, right} (x at [1]/[3], y at [0]/[2]); use min/max to get
-    // left/top without pinning which y index is top.
+    // Resolved rect of a region: 4 floats at regionBase+0x64 (= LayoutFrame
+    // +0x40), {bottom, left, top, right} in layout units (FUN_REGION_GET_RECT's
+    // source). FUN_00770670 reads them and FUN_007705b0 stores them straight as
+    // GxU vertex corners. Read through Frame::Layout::Rect / RectOf.
     OFF_REGION_RECT = 0x64,
 
     // "Currently displayed thing" state fields on a GameTooltip frame
@@ -5715,8 +5714,8 @@ enum Offsets {
     OFF_FRAME_FLAGS = 0xB4,
     FRAME_FLAG_SCROLLED = 0x2000,
     FRAME_FLAG_SCROLL_CHILD = 0x4000,
-    // The hit rect: {bottom, left, top, right} in DDC, the layout rect less the
-    // hit-rect insets. CSimpleFrame::GetHitRect (0x0076B220) copies it when
+    // The hit rect: {bottom, left, top, right} in DDC (Frame::Layout::Rect,
+    // HitRectOf), the layout rect less the hit-rect insets. CSimpleFrame::GetHitRect (0x0076B220) copies it when
     // the layout is valid; FUN_FRAME_HIT_TEST and the ScrollFrame's draw read it.
     OFF_FRAME_HIT_RECT = 0xD8,
     // Frame::ClipChildren's own bit: the frame clips its child frames. No

@@ -113,13 +113,13 @@ void Apply(void *texture) {
     // (3.80.2's Line slots 0x340 / 0x348), not over its rect.
     float width = 0.0f, height = 0.0f;
     if (!Texture::Line::TileSize(texture, width, height)) {
-        float rect[4]; // bottom, left, top, right
+        Frame::Layout::Rect rect;
         if (!Frame::Layout::GetRect(texture, rect))
             return;
         if (!(Frame::Layout::EffectiveScale(texture) > 0.0f))
             return;
-        width = static_cast<float>(Frame::Layout::ToLocalUnits(texture, rect[3] - rect[1]));
-        height = static_cast<float>(Frame::Layout::ToLocalUnits(texture, rect[2] - rect[0]));
+        width = static_cast<float>(Frame::Layout::ToLocalUnits(texture, rect.right - rect.left));
+        height = static_cast<float>(Frame::Layout::ToLocalUnits(texture, rect.top - rect.bottom));
     }
     float *coords = Game::Ptr<float>(texture, Offsets::OFF_SIMPLETEXTURE_TEXCOORDS);
     if (atlas != nullptr) {

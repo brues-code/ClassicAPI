@@ -168,6 +168,7 @@ namespace Model::Scene {
 namespace {
 
 using Frame::Layout::OwnerOf;
+using Frame::Layout::Rect;
 using Model::Camera::Vec3;
 namespace MethodArg = Game::Lua::MethodArg;
 
@@ -429,11 +430,10 @@ float ClampUnit(float v) {
     return v > 0.0f ? v : 0.0f;
 }
 
-// The view: the frame's rect {bottom, left, top, right} less the insets and
-// moved by the translation, in layout units (a frame-unit length is
-// PixelToInternal(length * effectiveScale)). Returns false when it is the
-// frame's rect.
-bool ViewRect(void *frame, const float rect[4], float view[4]) {
+// The view: the frame's rect less the insets and moved by the translation, in
+// layout units (a frame-unit length is PixelToInternal(length *
+// effectiveScale)). Returns false when it is the frame's rect.
+bool ViewRect(void *frame, const Rect &rect, Rect &view) {
     const Fields &f = F(frame);
     const float *in = f.viewInsets;
     const float *move = f.viewTranslation;
@@ -441,10 +441,10 @@ bool ViewRect(void *frame, const float rect[4], float view[4]) {
         move[1] == 0.0f)
         return false;
     auto internal = [frame](float length) { return Frame::Layout::FromLocalUnits(frame, length); };
-    view[0] = rect[0] + internal(in[3]) + internal(move[1]);
-    view[1] = rect[1] + internal(in[0]) + internal(move[0]);
-    view[2] = rect[2] - internal(in[2]) + internal(move[1]);
-    view[3] = rect[3] - internal(in[1]) + internal(move[0]);
+    view.bottom = rect.bottom + internal(in[3]) + internal(move[1]);
+    view.left = rect.left + internal(in[0]) + internal(move[0]);
+    view.top = rect.top - internal(in[2]) + internal(move[1]);
+    view.right = rect.right - internal(in[1]) + internal(move[0]);
     return true;
 }
 
@@ -452,14 +452,14 @@ bool ViewRect(void *frame, const float rect[4], float view[4]) {
 // projection the camera built over `view` (its aspect and centre), then
 // scaled and shifted in clip space, because the viewport stays the frame's
 // rect. Row-vector matrices: column 0 gives x', column 1 y', column 3 w'.
-void FitProjection(const float rect[4], const float view[4]) {
-    const float frameW = rect[3] - rect[1], frameH = rect[2] - rect[0];
+void FitProjection(const Rect &rect, const Rect &view) {
+    const float frameW = rect.right - rect.left, frameH = rect.top - rect.bottom;
     if (!(frameW > 0.0f) || !(frameH > 0.0f))
         return;
-    const float sx = (view[3] - view[1]) / frameW;
-    const float sy = (view[2] - view[0]) / frameH;
-    const float tx = ((view[1] + view[3]) - (rect[1] + rect[3])) / frameW;
-    const float ty = ((view[0] + view[2]) - (rect[0] + rect[2])) / frameH;
+    const float sx = (view.right - view.left) / frameW;
+    const float sy = (view.top - view.bottom) / frameH;
+    const float tx = ((view.left + view.right) - (rect.left + rect.right)) / frameW;
+    const float ty = ((view.bottom + view.top) - (rect.bottom + rect.top)) / frameH;
     Gx::Matrix m;
     Gx::GetProjection(m);
     for (int row = 0; row < 4; ++row) {
@@ -472,8 +472,8 @@ void FitProjection(const float rect[4], const float view[4]) {
 
 // The device projection and view the paint draws with: the camera framed
 // over the view rect, placed in the frame's rect.
-void CameraTransforms(void *frame, void *camera, const float (&rect)[4]) {
-    float viewRect[4];
+void CameraTransforms(void *frame, void *camera, const Rect &rect) {
+    Rect viewRect;
     if (ViewRect(frame, rect, viewRect)) {
         Model::Camera::SetDeviceTransforms(camera, viewRect);
         FitProjection(rect, viewRect);
@@ -823,13 +823,12 @@ void ResetUiDepth() { g_worldDepth = true; }
 const Tick::FrameTick::AutoSubscribeBefore _uiDepth{&ResetUiDepth};
 
 void __fastcall Paint(void *frame) {
-    using SetupOrtho_t = void(__fastcall *)(const float *rect, const float *point, int unused);
+    using SetupOrtho_t = void(__fastcall *)(const Rect *rect, const float *point, int unused);
 
     // 3.80.2's paint draws nothing unless the near clip is before the far.
     if (!(F(frame).nearClip < F(frame).farClip))
         return;
-    // {bottom, left, top, right}
-    float rect[4] = {};
+    Rect rect{};
     if (!Frame::Layout::GetRect(frame, rect))
         return;
     ApplyCamera(frame);
@@ -851,31 +850,30 @@ void __fastcall Paint(void *frame) {
             eye[i] += shake[i];
         CameraTransforms(frame, camera, rect);
     } else {
-        const float point[2] = {rect[1], rect[0]};
-        reinterpret_cast<SetupOrtho_t>(Offsets::FUN_SETUP_ORTHO_TRANSFORMS)(rect, point, 0);
+        const float point[2] = {rect.left, rect.bottom};
+        reinterpret_cast<SetupOrtho_t>(Offsets::FUN_SETUP_ORTHO_TRANSFORMS)(&rect, point, 0);
     }
-    Frame::Layout::DdcToNdc(&rect[1], &rect[0], rect[1], rect[0]);
-    Frame::Layout::DdcToNdc(&rect[3], &rect[2], rect[3], rect[2]);
-    for (float &edge : rect)
-        edge = ClampUnit(edge);
+    Frame::Layout::DdcToNdc(&rect.left, &rect.bottom, rect.left, rect.bottom);
+    Frame::Layout::DdcToNdc(&rect.right, &rect.top, rect.right, rect.top);
+    rect = {ClampUnit(rect.bottom), ClampUnit(rect.left), ClampUnit(rect.top), ClampUnit(rect.right)};
     // The viewport is the rect cut to the clip a clipping frame or a
     // ScrollFrame has narrowed the viewport to (0x1428D60F0's intersection),
     // and the camera's picture of the whole rect is cropped to it. 3.80.2
     // keeps the whole rect when they do not overlap; here that draws nothing,
     // as 1.12's ScrollFrame relies on the clip to hide what it scrolled away.
-    const float port[4] = {std::max(rect[0], vp.minY), std::max(rect[1], vp.minX), std::min(rect[2], vp.maxY),
-                           std::min(rect[3], vp.maxX)};
-    if (!(port[0] < port[2]) || !(port[1] < port[3]))
+    const Rect port{std::max(rect.bottom, vp.minY), std::max(rect.left, vp.minX), std::min(rect.top, vp.maxY),
+                    std::min(rect.right, vp.maxX)};
+    if (!(port.bottom < port.top) || !(port.left < port.right))
         return;
     const float epsilon = Game::Read<float>(Offsets::VAR_TWO_POW_MINUS_22); // 2^-22
-    if (!(std::fabs(port[1] - port[3]) < epsilon) && !(std::fabs(port[0] - port[2]) < epsilon)) {
+    if (!(std::fabs(port.left - port.right) < epsilon) && !(std::fabs(port.bottom - port.top) < epsilon)) {
         if (g_worldDepth) {
             Gx::SetViewport({0.0f, 1.0f, 0.0f, 1.0f, 0.0f, 1.0f});
             Gx::Clear(2);
             g_worldDepth = false;
         }
-        Gx::SetViewport({port[1], port[3], port[0], port[2], 0.0f, 1.0f});
-        if (port[0] != rect[0] || port[1] != rect[1] || port[2] != rect[2] || port[3] != rect[3])
+        Gx::SetViewport({port.left, port.right, port.bottom, port.top, 0.0f, 1.0f});
+        if (port.bottom != rect.bottom || port.left != rect.left || port.top != rect.top || port.right != rect.right)
             FitProjection(port, rect);
         World::Backdrop *world = CameraOf(frame) != nullptr ? F(frame).world : nullptr;
         Terrain::Land *terrain = CameraOf(frame) != nullptr ? F(frame).terrain : nullptr;
@@ -971,7 +969,7 @@ void __fastcall Paint(void *frame) {
 // camera over the whole rect, not the paint's view rect.
 bool Project(void *frame, const Vec3 &point, double out[3]) {
     void *camera = CameraOf(frame);
-    float rect[4] = {}; // {bottom, left, top, right}
+    Rect rect{};
     if (camera == nullptr || !Frame::Layout::GetRect(frame, rect))
         return false;
     ApplyCamera(frame);
@@ -998,8 +996,8 @@ bool Project(void *frame, const Vec3 &point, double out[3]) {
     }
     if (!(std::fabs(c[3]) >= 0.001))
         return false;
-    const double width = Game::InternalToPixel(rect[3] - rect[1]);
-    const double height = Game::InternalToPixel(rect[2] - rect[0]);
+    const double width = Game::InternalToPixel(rect.right - rect.left);
+    const double height = Game::InternalToPixel(rect.top - rect.bottom);
     out[0] = (c[0] / c[3] + 1.0) * 0.5 * width;
     out[1] = (c[1] / c[3] + 1.0) * 0.5 * height;
     const Fields &f = F(frame);
@@ -1057,25 +1055,24 @@ bool Unproject(const Gx::Matrix &m, float x, float y, float depth, float (&out)[
 }
 
 // The cursor's fractions across and up the paint's viewport, the frame's
-// rect {bottom, left, top, right} in NDC clamped to the screen, each 0 to 1;
+// rect in NDC clamped to the screen, each 0 to 1;
 // false when the cursor is outside it or the paint draws nothing.
-bool CursorFraction(const float (&rect)[4], float &x, float &y) {
+bool CursorFraction(const Rect &rect, float &x, float &y) {
     const uint8_t *ctx = Game::Read<const uint8_t *>(Offsets::VAR_UI_CONTEXT_PTR);
     if (ctx == nullptr)
         return false;
     const float *mouse = Game::Ptr<float>(ctx, Offsets::OFF_UI_CONTEXT_MOUSE_POSITION);
-    float vp[4] = {rect[0], rect[1], rect[2], rect[3]};
-    Frame::Layout::DdcToNdc(&vp[1], &vp[0], vp[1], vp[0]);
-    Frame::Layout::DdcToNdc(&vp[3], &vp[2], vp[3], vp[2]);
-    for (float &edge : vp)
-        edge = ClampUnit(edge);
+    Rect vp = rect;
+    Frame::Layout::DdcToNdc(&vp.left, &vp.bottom, vp.left, vp.bottom);
+    Frame::Layout::DdcToNdc(&vp.right, &vp.top, vp.right, vp.top);
+    vp = {ClampUnit(vp.bottom), ClampUnit(vp.left), ClampUnit(vp.top), ClampUnit(vp.right)};
     const float epsilon = Game::Read<float>(Offsets::VAR_TWO_POW_MINUS_22);
-    if (std::fabs(vp[1] - vp[3]) < epsilon || std::fabs(vp[0] - vp[2]) < epsilon)
+    if (std::fabs(vp.left - vp.right) < epsilon || std::fabs(vp.bottom - vp.top) < epsilon)
         return false;
-    if (!(mouse[0] >= vp[1] && mouse[0] <= vp[3] && mouse[1] >= vp[0] && mouse[1] <= vp[2]))
+    if (!(mouse[0] >= vp.left && mouse[0] <= vp.right && mouse[1] >= vp.bottom && mouse[1] <= vp.top))
         return false;
-    x = (mouse[0] - vp[1]) / (vp[3] - vp[1]);
-    y = (mouse[1] - vp[0]) / (vp[2] - vp[0]);
+    x = (mouse[0] - vp.left) / (vp.right - vp.left);
+    y = (mouse[1] - vp.bottom) / (vp.top - vp.bottom);
     return true;
 }
 
@@ -1096,7 +1093,7 @@ void AddHitTest(void *model, Actor *actor, const std::vector<Actor *> &actors) {
 // The shown actor whose model is nearest under the cursor, or null.
 Actor *ActorAtCursor(void *frame) {
     void *camera = CameraOf(frame);
-    float rect[4] = {}; // {bottom, left, top, right}
+    Rect rect{};
     if (camera == nullptr || !Model::Pane::IsVisible(frame) || !Frame::Layout::GetRect(frame, rect))
         return nullptr;
     float x = 0.0f, y = 0.0f;
@@ -1130,7 +1127,7 @@ Actor *ActorAtCursor(void *frame) {
 // shown picture.
 bool CursorRay(void *frame, float (&nearPoint)[3], float (&farPoint)[3]) {
     void *camera = CameraOf(frame);
-    float rect[4] = {}; // {bottom, left, top, right}
+    Rect rect{};
     if (camera == nullptr || !Model::Pane::IsVisible(frame) || !Frame::Layout::GetRect(frame, rect))
         return false;
     float a = 0.0f, b = 0.0f;

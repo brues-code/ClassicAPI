@@ -95,10 +95,8 @@ using BatchOp_t = void(__fastcall *)(void *batch);
 using Callback_t = void(__fastcall *)(void *arg);
 using AddCallback_t = void(__fastcall *)(void *batch, void *edx, Callback_t fn, void *arg);
 using HitTest_t = int(__fastcall *)(void *frame, void *edx, const float *point);
-using SetupOrtho_t = void(__fastcall *)(const float *rect, const float *point, int unused);
-
-// A hit rect: {bottom, left, top, right}.
-enum { BOTTOM, LEFT, TOP, RIGHT };
+using Frame::Layout::Rect;
+using SetupOrtho_t = void(__fastcall *)(const Rect *rect, const float *point, int unused);
 
 // One level batch's regions under one clipping frame.
 struct Record {
@@ -117,10 +115,6 @@ bool Clips(const void *frame) {
 }
 
 void *Parent(const void *frame) { return Game::Read<void *>(frame, Offsets::OFF_REGION_PARENT); }
-
-const float *HitRect(const void *frame) {
-    return reinterpret_cast<const float *>(static_cast<const uint8_t *>(frame) + Offsets::OFF_FRAME_HIT_RECT);
-}
 
 // The frame itself when it clips, else its nearest clipping ancestor.
 void *NearestRoot(const void *frame) {
@@ -188,28 +182,27 @@ __declspec(naked) void EmitLayerThunk() {
 // The clip rect for frames under `root`: its hit rect intersected with every
 // clipping frame's above it. False when one has no valid layout, which
 // GetHitRect (0x0076B220) refuses the same way.
-bool ClipRect(const void *root, float rect[4]) {
+bool ClipRect(const void *root, Rect &rect) {
     bool first = true;
     for (const void *p = root; p != nullptr; p = Parent(p)) {
         if (!Clips(p))
             continue;
         if ((Game::Read<uint8_t>(p, Offsets::OFF_FRAME_LAYOUT_SUBOBJECT + Offsets::OFF_LAYOUT_FLAGS) & 1) == 0)
             return false;
-        const float *hit = HitRect(p);
+        const Rect &hit = Frame::Layout::HitRectOf(p);
         if (first) {
-            for (int i = 0; i < 4; ++i)
-                rect[i] = hit[i];
+            rect = hit;
             first = false;
             continue;
         }
-        if (rect[BOTTOM] < hit[BOTTOM])
-            rect[BOTTOM] = hit[BOTTOM];
-        if (rect[LEFT] < hit[LEFT])
-            rect[LEFT] = hit[LEFT];
-        if (hit[TOP] < rect[TOP])
-            rect[TOP] = hit[TOP];
-        if (hit[RIGHT] < rect[RIGHT])
-            rect[RIGHT] = hit[RIGHT];
+        if (rect.bottom < hit.bottom)
+            rect.bottom = hit.bottom;
+        if (rect.left < hit.left)
+            rect.left = hit.left;
+        if (hit.top < rect.top)
+            rect.top = hit.top;
+        if (hit.right < rect.right)
+            rect.right = hit.right;
     }
     return !first;
 }
@@ -226,7 +219,7 @@ bool ClipRect(const void *root, float rect[4]) {
 // viewport and ends a pixel short on the right and at the bottom. The
 // viewport fractions carry half a pixel, so the truncation lands on the
 // chosen pixels.
-bool DrawInsidePixels(float rect[4], const Gx::Viewport &vp, Callback_t draw, void *arg) {
+bool DrawInsidePixels(const Rect &rect, const Gx::Viewport &vp, Callback_t draw, void *arg) {
     void *dev = Game::Read<void *>(Offsets::VAR_GX_DEVICE);
     if (dev == nullptr)
         return false;
@@ -242,8 +235,8 @@ bool DrawInsidePixels(float rect[4], const Gx::Viewport &vp, Callback_t draw, vo
     const int vy1 = static_cast<int>((1.0f - vp.minY) * h);
     // The clip rect's edges in pixels.
     float left = 0, bottom = 0, right = 0, top = 0;
-    Frame::Layout::DdcToNdc(&left, &bottom, rect[LEFT], rect[BOTTOM]);
-    Frame::Layout::DdcToNdc(&right, &top, rect[RIGHT], rect[TOP]);
+    Frame::Layout::DdcToNdc(&left, &bottom, rect.left, rect.bottom);
+    Frame::Layout::DdcToNdc(&right, &top, rect.right, rect.top);
     int x0 = static_cast<int>(std::ceil(left * w));
     int x1 = static_cast<int>(std::ceil(right * w));
     int y0 = static_cast<int>(std::ceil((1.0f - top) * h));
@@ -254,11 +247,11 @@ bool DrawInsidePixels(float rect[4], const Gx::Viewport &vp, Callback_t draw, vo
     y1 = (std::min)(y1, vy1);
     if (x0 >= x1 || y0 >= y1)
         return true;
-    float exact[4];
-    Frame::Layout::NdcToDdc(&exact[LEFT], &exact[BOTTOM], x0 / w, 1.0f - y1 / h);
-    Frame::Layout::NdcToDdc(&exact[RIGHT], &exact[TOP], x1 / w, 1.0f - y0 / h);
+    Rect exact;
+    Frame::Layout::NdcToDdc(&exact.left, &exact.bottom, x0 / w, 1.0f - y1 / h);
+    Frame::Layout::NdcToDdc(&exact.right, &exact.top, x1 / w, 1.0f - y0 / h);
     const float point[2] = {0, 0};
-    reinterpret_cast<SetupOrtho_t>(Offsets::FUN_SETUP_ORTHO_TRANSFORMS)(exact, point, 0);
+    reinterpret_cast<SetupOrtho_t>(Offsets::FUN_SETUP_ORTHO_TRANSFORMS)(&exact, point, 0);
     Gx::SetViewport({(x0 + 0.5f) / w, (x1 + 0.5f) / w, 1.0f - (y1 + 0.5f) / h, 1.0f - (y0 + 0.5f) / h, 0.0f, 1.0f});
     draw(arg);
     return true;
@@ -268,7 +261,7 @@ bool DrawInsidePixels(float rect[4], const Gx::Viewport &vp, Callback_t draw, vo
 // and `draw(arg)` in place of its scroll child's; on the D3D9 device, on whole
 // pixels (DrawInsidePixels). The OpenGL device keeps the ScrollFrame's float
 // rect.
-void DrawInside(float rect[4], Callback_t draw, void *arg) {
+void DrawInside(Rect rect, Callback_t draw, void *arg) {
     const Gx::SavedTransforms saved;
     const Gx::Viewport &vp = saved.SavedViewport();
     if (Gx::IsD3d() && DrawInsidePixels(rect, vp, draw, arg))
@@ -276,44 +269,44 @@ void DrawInside(float rect[4], Callback_t draw, void *arg) {
     float minX = 0, minY = 0, maxX = 0, maxY = 0;
     Frame::Layout::NdcToDdc(&minX, &minY, vp.minX, vp.minY);
     Frame::Layout::NdcToDdc(&maxX, &maxY, vp.maxX, vp.maxY);
-    if (minX > rect[LEFT])
-        rect[LEFT] = minX;
-    if (maxX < rect[RIGHT])
-        rect[RIGHT] = maxX;
-    if (minY > rect[BOTTOM])
-        rect[BOTTOM] = minY;
-    if (maxY < rect[TOP])
-        rect[TOP] = maxY;
+    if (minX > rect.left)
+        rect.left = minX;
+    if (maxX < rect.right)
+        rect.right = maxX;
+    if (minY > rect.bottom)
+        rect.bottom = minY;
+    if (maxY < rect.top)
+        rect.top = maxY;
 
     const float point[2] = {0, 0};
-    reinterpret_cast<SetupOrtho_t>(Offsets::FUN_SETUP_ORTHO_TRANSFORMS)(rect, point, 0);
-    Frame::Layout::DdcToNdc(&rect[LEFT], &rect[BOTTOM], rect[LEFT], rect[BOTTOM]);
-    Frame::Layout::DdcToNdc(&rect[RIGHT], &rect[TOP], rect[RIGHT], rect[TOP]);
-    if (rect[LEFT] < 0.0f) {
-        rect[RIGHT] -= rect[LEFT];
-        rect[LEFT] = 0.0f;
+    reinterpret_cast<SetupOrtho_t>(Offsets::FUN_SETUP_ORTHO_TRANSFORMS)(&rect, point, 0);
+    Frame::Layout::DdcToNdc(&rect.left, &rect.bottom, rect.left, rect.bottom);
+    Frame::Layout::DdcToNdc(&rect.right, &rect.top, rect.right, rect.top);
+    if (rect.left < 0.0f) {
+        rect.right -= rect.left;
+        rect.left = 0.0f;
     }
-    if (rect[RIGHT] > 1.0f) {
-        rect[LEFT] -= rect[RIGHT] - 1.0f;
-        rect[RIGHT] = 1.0f;
+    if (rect.right > 1.0f) {
+        rect.left -= rect.right - 1.0f;
+        rect.right = 1.0f;
     }
-    if (rect[BOTTOM] < 0.0f) {
-        rect[TOP] -= rect[BOTTOM];
-        rect[BOTTOM] = 0.0f;
+    if (rect.bottom < 0.0f) {
+        rect.top -= rect.bottom;
+        rect.bottom = 0.0f;
     }
-    if (rect[TOP] > 1.0f) {
-        rect[BOTTOM] -= rect[TOP] - 1.0f;
-        rect[TOP] = 1.0f;
+    if (rect.top > 1.0f) {
+        rect.bottom -= rect.top - 1.0f;
+        rect.top = 1.0f;
     }
-    if (rect[LEFT] < rect[RIGHT] && rect[BOTTOM] < rect[TOP]) {
-        Gx::SetViewport({rect[LEFT], rect[RIGHT], rect[BOTTOM], rect[TOP], 0.0f, 1.0f});
+    if (rect.left < rect.right && rect.bottom < rect.top) {
+        Gx::SetViewport({rect.left, rect.right, rect.bottom, rect.top, 0.0f, 1.0f});
         draw(arg);
     }
 }
 
 void __fastcall DrawClipped(void *arg) {
     Record *r = static_cast<Record *>(arg);
-    float rect[4];
+    Rect rect;
     if (!r->live || !ClipRect(r->clipRoot, rect))
         return;
     if (!r->sorted) {
@@ -340,10 +333,7 @@ void __fastcall DrawSelfClipped(void *frame) {
     if (!Clips(frame)) {
         DrawFrame(frame);
     } else if (LayoutValid(frame)) {
-        float rect[4];
-        for (int i = 0; i < 4; ++i)
-            rect[i] = HitRect(frame)[i];
-        DrawInside(rect, &DrawFrame, frame);
+        DrawInside(Frame::Layout::HitRectOf(frame), &DrawFrame, frame);
     }
 }
 
@@ -357,10 +347,7 @@ void __stdcall DrawChild(void *child) {
     if (g_clipping == 0 || parent == nullptr || !Clips(parent)) {
         DrawSelfClipped(child);
     } else if (LayoutValid(parent)) {
-        float rect[4];
-        for (int i = 0; i < 4; ++i)
-            rect[i] = HitRect(parent)[i];
-        DrawInside(rect, &DrawSelfClipped, child);
+        DrawInside(Frame::Layout::HitRectOf(parent), &DrawSelfClipped, child);
     }
     Frame::AlphaGradient::End(gradient);
 }
@@ -532,8 +519,8 @@ bool Inside(const void *frame, const float *point) {
     for (const void *p = frame; p != nullptr; p = Parent(p)) {
         if (!Clips(p))
             continue;
-        const float *rect = HitRect(p);
-        if (point[0] < rect[LEFT] || rect[RIGHT] < point[0] || point[1] < rect[BOTTOM] || rect[TOP] < point[1])
+        const Rect &rect = Frame::Layout::HitRectOf(p);
+        if (point[0] < rect.left || rect.right < point[0] || point[1] < rect.bottom || rect.top < point[1])
             return false;
     }
     return true;

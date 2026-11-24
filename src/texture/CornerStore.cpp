@@ -20,11 +20,13 @@ namespace Texture::CornerStore {
 
 namespace {
 
-// __thiscall(region, float rect[4]); dummy-EDX form.
-using StoreCorners_t = void(__fastcall *)(void *region, void *edx, float *rect);
+using Frame::Layout::Rect;
+
+// __thiscall(region, const Rect *rect); dummy-EDX form.
+using StoreCorners_t = void(__fastcall *)(void *region, void *edx, Rect *rect);
 StoreCorners_t g_origStore = nullptr;
 
-void __fastcall StoreCorners_h(void *region, void *edx, float *rect) {
+void __fastcall StoreCorners_h(void *region, void *edx, Rect *rect) {
     g_origStore(region, edx, rect);
     for (const AutoSubscribe *s = AutoSubscribe::head; s != nullptr; s = s->next)
         s->fn(region);
@@ -35,19 +37,17 @@ const Game::HookAutoRegister _hook{Offsets::FUN_REGION_STORE_CORNERS, reinterpre
 
 } // namespace
 
-void CropInput(void *region, float (&rect)[4]) {
-    using Crop_t = void(__thiscall *)(void *region, float *rect);
+void CropInput(void *region, Rect &rect) {
+    using Crop_t = void(__thiscall *)(void *region, Rect *rect);
     if (Game::Read<int>(region, Offsets::OFF_REGION_TEXCOORD_MODIFIES_RECT) != 0)
-        reinterpret_cast<Crop_t>(Offsets::FUN_REGION_TEXCOORD_CROP)(region, rect);
+        reinterpret_cast<Crop_t>(Offsets::FUN_REGION_TEXCOORD_CROP)(region, &rect);
 }
 
 // The engine's own store, so the listeners above run as they do on a layout.
 void StoreFromRect(void *texture) {
-    float rect[4];
-    for (int i = 0; i < 4; ++i)
-        rect[i] = Game::Ptr<float>(texture, Offsets::OFF_REGION_RECT)[i];
+    Rect rect = Frame::Layout::RectOf(texture);
     CropInput(texture, rect);
-    reinterpret_cast<StoreCorners_t>(Offsets::FUN_REGION_STORE_CORNERS)(texture, nullptr, rect);
+    reinterpret_cast<StoreCorners_t>(Offsets::FUN_REGION_STORE_CORNERS)(texture, nullptr, &rect);
 }
 
 } // namespace Texture::CornerStore

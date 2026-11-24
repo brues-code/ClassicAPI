@@ -80,14 +80,13 @@ bool InsideInsets(const uint8_t *plate, const uint8_t *event) {
     const Insets &in = g_insets[PlateType(plate)];
     if (in.left == 0.0f && in.right == 0.0f && in.top == 0.0f && in.bottom == 0.0f)
         return true;
-    // {bottom, left, top, right}
-    const auto *rect = reinterpret_cast<const float *>(plate + Offsets::OFF_FRAME_HIT_RECT);
+    const Frame::Layout::Rect &rect = Frame::Layout::HitRectOf(plate);
     const float x = Game::Read<float>(event, Offsets::OFF_UI_MOUSE_EVENT_X);
     const float y = Game::Read<float>(event, Offsets::OFF_UI_MOUSE_EVENT_Y);
-    return x >= rect[1] + Frame::Layout::FromLocalUnits(plate, in.left) &&
-           x <= rect[3] - Frame::Layout::FromLocalUnits(plate, in.right) &&
-           y >= rect[0] + Frame::Layout::FromLocalUnits(plate, in.bottom) &&
-           y <= rect[2] - Frame::Layout::FromLocalUnits(plate, in.top);
+    return x >= rect.left + Frame::Layout::FromLocalUnits(plate, in.left) &&
+           x <= rect.right - Frame::Layout::FromLocalUnits(plate, in.right) &&
+           y >= rect.bottom + Frame::Layout::FromLocalUnits(plate, in.bottom) &&
+           y <= rect.top - Frame::Layout::FromLocalUnits(plate, in.top);
 }
 
 using HitTest_t = int(__fastcall *)(void *plate, void *edx, void *event);

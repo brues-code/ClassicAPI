@@ -168,7 +168,7 @@ bool Bake(void *source, std::array<uint32_t, kTexels> &texels, void *texture) {
         M2::AnimateScene(scene, origin);
         const Model::Camera::Vec3 eye = Model::Camera::GetVector(camera, Offsets::CAMERA_PROP_EYE);
         Model::Camera::GetVector(camera, Offsets::CAMERA_PROP_TARGET); // the bake reads it too
-        const float rect[4] = {0.0f, 0.0f, 1.0f, aspect};
+        const Frame::Layout::Rect rect{0.0f, 0.0f, 1.0f, aspect};
         Model::Camera::SetDeviceTransforms(camera, rect);
         Gx::SetViewport({x0, x1, y0, y1, 0.0f, 1.0f});
         Gx::SetClearColor(0);

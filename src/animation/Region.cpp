@@ -183,10 +183,10 @@ void *StringBlock(void *fontString) { return Game::Read<void *>(fontString, Offs
 // corner (the position FUN_FONTSTRING_ON_FRAME_SIZE_CHANGED and SetTextOffset
 // pass), as 4.3.4's StoreAnimPosition computes it.
 void StringBase(void *fontString, float out[3]) {
-    const float *rect = Game::Ptr<const float>(fontString, Offsets::OFF_REGION_RECT);
+    const Frame::Layout::Rect &rect = Frame::Layout::RectOf(fontString);
     const float scale = Game::Read<float>(fontString, Offsets::OFF_LAYOUT_SCALE);
-    out[0] = Game::Read<float>(fontString, Offsets::OFF_FONTSTRING_INSET_X) * scale + rect[1];
-    out[1] = Game::Read<float>(fontString, Offsets::OFF_FONTSTRING_INSET_Y) * scale + rect[0];
+    out[0] = Game::Read<float>(fontString, Offsets::OFF_FONTSTRING_INSET_X) * scale + rect.left;
+    out[1] = Game::Read<float>(fontString, Offsets::OFF_FONTSTRING_INSET_Y) * scale + rect.bottom;
     out[2] = 0.0f;
 }
 

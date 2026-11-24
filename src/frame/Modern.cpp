@@ -141,10 +141,10 @@ void PushUnscaledExtent(void *L, bool ignoreRect, int slot, bool vertical) {
         return;
     float extent = ExplicitExtent(self, slot);
     if (extent == 0.0f && !ignoreRect) {
-        float rect[4] = {0.0f, 0.0f, 0.0f, 0.0f}; // {bottom, left, top, right}
+        Frame::Layout::Rect rect{};
         if (Frame::Layout::GetResolvedRect(self, rect)) {
             Game::Lua::PushNumber(
-                L, Frame::Layout::ToLocalUnits(self, vertical ? rect[2] - rect[0] : rect[3] - rect[1]));
+                L, Frame::Layout::ToLocalUnits(self, vertical ? rect.top - rect.bottom : rect.right - rect.left));
             return;
         }
     }

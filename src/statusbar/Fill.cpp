@@ -115,9 +115,9 @@ bool IsVertical(void *bar) { return Game::Read<int>(bar, Offsets::OFF_STATUSBAR_
 // its track: the resolved rect's extent over the effective scale.
 void BarSize(void *bar, float &width, float &height) {
     const float scale = Game::Read<float>(bar, Offsets::OFF_REGION_EFFECTIVE_SCALE);
-    const float *rect = Game::Ptr<float>(bar, Offsets::OFF_REGION_RECT); // bottom, left, top, right
-    width = (rect[3] - rect[1]) / scale;
-    height = (rect[2] - rect[0]) / scale;
+    const Frame::Layout::Rect &rect = Frame::Layout::RectOf(bar);
+    width = (rect.right - rect.left) / scale;
+    height = (rect.top - rect.bottom) / scale;
 }
 
 // The bar's own GetFillFraction (4.3.4's GetAnimValue, which a timer or an
@@ -231,7 +231,7 @@ void LayOut(void *bar, State &state, bool tiled) {
     // sprite's share of its sheet, so a full bar drew as a sliver of itself.
     // Writing it now from the resolved rect, uncropped, is what the layout
     // callback writes; a rect still pending is written again when it lands.
-    float rect[4];
+    Frame::Layout::Rect rect;
     if (Frame::Layout::GetRect(texture, rect))
         Texture::CornerStore::StoreFromRect(texture);
     state.laidOut = true;

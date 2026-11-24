@@ -75,6 +75,7 @@
 // icon outside the link. See docs/InlineTextureEscapes.md for the RE map.
 
 #include "fontstring/Layout.h"
+#include "frame/Layout.h"
 #include "storm/List.h"
 #include "text/InlineTexture.h"
 
@@ -1887,10 +1888,10 @@ bool ComputePlacementsForNode(void *node, void *fs,
     // Same pixel-snap mode the emitter honours (bit-7 clear) — gates the
     // drawn-rect snap in the placement loop below.
     const bool snapNode = (Game::Read<uint32_t>(n, Offsets::OFF_TEXT_NODE_FLAGS) & 0x80u) == 0;
-    const float *rc = Game::Ptr<const float>(fs, Offsets::OFF_REGION_RECT);
-    const float fsBottom = (rc[0] < rc[2]) ? rc[0] : rc[2];
-    const float fsLeft = (rc[1] < rc[3]) ? rc[1] : rc[3];
-    if (rc[1] == rc[3])
+    const Frame::Layout::Rect &rc = Frame::Layout::RectOf(fs);
+    const float fsBottom = (rc.bottom < rc.top) ? rc.bottom : rc.top;
+    const float fsLeft = (rc.left < rc.right) ? rc.left : rc.right;
+    if (rc.left == rc.right)
         return false; // unresolved rect reads 0-width
     for (const IconRecord &r : itIcons->second) {
         // The emitter recorded the icon's left and bottom edges node-local

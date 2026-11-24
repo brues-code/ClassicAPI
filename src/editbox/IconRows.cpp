@@ -183,14 +183,14 @@ void __fastcall IndexAtPoint_h(void *editBox, void *edx, float x, float y, int *
     Rows rows;
     if (!MultiLineRows(editBox, rows))
         return g_origIndexAtPoint(editBox, edx, x, y, index);
-    float rect[4] = {0.0f, 0.0f, 0.0f, 0.0f}; // bottom, left, top, right
+    Frame::Layout::Rect rect{};
     if (!Frame::Layout::GetRect(rows.fs, rect))
         return g_origIndexAtPoint(editBox, edx, x, y, index);
     // The engine walks rows down from the label's top while the click is
     // below the row (strictly), stopping at the last line. Walk the rows as
     // the render lays them out: each taller by its line's moves.
     const float row = RowHeight(rows);
-    const float below = rect[2] - y;
+    const float below = rect.top - y;
     int line = 0;
     float top = 0.0f; // the icon-aware top of `line`, below the label's top
     bool moved = false;
@@ -207,7 +207,7 @@ void __fastcall IndexAtPoint_h(void *editBox, void *edx, float x, float y, int *
     }
     // Without a move the rows are the engine's own; with one, the click is
     // moved onto the middle of the uniform row the engine maps to `line`.
-    const float yMapped = moved ? rect[2] - (static_cast<float>(line) + 0.5f) * row : y;
+    const float yMapped = moved ? rect.top - (static_cast<float>(line) + 0.5f) * row : y;
     g_origIndexAtPoint(editBox, edx, x, yMapped, index);
 }
 

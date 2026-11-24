@@ -51,8 +51,8 @@ struct Insets {
 // /reload rebuilds every one of them, so the map is cleared on reload.
 std::unordered_map<void *, Insets> g_insets;
 
-// rect: bottom, left, top, right, in layout units.
-using CalcRect_t = int(__thiscall *)(void *layout, float *rect);
+using Frame::Layout::Rect;
+using CalcRect_t = int(__thiscall *)(void *layout, Rect *rect);
 CalcRect_t g_origCalcRect = nullptr;
 
 
@@ -61,7 +61,7 @@ CalcRect_t g_origCalcRect = nullptr;
 // the inverse of Script GetLeft's conversion.
 float ToLayoutUnits(double length, void *frame) { return Frame::Layout::FromLocalUnits(frame, length); }
 
-int __fastcall CalcRect_h(void *layout, void * /*edx*/, float *rect) {
+int __fastcall CalcRect_h(void *layout, void * /*edx*/, Rect *rect) {
     const uint32_t flags = Game::Read<uint32_t>(layout, Offsets::OFF_LAYOUT_FLAGS);
     if ((flags & Offsets::LAYOUT_FLAG_CLAMPED) == 0 || g_insets.empty())
         return g_origCalcRect(layout, rect);
@@ -79,10 +79,10 @@ int __fastcall CalcRect_h(void *layout, void * /*edx*/, float *rect) {
         return resolved;
 
     const Insets &in = it->second;
-    float bottom = rect[0] + ToLayoutUnits(in.bottom, frame);
-    float left = rect[1] + ToLayoutUnits(in.left, frame);
-    float top = rect[2] + ToLayoutUnits(in.top, frame);
-    float right = rect[3] + ToLayoutUnits(in.right, frame);
+    float bottom = rect->bottom + ToLayoutUnits(in.bottom, frame);
+    float left = rect->left + ToLayoutUnits(in.left, frame);
+    float top = rect->top + ToLayoutUnits(in.top, frame);
+    float right = rect->right + ToLayoutUnits(in.right, frame);
 
     // The engine's clamp, step for step, on the grown rect.
     float dx = 0.0f, dy = 0.0f;
@@ -110,10 +110,10 @@ int __fastcall CalcRect_h(void *layout, void * /*edx*/, float *rect) {
         top = height;
     }
 
-    rect[0] += dy;
-    rect[1] += dx;
-    rect[2] += dy;
-    rect[3] += dx;
+    rect->bottom += dy;
+    rect->left += dx;
+    rect->top += dy;
+    rect->right += dx;
     return resolved;
 }
 

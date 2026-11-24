@@ -75,7 +75,6 @@ namespace Frame::RegionInput {
 
 namespace {
 
-using GetRect_t = int(__fastcall *)(void *layout, void *edx, float *out);
 using GxTexture_t = void *(__fastcall *)(const void *texture);
 
 struct State {
@@ -133,12 +132,10 @@ State Get(const void *region) {
 bool Hit(const void *region, const float *point) {
     if (!Frame::RegionVisibility::Visible(region))
         return false;
-    float rect[4];
-    auto *layout = const_cast<uint8_t *>(static_cast<const uint8_t *>(region)) + Offsets::OFF_REGION_ANCHOR;
-    if (reinterpret_cast<GetRect_t>(Offsets::FUN_REGION_GET_RECT)(layout, nullptr, rect) == 0)
+    Frame::Layout::Rect rect;
+    if (!Frame::Layout::GetRect(region, rect))
         return false;
-    // {bottom, left, top, right}
-    if (point[0] < rect[1] || rect[3] < point[0] || point[1] < rect[0] || rect[2] < point[1])
+    if (point[0] < rect.left || rect.right < point[0] || point[1] < rect.bottom || rect.top < point[1])
         return false;
     return Frame::ClipChildren::Inside(Game::Read<void *>(region, Offsets::OFF_REGION_PARENT), point);
 }

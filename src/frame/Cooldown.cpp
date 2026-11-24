@@ -184,11 +184,8 @@ constexpr size_t kObjectSize = Offsets::SIMPLEFRAME_SIZE + sizeof(Fields);
 
 Fields &F(void *frame) { return *Game::Ptr<Fields>(frame, Offsets::SIMPLEFRAME_SIZE); }
 
-// The frame's resolved rect, CRect's {minY, minX, maxY, maxX} field order.
-struct Rect {
-    float minY, minX, maxY, maxX;
-};
-const Rect &RectOf(void *frame) { return *Game::Ptr<Rect>(frame, Offsets::OFF_REGION_RECT); }
+using Frame::Layout::Rect;
+using Frame::Layout::RectOf;
 
 using Frame::Layout::OwnerOf;
 
@@ -315,11 +312,11 @@ void PublishStrips(Fields &f) {
 // is how 4.3.4's sweep moves (AnimateOctants01..67, 0x009FDC20..0x009FE4F0:
 // each octant lasts duration / 8, the point linear along its half side).
 C3Vector OutlinePoint(const Rect &r, float s) {
-    const float cx = (r.minX + r.maxX) * 0.5f;
-    const float cy = (r.minY + r.maxY) * 0.5f;
-    const C3Vector knots[9] = {{cx, r.maxY, 0.0f},     {r.maxX, r.maxY, 0.0f}, {r.maxX, cy, 0.0f},
-                               {r.maxX, r.minY, 0.0f}, {cx, r.minY, 0.0f},     {r.minX, r.minY, 0.0f},
-                               {r.minX, cy, 0.0f},     {r.minX, r.maxY, 0.0f}, {cx, r.maxY, 0.0f}};
+    const float cx = (r.left + r.right) * 0.5f;
+    const float cy = (r.bottom + r.top) * 0.5f;
+    const C3Vector knots[9] = {{cx, r.top, 0.0f},     {r.right, r.top, 0.0f}, {r.right, cy, 0.0f},
+                               {r.right, r.bottom, 0.0f}, {cx, r.bottom, 0.0f},     {r.left, r.bottom, 0.0f},
+                               {r.left, cy, 0.0f},     {r.left, r.top, 0.0f}, {cx, r.top, 0.0f}};
     const float e = (s - std::floor(s)) * 8.0f;
     const int k = e < 8.0f ? static_cast<int>(e) : 7;
     const float t = e - static_cast<float>(k);
@@ -343,7 +340,7 @@ void AnimateSweep(Fields &f, const Rect &r, float a, float b) {
     v[n++] = OutlinePoint(r, b);
     for (; n < 9; ++n)
         v[n] = v[n - 1];
-    v[9] = {(r.minX + r.maxX) * 0.5f, (r.minY + r.maxY) * 0.5f, 0.0f};
+    v[9] = {(r.left + r.right) * 0.5f, (r.bottom + r.top) * 0.5f, 0.0f};
 }
 
 // The four corners of a quad turned by `angle` about the texture centre and
@@ -378,12 +375,12 @@ float EdgeTexScale(void *frame) {
 // mapping gives too, and leaves the rest at 0; star4 is one colour, so that
 // never showed, but a swipe texture has to line up with the frame.
 void MapStarTexCoords(Fields &f, const Rect &r) {
-    const float w = r.maxX - r.minX;
-    const float h = r.maxY - r.minY;
+    const float w = r.right - r.left;
+    const float h = r.top - r.bottom;
     for (int i = 0; i < 10; ++i) {
         const C3Vector &v = f.starVerts[i];
-        f.starTexCoords[i] = {w > 0.0f ? (v.x - r.minX) / w : 0.5f,
-                              h > 0.0f ? (r.maxY - v.y) / h : 0.5f};
+        f.starTexCoords[i] = {w > 0.0f ? (v.x - r.left) / w : 0.5f,
+                              h > 0.0f ? (r.top - v.y) / h : 0.5f};
     }
 }
 
@@ -451,10 +448,10 @@ void ResetVerts(void *frame) {
     for (int i = 0; i < 9; ++i)
         f.starVerts[i] = {0.0f, 0.0f, 0.0f};
 
-    f.flashVerts[0] = {r.minX, r.maxY, 0.0f};
-    f.flashVerts[1] = {r.maxX, r.maxY, 0.0f};
-    f.flashVerts[2] = {r.minX, r.minY, 0.0f};
-    f.flashVerts[3] = {r.maxX, r.minY, 0.0f};
+    f.flashVerts[0] = {r.left, r.top, 0.0f};
+    f.flashVerts[1] = {r.right, r.top, 0.0f};
+    f.flashVerts[2] = {r.left, r.bottom, 0.0f};
+    f.flashVerts[3] = {r.right, r.bottom, 0.0f};
     f.flashTexCoords[0] = {0.0f, 0.0f};
     f.flashTexCoords[1] = {1.0f, 0.0f};
     f.flashTexCoords[2] = {0.0f, 1.0f};
