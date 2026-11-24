@@ -74,4 +74,8 @@ const char *LocalizedField(uintptr_t recordsVar, uintptr_t countVar,
 const char *StringField(uintptr_t recordsVar, uintptr_t countVar,
                         uint32_t id, int offset);
 
+// The map (Map.dbc id) an area is on: AreaTable's map column for `areaId`,
+// -1 for an area the table does not have.
+int AreaMap(uint32_t areaId);
+
 } // namespace DBC

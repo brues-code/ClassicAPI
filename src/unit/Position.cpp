@@ -11,35 +11,28 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// UnitPosition backport.
-//
-// `UnitPosition("unit") → posY, posX, posZ, instanceID` — the modern
-// (WoD+) world-position accessor, ported to 1.12. The world position of
-// any visible unit already lives on its CGObject; we read it through the
-// shared `Unit::Position` helper (the object's GetPosition virtual, vtable
-// slot 5 — the same path UnitDistanceSquared / UnitInRange use).
-//
-// Two semantic notes:
-//
-//  - **Order matches retail.** The engine's C3Vector is {x, y, z} with the
-//    standard WoW convention (x = north, y = west, z = up). Retail's
-//    UnitPosition returns (posY, posX, posZ) — west, north, up — so we push
-//    the engine's y, then x, then z. An addon ported from retail that reads
-//    `posY, posX = UnitPosition(u)` gets coordinates labelled exactly as it
-//    expects.
-//  - **No group restriction.** Retail returns nil for units outside your
-//    party/raid (a taint/privacy guard that doesn't exist in 1.12). We can
-//    read any *visible* unit, so this is strictly more permissive — closer
-//    to SuperWoW's unit-position access than to retail's restricted form.
-//    Units the client can't see (out of range, different zone) have no
-//    known position → nil.
-//
-// `instanceID` is the currently-loaded Map.dbc id (VAR_CURRENT_MAP_ID) —
-// every visible unit shares the player's instance, so the player's map id
-// is the unit's instance id.
+// `UnitPosition(unit) → positionX, positionY, positionZ, mapID`, as the 3.80.2
+// client's Script_UnitPosition (0x141B83360) returns it:
+//   - Always four values. A string the resolver does not know is no unit (its
+//     resolver 0x141B8E5B0 takes no Lua state and raises nothing).
+//   - A unit in view: its position vector in stored order (x north, y west,
+//     z up; retail's docs call them positionX/Y/Z), and the map you are on.
+//   - A member out of view: its member record's x, y, z (whole yards) and
+//     AreaTable's map column for the record's area, nil for an unknown area.
+//     1.12's record has no height, so positionZ is 0.
+//   - No position: nil, nil, nil, then the map when one was found (3.80.2
+//     finds it before its gate and still returns it when the gate hides the
+//     position), else nil.
+// Its gate (0x141698520) passes you and group members on open-world maps, and
+// with the same flag on it rounds x and y to 0.1 yd and returns z as 0. Here
+// there is no gate: any unit in view is measured, at full precision, so a map
+// is only ever found with a position and no position is four nils.
 
 #include "Game.h"
 #include "Offsets.h"
+#include "group/MemberStats.h"
+#include "object/Resolve.h"
+#include "unit/Identity.h"
 #include "unit/Position.h"
 
 #include <cstdint>
@@ -48,29 +41,31 @@ namespace Unit::PositionApi {
 
 namespace {
 
-// `UnitPosition("unit") → posY, posX, posZ, instanceID`. nil when the unit
-// has no known position (recognized-but-absent token, or a visible-object
-// miss). Genuinely unrecognized token strings raise a Lua error, same as
-// UnitHealth("garbage") — the engine's resolver owns that contract.
 int __fastcall Script_UnitPosition(void *L) {
     if (!Game::Lua::IsString(L, 1)) {
         Game::Lua::Error(L, "Usage: UnitPosition(\"unit\")");
         return 0;
     }
-    const char *token = Game::Lua::ToString(L, 1);
+    const uint64_t guid = Unit::Identity::GuidForToken(Game::Lua::ToString(L, 1));
 
-    float pos[3];
-    if (!Unit::Position::ReadToken(token, pos)) {
-        Game::Lua::PushNil(L);
-        return 1;
+    float pos[3] = {};
+    int map = -1;
+    bool known = Unit::Position::Read(Object::ByGuid(Offsets::TYPEMASK_UNIT, guid), pos);
+    if (known)
+        map = Game::Read<int>(Offsets::VAR_CURRENT_MAP_ID);
+    else
+        known = Group::MemberStats::Position(guid, &pos[0], &pos[1], &map);
+
+    for (const float v : pos) {
+        if (known)
+            Game::Lua::PushNumber(L, static_cast<double>(v));
+        else
+            Game::Lua::PushNil(L);
     }
-
-    Game::Lua::PushNumber(L, static_cast<double>(pos[1])); // posY (world Y, west)
-    Game::Lua::PushNumber(L, static_cast<double>(pos[0])); // posX (world X, north)
-    Game::Lua::PushNumber(L, static_cast<double>(pos[2])); // posZ (up)
-    const int mapId = *reinterpret_cast<const int *>(
-        static_cast<uintptr_t>(Offsets::VAR_CURRENT_MAP_ID));
-    Game::Lua::PushNumber(L, static_cast<double>(mapId));
+    if (map != -1)
+        Game::Lua::PushNumber(L, static_cast<double>(map));
+    else
+        Game::Lua::PushNil(L);
     return 4;
 }
 
@@ -80,16 +75,17 @@ const Game::Doc::Field kArgs[] = {
     Game::Doc::Req("unit", "UnitToken"),
 };
 const Game::Doc::Field kRets[] = {
-    Game::Doc::Opt("posY", "number", nullptr,
-                   "World Y coordinate (west); nil, with the rest, when the unit is not in view."),
-    Game::Doc::Opt("posX", "number", nullptr, "World X coordinate (north)."),
-    Game::Doc::Opt("posZ", "number", nullptr, "Height."),
-    Game::Doc::Opt("instanceID", "number", nullptr, "The map you are on."),
+    Game::Doc::Opt("positionX", "number", nullptr,
+                   "World X coordinate (north); nil, with positionY and positionZ, when the position is not "
+                   "known."),
+    Game::Doc::Opt("positionY", "number", nullptr, "World Y coordinate (west)."),
+    Game::Doc::Opt("positionZ", "number", nullptr, "Height; 0 for a group member out of view."),
+    Game::Doc::Opt("mapID", "number", nullptr, "The map the unit is on."),
 };
 const Game::Doc::Function kUnitPosition{
-    "Returns the world position of any unit in view.", kArgs, kRets, "UnitGlobals"};
+    "Returns the world position of a unit in view or a group member.", kArgs, kRets, "UnitGlobals"};
 const Game::Doc::Function kPlayerInfoUnitPosition{
-    "Returns the world position of any unit in view.", kArgs, kRets};
+    "Returns the world position of a unit in view or a group member.", kArgs, kRets};
 
 void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("UnitPosition", &Script_UnitPosition, &kUnitPosition);

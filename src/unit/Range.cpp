@@ -29,14 +29,19 @@
 //     3.80.2 also wants two flag bits of the unit clear and no
 //     restricted-targeting aura, and takes the range from an aura (effect
 //     225) when one is up; 1.12 has no counterpart of these.
-//   `UnitDistanceSquared(unit) → (distanceSquared, checkedPosition)` —
-//     the raw squared world distance player→unit. Squared because
-//     nearly every consumer compares against a threshold (`distSq <=
-//     range*range`) or ranks by nearest, neither of which needs the
-//     sqrt; that's why retail exposes only the squared form (added
-//     5.0.4). Center-to-center — this one is NOT reach-adjusted (retail's
-//     `UnitDistanceSquared` is also raw center distance); the reach
-//     correction lives only in `UnitInRange`.
+//   `UnitDistanceSquared(unit) → (distance, checkedDistance)` — the
+//     3.80.2 client's (binder 0x140E35D80, core 0x141BB0FD0; see
+//     DistanceSquared in Range.h): x and y only, squared, rounded to a whole
+//     number, center to center (no reach), from FromUnit.
+//       - Its gate (0x141698520) passes you and group members on open-world
+//         maps; for those, checkedDistance is true even with no position
+//         (the distance stays 0). Anything else is (0, false).
+//       - Here the gate is you and every group unit, on every map, and any
+//         other unit is measured while it is in view: (distance, true), else
+//         (0, false).
+//       - The unit argument is a generated reader's (0x140B296B0): missing
+//         or not a string is the usage error (lua/Arg's String), and a
+//         string the resolver does not know is no unit.
 //
 // Reach-awareness: the engine's spell-range helper `FUN_006e3480` compares
 // center distance against `baseRange + reachCaster + reachTarget`, where
@@ -54,14 +59,17 @@
 #include "unit/Range.h"
 
 #include "Game.h"
+#include "dbc/Lookup.h"
+#include "group/MemberStats.h"
 #include "group/Roster.h"
+#include "lua/Arg.h"
 #include "object/Resolve.h"
 #include "unit/Identity.h"
 #include "unit/Position.h"
 #include "Offsets.h"
 
+#include <cmath>
 #include <cstdint>
-#include <cstring>
 
 namespace Unit::Range {
 
@@ -69,31 +77,7 @@ namespace {
 
 constexpr float kRangeYards = 40.0f;
 
-// Resolves `token` once and reads both its world position and bounding
-// radius. Returns false when the position is unavailable (unresolved /
-// absent token, or an object with no known position yet — e.g. a party
-// member outside the client's sync range). This false is exactly the
-// `checkedPosition = false` case retail flags.
-bool ReadPosAndReach(const char *token, float pos[3], float *reach) {
-    void *obj = Game::ResolveUnitToken(token);
-    if (!Unit::Position::Read(obj, pos))
-        return false;
-    *reach = Unit::Position::BoundingRadius(obj);
-    return true;
-}
-
-// Squared world distance from the player to `token`'s unit (raw,
-// center-to-center; reach is applied by the caller when needed).
-bool PlayerToUnitDistSq(const char *token, float *outSq) {
-    float unitPos[3] = {};
-    float playerPos[3] = {};
-    float reach = 0.0f;
-    if (!ReadPosAndReach(token, unitPos, &reach) ||
-        !ReadPosAndReach("player", playerPos, &reach))
-        return false;
-    *outSq = Game::DistanceSq(unitPos, playerPos);
-    return true;
-}
+constexpr const char *kDistanceUsage = "Usage: local distance, checkedDistance = UnitDistanceSquared(unit)";
 
 int __fastcall Script_UnitInRange(void *L) {
     if (!Game::Lua::IsString(L, 1)) {
@@ -107,28 +91,19 @@ int __fastcall Script_UnitInRange(void *L) {
     return 2;
 }
 
-// `UnitDistanceSquared("unit") → (distanceSquared, checkedPosition)`.
-// Unlike UnitInRange there's no self-quirk: `UnitDistanceSquared("player")`
-// is a legitimate `(0, true)`. On a position miss returns `(0, false)` —
-// matching retail's "always a number" shape; consumers must branch on
-// `checkedPosition`, since a real `0` (self, or exactly co-located units)
-// is indistinguishable from the miss placeholder by value alone.
 int __fastcall Script_UnitDistanceSquared(void *L) {
-    if (!Game::Lua::IsString(L, 1)) {
-        Game::Lua::Error(L, "Usage: UnitDistanceSquared(\"unit\")");
-        return 0;
-    }
-    const char *token = Game::Lua::ToString(L, 1);
+    Game::Lua::Arg::Text token;
+    Game::Lua::Arg::String(L, 1, kDistanceUsage, token);
+    const uint64_t guid = Unit::Identity::GuidForToken(token.data);
 
-    float distSq = 0.0f;
-    if (!PlayerToUnitDistSq(token, &distSq)) {
-        Game::Lua::PushNumber(L, 0.0);
-        Game::Lua::PushBool(L, false);
-        return 2;
-    }
-
-    Game::Lua::PushNumber(L, static_cast<double>(distSq));
-    Game::Lua::PushBool(L, true);
+    long long squared = 0;
+    const Distance found = DistanceSquared(guid, &squared);
+    const bool checked =
+        found == Distance::Measured ||
+        (found != Distance::NoFromUnit &&
+         (guid == Unit::Identity::PlayerGuid() || Group::Roster::IsGroupUnit(guid)));
+    Game::Lua::PushNumber(L, static_cast<double>(squared));
+    Game::Lua::PushBool(L, checked);
     return 2;
 }
 
@@ -148,8 +123,11 @@ const Game::Doc::Function kUnitInRange{
 
 const Game::Doc::Field kDistanceRets[] = {
     Game::Doc::Req("distance", "number",
-                   "Squared distance in yards, center to center; 0 when checkedDistance is false."),
-    Game::Doc::Req("checkedDistance", "bool", "False when the unit is not in view."),
+                   "Squared distance in yards, center to center, on the ground (no height), as a whole number; "
+                   "0 when it is not known."),
+    Game::Doc::Req("checkedDistance", "bool",
+                   "True for you and your group units, also with no position. For other units, true when "
+                   "the unit is in view."),
 };
 const Game::Doc::Function kUnitDistanceSquared{
     "Returns the squared distance from you to a unit.", kUnitArgs, kDistanceRets,
@@ -192,6 +170,27 @@ bool InRange(uint64_t guid, bool *inRange) {
         kRangeYards + Unit::Position::BoundingRadius(from) + Unit::Position::BoundingRadius(unit);
     *inRange = Game::DistanceSq(unitPos, fromPos) <= effRange * effRange;
     return true;
+}
+
+Distance DistanceSquared(uint64_t guid, long long *squared) {
+    *squared = 0;
+    float from[3] = {};
+    if (!Unit::Position::Read(FromUnit(), from))
+        return Distance::NoFromUnit;
+
+    float pos[3] = {};
+    if (!Unit::Position::Read(Object::ByGuid(Offsets::TYPEMASK_UNIT, guid), pos)) {
+        int map = -1;
+        if (!Group::MemberStats::Position(guid, &pos[0], &pos[1], &map))
+            return Distance::NoPosition;
+        const int playerMap = DBC::AreaMap(Game::Read<uint32_t>(Offsets::VAR_PLAYER_AREA_ID) & 0xFFFF);
+        if (map != -1 && playerMap != -1 && map != playerMap)
+            return Distance::OtherMap;
+    }
+    const float dx = pos[0] - from[0];
+    const float dy = pos[1] - from[1];
+    *squared = std::llround(dx * dx + dy * dy);
+    return Distance::Measured;
 }
 
 } // namespace Unit::Range

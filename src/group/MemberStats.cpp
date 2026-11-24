@@ -15,6 +15,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "dbc/Lookup.h"
 
 namespace Group::MemberStats {
 
@@ -69,7 +70,7 @@ Stats Lookup(uint64_t guid) {
     return s;
 }
 
-bool Position(uint64_t guid, float *x, float *y, uint32_t *areaId) {
+bool Position(uint64_t guid, float *x, float *y, int *map) {
     if (guid == 0)
         return false;
     auto statsFn = reinterpret_cast<Lookup_t>(
@@ -79,7 +80,7 @@ bool Position(uint64_t guid, float *x, float *y, uint32_t *areaId) {
         return false;
     *x = Game::Read<int16_t>(e, Offsets::OFF_GROUP_MEMBER_POS_X);
     *y = Game::Read<int16_t>(e, Offsets::OFF_GROUP_MEMBER_POS_Y);
-    *areaId = U16(e, Offsets::OFF_GROUP_MEMBER_AREA_ID);
+    *map = DBC::AreaMap(U16(e, Offsets::OFF_GROUP_MEMBER_AREA_ID));
     return true;
 }
 

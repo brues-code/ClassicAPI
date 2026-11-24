@@ -31660,78 +31660,74 @@ bounding radius. A 40-yard heal lands on a target whose *center* is up to
 reports out-of-range for a target the client can actually heal (on a
 large target the reach gap is 2–3 yards). If the size of a unit is not
 known yet, the reach term is 0 and the check degrades to a plain
-40-yard cap. Note this is the one difference from `UnitDistanceSquared`,
-which stays raw center-to-center.
+40-yard cap. `UnitDistanceSquared` does not add the reach.
 
 ### `UnitDistanceSquared(unit)`
 
-Returns `(distanceSquared, checkedPosition)` — the **squared** world
-distance (yards²) from the player to `unit`, and a flag indicating
-whether both positions were available.
+Returns `distance, checkedDistance`. `distance` is the **squared**
+distance in yards from you to `unit`, as a whole number.
 
 ```lua
-local distSq, checked = UnitDistanceSquared("target")
-if checked and distSq <= 30 * 30 then
-    -- target is within 30 yards
+local distance, checked = UnitDistanceSquared("target")
+if checked and distance <= 30 * 30 then
+    -- the target is within 30 yards
 end
 ```
 
 | Return | Meaning |
 |--------|---------|
-| `distanceSquared` | Squared distance player→unit. `0` when `checkedPosition` is `false` (a placeholder — an "always a number" shape). |
-| `checkedPosition` | `true` when both positions were read. `false` when `unit`'s position isn't available (empty `partyN` slot, no target, raid member out of view, etc.). |
+| `distance` | The squared distance from you to the unit. `0` when the distance is not known. |
+| `checkedDistance` | `true` for you and your group units, also when the distance is not known. For all other units, `true` when the unit is in view. |
 
-The value is **squared** on purpose: nearly all distance logic is a
-threshold compare (`distSq <= range * range`) or a nearest-unit sort,
-neither of which needs the square root — so only the
-squared form is exposed, never a plain `UnitDistance`. Take
-`math.sqrt(distanceSquared)` only when you need a yard number to show a
-human.
+The distance is measured from the center of one unit to the center of
+the other. It uses only the x and y coordinates, so a difference in
+height does not change it. The value is rounded to the nearest whole
+number.
 
-**Center-to-center**, not reach-aware (that edge-to-edge nicety is
-UnitXP_SP3's niche). The value equals what you'd compute from the
-[`UnitPosition`](#unitpositionunit) coordinates. It does not need
-another DLL.
+The distance is measured from the unit that you move. Usually this is
+you. While you control another unit (for example with Mind Control or
+Eyes of the Beast), it is that unit.
 
-> `UnitDistanceSquared("player")` returns `(0, true)`, also when you
-> are not in a group. Because a real `0` (self, or two
-> exactly co-located units) is indistinguishable by value from the miss
-> placeholder, always branch on `checkedPosition`.
+A group member who is not in view is measured at the last position that
+the server sent for that member, in whole yards. If that member is on a
+different map, the distance is not known.
+
+> A group unit with no known distance gives `(0, true)`, and so does
+> `UnitDistanceSquared("player")`. Thus a `0` distance does not tell you
+> if the distance is known. To compare with a spell range between two players, add 3
+> yards to the range: spell range adds the reach of both units, which
+> is 1.5 yards for a player.
 
 ### `UnitPosition(unit)`
 
-Returns `posY, posX, posZ, instanceID` — the unit's world position, in
-the standard `UnitPosition` shape. `nil` when the unit has no known
-position.
+Returns `positionX, positionY, positionZ, mapID`: the world position of
+the unit and the map that it is on. The function always returns four
+values.
 
 ```lua
-local posY, posX, posZ, instanceID = UnitPosition("player")
+local x, y, z, mapID = UnitPosition("player")
 ```
 
 | Return | Meaning |
 |--------|---------|
-| `posY` | World Y coordinate (the west axis). |
-| `posX` | World X coordinate (the north axis). |
-| `posZ` | World Z coordinate (height). |
-| `instanceID` | Currently-loaded map id (`Map.dbc` row — e.g. `0` Eastern Kingdoms, `1` Kalimdor). Every visible unit shares the player's instance. |
+| `positionX` | World X coordinate (the north axis). |
+| `positionY` | World Y coordinate (the west axis). |
+| `positionZ` | World Z coordinate (height). |
+| `mapID` | The map (`Map.dbc` id, for example `0` Eastern Kingdoms, `1` Kalimdor). |
 
-**Standard field order** — `posY` (west) first, then `posX` (north), then
-`posZ`, mirroring Blizzard's own `UnitPosition`. So an addon that does
-`local py, px = UnitPosition(u)` gets its coordinates
-labelled as expected. (World X is north/south, Y is west/east — WoW's
-long-standing convention.)
+The function reads any unit in view: `"target"`, `"mouseover"`,
+nameplate tokens, and group members. It does not limit the result to
+your group.
 
-**Not group-restricted.** The standard `UnitPosition` returns `nil` for
-units outside your party/raid (a privacy guard that doesn't exist here).
-This version
-reads any *visible* unit — `"target"`, `"mouseover"`, nameplate tokens,
-arbitrary party/raid members in view — so it's strictly more
-permissive, closer to SuperWoW's unit-position access. Units the client
-can't currently see (out of range, another zone) have no position → `nil`.
+A group member who is not in view gives the last position that the
+server sent for that member, in whole yards. For such a member,
+`positionZ` is `0`, and `mapID` is the map of the member's zone.
 
-The values are consistent with
-[`UnitDistanceSquared`](#unitdistancesquaredunit): the squared delta of
-two `UnitPosition` reads equals `UnitDistanceSquared`.
+If the position is not known, all four values are `nil`.
+
+The position is the center of the unit.
+[`UnitDistanceSquared`](#unitdistancesquaredunit) uses the same
+positions, with x and y only.
 
 > **SuperWoW interaction.** SuperWoW also defines a global `UnitPosition`
 > with a different return shape. If SuperWoW is loaded, the version that

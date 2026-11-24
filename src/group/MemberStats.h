@@ -64,9 +64,10 @@ Stats Lookup(uint64_t guid);
 const uint16_t *AuraArray(uint64_t guid);
 
 // An out-of-view member's last reported position (x, y; truncated to whole
-// yards) and its area (AreaTable ID), from the member record the engine keeps
-// for party and raid members (FUN_GROUP_MEMBER_STATS_LOOKUP). False when the
-// GUID has no member record (not a member, or a pet).
-bool Position(uint64_t guid, float *x, float *y, uint32_t *areaId);
+// yards; the record has no height) and the map it is on (its area's
+// AreaTable map column, -1 for an unknown area), from the member record the
+// engine keeps for party and raid members (FUN_GROUP_MEMBER_STATS_LOOKUP).
+// False when the GUID has no member record (not a member, or a pet).
+bool Position(uint64_t guid, float *x, float *y, int *map);
 
 } // namespace Group::MemberStats

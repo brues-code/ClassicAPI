@@ -63,4 +63,9 @@ const char *StringField(uintptr_t recordsVar, uintptr_t countVar,
         *reinterpret_cast<const char *const *>(record + offset));
 }
 
+int AreaMap(uint32_t areaId) {
+    const uint8_t *row = Record(Offsets::VAR_AREATABLE_RECORDS, Offsets::VAR_AREATABLE_COUNT, areaId);
+    return row != nullptr ? *reinterpret_cast<const int *>(row + Offsets::OFF_AREATABLE_MAP_ID) : -1;
+}
+
 } // namespace DBC

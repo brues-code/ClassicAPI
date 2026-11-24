@@ -132,10 +132,9 @@ const UiMap *Find(int map, uint32_t zone) {
 // The player's map, or null for none.
 const UiMap *Current() {
     const uint32_t zone = Game::Read<uint32_t>(Offsets::VAR_PLAYER_AREA_ID) & 0xFFFF;
-    const uint8_t *row = DBC::Record(Offsets::VAR_AREATABLE_RECORDS, Offsets::VAR_AREATABLE_COUNT, zone);
-    if (row == nullptr)
+    const int map = DBC::AreaMap(zone);
+    if (map == -1)
         return nullptr;
-    const int map = Game::Read<int>(row, Offsets::OFF_AREATABLE_MAP_ID);
     const UiMap *found = Find(map, zone);
     return found != nullptr ? found : Find(map, 0);
 }
