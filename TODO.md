@@ -4846,48 +4846,38 @@ doc builders), [docs/notes/world-actors-112.md](docs/notes/world-actors-112.md)
 - 64 of the 883 species use creature ids that exist in 1.12 (the vanilla
   companions); wild battle pets are separate creature ids in MoP.
 
-## 115. Floating combat text — the TBC/WotLK system (cvars, `COMBAT_TEXT_UPDATE`, Blizzard_CombatText) — medium-large, not scoped
+## 115. Floating combat text — PARKED (2026-11-24: 1.12 already has it; a 3.80.2 port breaks listeners)
 
-1.12 has a sliver of it: the world-text damage number on your target, gated
-by `CombatDamage` / `PetMeleeDamage` (CGUnit_C::ShowDamageNumber 0x6128B0
-→ SubmitWorldText 0x6C7840). The 3.80.2 client has the full system:
+The read is in `docs/notes/combat-text-3802.md`. The earlier premise here was
+wrong: 1.12.1 ships the whole screen-centre system in its pre-2.0 shape. The
+engine raises `COMBAT_TEXT_UPDATE` (event 542) from its combat-log formatters
+through five signallers (0x6269D0, 0x6269B0, 0x626960, 0x626890, 0x6268F0).
+It uses 47 types (table 0x862920) and passes the data as string args. The
+stock load-on-demand Blizzard_CombatText reads it, gated by saved Lua globals
+(`SHOW_COMBAT_TEXT`, `COMBAT_TEXT_SHOW_*`).
 
-- **24 `floatingCombatText*` cvars**: AuraFade, Auras, CombatDamage,
-  CombatDamageAllAutos, CombatDamageDirectionalOffset /
-  DirectionalScale, CombatHealing, CombatHealingAbsorbSelf /
-  AbsorbTarget, CombatLogPeriodicSpells, CombatState, ComboPoints,
-  DamageReduction, DodgeParryMiss, EnergyGains, FloatMode, FriendlyHealers,
-  HonorGains, LowManaHealth, PeriodicEnergyGains, PetMeleeDamage,
-  PetSpellDamage, Reactives, RepChanges.
-- **`COMBAT_TEXT_UPDATE`**, the engine event the screen-centre text reads.
-  1.12 already has the event with one message type: FUN_FIRE_USABLE_EVENTS
-  raises `SPELL_ACTIVE` for each reactive spell that becomes usable
-  (Offsets.h at VAR_REACTIVE_SPELL_COUNT, 0x004B3231; read by
-  Spell::ActivationOverlay). 3.80.2 raises it for every other kind.
-- **Blizzard_CombatText**, the FrameXML addon that draws the screen-centre
-  text: on disk in `_classic_titan_` (3.80.2: Shared/CombatText.lua/.xml,
-  CombatTextConstants, CombatTextUtil, Classic overrides) and in the stock
-  dumps `C:\WoW\Blizzard-WoW-Interface\2.4.3` and `3.3.5`.
+3.80.2 fires the event with only a 2.0+ type name and serves the data through
+`C_CombatText.GetCurrentEventInfo()`. Nothing is raised until
+`SetActiveUnit`. Porting that shape breaks every 1.12 listener (the stock
+addon, SuperAPI's healer-name fix, third-party addons), so the screen-centre
+port is parked. The user decided not to break existing listeners.
 
-Two halves:
-1. **World text over units** (CombatHealing on targets, absorbs, pet
-   spell damage, the directional damage offset/scale, periodic spells):
-   the engine's own SubmitWorldText path, already driven and verified in
-   game by ClientScene::UnitDisplay (category 0 hit, 2 crit, colour
-   override). Read where 3.80.2 submits each kind and from which message.
-2. **Screen-centre text**: fire `COMBAT_TEXT_UPDATE(messageType, data...)`
-   where 3.80.2 fires it (damage, heals, misses, auras, energy, combo
-   points, honor, reputation, entering/leaving combat, low health/mana,
-   reactives), from the packets and descriptor changes we already observe
-   (Net::PacketDispatch, the combat log modules, the descriptor observers),
-   and port Blizzard_CombatText as an embedded addon. 3.80.2's message
-   types and argument order are the contract.
+What could still be done without breaking anything, if picked up again:
+- **World text over units** (engine only, no event). Port 3.80.2's gates and
+  colours onto 1.12's ShowDamageNumber 0x6128B0 / ShowMissWord 0x607140:
+  - heal numbers (CombatHealing, off by default on Era);
+  - the periodic filter;
+  - the pet melee/spell split;
+  - the kind sizes and timings.
 
-First step: the 3.80.2 read — each cvar's reader, every COMBAT_TEXT_UPDATE
-raise site with its message type and arguments, the world-text submitters —
-into `docs/notes/combat-text-3802.md`.
+  Directional numbers need a hit direction that SubmitWorldText 0x6C7840
+  does not take.
+- **`C_CombatText.GetCurrentEventInfo` as an addition.** It would give typed
+  data during the unchanged 1.12 event, including the crit flag on partials.
+  3.80.2's addon would then need a 1.12-name translation table, so it would
+  not be a verbatim port.
 
-## 116. ActionCam — the `test_camera*` cvars — large, not scoped
+## 116. ActionCam — the `test_camera*` cvars — large, layer 1 built (dynamic pitch + command)
 
 The retail camera set that the DynamicCam addon drives entirely through
 SetCVar. 3.80.2 has all 20:
@@ -4913,7 +4903,23 @@ The port adds 3.80.2's offsets and focus terms to 1.12's per-frame camera
 update, so it needs a hook site in the camera update: check it against
 the other DLLs first (MinHook collision risk on per-frame paths).
 
-First step: the 3.80.2 read — each cvar's reader and the camera math it
-feeds (shoulder offset, the pitch/FoV pad, the head-bob filter, the
-target-focus yaw/pitch blend), plus the ActionCam command's presets — into
-`docs/notes/actioncam-3802.md`, then pick the 1.12 hook site.
+The read is done (2026-11-24): `docs/notes/actioncam-3802.md`. In 3.80.2,
+ActionCam is the console command (13 presets over six cvars) plus four
+blocks in the follow update. `CameraKeepCharacterCentered` (default 1)
+switches off all of them except interact focus.
+
+1.12 sites, which no other DLL hooks:
+- **solver `0x50E570` pre-hook**: over-shoulder and head movement go into
+  the eye offset. It needs a lateral sweep of our own on `0x69BFF0`.
+- **driver `0x50E8D0` post-hook**: dynamic pitch and target focus rotate the
+  basis, as the pivot bias does at `0x50EE58`.
+
+Layer 1 (2026-11-24, `src/camera/`): the cvars, the `ActionCam` command and
+dynamic pitch, including its smart-pivot cutoff. Next: 2 over-shoulder,
+3 head movement, 4 target focus.
+
+Open items:
+- UnitXP_SP3 post-hooks `0x511BC0` with its own displacement, pitch and
+  follow-target terms, which would stack with ours. Decided 2026-11-24:
+  ignore it.
+- Target focus needs the 1.12 interaction NPC GUID.
