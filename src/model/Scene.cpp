@@ -2908,7 +2908,9 @@ float GroundReticleRadius(const Actor &actor) {
     return radius;
 }
 
-bool HasFog(void *sceneFrame) { return F(sceneFrame).fogNear < F(sceneFrame).farClip; }
+bool HasFog(void *sceneFrame) {
+    return Game::Read<float>(sceneFrame, Offsets::OFF_SIMPLEMODEL_FOG_NEAR) < DrawFarClip(sceneFrame);
+}
 
 uint32_t ClockMs(void *sceneFrame) {
     return Game::Read<uint32_t>(Model::Pane::Scene(sceneFrame), Offsets::OFF_M2SCENE_TIME);

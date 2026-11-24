@@ -1193,7 +1193,10 @@ uint32_t ClockMs(void *sceneFrame);
 // Whether the scene's fog falls inside what it draws: its fog starts before
 // its far clip. Its fog is always on (3.80.2 has no fog switch), so a scene
 // whose fog starts past the far clip, as it does by default and after
-// ClearFog, fogs nothing.
+// ClearFog, fogs nothing. It reads the fog the frame draws with (its fields
+// in draw units), not the one SetFogNear set: during a paint a time of day
+// (Daylight) or the camera's liquid (LiquidFog) stages the map's fog there,
+// and the WMO and terrain draws must see that fog, not the scene's default.
 bool HasFog(void *sceneFrame);
 // The radius the actor's ground-target reticle draws at: its own, or the
 // world's default for 0 (Offsets::RETICLE_DEFAULT_RADIUS).
