@@ -216,9 +216,11 @@ void OnVisibility(void *region, bool visible) {
 
 const Frame::RegionVisibility::AutoSubscribe _visibilitySub{&OnVisibility};
 
+// Not gated on g_state: a reload clears it before the engine destroys the
+// old regions, and a region still in the motion focus or the press must
+// leave them all the same.
 void OnRegionDestroyed(void *region) {
-    if (g_state.erase(region) == 0)
-        return;
+    g_state.erase(region);
     Frame::MotionFocus::Forget(region);
     Frame::MouseInput::DropRegion(region);
 }

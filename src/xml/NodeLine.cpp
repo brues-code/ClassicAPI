@@ -80,7 +80,7 @@ void __cdecl StartElement_h(void **pair, const char *name, const char **atts) {
     const char *file = Xml::FileStack::Current();
     if (pair != g_pair || file == nullptr)
         return;
-    const void *node = pair[1];
+    const void *node = Game::Read<const void *>(pair, Offsets::OFF_XML_TREE_PAIR_CURRENT);
     if (node != nullptr)
         g_lines[node] = {Intern(file),
                          reinterpret_cast<GetLine_t>(Offsets::FUN_XML_GET_CURRENT_LINE_NUMBER)(g_parser)};

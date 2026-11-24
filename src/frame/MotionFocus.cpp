@@ -273,7 +273,9 @@ void __stdcall Remove(uint8_t *ctx, void *frame) {
     g_list.erase(it);
     Focus(ctx) = FirstFrame(g_list);
     Game::Ref<int>(ctx, Offsets::OFF_UI_CONTEXT_REPICK) = 1;
-    if (Game::Read<int>(frame, Offsets::OFF_FRAME_OBJECT_STATE) != Offsets::FRAME_OBJECT_STATE_DESTROYING)
+    // A region has no object state; one being destroyed leaves through Forget.
+    if (IsRegion(frame) ||
+        Game::Read<int>(frame, Offsets::OFF_FRAME_OBJECT_STATE) != Offsets::FRAME_OBJECT_STATE_DESTROYING)
         Notify(frame, false, 1, nullptr);
 }
 

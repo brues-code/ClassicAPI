@@ -65,7 +65,7 @@ Compile_t g_origCompile = nullptr;
 std::unordered_map<const char *, std::string> g_names;
 
 void __cdecl EndElement_h(void **pair) {
-    const void *node = pair[1];
+    const void *node = Game::Read<const void *>(pair, Offsets::OFF_XML_TREE_PAIR_CURRENT);
     const Xml::NodeLine::Location *loc = node != nullptr ? Xml::NodeLine::Get(node) : nullptr;
     if (loc != nullptr) {
         const void *parent = Game::Read<const void *>(node, Offsets::OFF_XML_NODE_PARENT);

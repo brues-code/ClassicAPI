@@ -1440,16 +1440,18 @@ const ScriptParams kScriptParams[] = {
     {"OnLoop", "loopState"},
 };
 
-// The parameter list for a "*<file>:<line>_<Script>" handler chunkname
-// (Xml::ScriptChunkName; "" when the script takes only `self`), or nullptr
-// when the chunkname does not name a script.
+// The parameter list for a handler chunkname ("" when the script takes only
+// `self`), or nullptr when the chunkname does not name a script. The name is
+// "*<file>:<line>_<Script>" (Xml::ScriptChunkName) for a handler whose node
+// an XML file built, else the engine's own "<Object>:<Script>" (a node
+// Xml::NodeLine has no line for).
 const char *HandlerParamsFor(const char *chunkname) {
-    if (chunkname == nullptr || chunkname[0] != '*')
+    if (chunkname == nullptr)
         return nullptr;
-    const char *underscore = std::strrchr(chunkname, '_');
-    if (underscore == nullptr)
+    const char *sep = std::strrchr(chunkname, chunkname[0] == '*' ? '_' : ':');
+    if (sep == nullptr || sep == chunkname)
         return nullptr;
-    const char *script = underscore + 1;
+    const char *script = sep + 1;
     if (std::strncmp(script, "On", 2) != 0 && std::strcmp(script, "PreClick") != 0 &&
         std::strcmp(script, "PostClick") != 0)
         return nullptr;

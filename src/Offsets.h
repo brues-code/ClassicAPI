@@ -15006,6 +15006,7 @@ enum Offsets {
     // character handler (0x006F29D0) grows current's text with SMemReAlloc, so
     // the text pointer is final only once the element ends.
     FUN_XML_START_ELEMENT = 0x006F28A0,
+    OFF_XML_TREE_PAIR_CURRENT = 0x04, // the pair's `current` node
     FUN_XML_END_ELEMENT = 0x006F29C0,
     // The linked expat 1.95.5. XML_SetUserData `void __cdecl(parser, data)`
     // (parser +0 userData, +4 handlerArg; XMLTree_Load's only call passes the
