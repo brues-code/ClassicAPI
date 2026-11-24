@@ -96,7 +96,6 @@ using Callback_t = void(__fastcall *)(void *arg);
 using AddCallback_t = void(__fastcall *)(void *batch, void *edx, Callback_t fn, void *arg);
 using HitTest_t = int(__fastcall *)(void *frame, void *edx, const float *point);
 using Frame::Layout::Rect;
-using SetupOrtho_t = void(__fastcall *)(const Rect *rect, const float *point, int unused);
 
 // One level batch's regions under one clipping frame.
 struct Record {
@@ -250,8 +249,7 @@ bool DrawInsidePixels(const Rect &rect, const Gx::Viewport &vp, Callback_t draw,
     Rect exact;
     Frame::Layout::NdcToDdc(&exact.left, &exact.bottom, x0 / w, 1.0f - y1 / h);
     Frame::Layout::NdcToDdc(&exact.right, &exact.top, x1 / w, 1.0f - y0 / h);
-    const float point[2] = {0, 0};
-    reinterpret_cast<SetupOrtho_t>(Offsets::FUN_SETUP_ORTHO_TRANSFORMS)(&exact, point, 0);
+    Gx::SetupOrthoTransforms(exact, 0.0f, 0.0f);
     Gx::SetViewport({(x0 + 0.5f) / w, (x1 + 0.5f) / w, 1.0f - (y1 + 0.5f) / h, 1.0f - (y0 + 0.5f) / h, 0.0f, 1.0f});
     draw(arg);
     return true;
@@ -278,8 +276,7 @@ void DrawInside(Rect rect, Callback_t draw, void *arg) {
     if (maxY < rect.top)
         rect.top = maxY;
 
-    const float point[2] = {0, 0};
-    reinterpret_cast<SetupOrtho_t>(Offsets::FUN_SETUP_ORTHO_TRANSFORMS)(&rect, point, 0);
+    Gx::SetupOrthoTransforms(rect, 0.0f, 0.0f);
     Frame::Layout::DdcToNdc(&rect.left, &rect.bottom, rect.left, rect.bottom);
     Frame::Layout::DdcToNdc(&rect.right, &rect.top, rect.right, rect.top);
     if (rect.left < 0.0f) {

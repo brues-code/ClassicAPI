@@ -823,8 +823,6 @@ void ResetUiDepth() { g_worldDepth = true; }
 const Tick::FrameTick::AutoSubscribeBefore _uiDepth{&ResetUiDepth};
 
 void __fastcall Paint(void *frame) {
-    using SetupOrtho_t = void(__fastcall *)(const Rect *rect, const float *point, int unused);
-
     // 3.80.2's paint draws nothing unless the near clip is before the far.
     if (!(F(frame).nearClip < F(frame).farClip))
         return;
@@ -850,8 +848,7 @@ void __fastcall Paint(void *frame) {
             eye[i] += shake[i];
         CameraTransforms(frame, camera, rect);
     } else {
-        const float point[2] = {rect.left, rect.bottom};
-        reinterpret_cast<SetupOrtho_t>(Offsets::FUN_SETUP_ORTHO_TRANSFORMS)(&rect, point, 0);
+        Gx::SetupOrthoTransforms(rect, rect.left, rect.bottom);
     }
     Frame::Layout::DdcToNdc(&rect.left, &rect.bottom, rect.left, rect.bottom);
     Frame::Layout::DdcToNdc(&rect.right, &rect.top, rect.right, rect.top);
