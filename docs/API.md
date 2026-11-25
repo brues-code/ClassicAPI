@@ -27642,7 +27642,7 @@ C_Spell.IsSpellInRange(1006, "target")     -- Inner Fire (self) → nil
 The range check is the same one that `IsActionInRange` uses for the
 range color of action buttons. It adds the combat reach of both units
 (see [`UnitCombatReach`](#unitcombatreachunit)) to the spell's min/max
-range and measures center-to-center distance.
+range and measures the 3D distance between the two centers.
 Thus the boundary matches the client exactly, melee and min-range ("too close") spells included.
 
 The target must be one that the spell can be cast on. If it is not,
@@ -31873,8 +31873,9 @@ different map, the distance is not known.
 > `UnitDistanceSquared("player")`. Thus a `0` distance does not tell you
 > if the distance is known.
 
-To compare the distance with a spell range, subtract the combat reach of
-both units. See [`UnitCombatReach`](#unitcombatreachunit).
+Spell range uses height and subtracts the combat reach of both units, so
+this distance is not the one that spell range measures. See
+[`UnitCombatReach`](#unitcombatreachunit).
 
 ### `UnitCombatReach(unit)`
 
@@ -31890,18 +31891,22 @@ both units to the range. A player has a reach of 1.5 yards. Large
 creatures, for example dragons and giants, have a much larger reach. The
 reach is `0` until the server sends the size of the unit.
 
-The distance that spell range measures is the distance between the two
-centers minus the reach of both units:
+The distance that spell range measures is the 3D distance between the
+two centers minus the reach of both units. Use
+[`UnitPosition`](#unitpositionunit) for the 3D distance.
+`UnitDistanceSquared` ignores height, so on a slope or below a ledge it
+gives a shorter distance than spell range measures.
 
 ```lua
-local distance, checked = UnitDistanceSquared("target")
-if checked and distance > 0 then
-    local range = math.sqrt(distance) - UnitCombatReach("player") - UnitCombatReach("target")
+local px, py, pz = UnitPosition("player")
+local tx, ty, tz = UnitPosition("target")
+if px and tx then
+    local dx, dy, dz = px - tx, py - ty, pz - tz
+    local range = math.sqrt(dx * dx + dy * dy + dz * dz)
+        - UnitCombatReach("player") - UnitCombatReach("target")
     -- the target is in range of a 30-yard spell when range <= 30
 end
 ```
-
-`UnitDistanceSquared` ignores height, so this range ignores height too.
 
 ### `UnitPosition(unit)`
 

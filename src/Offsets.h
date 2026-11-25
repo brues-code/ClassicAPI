@@ -4070,8 +4070,8 @@ enum Offsets {
     //                  int spellID, char *outMinMaxFlag)`.
     // Computes the spell's min/max range via `FUN_006e3480` (which folds
     // in both units' combat reach), reads both objects' world
-    // positions (GetPosition, vtable+0x14), and compares center-to-center
-    // squared distance. Returns low byte 1 = in range, 0 = out (too close
+    // positions (GetPosition, vtable+0x14), and compares the 3D
+    // center-to-center squared distance (x, y and z). Returns low byte 1 = in range, 0 = out (too close
     // OR too far); `*outMinMaxFlag` is set to 1 on a max-range (too far)
     // failure so the caller can pick a "too close" vs "out of range" error
     // string — we ignore it. Both objects must be non-null (it dereferences

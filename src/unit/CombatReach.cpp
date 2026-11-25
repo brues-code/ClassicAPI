@@ -13,11 +13,11 @@
 
 // `UnitCombatReach(unit)` → the unit's combat reach in yards
 // (UNIT_FIELD_COMBATREACH), or nothing when the token has no unit. No
-// Blizzard client exposes this; it is here so an addon can turn
-// `UnitDistanceSquared`'s center distance into the distance spell range
-// measures (center distance minus both reaches, the size every engine
-// range check adds: see `Unit::Position::CombatReach`), without a
-// separate distance DLL.
+// Blizzard client exposes this; it is here so an addon can turn the 3D
+// center distance from `UnitPosition` into the distance spell range
+// measures (3D center distance minus both reaches, as IsTargetInSpellRange
+// 0x6E47B0 and the server compare it: see `Unit::Position::CombatReach`),
+// without a separate distance DLL.
 
 #include "Game.h"
 #include "unit/Position.h"
