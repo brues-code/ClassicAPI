@@ -53,6 +53,7 @@
 #include "equipmentset/Data.h"
 #include "item/ID.h"
 #include "item/Link.h"
+#include "item/Location.h"
 #include "macro/Slot.h"
 #include "spell/Lookup.h"
 #include "object/Resolve.h"
@@ -292,7 +293,29 @@ const Game::Doc::Field kGetCursorInfoRets[] = {
 const Game::Doc::Function kGetCursorInfo{"Returns what the cursor holds.", {},
                                          kGetCursorInfoRets, "CursorGlobals"};
 
+// C_Cursor.GetCursorItem (3.80.2's 0x140BF7AB0): the ItemLocation of the item
+// the cursor holds, only for a real item (type 1 with a GUID; 1.12's bag and
+// equipment pickups both set it). Previews of an item ID (merchant, loot,
+// trade and the like) and other cursor kinds return nothing, as in 3.80.2.
+int __fastcall Script_GetCursorItem(void *L) {
+    if (ReadVar(Offsets::VAR_CURSOR_TYPE) != 1 || !HasItem())
+        return 0;
+    const uint64_t guid = (static_cast<uint64_t>(ReadVar(Offsets::VAR_CURSOR_ITEM_GUID_HI)) << 32) |
+                          ReadVar(Offsets::VAR_CURSOR_ITEM_GUID_LO);
+    Item::Location::ByGUIDResult found;
+    if (!Item::Location::FindLocationByGUID(guid, &found))
+        return 0;
+    Item::Location::PushLocation(L, found);
+    return 1;
+}
+
+const Game::Doc::Field kCursorItemRets[] = {
+    Game::Doc::Opt("item", "ItemLocation", nullptr, "nil when the cursor holds no item from the bags or equipment."),
+};
+const Game::Doc::Function kGetCursorItem{"Returns where the item on the cursor came from.", {}, kCursorItemRets};
+
 void RegisterLuaFunctions() {
+    Game::Lua::RegisterTableFunction("C_Cursor", "GetCursorItem", &Script_GetCursorItem, &kGetCursorItem);
     Game::Lua::RegisterGlobalFunction("GetCursorInfo", &Script_GetCursorInfo, &kGetCursorInfo);
     Game::Lua::RegisterGlobalFunction("CursorHasMacro", &Script_CursorHasMacro,
                                       &kCursorHasMacro);

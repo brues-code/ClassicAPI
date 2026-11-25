@@ -16,6 +16,7 @@
 #include "../Game.h"
 #include "../Offsets.h"
 #include "../guid/Guid.h"
+#include "../lua/MixinTable.h"
 #include "../object/Resolve.h"
 #include "../unit/Identity.h"
 #include "Arg.h"
@@ -373,6 +374,16 @@ bool FindByGUID(uint64_t guid, bool includeBank, ByGUIDResult *out) {
                   PLACE_BANK))
             return true;
     return false;
+}
+
+void PushLocation(void *L, const ByGUIDResult &found) {
+    Game::Lua::MixinTable::Push(L, "ItemLocationMixin");
+    if (found.equipmentSlotIndex != 0) {
+        Game::Lua::SetFieldNumber(L, "equipmentSlotIndex", found.equipmentSlotIndex);
+        return;
+    }
+    Game::Lua::SetFieldNumber(L, "bagID", found.bagID);
+    Game::Lua::SetFieldNumber(L, "slotIndex", found.slotIndex);
 }
 
 bool FindLocationByGUID(uint64_t guid, ByGUIDResult *out) {

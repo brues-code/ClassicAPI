@@ -165,3 +165,28 @@ end
 function UnitIgnoresVehicleComboPoints(unit)
     return true
 end
+
+-- SitOrStand is the sit/stand toggle.
+ToggleSit = SitOrStand
+
+C_ChatInfo = C_ChatInfo or {}
+
+-- DoEmote finds the emote and its target as 3.80.2's PerformEmote does. The
+-- result is true only for an emote the client restricts, and this client
+-- restricts none. Its emotes have no movement check, so there is no error to
+-- suppress.
+function C_ChatInfo.PerformEmote(emoteName, targetName, suppressMoveError)
+    DoEmote(emoteName, targetName)
+    return false
+end
+
+C_PvP.TogglePVP = TogglePVP
+
+-- A fully installed client has nothing to stream or load in the background.
+function GetFileStreamingStatus()
+    return 0
+end
+
+function GetBackgroundLoadingStatus()
+    return 0
+end

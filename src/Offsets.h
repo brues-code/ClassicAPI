@@ -2697,6 +2697,18 @@ enum Offsets {
     // and a `{rtN}` prefix on both names (Chat::ChatTokens).
     // Prologue 53 8B DC 83 EC 08.
     FUN_CHAT_PARSE_TEXT = 0x005083A0,
+    // Script_SendChatMessage — the Lua `SendChatMessage(text [, chatType [,
+    // language [, target]]])` (docs/raw_globals.txt, chat batch slot 0). Its
+    // language argument is a localized Languages.dbc name, matched by
+    // ResolveLanguageName 0x0049F8A0 (SStrCmpI against the row's name for
+    // the client locale); an unmatched one raises "Unknown language".
+    FUN_SCRIPT_SEND_CHAT_MESSAGE = 0x0049F1E0,
+    // Languages.dbc (class 0x00C0DB40, docs/DBCs.md): records and largest id;
+    // a row is the id (+0x00), the localized name (+0x04 + locale * 4) and
+    // a flags column, 0x28 bytes (ResolveLanguageName reads the name there).
+    VAR_LANGUAGES_RECORDS = 0x00C0DB48,
+    VAR_LANGUAGES_COUNT = 0x00C0DB4C,
+    OFF_LANGUAGES_RECORD_NAME = 0x04,
     // FrameScript_GetText — `const char *__fastcall(const char *name, int
     // edx /*-1*/, int gender /*stack, 0*/)`, RET 4. With (-1, 0) it returns
     // the global string `name`, or "" when unset.
@@ -9807,6 +9819,15 @@ enum Offsets {
     // `or eax,[B72244]` test, then zeroes both halves) and at world entry;
     // StablePet (0x004CAE50) gates on it the same way.
     VAR_STABLE_MASTER_GUID = 0x00B72240,
+    // Script_GetStablePetInfo — the Lua `GetStablePetInfo(index)`
+    // (docs/raw_globals.txt): index 0 or less is the summoned pet, 1..N a
+    // stabled one; pushes the family's icon path, the name, the level, the
+    // family name and the loyalty name, or nil, nil, 0, nil, nil for an empty
+    // slot or a creature not cached yet (benilla-re ui/stable). This client
+    // keeps the stabled records 0x34 bytes apart (0x004CB290 `imul eax,eax,
+    // 0x34`, the list handler's 0x004CAC3C step; stock 1.12 has 0x64), so
+    // the record layout is left to this function.
+    FUN_SCRIPT_GET_STABLE_PET_INFO = 0x004CB230,
     // "The pet can act" — the core of `Script_GetPetActionsUsable`
     // (0x004BE0B0), `int()` with no args. True when the player isn't
     // charmed, the CGPlayer pet field matches VAR_PET_GUID, the pet

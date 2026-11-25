@@ -13,28 +13,10 @@
 
 #include "Game.h"
 #include "item/Location.h"
-#include "lua/MixinTable.h"
 
 #include <cstdint>
 
 namespace Item::GetItemLocation {
-
-namespace {
-
-// An ItemLocationMixin table with the bag and slot, or the equipment slot, as
-// 3.80.2 builds an itemLocation return (0x140B3C770 / 0x140A61FA0,
-// lua/MixinTable.h).
-void PushItemLocation(void *L, const Item::Location::ByGUIDResult &found) {
-    Game::Lua::MixinTable::Push(L, "ItemLocationMixin");
-    if (found.equipmentSlotIndex != 0) {
-        Game::Lua::SetFieldNumber(L, "equipmentSlotIndex", found.equipmentSlotIndex);
-        return;
-    }
-    Game::Lua::SetFieldNumber(L, "bagID", found.bagID);
-    Game::Lua::SetFieldNumber(L, "slotIndex", found.slotIndex);
-}
-
-} // namespace
 
 // `C_Item.GetItemLocation(itemGUID)` — reverse lookup from a per-
 // instance item GUID (in the `"0xHHHHHHHHLLLLLLLL"` form
@@ -57,7 +39,7 @@ static int __fastcall Script_C_Item_GetItemLocation(void *L) {
     if (!Item::Location::FindLocationByGUID(guid, &found))
         return 0;
 
-    PushItemLocation(L, found);
+    Item::Location::PushLocation(L, found);
     return 1;
 }
 

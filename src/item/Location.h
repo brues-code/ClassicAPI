@@ -139,6 +139,11 @@ bool FindByGUID(uint64_t guid, bool includeBank, ByGUIDResult *out);
 // item, which no location names. Clears `*out` on a miss.
 bool FindLocationByGUID(uint64_t guid, ByGUIDResult *out);
 
+// Pushes the ItemLocationMixin table for a found location: `bagID` and
+// `slotIndex`, or `equipmentSlotIndex` (3.80.2's itemLocation return,
+// 0x140B3C770 / 0x140A61FA0; lua/MixinTable.h).
+void PushLocation(void *L, const ByGUIDResult &found);
+
 // Same equipment-first, bag-second walk as `FindByGUID`, but matches
 // on itemID instead. Returns the FIRST instance found — equipment
 // slots are checked before bags, so an equipped enchanted copy is
