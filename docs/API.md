@@ -25440,6 +25440,7 @@ turns off gets no plate, and no `NAME_PLATE_UNIT_ADDED` fires for it.
 | `nameplateShowFriendlyPlayerMinions` | `1` | Sets the three friendly player cvars above when it changes. |
 | `SoftTargetNameplateFriend` | `0` | `1` keeps the plate of `"softfriend"` when its friendly cvar is off. |
 | `SoftTargetNameplateInteract` | `0` | `1` keeps the plate of `"softinteract"` when its friendly cvar is off. |
+| `SoftTargetNameplateEnemy` | `1` | `1` shows the plate of `"softenemy"` when enemy nameplates are off. |
 
 A unit that a player owns is a totem, a pet or a guardian:
 

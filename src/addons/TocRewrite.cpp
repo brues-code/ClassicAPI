@@ -218,6 +218,7 @@ struct TocInfo {
     uint32_t allowLoad = ALLOW_LOAD_GAME;  // the last `## AllowLoad:` line
     std::vector<std::string> managers;     // `## LoadManagers:` lines, appended
     bool onlyBetaAndPtr = false;           // the last `## OnlyBetaAndPTR:` line
+    uint32_t interfaceVersion = 0;         // what the parser will store (+0x1C)
 };
 
 // One processed `##` line: rewrites `## Interface:` to its single value, turns
@@ -227,8 +228,10 @@ void ProcessMetadata(std::string &line, TocInfo &info) {
     const char *v = nullptr;
     size_t n = 0, prefix = 0;
     if (MetadataValue(line, "AlwaysUpToDate", &v, &n, &prefix)) {
-        if (Toc::Truthy(v, n))
+        if (Toc::Truthy(v, n)) {
             line = "## Interface: " + std::to_string(ClientInterfaceVersion());
+            info.interfaceVersion = ClientInterfaceVersion();
+        }
     } else if (MetadataValue(line, "OnlyBetaAndPTR", &v, &n, &prefix)) {
         info.onlyBetaAndPtr = Toc::Truthy(v, n);
     } else if (MetadataValue(line, "LoadManagers", &v, &n, &prefix)) {
@@ -237,8 +240,8 @@ void ProcessMetadata(std::string &line, TocInfo &info) {
             return false;
         });
     } else if (MetadataValue(line, "Interface", &v, &n, &prefix)) {
-        const std::string value =
-            std::to_string(PickInterface(v, n, ClientInterfaceVersion()));
+        info.interfaceVersion = PickInterface(v, n, ClientInterfaceVersion());
+        const std::string value = std::to_string(info.interfaceVersion);
         if (std::string(v, n) != value) {
             line.resize(prefix);
             line.push_back(' ');
@@ -287,6 +290,11 @@ void RebuildToc(const char *src, size_t srcLen, std::string &out, TocInfo &info)
         out.append(src + termStart, i - termStart);
     }
 }
+
+// The folder pattern the engine moves aside as its own (`Blizzard*`,
+// 0x00853A54), as a prefix.
+constexpr char kClientAddonPrefix[] = "Blizzard";
+constexpr size_t kClientAddonPrefixLen = sizeof(kClientAddonPrefix) - 1;
 
 // True iff `path` is an addon `.toc` read (...\AddOns\...\*.toc). Gates the
 // rewrite off every non-TOC read (a `.lua` with a `t[1]` subscript would
@@ -377,9 +385,25 @@ bool Transform(const char *path, void **outBuf, size_t *outSize) {
         size_t nameStart = prefixLen;
         while (nameStart > 0 && path[nameStart - 1] != '\\' && path[nameStart - 1] != '/')
             --nameStart;
-        LoadGate::Record(path + nameStart, prefixLen - nameStart, info.gameTypes,
-                         info.allowLoad);
-        LoadManagers::Record(path + nameStart, prefixLen - nameStart, info.managers);
+        const char *name = path + nameStart;
+        const size_t nameLen = prefixLen - nameStart;
+        LoadGate::Record(name, nameLen, info.gameTypes, info.allowLoad);
+        LoadManagers::Record(name, nameLen, info.managers);
+
+        // 3.80.2 checks the interface version only for a user addon: the
+        // record's +0x4b, 1 from the AddOns folder scan (FUN_141af4ba0),
+        // 0 for the client's own addons (FUN_141af59f0), stored by
+        // FUN_141af3be0 (0x141af3c81) and tested by the load check
+        // FUN_141af6140. So Blizzard's TOCs carry no `## Interface:` line.
+        // 1.12's check (0x0051E780) has no such byte and compares every
+        // addon; a client addon without the client's version gets it, last
+        // in the file so it wins (1.12's own TOCs already say it and stay
+        // as they are). Client addons here are the engine's own `Blizzard*`
+        // folders: those in the archives, and the loose ones
+        // AddOns::LooseBlizzard keeps because the archives lack them.
+        if (info.interfaceVersion != ClientInterfaceVersion() && nameLen >= kClientAddonPrefixLen &&
+            Ascii::EqualCI(name, kClientAddonPrefixLen, kClientAddonPrefix))
+            rebuilt += "\r\n## Interface: " + std::to_string(ClientInterfaceVersion()) + "\r\n";
     }
 
     // A live client (this one, always) removes an OnlyBetaAndPTR addon

@@ -19,10 +19,16 @@
 // `ClassicAPI_DamageMeter`, which are `## LoadOnDemand` behind the `/dump` /
 // `/fstack` / `/etrace` / `/replay` stubs and the `damageMeterEnabled` cvar in
 // `!!!ClassicAPI` — retail's chat-frame +
-// Blizzard_DebugTools / Blizzard_EventTrace split. (The `Blizzard_` name is not
-// available to us: the engine moves loose `Interface\AddOns\Blizzard*`
-// folders aside at startup, `MoveAsideLooseInterface`, and refuses a
-// `Blizzard_*` TOC without a signature.)
+// Blizzard_DebugTools / Blizzard_EventTrace split. (They keep ClassicAPI_
+// names so a developer's junctioned disk copy, see DecideSource, is not
+// renamed to .old at the next glue entry: AddOns::LooseBlizzard lets the
+// engine move aside a loose Blizzard_ folder whose addon this module serves.)
+//
+// `Blizzard_SharedXML`, `Blizzard_StaticPopup` and `Blizzard_MicroMenu` are
+// a TOC each and nothing else. They stand in for retail base addons whose
+// content this client already has (its FrameXML and `!!!ClassicAPI`), so a
+// retail addon that lists one in `## Dependencies:` loads, and
+// IsAddOnLoaded answers true for it.
 //
 // How:
 //

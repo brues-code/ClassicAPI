@@ -3353,6 +3353,13 @@ enum Offsets {
     // UNIT_FIELD_SUMMONEDBY and UNIT_FIELD_FLAGS bit 9 (0x0060F70B..2D).
     FUN_NAMEPLATE_GATE = 0x0060F600,
     CALL_NAMEPLATE_GATE_CREATURE_TYPE = 0x0060F752,
+    // The plate switches (u8): bit 0x1 enemy plates on, 0x8 friendly plates
+    // on (SetShowEnemyNamePlates 0x006054F0 / SetShowFriendNamePlates
+    // 0x00605510), 0x2 resort, 0x4 refresh. Bits 0x1 / 0x8 are read only by
+    // the gate (0x0060F6F3); UpdateNamePlate tests 0x4 and 0x2 (0x0060875F,
+    // 0x0060878E). Every reference xref'd in C:\WoW\Octo\WoW.exe.
+    VAR_NAMEPLATE_FLAGS = 0x00C4DA34,
+    NAMEPLATE_FLAG_ENEMY = 0x1,
     // CGNamePlateFrame::Initialize, the bind — `void __thiscall(plate,
     // CGUnit_C *)`, RET 4 (called from UpdateNamePlate at 0x00608707). It
     // sets the plate's size from VAR_NAMEPLATE_WIDTH / VAR_NAMEPLATE_HEIGHT
@@ -12432,6 +12439,13 @@ enum Offsets {
     // Hooked once, by Script::LoadFile, which fans out to path rewriters
     // (Xml::ScriptPath) and suppressors (AddOns::SavedVarsFirst).
     FUN_LUA_LOAD_FILE = 0x00704BC0,
+    // Its buffer runner FrameScriptExecuteBuffer (0x00704AE0) runs a chunk
+    // that compiled with this `call LUA_PCALL` (E8): ECX = L, EDX = 0 args,
+    // pushes errfunc -2 (the engine error handler it pushed under the chunk)
+    // and nresults 0, so the chunk's results are dropped; then settop(-2)
+    // pops the handler. The chunk is named "@<path>" (0x008716E0 "@%s").
+    // Script::Import redirects it. Disassembled in C:\WoW\Octo\WoW.exe.
+    CALL_EXECUTE_BUFFER_PCALL = 0x00704B68,
 
     // XML file processor - `__fastcall(const char *path, void *ctx, void
     // *status)` (RET 4); walks an XML file's top-level elements. Called by
@@ -13190,6 +13204,19 @@ enum Offsets {
     // already-registered addon.
     FUN_ADDON_SCAN_DISK_DIRS = 0x0042AD10,
     FUN_ADDON_DISK_DIR_CB = 0x0051D7B0,
+    // FindInfo's name, char[0x104] UTF-8 (benilla-re systems/storm/mount.md
+    // "Listing a folder").
+    OFF_DIR_ENTRY_NAME = 0x08,
+
+    // `MoveAsideBlizzardAddOn` — `int __fastcall(FindInfo *entry, char
+    // *moved)`, returns 0 (go on). The FUN_ADDON_SCAN_DISK_DIRS callback of
+    // `MoveAsideLooseInterface` (0x0051FB50), which CGlueMgr::Resume calls
+    // (0x0046A8EB) at every glue entry, over `Interface\AddOns\` +
+    // `Blizzard*` (0x00853A54). When `Interface\AddOns\<name>\<name>.toc`
+    // is on disk (OsFileExists) it renames the folder to `<name>.old`
+    // (OsMoveFile) and sets *moved, which makes the caller clear the
+    // loose-file index. Decompiled in C:\WoW\Octo\WoW.exe.
+    FUN_ADDON_MOVE_ASIDE_BLIZZARD = 0x0051FBF0,
     VAR_ADDON_SCAN_PATTERN = 0x00833180,  // "*" (walker config block)
     VAR_ADDON_PATH_PREFIX = 0x00853724,   // "Interface\AddOns\"
 
@@ -14062,6 +14089,15 @@ enum Offsets {
     // clears, so it fires once per UI instance: at login and after a reload
     // (benilla ui/worldenter). E8 call, disassembled.
     CALL_ENTER_WORLD_FIRE_PLAYER_LOGIN = 0x00490959,
+
+    // The interface-reload request byte (u8). CGGameUI::Reload (0x00491380),
+    // which ReloadUI calls, sets it (0x0049138E) once the protected-action
+    // gate allows tag 10: always in client context, in script context only
+    // during an input event. The world frame update (0x00495590) tests it at
+    // its end (0x0049565B), tears the interface down (0x00490BD0) and builds
+    // it again (0x0048FBF0), which clears it (0x00490124). Only those three
+    // references (xrefs in C:\WoW\Octo\WoW.exe; benilla ui/bindings).
+    VAR_UI_RELOAD_REQUESTED = 0x00B4B3F4,
 
     // `__fastcall(int sendRelease, char earlyReturnOnGameObject,
     // char showError)` — engine's "close the current loot window"

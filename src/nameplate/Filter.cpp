@@ -38,7 +38,8 @@
 // Defaults: 1, which leaves 1.12's plates as they are, except
 // nameplateShowFriendlyPlayerTotems, 0, as 1.12 shows no friendly totem.
 // 3.80.2's are 0 for all of them (and SoftTargetNameplateFriend /
-// Interact 0, kept). Not ported: nameplateShowAll (combat-only plates),
+// Interact 0, kept). SoftTargetNameplateEnemy is retail's (default 1); 3.80.2
+// has none (see SoftEnemyForced). Not ported: nameplateShowAll (combat-only plates),
 // nameplateShowEnemyMinus (1.12 has no such classification), the hard rule
 // that hides critters, and 3.80.2's target and distance overrides.
 
@@ -75,6 +76,7 @@ Handle g_friendlyPlayerGuardians = nullptr;
 Handle g_friendlyPlayerTotems = nullptr;
 Handle g_softFriend = nullptr;
 Handle g_softInteract = nullptr;
+Handle g_softEnemy = nullptr;
 
 enum class Kind { Pet, Guardian, Totem };
 
@@ -160,10 +162,33 @@ bool TurnedAway(const void *unit) {
 using Gate_t = void(__fastcall *)(void *unit, void *edx, void *parent);
 Gate_t g_gateOriginal = nullptr;
 
+// Retail's SoftTargetNameplateEnemy (3.80.2 has no enemy one): the soft
+// enemy keeps its plate while enemy plates are switched off. The gate runs
+// with its enemy switch on for that one unit, so every other rule it applies
+// (alive, on screen, in range, not stealthed) still decides.
+bool SoftEnemyForced(const void *unit) {
+    if (GetInt(g_softEnemy) == 0)
+        return false;
+    if ((Game::Read<uint8_t>(Offsets::VAR_NAMEPLATE_FLAGS) & Offsets::NAMEPLATE_FLAG_ENEMY) != 0)
+        return false;
+    const auto *base = Game::Read<const uint8_t *>(unit, Offsets::OFF_OBJECT_DATA);
+    if (base == nullptr)
+        return false;
+    const uint64_t soft = Target::SoftUnit::Get(Target::SoftUnit::Side::Enemy);
+    return soft != 0 && Game::Read<uint64_t>(base, 0) == soft;
+}
+
 void __fastcall Gate_h(void *unit, void *edx, void *parent) {
     if (unit != nullptr && TurnedAway(unit)) {
         using Release_t = void(__thiscall *)(void *unit);
         reinterpret_cast<Release_t>(Offsets::FUN_UNIT_RELEASE_NAMEPLATE)(unit);
+        return;
+    }
+    if (unit != nullptr && SoftEnemyForced(unit)) {
+        uint8_t &flags = Game::Ref<uint8_t>(Offsets::VAR_NAMEPLATE_FLAGS);
+        flags |= Offsets::NAMEPLATE_FLAG_ENEMY;
+        g_gateOriginal(unit, edx, parent);
+        flags &= static_cast<uint8_t>(~Offsets::NAMEPLATE_FLAG_ENEMY);
         return;
     }
     g_gateOriginal(unit, edx, parent);
@@ -238,6 +263,7 @@ void Register() {
                        "Always show nameplates for soft friend target", "0");
     g_softInteract = reg("SoftTargetNameplateInteract",
                          "Always show nameplates for soft interact target", "0");
+    g_softEnemy = reg("SoftTargetNameplateEnemy", "Always show nameplates for soft enemy target", "1");
 
     Common::RedirectCall(Offsets::CALL_NAMEPLATE_GATE_CREATURE_TYPE,
                          Offsets::FUN_UNIT_CREATURE_TYPE, reinterpret_cast<void *>(&GateCreatureType));

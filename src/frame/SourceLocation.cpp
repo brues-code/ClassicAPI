@@ -319,6 +319,11 @@ const char *Get(void *object) {
             return it->second.c_str();
         if (Game::Lua::IsA(o, Offsets::VAR_FRAME_LUA_TYPE_ID))
             return nullptr; // a frame answers only for itself
+        // Only a region (texture, font string) asks its parent frame: other
+        // script objects (an animation, a font) have no parent at
+        // OFF_REGION_PARENT, and what sits there is not an object.
+        if (!Game::Lua::IsA(o, Offsets::VAR_REGION_LUA_TYPE_ID))
+            return nullptr;
         o = Game::Read<void *>(o, Offsets::OFF_REGION_PARENT);
     }
     return nullptr;

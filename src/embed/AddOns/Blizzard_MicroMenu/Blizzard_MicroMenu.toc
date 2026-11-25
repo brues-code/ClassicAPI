@@ -1,0 +1,5 @@
+## Interface: 11200
+## Title: Blizzard_MicroMenu
+## Notes: Stands in for the retail addon of this name. This client already has its content, so an addon that depends on it can load.
+## Author: ClassicAPI
+## Version: DEV

@@ -18,6 +18,34 @@ function C_AddOns.GetScriptsDisallowedForBeta()
     return false
 end
 
+-- This client has no taint, no secret values and no addon restrictions, so
+-- every caller is secure, nothing is secret and no restriction is active.
+-- An addon with ## UseSecureEnvironment already runs in the global
+-- environment.
+function issecure()
+    return true
+end
+
+function issecurevalue(table, key)
+    return true
+end
+
+function issecretvalue(value)
+    return false
+end
+
+function forceinsecure()
+end
+
+function SwapToGlobalEnvironment()
+end
+
+C_RestrictedActions = C_RestrictedActions or {}
+
+function C_RestrictedActions.IsAddOnRestrictionActive(type)
+    return false
+end
+
 C_CVar.GetCVar = GetCVar
 C_CVar.GetCVarDefault = GetCVarDefault
 C_CVar.RegisterCVar = RegisterCVar

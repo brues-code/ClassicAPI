@@ -1330,12 +1330,15 @@ int __fastcall Script_Mod(void *L) {
 // 3 = the addon's table. The loader calls this with no arguments. An error in
 // the body unwinds through this frame to the loader's pcall, so nothing here
 // may need destruction.
+// Returns what the file returns, as a 5.1 chunk does (a module file ends
+// `return Module;`, which Script::Import keeps).
 int __fastcall Script_RunAddonFile(void *L) {
+    const int base = Game::Lua::GetTop(L);
     Game::Lua::PushValue(L, Game::Lua::UpvalueIndex(1));
     Game::Lua::PushValue(L, Game::Lua::UpvalueIndex(2));
     Game::Lua::PushValue(L, Game::Lua::UpvalueIndex(3));
-    Game::Lua::Call(L, 2, 0);
-    return 0;
+    Game::Lua::Call(L, 2, Game::Lua::MULTRET);
+    return Game::Lua::GetTop(L) - base;
 }
 
 // ============================================================================

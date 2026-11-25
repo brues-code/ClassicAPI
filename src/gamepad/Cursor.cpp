@@ -333,6 +333,63 @@ void RegisterCVars() {
 
 const Game::GlueModuleAutoRegister _cvars{&RegisterCVars};
 
+// --- IsCursorVisible / GetCursorCenterPosition ------------------------------------
+// Retail's (InputDocumentation; 3.80.2 has neither). Visible is the engine's
+// own cursor flag, which mouse-look and the gamepad hide both clear. The
+// centre is the point the hidden cursor sits at, (0.5, CursorCenteredYPos),
+// in GetCursorPosition's units: the engine's GetCursorPosition converts it,
+// run with the centre in the mouse position it reads.
+
+int __fastcall Script_IsCursorVisible(void *L) {
+    Game::Lua::PushBool(L, EngineShown());
+    return 1;
+}
+
+int __fastcall Script_GetCursorCenterPosition(void *L) {
+    uint8_t *ctx = Game::Read<uint8_t *>(Offsets::VAR_UI_CONTEXT_PTR);
+    if (ctx == nullptr) {
+        Game::Lua::PushNumber(L, 0);
+        Game::Lua::PushNumber(L, 0);
+        return 2;
+    }
+    float *point = &Game::Ref<float>(ctx, Offsets::OFF_UI_CONTEXT_MOUSE_POSITION);
+    const float savedU = point[0];
+    const float savedV = point[1];
+    point[0] = 0.5f;
+    point[1] = CenteredY();
+    const int pushed = reinterpret_cast<int(__fastcall *)(void *)>(
+        static_cast<uintptr_t>(Offsets::FUN_SCRIPT_GETCURSORPOSITION))(L);
+    point[0] = savedU;
+    point[1] = savedV;
+    return pushed;
+}
+
+const Game::Doc::Field kVisibleRet[] = {Game::Doc::Req("visible", "bool")};
+const Game::Doc::Function kIsCursorVisible{"Returns whether the cursor is shown.", {}, kVisibleRet, "Input"};
+const Game::Doc::Field kCenterRets[] = {
+    Game::Doc::Req("posX", "number"),
+    Game::Doc::Req("posY", "number"),
+};
+const Game::Doc::Function kGetCursorCenterPosition{
+    "Returns where the centred cursor sits, the screen's middle at CursorCenteredYPos, in GetCursorPosition's "
+    "units.",
+    {}, kCenterRets, "Input"};
+
+void RegisterGlueLua() {
+    Game::Lua::RegisterGlueFunction("IsCursorVisible", &Script_IsCursorVisible, &kIsCursorVisible);
+    Game::Lua::RegisterGlueFunction("GetCursorCenterPosition", &Script_GetCursorCenterPosition,
+                                    &kGetCursorCenterPosition);
+}
+
+void RegisterWorldLua() {
+    Game::Lua::RegisterGlobalFunction("IsCursorVisible", &Script_IsCursorVisible, &kIsCursorVisible);
+    Game::Lua::RegisterGlobalFunction("GetCursorCenterPosition", &Script_GetCursorCenterPosition,
+                                      &kGetCursorCenterPosition);
+}
+
+const Game::GlueModuleAutoRegister _glueLua{&RegisterGlueLua};
+const Game::ModuleAutoRegister _worldLua{&RegisterWorldLua};
+
 // --- jump (0x14125C5F0's head) -----------------------------------------------------
 
 using Jump_t = int(__fastcall *)(void *L);

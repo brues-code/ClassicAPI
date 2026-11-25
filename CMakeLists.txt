@@ -126,7 +126,7 @@ embed_resources(
     TARGET ${PROJECT_NAME}
     ADDONS_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/src/embed/AddOns"
     ADDONS "!!!ClassicAPI" "ClassicAPI_DebugTools" "ClassicAPI_EventTrace" "ClassicAPI_Replay"
-           "ClassicAPI_DamageMeter"
+           "ClassicAPI_DamageMeter" "Blizzard_SharedXML" "Blizzard_StaticPopup" "Blizzard_MicroMenu"
     ADDON_VERSION "${CLASSICAPI_TOC_VERSION}"
     BINDINGS_XML "${CMAKE_CURRENT_SOURCE_DIR}/src/bindings/Bindings.xml"
     TEXTURES_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/src/embed/Textures"

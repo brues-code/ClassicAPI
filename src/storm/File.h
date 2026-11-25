@@ -49,4 +49,10 @@ inline bool Exists(const char *path) {
     return reinterpret_cast<ExistsFn>(Offsets::FUN_FILE_EXISTS)(path, 1) != 0;
 }
 
+// Whether the client's archives hold `path`, loose files aside: mode 0 skips
+// the loose-file index, as Storm's SFileExists (0x00648A10) asks.
+inline bool InArchives(const char *path) {
+    return reinterpret_cast<ExistsFn>(Offsets::FUN_FILE_EXISTS)(path, 0) != 0;
+}
+
 } // namespace Storm::File
