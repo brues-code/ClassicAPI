@@ -26,10 +26,4 @@ namespace Texture::Slice {
 // texture, any other atlas clears them.
 void ApplyAtlas(void *texture, const Atlas::Info &info);
 
-// The texture whose pieces `positions` points into (a layer batch quad's
-// position pointer), or null. A sliced texture's quads do not point at its
-// own corners (OFF_SIMPLETEXTURE_CORNERS), so a draw hook that finds the
-// texture from that pointer asks here first.
-void *Owner(const void *positions);
-
 } // namespace Texture::Slice

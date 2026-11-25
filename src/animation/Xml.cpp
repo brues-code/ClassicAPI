@@ -185,7 +185,7 @@ void LoadAnimChildren(Group *group, const void *node, void *status) {
         static const char *const kTags[] = {"Animation",   "Translation",     "Rotation",
                                             "Scale",       "Alpha",           "Path",
                                             "VertexColor", "FlipBook",        "TextureCoordTranslation",
-                                            "LineScale",   "LineTranslation"};
+                                            "LineScale",   "LineTranslation", "RadialProgress"};
         bool known = false;
         for (const char *t : kTags)
             known = known || ::Xml::TagIs(child, t);
@@ -413,6 +413,11 @@ void LoadAnim(Anim *anim, const void *node, void *status) {
     }
     if (anim->kind == KIND_SCALE || anim->kind == KIND_LINE_SCALE || anim->kind == KIND_ROTATION)
         LoadOrigin(anim, node);
+    // RadialProgress: fromPercent / toPercent (UI.xsd's RadialProgressType).
+    if (anim->kind == KIND_RADIAL_PROGRESS) {
+        FloatAttr(node, "fromPercent", anim->fromPercent);
+        FloatAttr(node, "toPercent", anim->toPercent);
+    }
     // VertexColor: <StartColor> / <EndColor>, each a colour element.
     if (anim->kind == KIND_VERTEX_COLOR) {
         if (const void *c = FindChild(node, "StartColor"))

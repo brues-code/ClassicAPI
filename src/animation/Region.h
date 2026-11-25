@@ -59,6 +59,9 @@ void SetAnimVertexColor(void *region, void *target, uint32_t bgra);
 // FlipBook: the texture shows the cell for `progress` and keeps it.
 void SetAnimFlipBookFrame(void *region, void *target, uint32_t rows, uint32_t columns, uint32_t frames,
                           uint32_t frameWidth, uint32_t frameHeight, float progress);
+// RadialProgress: the texture's radial progress bar shows `percent` and
+// keeps it (other regions ignore it).
+void SetAnimRadialProgress(void *region, void *target, float percent);
 // TextureCoordTranslation: (u, v) added to the stored coordinates of every
 // texture it reaches (a frame passes it down).
 void AddAnimTexCoord(void *region, void *target, float u, float v);

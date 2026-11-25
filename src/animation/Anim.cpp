@@ -69,6 +69,7 @@ Class &ClassOf(AnimKind kind) {
     case KIND_TEXCOORD: return Anim::s_texCoordClass;
     case KIND_LINE_TRANSLATION: return Anim::s_lineTranslationClass;
     case KIND_LINE_SCALE: return Anim::s_lineScaleClass;
+    case KIND_RADIAL_PROGRESS: return Anim::s_radialProgressClass;
     default: return Anim::s_class;
     }
 }
@@ -98,6 +99,8 @@ AnimKind Anim::KindOf(const char *typeName) {
         return KIND_LINE_TRANSLATION;
     if (Ascii::EqualCI(typeName, "LineScale"))
         return KIND_LINE_SCALE;
+    if (Ascii::EqualCI(typeName, "RadialProgress"))
+        return KIND_RADIAL_PROGRESS;
     return KIND_ANIMATION;
 }
 
@@ -313,6 +316,9 @@ void Anim::Apply(float p) {
         Region::AddAnimLineScale(region, target, originPoint, originX, originY, 1.0f - x, 1.0f - y);
         break;
     }
+    case KIND_RADIAL_PROGRESS:
+        Region::SetAnimRadialProgress(region, target, fromPercent + (toPercent - fromPercent) * p);
+        break;
     default:
         break;
     }
@@ -1007,6 +1013,32 @@ int __fastcall Script_GetEndColor(void *L) {
     return a != nullptr ? PushColor(L, a->endColor) : 0;
 }
 
+// ---- RadialProgress (retail's SimpleAnimRadialProgressAPI) ----
+
+void SetPercentEnd(void *L, float Anim::*end, const char *usage) {
+    Anim *a = SelfOf(L, Anim::s_radialProgressClass);
+    float percent;
+    if (a != nullptr && MethodArg::Number(L, 2, usage, percent))
+        a->*end = percent;
+}
+int __fastcall Script_SetFromPercent(void *L) {
+    SetPercentEnd(L, &Anim::fromPercent, "Usage: self:SetFromPercent(percent)");
+    return 0;
+}
+int __fastcall Script_SetToPercent(void *L) {
+    SetPercentEnd(L, &Anim::toPercent, "Usage: self:SetToPercent(percent)");
+    return 0;
+}
+int GetPercentEnd(void *L, float Anim::*end) {
+    Anim *a = SelfOf(L, Anim::s_radialProgressClass);
+    if (a == nullptr)
+        return 0;
+    Game::Lua::PushNumber(L, static_cast<double>(a->*end));
+    return 1;
+}
+int __fastcall Script_GetFromPercent(void *L) { return GetPercentEnd(L, &Anim::fromPercent); }
+int __fastcall Script_GetToPercent(void *L) { return GetPercentEnd(L, &Anim::toPercent); }
+
 // ---- FlipBook (3.80.2's table 0x14458F8D0) ----
 //
 // Each value is a number from 0 to 4294967295, truncated. 0 is accepted
@@ -1173,6 +1205,12 @@ const Game::Lua::FrameMethodEntry kFlipBookMethods[] = {
     {"SetFlipBookFrames", &Script_SetFlipBookFrames},
     {"SetFlipBookRows", &Script_SetFlipBookRows},
 };
+const Game::Lua::FrameMethodEntry kRadialProgressMethods[] = {
+    {"GetFromPercent", &Script_GetFromPercent},
+    {"GetToPercent", &Script_GetToPercent},
+    {"SetFromPercent", &Script_SetFromPercent},
+    {"SetToPercent", &Script_SetToPercent},
+};
 const Game::Lua::FrameMethodEntry kTexCoordMethods[] = {
     {"GetOffset", &Script_GetTexCoordOffset},
     {"SetOffset", &Script_SetTexCoordOffset},
@@ -1197,6 +1235,8 @@ Class Anim::s_texCoordClass{"TextureCoordTranslation", &Anim::s_class, nullptr, 
 // and Scale's (3.80.2 shares their tables).
 Class Anim::s_lineTranslationClass{"LineTranslation", &Anim::s_translationClass, nullptr, 0, nullptr, 0, 0, 0};
 Class Anim::s_lineScaleClass{"LineScale", &Anim::s_scaleClass, nullptr, 0, nullptr, 0, 0, 0};
+Class Anim::s_radialProgressClass{"RadialProgress", &Anim::s_class, nullptr, 0, kRadialProgressMethods,
+                                  Count(kRadialProgressMethods), 0, 0};
 
 // ---- AnimationGroup:CreateAnimation ------------------------------------------------------
 //

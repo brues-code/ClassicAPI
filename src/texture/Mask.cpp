@@ -77,7 +77,7 @@
 #include "texture/CornerStore.h"
 #include "texture/Load.h"
 #include "texture/Mask.h"
-#include "texture/Slice.h"
+#include "texture/Pieces.h"
 #include "texture/Transform.h"
 #include "xml/FrameLoad.h"
 #include "xml/TypeLoad.h"
@@ -475,9 +475,9 @@ void __fastcall PrimStreams_h(int count, const void *pos, int posStride, const v
         // the owning region is positions - OFF_SIMPLETEXTURE_CORNERS. A false
         // match needs a non-region draw whose positions pointer numerically
         // equals a masked region's corner array — an exact-pointer collision,
-        // effectively impossible. A sliced texture's pieces point at arrays
-        // Texture::Slice keeps, which it maps back to the texture.
-        void *region = Texture::Slice::Owner(pos);
+        // effectively impossible. A sliced or radial texture's pieces point at
+        // arrays Texture::Pieces maps back to the texture.
+        void *region = Texture::Pieces::Owner(pos);
         if (region == nullptr)
             region = reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(pos) -
                                               Offsets::OFF_SIMPLETEXTURE_CORNERS);

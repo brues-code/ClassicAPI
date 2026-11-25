@@ -72,14 +72,11 @@
 //   - Texture::Mask finds the texture of a piece through Owner(); a mask's
 //     own slice data is not read.
 //
-// THE MECHANISM. A texture emits one quad record into its layer batch
-// (FUN_SIMPLETEXTURE_APPEND_QUAD), and the batch keeps pointers to the
-// texture's four positions (+0xD4), eight coordinates (+0x104) and colours,
-// read on every draw. A sliced texture's emit (Texture::Emit) lays out its
-// grid and runs the engine's own append once more per extra piece, so every
-// piece carries the engine's handle, blend, stride and shader, then points
-// the records at position, coordinate and (for a gradient) colour arrays kept
-// here.
+// THE MECHANISM. A sliced texture's emit (Texture::Emit) lays out its grid
+// and has Texture::Pieces append one batch record per piece, pointed at
+// position, coordinate and (for a gradient) colour arrays kept here; the
+// pieces are worked out again at each draw of the batch (Texture::Pieces
+// owns the draw hook).
 //
 // The batch is rebuilt only when its layer is marked changed
 // (FUN_REGION_NOTIFY_LAYER_CHANGED, what SetTexture calls; only while the
@@ -93,8 +90,7 @@
 // marks it is walking; until the rebuild that frame draws the grid that fits
 // the records, or stretched when the new one does not.
 //
-// The pieces are worked out at each draw of a batch (FUN_FRAME_LAYER_RENDER),
-// for every record that points at a texture's first piece, from what is in the
+// The pieces are worked out at each draw of a batch, from what is in the
 // texture then: the four drawn corners (+0xD4), the coordinates (+0x104) and
 // the colours. Many writers change those without a layout: the corner store,
 // Texture::Transform (rotation, vertex offsets), Animation::Region
@@ -108,6 +104,9 @@
 // outgrows its arrays, and a destroyed texture, hand them to a free list
 // (never freed), so a batch that still points at them until its next rebuild
 // reads valid memory.
+//
+// A texture with a radial fill (Texture::Radial) draws that instead and is
+// not sliced: 3.80.2 does both in one shader, which pieces cannot combine.
 
 #include "texture/Slice.h"
 
@@ -119,13 +118,14 @@
 #include "texture/Atlas.h"
 #include "texture/CornerStore.h"
 #include "texture/Emit.h"
+#include "texture/Pieces.h"
+#include "texture/Radial.h"
 #include "texture/Wrap.h"
 #include "tick/FrameTick.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
-#include <map>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -136,7 +136,9 @@ namespace {
 
 using Frame::RenderBatch::C2Vector;
 using Frame::RenderBatch::C3Vector;
-using Frame::RenderBatch::QuadRecord;
+using Texture::Pieces::Blend;
+using Texture::Pieces::BlendColor;
+using Texture::Pieces::NotifyLayer;
 
 // The stretched grid: three pieces per axis.
 constexpr int kStretchedAxis = 3;
@@ -162,7 +164,7 @@ const Game::Lua::EnumIntegerEntry kSliceModeEntries[] = {
 // corner (UL), each piece four positions, four coordinates and four colours
 // in the engine's corner order UL, LL, UR, LR. The arrays are sized once, for
 // `capacity` pieces, and never reallocated: batch records point into them.
-struct Pieces {
+struct Block {
     std::vector<C3Vector> positions;
     std::vector<C2Vector> coords;
     std::vector<uint32_t> colors;
@@ -183,43 +185,39 @@ struct State {
     bool present = false;    // 3.80.2's slice block exists
     uint32_t margins[4] = {}; // image pixels
     int mode = kStretched;
-    Pieces *pieces = nullptr;
+    Block *pieces = nullptr;
 };
 
 std::unordered_map<void *, State> g_states;
-// Every texture's pieces by the address of their positions, for the draw scan
-// and Owner().
-std::map<uintptr_t, Pieces *> g_blocks;
-std::vector<Pieces *> g_free;
+std::vector<Block *> g_free;
 // Textures whose grid the draw found changed, marked at the frame's tail.
 std::unordered_set<void *> g_pending;
 
-using Append_t = void(__thiscall *)(void *batch, void *texture);
-using Notify_t = void(__thiscall *)(void *region);
-using DrawBatch_t = void(__fastcall *)(void *batch);
-
-bool Emits(const State &s) {
-    return s.present && (s.margins[kLeft] != 0 || s.margins[kTop] != 0 || s.margins[kRight] != 0 ||
-                         s.margins[kBottom] != 0);
+bool Emits(void *texture, const State &s) {
+    return s.present &&
+           (s.margins[kLeft] != 0 || s.margins[kTop] != 0 || s.margins[kRight] != 0 || s.margins[kBottom] != 0) &&
+           !Texture::Radial::Active(texture);
 }
 
-void NotifyLayer(void *texture) {
-    reinterpret_cast<Notify_t>(Offsets::FUN_REGION_NOTIFY_LAYER_CHANGED)(texture);
+Texture::Pieces::Arrays ArraysOf(Block &p) {
+    return {p.positions.data(), p.coords.data(), p.colors.data(), p.capacity};
 }
+
+void RefreshBlock(void *block);
 
 // Arrays for at least `pieces` pieces: the smallest free block that holds
 // them, else a new one.
-Pieces *Acquire(void *texture, int pieces) {
+Block *Acquire(void *texture, int pieces) {
     auto best = g_free.end();
     for (auto it = g_free.begin(); it != g_free.end(); ++it)
         if ((*it)->capacity >= pieces && (best == g_free.end() || (*it)->capacity < (*best)->capacity))
             best = it;
-    Pieces *p;
+    Block *p;
     if (best != g_free.end()) {
         p = *best;
         g_free.erase(best);
     } else {
-        p = new Pieces();
+        p = new Block();
         p->capacity = std::max(pieces, kStretchedAxis * kStretchedAxis);
         p->positions.resize(static_cast<size_t>(p->capacity) * 4);
         p->coords.resize(static_cast<size_t>(p->capacity) * 4);
@@ -229,14 +227,14 @@ Pieces *Acquire(void *texture, int pieces) {
     p->cols = p->rows = p->records = 0;
     p->srcColor = nullptr;
     p->colorStride = 0;
-    g_blocks[reinterpret_cast<uintptr_t>(p->positions.data())] = p;
+    Texture::Pieces::Add(ArraysOf(*p), texture, &RefreshBlock, p);
     return p;
 }
 
-void Release(Pieces *p) {
+void Release(Block *p) {
     if (p == nullptr)
         return;
-    g_blocks.erase(reinterpret_cast<uintptr_t>(p->positions.data()));
+    Texture::Pieces::Remove(ArraysOf(*p));
     p->texture = nullptr;
     g_free.push_back(p);
 }
@@ -263,34 +261,6 @@ struct Cuts {
 // they have grown.
 std::vector<Segment> g_cols;
 std::vector<Segment> g_rows;
-
-// The point at (u, v) of a quad given in corner order UL, LL, UR, LR, u along
-// UL->UR and v along UL->LL.
-C3Vector Blend(const C3Vector *c, float u, float v) {
-    const float a = (1.0f - u) * (1.0f - v), b = (1.0f - u) * v, d = u * (1.0f - v), e = u * v;
-    return {a * c[0].x + b * c[1].x + d * c[2].x + e * c[3].x,
-            a * c[0].y + b * c[1].y + d * c[2].y + e * c[3].y,
-            a * c[0].z + b * c[1].z + d * c[2].z + e * c[3].z};
-}
-
-C2Vector Blend(const C2Vector *c, float u, float v) {
-    const float a = (1.0f - u) * (1.0f - v), b = (1.0f - u) * v, d = u * (1.0f - v), e = u * v;
-    return {a * c[0].x + b * c[1].x + d * c[2].x + e * c[3].x,
-            a * c[0].y + b * c[1].y + d * c[2].y + e * c[3].y};
-}
-
-// The colour at (u, v) of four BGRA colours, channel by channel.
-uint32_t BlendColor(const uint32_t *c, float u, float v) {
-    const float w[4] = {(1.0f - u) * (1.0f - v), (1.0f - u) * v, u * (1.0f - v), u * v};
-    uint32_t out = 0;
-    for (int shift = 0; shift < 32; shift += 8) {
-        float sum = 0.0f;
-        for (int i = 0; i < 4; ++i)
-            sum += w[i] * static_cast<float>((c[i] >> shift) & 0xFF);
-        out |= static_cast<uint32_t>(std::min(255.0f, sum + 0.5f)) << shift;
-    }
-    return out;
-}
 
 float Length(const C3Vector &a, const C3Vector &b) {
     return std::sqrt((b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y));
@@ -434,13 +404,13 @@ void Grid(void *texture, const State &state, int &cols, int &rows) {
 }
 
 // The four colours of the texture, for a gradient.
-const uint32_t *SourceColors(const Pieces &p) {
+const uint32_t *SourceColors(const Block &p) {
     return p.colorStride != 0 ? p.srcColor : nullptr;
 }
 
 // Writes the laid-out grid into the emitted one; pieces past it collapse to a
 // point and draw nothing.
-void Fill(void *texture, Pieces &out) {
+void Fill(void *texture, Block &out) {
     const auto *coords = Game::Ptr<C2Vector>(texture, Offsets::OFF_SIMPLETEXTURE_TEXCOORDS);
     const auto *corners = Game::Ptr<C3Vector>(texture, Offsets::OFF_SIMPLETEXTURE_CORNERS);
     const uint32_t *colors = SourceColors(out);
@@ -477,7 +447,7 @@ void Fill(void *texture, Pieces &out) {
 
 // The texture drawn whole: the first piece is its quad, the others collapse
 // to a point and draw nothing.
-void Whole(void *texture, Pieces &out) {
+void Whole(void *texture, Block &out) {
     const auto *coords = Game::Ptr<C2Vector>(texture, Offsets::OFF_SIMPLETEXTURE_TEXCOORDS);
     const auto *corners = Game::Ptr<C3Vector>(texture, Offsets::OFF_SIMPLETEXTURE_CORNERS);
     const uint32_t *colors = SourceColors(out);
@@ -492,10 +462,10 @@ void Whole(void *texture, Pieces &out) {
     }
 }
 
-void Refresh(Pieces &p) {
+void Refresh(Block &p) {
     void *texture = p.texture;
     const auto it = g_states.find(texture);
-    if (p.records != p.cols * p.rows || it == g_states.end() || !Emits(it->second) ||
+    if (p.records != p.cols * p.rows || it == g_states.end() || !Emits(texture, it->second) ||
         Texture::Wrap::Tiles(texture) || !Plan(texture, it->second, false)) {
         Whole(texture, p);
         return;
@@ -520,7 +490,7 @@ void Resync(void *texture) {
     if (g_states.empty())
         return;
     const auto it = g_states.find(texture);
-    if (it == g_states.end() || it->second.pieces == nullptr || !Emits(it->second))
+    if (it == g_states.end() || it->second.pieces == nullptr || !Emits(texture, it->second))
         return;
     int cols, rows;
     Grid(texture, it->second, cols, rows);
@@ -530,11 +500,13 @@ void Resync(void *texture) {
 
 // --- the emit and the draw -------------------------------------------------
 
+void RefreshBlock(void *block) { Refresh(*static_cast<Block *>(block)); }
+
 void OnEmitted(void *texture, void *batch, bool appended) {
     if (!appended || g_states.empty())
         return;
     const auto it = g_states.find(texture);
-    if (it == g_states.end() || !Emits(it->second))
+    if (it == g_states.end() || !Emits(texture, it->second))
         return;
     State &state = it->second;
     int cols, rows;
@@ -546,48 +518,18 @@ void OnEmitted(void *texture, void *batch, bool appended) {
         Release(state.pieces);
         state.pieces = Acquire(texture, needed);
     }
-    Pieces &pieces = *state.pieces;
-
-    const uint32_t first = Game::Read<uint32_t>(batch, Offsets::OFF_RENDERBATCH_QUAD_COUNT) - 1;
-    for (int i = 1; i < needed; ++i)
-        reinterpret_cast<Append_t>(Offsets::FUN_SIMPLETEXTURE_APPEND_QUAD)(batch, texture);
-    // Read after the appends: a reserve can move the records.
-    const uint32_t count = Game::Read<uint32_t>(batch, Offsets::OFF_RENDERBATCH_QUAD_COUNT);
-    auto *records = Game::Read<QuadRecord *>(batch, Offsets::OFF_RENDERBATCH_QUAD_RECORDS);
+    Block &pieces = *state.pieces;
+    const Texture::Pieces::Emitted emitted = Texture::Pieces::Emit(texture, batch, needed, ArraysOf(pieces));
     pieces.cols = cols;
     pieces.rows = rows;
-    pieces.records = static_cast<int>(std::min<uint32_t>(count - first, static_cast<uint32_t>(needed)));
-    pieces.srcColor = records[first].color;
-    pieces.colorStride = records[first].colorStride;
-    for (int k = 0; k < pieces.records; ++k) {
-        records[first + k].positions = &pieces.positions[static_cast<size_t>(k) * 4];
-        records[first + k].texCoords = &pieces.coords[static_cast<size_t>(k) * 4];
-        if (pieces.colorStride != 0)
-            records[first + k].color = &pieces.colors[static_cast<size_t>(k) * 4];
-    }
+    pieces.records = emitted.records;
+    pieces.srcColor = emitted.srcColor;
+    pieces.colorStride = emitted.colorStride;
     g_pending.erase(texture);
     Refresh(pieces);
 }
 
 const Texture::Emit::AutoSubscribe _emitSub{&OnEmitted};
-
-DrawBatch_t g_origDrawBatch = nullptr;
-
-void __fastcall DrawBatch_h(void *batch) {
-    if (!g_blocks.empty()) {
-        const uint32_t count = Game::Read<uint32_t>(batch, Offsets::OFF_RENDERBATCH_QUAD_COUNT);
-        const auto *records = Game::Read<const QuadRecord *>(batch, Offsets::OFF_RENDERBATCH_QUAD_RECORDS);
-        for (uint32_t i = 0; i < count; ++i) {
-            const auto it = g_blocks.find(reinterpret_cast<uintptr_t>(records[i].positions));
-            if (it != g_blocks.end())
-                Refresh(*it->second);
-        }
-    }
-    g_origDrawBatch(batch);
-}
-
-const Game::HookAutoRegister _drawHook{Offsets::FUN_FRAME_LAYER_RENDER, reinterpret_cast<void *>(&DrawBatch_h),
-                                       reinterpret_cast<void **>(&g_origDrawBatch)};
 
 // Every quad write: a layout (a resize, a scale change) or a cropped
 // SetTexCoord.
@@ -612,9 +554,9 @@ const Tick::FrameTick::AutoSubscribe _frameSub{&OnFrame};
 // being sliced, or its grid changes.
 template <class Change> void Update(void *texture, Change change) {
     State &state = g_states[texture];
-    const bool before = Emits(state);
+    const bool before = Emits(texture, state);
     change(state);
-    if (Emits(state) != before)
+    if (Emits(texture, state) != before)
         NotifyLayer(texture);
     else
         Resync(texture);
@@ -798,19 +740,6 @@ void ApplyAtlas(void *texture, const Atlas::Info &info) {
         s.margins[kBottom] = static_cast<uint32_t>(info.sliceBottom);
         s.mode = info.sliceMode;
     });
-}
-
-void *Owner(const void *positions) {
-    if (g_blocks.empty())
-        return nullptr;
-    auto it = g_blocks.upper_bound(reinterpret_cast<uintptr_t>(positions));
-    if (it == g_blocks.begin())
-        return nullptr;
-    --it;
-    if (reinterpret_cast<uintptr_t>(positions) >=
-        it->first + static_cast<uintptr_t>(it->second->capacity) * 4 * sizeof(C3Vector))
-        return nullptr;
-    return it->second->texture;
 }
 
 } // namespace Texture::Slice

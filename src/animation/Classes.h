@@ -124,6 +124,9 @@ enum AnimKind {
     KIND_TEXCOORD,
     KIND_LINE_TRANSLATION,
     KIND_LINE_SCALE,
+    // Retail's SimpleAnimRadialProgress: a texture's radial progress bar
+    // percent (Texture::Radial).
+    KIND_RADIAL_PROGRESS,
 };
 
 class Anim : public Object {
@@ -139,6 +142,7 @@ class Anim : public Object {
     static Class s_texCoordClass;    // "TextureCoordTranslation"
     static Class s_lineTranslationClass; // "LineTranslation", a Translation
     static Class s_lineScaleClass;   // "LineScale", a Scale
+    static Class s_radialProgressClass; // "RadialProgress"
     // The class of a CreateAnimation type name, any case; Animation for any
     // other (3.80.2's factory 0x1405A76A0). Texture coordinates are
     // "TextureCoord" here.
@@ -226,6 +230,9 @@ class Anim : public Object {
     uint32_t flipRows = 0, flipColumns = 0, flipFrames = 0, flipFrameWidth = 0, flipFrameHeight = 0;
     // TextureCoordTranslation: what is added to the texture coordinates.
     float texOffsetU = 0.0f, texOffsetV = 0.0f;
+    // RadialProgress: the fill percentage it moves from and to, 0 by default
+    // (UI.xsd's RadialProgressType).
+    float fromPercent = 0.0f, toPercent = 0.0f;
     // Whether the start delay is running (3.80.2's Alpha and FlipBook draw
     // nothing then).
     bool InStartDelay() const;

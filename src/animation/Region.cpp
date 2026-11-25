@@ -68,6 +68,7 @@
 #include "texture/Atlas.h"
 #include "texture/CornerStore.h"
 #include "texture/Line.h"
+#include "texture/Radial.h"
 #include "texture/Transform.h"
 #include "xml/Anchors.h"
 
@@ -912,6 +913,12 @@ void SetAnimFlipBookFrame(void *region, void *target, uint32_t rows, uint32_t co
     // animation starts from.
     if (AnimData *data = DataOf(texture); data != nullptr && data->hasTexCoords)
         std::memcpy(data->texCoords, TexCoords(texture), sizeof(data->texCoords));
+}
+
+void SetAnimRadialProgress(void *region, void *target, float percent) {
+    void *texture = ActedOn(region, target);
+    if (!IsFrame(texture) && IsTexture(texture))
+        Texture::Radial::SetPercent(texture, percent);
 }
 
 void AddAnimTexCoord(void *region, void *target, float u, float v) {

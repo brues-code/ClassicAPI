@@ -65,6 +65,7 @@ build instructions.
   - [Animation types: `Alpha`, `Translation`, `Scale`, `Rotation`](#animation-types-alpha-translation-scale-rotation)
   - [Animation types: `VertexColor`, `FlipBook`, `TextureCoordTranslation`](#animation-types-vertexcolor-flipbook-texturecoordtranslation)
   - [Animation types: `LineTranslation`, `LineScale`](#animation-types-linetranslation-linescale)
+  - [Animation type: `RadialProgress`](#animation-type-radialprogress)
   - [`Path` and `ControlPoint`](#path-and-controlpoint)
   - [`<Animations>` in XML](#animations-in-xml)
   - [`SetMaxAnimFramerate(framesPerSec)` / `GetMaxAnimFramerate()`](#setmaxanimframerateframespersec--getmaxanimframerate)
@@ -485,6 +486,7 @@ build instructions.
   - [`texture:SetTextureSliceMode(sliceMode)` / `texture:GetTextureSliceMode()`](#texturesettextureslicemodeslicemode--texturegettextureslicemode)
   - [`texture:ClearTextureSlice()`](#texturecleartextureslice)
   - [`Enum.UITextureSliceMode`](#enumuitextureslicemode)
+  - [Radial progress bars](#radial-progress-bars)
   - [`texture:SetDesaturation(amount)`](#texturesetdesaturationamount)
   - [`texture:GetDesaturation()`](#texturegetdesaturation)
   - [`IsDesaturateSupported()`](#isdesaturatesupported)
@@ -2760,6 +2762,27 @@ sheet:SetFlipBookRows(4)
 sheet:SetFlipBookColumns(4)
 sheet:SetDuration(1)
 group:SetLooping("REPEAT")
+```
+
+### Animation type: `RadialProgress`
+
+| Method | What it does |
+|---|---|
+| `SetFromPercent(percent)` / `GetFromPercent()` | The fill percentage at the start. The default is 0. |
+| `SetToPercent(percent)` / `GetToPercent()` | The fill percentage at the end. The default is 0. |
+
+`RadialProgress` moves the fill of a
+[radial progress bar](#radial-progress-bars) from the start percentage to
+the end percentage. The fill stays after the animation ends. The animation
+does not turn the radial progress bar on, and it has no effect on a region
+that is not a texture.
+
+In XML, the attributes are `fromPercent` and `toPercent`:
+
+```xml
+<AnimationGroup parentKey="HoldAnim">
+    <RadialProgress childKey="LoadBar" fromPercent="0" toPercent="1" duration="2"/>
+</AnimationGroup>
 ```
 
 ### Animation types: `LineTranslation`, `LineScale`
@@ -11574,6 +11597,50 @@ How the edges and the center of a sliced texture fill their space.
 |---|---|
 | `Stretched` | 0 |
 | `Tiled` | 1 |
+
+### Radial progress bars
+
+A radial progress bar shows only a wedge of the texture. The wedge starts
+at a ray from the center and turns around the center until it covers part
+of the texture. Use it for a ring that fills, such as a hold timer.
+
+| Method | What it does |
+|---|---|
+| `SetRadialProgressBarPercent(percent)` / `GetRadialProgressBarPercent()` | How much of the wedge is filled, from 0 to 1. The default is 1. |
+| `SetRadialProgressBarStartOffset(offset)` / `GetRadialProgressBarStartOffset()` | Where the wedge starts, as a part of a turn from 0 to 1. 0 is the bottom. The default is 0. |
+| `SetRadialProgressBarEndOffset(offset)` / `GetRadialProgressBarEndOffset()` | How much of the turn a full wedge leaves out, from 0 to 1. The default is 0. |
+| `SetRadialProgressBarReverse(reverse)` / `GetRadialProgressBarReverse()` | `true` fills counterclockwise. The default is `false`, which fills clockwise. |
+| `SetRadialProgressBarFeather(feather)` / `GetRadialProgressBarFeather()` | How much of the filled wedge fades out at its leading edge, from 0 to 1. The default is 0. |
+| `ClearRadialProgressBar()` | Turns the radial progress bar off and puts back the default values. |
+
+- Each setter turns the radial progress bar on. Then the texture shows only
+  the wedge.
+- The wedge covers `percent × (1 - endOffset)` of a turn. For example, a
+  percent of 0.5 with an end offset of 0.5 covers a quarter turn.
+- The start offset turns the start clockwise from the bottom, also when
+  `reverse` is `true`.
+- The wedge is cut from the texture's rectangle, not from a circle. It turns
+  with the texture when `SetRotation` turns it. A cropped `SetTexCoord` does
+  not move it.
+- A value below 0 becomes 0, and a value above 1 becomes 1. The getters
+  return the default values when no setter has run.
+- A texture with a radial progress bar is not sliced.
+
+In XML, `<RadialProgressBar>` inside a `<Texture>` turns the radial progress
+bar on. Its attributes are `barFillPercent`, `startOffset`, `endOffset`,
+`reverse` and `feather`:
+
+```xml
+<Texture parentKey="LoadBar" atlas="my-ring" setAllPoints="true">
+    <RadialProgressBar startOffset="0.5"/>
+</Texture>
+```
+
+```lua
+-- A ring that fills clockwise from the top.
+ring:SetRadialProgressBarStartOffset(0.5)
+ring:SetRadialProgressBarPercent(0.25)
+```
 
 ### `texture:SetDesaturation(amount)`
 
