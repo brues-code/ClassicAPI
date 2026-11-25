@@ -34,12 +34,6 @@ function C_KeyBindings.GetBindingIndex(action)
     return nil
 end
 
--- This client has one binding context, so no action has a context of its
--- own.
-function C_KeyBindings.GetBindingContextForAction(action)
-    return nil
-end
-
 -- This client has no custom binding types (retail's push-to-talk key).
 function C_KeyBindings.GetCustomBindingType(bindingIndex)
     return nil

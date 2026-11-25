@@ -48,6 +48,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "bindings/Command.h"
+#include "bindings/Context.h"
 #include "input/Modifier.h"
 #include "storm/HashTable.h"
 #include "storm/String.h"
@@ -138,17 +139,22 @@ bool IsKnownCommand(void *mgr, const char *command) {
 }
 
 // CGUIBindings::GetKeyBinding: the key's active override, else its saved
-// binding — and none when that command is neither a direct action nor a known
-// command (a saved one is never checked when set). 4.3.4's retry under the
-// generic modifier names (LSHIFT- → SHIFT-) is left out: 1.12 builds chords
-// from ALT-, CTRL- and SHIFT- only, so a pressed key is already generic.
+// binding — the slot of the first active binding context that holds one
+// (Bindings::Context, 3.80.2's resolver), else the engine's table — and none
+// when that command is neither a direct action nor a known command (a saved
+// one is never checked when set; 3.80.2 does not retry a lower context
+// either). 4.3.4's retry under the generic modifier names (LSHIFT- → SHIFT-)
+// is left out: 1.12 builds chords from ALT-, CTRL- and SHIFT- only, so a
+// pressed key is already generic.
 struct KeyBinding {
     const char *command = nullptr;
-    bool isOverride = false;
+    bool runsHere = false; // not in the engine's table, so its dispatch cannot run it
 };
 
 KeyBinding FindKeyBinding(void *mgr, const char *key) {
     KeyBinding binding{ActiveOverride(key), true};
+    if (binding.command == nullptr)
+        binding = {Context::Resolve(key), true};
     if (binding.command == nullptr)
         binding = {SavedCommand(mgr, key), false};
     if (binding.command == nullptr ||
@@ -198,10 +204,11 @@ int ExecuteCommand(void *mgr, const char *command, int isDown) {
     return g_commandExecuteOriginal(mgr, nullptr, command, isDown);
 }
 
-// An override's command, run in the frame the engine dispatch gives a saved
-// one: exec context saved and cleared, depth bumped, the manager's executing
-// flag up (FUN_BINDING_KEY_DISPATCH, see Offsets.h).
-int RunOverride(void *mgr, const char *command, int isDown) {
+// A command the engine's table does not hold (an override, a context slot's),
+// run in the frame the engine dispatch gives a saved one: exec context saved
+// and cleared, depth bumped, the manager's executing flag up
+// (FUN_BINDING_KEY_DISPATCH, see Offsets.h).
+int RunHere(void *mgr, const char *command, int isDown) {
     const std::string copy = command; // the command may clear its own override
     auto &context = Game::Ref<uint32_t>(Offsets::VAR_FRAMESCRIPT_EXEC_CONTEXT);
     auto &depth = Game::Ref<int32_t>(Offsets::VAR_FRAMESCRIPT_EXEC_CONTEXT_DEPTH);
@@ -236,8 +243,8 @@ int __fastcall KeyDispatch_h(void *mgr, void *edx, const char *key, int isDown) 
     std::optional<Input::Modifier::KeyStateOverride> keyState;
     if (Command::IsDirectAction(binding.command))
         keyState.emplace(reduced.c_str());
-    if (binding.isOverride)
-        return RunOverride(mgr, binding.command, isDown);
+    if (binding.runsHere)
+        return RunHere(mgr, binding.command, isDown);
     return g_keyDispatchOriginal(mgr, edx, reduced.c_str(), isDown);
 }
 
@@ -362,12 +369,22 @@ int __fastcall Script_ClearOverrideBindings(void *L) {
     return 0;
 }
 
-// GetBindingAction(key [, checkOverride]): 4.3.4's GetCommandAction checks the
-// override first when asked; the saved binding is the engine's own answer.
+// GetBindingAction(key [, checkOverride, context]): 4.3.4's GetCommandAction
+// checks the override first when asked. Then 3.80.2's reads the slot of the
+// given context (FUN_14124EE30): no active-context walk, None by default,
+// which is the engine's own answer.
 int __fastcall Script_GetBindingAction(void *L) {
-    if (Game::Lua::IsString(L, 1) && Game::Lua::ToFlag(L, 2)) {
-        if (const char *command = ActiveOverride(Game::Lua::ToString(L, 1))) {
-            Game::Lua::PushString(L, command);
+    if (Game::Lua::IsString(L, 1)) {
+        const char *key = Game::Lua::ToString(L, 1);
+        if (Game::Lua::ToFlag(L, 2)) {
+            if (const char *command = ActiveOverride(key)) {
+                Game::Lua::PushString(L, command);
+                return 1;
+            }
+        }
+        if (const int context = Context::OptionalArg(L, 3); context > 0) {
+            const char *command = Context::Slot(key, context);
+            Game::Lua::PushString(L, command != nullptr ? command : "");
             return 1;
         }
     }
@@ -493,6 +510,8 @@ const Game::Doc::Field kGetBindingActionArgs[] = {
     Game::Doc::Req("key", "string"),
     Game::Doc::Opt("checkOverride", "bool", "false",
                    "True returns an active override binding first."),
+    Game::Doc::Opt("context", "BindingContext", "None",
+                   "The binding context whose binding to return, active or not."),
 };
 const Game::Doc::Field kGetBindingActionRets[] = {
     Game::Doc::Req("action", "string", "An empty string when nothing is bound."),

@@ -97,7 +97,7 @@ build instructions.
   - [Direct-action bindings](#direct-action-bindings)
   - [Modifier keys during a binding](#modifier-keys-during-a-binding)
   - [Override bindings](#override-bindings)
-  - [`GetBindingAction(key [, checkOverride])`](#getbindingactionkey--checkoverride)
+  - [`GetBindingAction(key [, checkOverride [, context]])`](#getbindingactionkey--checkoverride--context)
   - [Keys with modifiers](#keys-with-modifiers)
   - [`GetBindingByKey(key)`](#getbindingbykeykey)
   - [Function keys F13 to F24](#function-keys-f13-to-f24)
@@ -105,7 +105,8 @@ build instructions.
   - [`ActionButtonUseKeyDown`](#actionbuttonusekeydown)
   - [`Enum.BindingSet`](#enumbindingset)
   - [`C_KeyBindings.GetBindingIndex(action)`](#c_keybindingsgetbindingindexaction)
-  - [`C_KeyBindings.GetBindingContextForAction(action)` / `C_KeyBindings.GetCustomBindingType(bindingIndex)`](#c_keybindingsgetbindingcontextforactionaction--c_keybindingsgetcustombindingtypebindingindex)
+  - [Binding contexts](#binding-contexts)
+  - [`C_KeyBindings.GetCustomBindingType(bindingIndex)`](#c_keybindingsgetcustombindingtypebindingindex)
 
 - [Camera](#camera)
   - [ActionCam](#actioncam)
@@ -3351,10 +3352,13 @@ Overrides also apply to keys with fewer modifiers. See
 
 All overrides are removed on `/reload` and logout.
 
-### `GetBindingAction(key [, checkOverride])`
+### `GetBindingAction(key [, checkOverride [, context]])`
 
 Returns the command bound to `key`. With `checkOverride` true, an override
 binding is returned first when one is active.
+
+With a `context` other than `None`, the function returns the command that
+`key` has in that context, or `""`. See [Binding contexts](#binding-contexts).
 
 ### Keys with modifiers
 
@@ -3493,11 +3497,73 @@ local index = C_KeyBindings.GetBindingIndex("INTERACTTARGET")
 local action, key1, key2 = GetBinding(index)
 ```
 
-### `C_KeyBindings.GetBindingContextForAction(action)` / `C_KeyBindings.GetCustomBindingType(bindingIndex)`
+### Binding contexts
 
-Both functions return `nil`. The client has one set of key bindings for all
-actions, so no action has a binding context of its own. The client has no
-custom binding types.
+A binding context is a group of key bindings for one game mode. A key can
+have one command in each context. When a context is active, its bindings
+come before the bindings that have no context.
+
+An addon gives a command a context with the `bindingContext` attribute in
+`Bindings.xml`:
+
+```xml
+<Binding name="MYADDON_ACTION" bindingContext="GamepadModeInGameCore">
+	MyAddon_Action();
+</Binding>
+```
+
+The value is a name from `Enum.BindingContext`, in any case. A command
+without the attribute, or with an unknown name, has the context `None`.
+
+| `Enum.BindingContext` field | Value |
+|---|---|
+| `None` | 0 |
+| `HousingEditor` | 1 |
+| `HousingEditorBasicDecorMode` | 2 |
+| `HousingEditorExpertDecorMode` | 3 |
+| `HousingEditorCustomizeMode` | 4 |
+| `HousingEditorCleanupMode` | 5 |
+| `HousingEditorLayoutMode` | 6 |
+| `HousingEditorBasicAndExpertDecorMode` | 7 |
+| `HousingEditorExteriorCustomizationMode` | 8 |
+| `GamepadModeInGameCore` | 9 |
+
+```lua
+C_KeyBindings.ActivateBindingContext(context)
+C_KeyBindings.DeactivateBindingContext(context)
+local isActive = C_KeyBindings.IsBindingContextActive(context)
+local context = C_KeyBindings.GetBindingContextForAction(action)
+```
+
+- After each login and `/reload`, only `None` is active. Activating or
+  deactivating a context sends no event.
+- A context number that is not in `Enum.BindingContext` raises an error.
+- `GetBindingContextForAction` returns the context of the command. It
+  returns `0` (`None`) for a command without a context and for an unknown
+  command.
+
+When you press a key, the game examines the active contexts in this order:
+8, 6, 5, 4, 3, 2, 7, 1, 9. The first context that has a command on the key
+runs that command. If no active context has a command on the key, the
+binding without a context runs. If the command found does not exist, the key
+has no binding.
+
+The binding functions work with contexts:
+
+- `SetBinding(key, command)` puts the binding in the context of the command.
+  The binding does not replace the bindings of the key in other contexts.
+- `SetBinding(key, command, context)` sets the binding only if `context` is
+  the context of the command.
+- `SetBinding(key, nil, context)` removes the binding of the key in that
+  context. `SetBinding(key)` removes only the binding without a context.
+- `GetBindingKey(command)` and `GetBinding(index)` return the keys of the
+  command in its own context.
+- `SaveBindings` and `LoadBindings` save and load the bindings of all
+  contexts.
+
+### `C_KeyBindings.GetCustomBindingType(bindingIndex)`
+
+Returns `nil`. The client has no custom binding types.
 
 ## Camera
 

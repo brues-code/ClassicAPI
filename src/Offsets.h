@@ -156,6 +156,34 @@ enum Offsets {
     // pushes "" for null) is its only Lua caller.
     FUN_BINDINGS_GET_COMMAND_ACTION = 0x004B7DA0,
     FUN_SCRIPT_GET_BINDING_ACTION = 0x004B8120,
+    // CGUIBindings::SetKeyBinding — `int __thiscall(mgr, int set, const char
+    // *key, const char *command)`, `ret 0xC`: the one writer of a set's keys
+    // (Lua SetBinding 0x004B8000 with set 3, the binding-file loader
+    // FUN_BINDINGS_LOAD_SET at 0x004B6221, console `bind` 0x004B60B0). Replaces
+    // the whole-string aliases STR_KEY_ALIAS_* (case-insensitive, 0x0064A4C0)
+    // by one character, then FUN_IS_VALID_BINDING_KEY; a null or empty command
+    // unbinds. 1 on success (disassembled; benilla-re ui/keybindings).
+    FUN_BINDINGS_SET_KEY = 0x004B7490,
+    // The i-th key of a command in the live set — `const char *__thiscall(mgr,
+    // const char *command, int i)`, `ret 8`: walks the key list at mgr+0xB4 for
+    // the node whose command (+0x1C, case-insensitive) matches and whose
+    // per-command index (+0x18) is i; null past the last. Its only callers are
+    // Lua GetBinding 0x004B7F60 and GetBindingKey 0x004B80A0, which loop i
+    // from 0 until null (xrefs checked).
+    FUN_BINDINGS_GET_COMMAND_KEY = 0x004B7D20,
+    // The key names FUN_BINDINGS_SET_KEY replaces, each by one character (read
+    // from its inline compares; the strings checked in .data).
+    STR_KEY_ALIAS_LEFTBRACKET = 0x0084705C,  // '['
+    STR_KEY_ALIAS_RIGHTBRACKET = 0x0084704C, // ']'
+    STR_KEY_ALIAS_SLASH = 0x00847044,        // '/'
+    STR_KEY_ALIAS_BACKSLASH = 0x00847038,    // '\\'
+    STR_KEY_ALIAS_SEMICOLON = 0x0084702C,    // ';'
+    STR_KEY_ALIAS_APOSTROPHE = 0x00847020,   // '\''
+    STR_KEY_ALIAS_COMMA = 0x00847018,        // ','
+    STR_KEY_ALIAS_PERIOD = 0x00847010,       // '.'
+    STR_KEY_ALIAS_TILDE = 0x00847008,        // '`'
+    STR_KEY_ALIAS_PLUS = 0x008422B0,         // '='
+    STR_KEY_ALIAS_MINUS = 0x008422A8,        // '-'
     // The manager's command table (4.3.4's m_commands), a Storm
     // TSHashTable<_, HASHKEY_STRI> keyed by command name, filled from
     // Bindings.xml. The engine inlines its lookup (FUN_BINDING_COMMAND_EXECUTE):

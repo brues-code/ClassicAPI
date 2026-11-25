@@ -40,13 +40,12 @@
 
 #include "bindings/ModifiedClick.h"
 
+#include "bindings/Files.h"
+
 #include "Game.h"
 #include "Offsets.h"
-#include "storm/File.h"
-#include "baselib/Ascii.h"
 #include "frame/ClickEvents.h"
 #include "input/Modifier.h"
-#include "storm/Memory.h"
 #include "storm/String.h"
 #include "xml/FrameLoad.h"
 
@@ -205,27 +204,9 @@ bool SideHeld(uint32_t modifiers, uint32_t left, uint32_t right, int leftKey, in
 
 // --- Bindings.xml: <ModifiedClick action default> ---------------------------
 
-using LoadFile_t = int(__fastcall *)(void *mgr, void *edx, const char *path, void *md5,
-                                     void *status);
-LoadFile_t g_loadFileOriginal = nullptr;
-
-using TreeLoad_t = void *(__fastcall *)(const char *data, uint32_t size);
-using TreeFree_t = void(__fastcall *)(void *tree);
-
 // CGUIBindings::LoadModifiedClick for every root node of the file.
-void LoadModifiedClicks(const char *path, void *status) {
-    void *data = nullptr;
-    size_t size = 0;
-    if (!Storm::File::Read(path, &data, &size, 0))
-        return;
-    void *tree = reinterpret_cast<TreeLoad_t>(Offsets::FUN_XML_TREE_LOAD)(
-        static_cast<const char *>(data), static_cast<uint32_t>(size));
-    Storm::Free(data, __FILE__, __LINE__);
-    if (tree == nullptr)
-        return; // the engine loader reports the parse error
-    const void *root = Game::Read<const void *>(tree, 0);
-    for (const void *node = root ? Xml::FirstChild(root) : nullptr; node != nullptr;
-         node = Xml::NextSibling(node)) {
+void LoadModifiedClicks(const char *path, const void *root, void *status) {
+    for (const void *node = Xml::FirstChild(root); node != nullptr; node = Xml::NextSibling(node)) {
         if (!Xml::TagIs(node, "ModifiedClick"))
             continue;
         const char *action = Xml::Attr(node, "action");
@@ -242,53 +223,16 @@ void LoadModifiedClicks(const char *path, void *status) {
         if (binding != nullptr && *binding != '\0')
             SetBinding(g_clicks.back(), Offsets::BINDING_SET_DEFAULT, binding);
     }
-    reinterpret_cast<TreeFree_t>(Offsets::FUN_XML_TREE_FREE)(tree);
 }
 
-// The status the engine loader is given: a CStatus whose only used slot,
-// Add (vtable +0xC), forwards to the real status. Load passes at most two
-// string arguments after the format, and Add is __cdecl, so taking exactly
-// two is safe whatever the format consumes.
-struct LoadStatus {
-    const void *const *vtable;
-    void *real;
-};
-
-void __cdecl LoadStatusAdd(LoadStatus *self, int level, const char *fmt, const char *a,
-                           const char *b) {
-    if (fmt == reinterpret_cast<const char *>(Offsets::STR_BINDINGS_UNKNOWN_NODE) &&
-        a != nullptr && Ascii::EqualCI(a, "ModifiedClick"))
-        return; // a node this loader now knows (LoadModifiedClicks)
-    using Add_t = void(__cdecl *)(void *status, int level, const char *fmt, ...);
-    const void *vtable = Game::Read<const void *>(self->real, 0);
-    Game::Read<Add_t>(vtable, Offsets::VTBL_XML_STATUS_ADD)(self->real, level, fmt, a, b);
-}
-
-static_assert(Offsets::VTBL_XML_STATUS_ADD == 3 * sizeof(void *));
-const void *const kLoadStatusVtable[4] = {nullptr, nullptr, nullptr,
-                                          reinterpret_cast<const void *>(&LoadStatusAdd)};
-
-int __fastcall LoadFile_h(void *mgr, void *edx, const char *path, void *md5, void *status) {
-    if (status == nullptr)
-        status = reinterpret_cast<void *>(Offsets::VAR_BINDINGS_LOAD_STATUS);
-    if (path != nullptr)
-        LoadModifiedClicks(path, status);
-    LoadStatus filtered{kLoadStatusVtable, status};
-    return g_loadFileOriginal(mgr, edx, path, md5, &filtered);
-}
+const Files::OnLoadFile _loadFile{&LoadModifiedClicks};
+const Files::KnownNode _knownNode{"ModifiedClick"};
 
 // --- binding files: modifiedclick lines -----------------------------------
 
-using LoadSet_t = void(__fastcall *)(int set, const char *text);
-LoadSet_t g_loadSetOriginal = nullptr;
-
-
 // The modified-click half of 4.3.4's LoadBindings: start from the defaults,
 // then apply `modifiedclick BINDING ACTION` lines.
-void __fastcall LoadSet_h(int set, const char *text) {
-    g_loadSetOriginal(set, text);
-    if (set < 0 || set >= Offsets::BINDING_SET_COUNT)
-        return;
+void LoadSet(int set, const char *text) {
     if (set != Offsets::BINDING_SET_DEFAULT)
         for (Click &click : g_clicks)
             click.data[set] = click.data[Offsets::BINDING_SET_DEFAULT];
@@ -313,51 +257,22 @@ void __fastcall LoadSet_h(int set, const char *text) {
     }
 }
 
-using SaveSet_t = void(__fastcall *)(void *mgr, void *edx, int set, void *file);
-SaveSet_t g_saveSetOriginal = nullptr;
-
-using WriteFile_t = int(__fastcall *)(void *file, const void *buffer, uint32_t size,
-                                      uint32_t *written);
-
-void __fastcall SaveSet_h(void *mgr, void *edx, int set, void *file) {
-    g_saveSetOriginal(mgr, edx, set, file);
-    if (set < 0 || set >= Offsets::BINDING_SET_COUNT)
-        return;
-    auto write = reinterpret_cast<WriteFile_t>(Offsets::FUN_OS_WRITE_FILE);
+void SaveSet(int set, void *file) {
     for (const Click &click : g_clicks) {
         if (click.data[set].flags & kFlagDefault)
             continue;
-        const std::string line =
-            "modifiedclick " + GetBinding(click, set) + " " + click.action + "\r\n";
-        uint32_t written = 0;
-        write(file, line.data(), static_cast<uint32_t>(line.size()), &written);
+        Files::WriteLine(file, "modifiedclick " + GetBinding(click, set) + " " + click.action + "\r\n");
     }
 }
 
-using CopySet_t = void(__fastcall *)(void *mgr, void *edx, int source, int dest);
-CopySet_t g_copySetOriginal = nullptr;
-
-void __fastcall CopySet_h(void *mgr, void *edx, int source, int dest) {
-    g_copySetOriginal(mgr, edx, source, dest);
-    if (source < 0 || source >= Offsets::BINDING_SET_COUNT || dest < 0 ||
-        dest >= Offsets::BINDING_SET_COUNT)
-        return;
+void CopySet(int source, int dest) {
     for (Click &click : g_clicks)
         click.data[dest] = click.data[source];
 }
 
-const Game::HookAutoRegister _loadFileHook{Offsets::FUN_BINDINGS_LOAD_FILE,
-                                           reinterpret_cast<void *>(&LoadFile_h),
-                                           reinterpret_cast<void **>(&g_loadFileOriginal)};
-const Game::HookAutoRegister _loadSetHook{Offsets::FUN_BINDINGS_LOAD_SET,
-                                          reinterpret_cast<void *>(&LoadSet_h),
-                                          reinterpret_cast<void **>(&g_loadSetOriginal)};
-const Game::HookAutoRegister _saveSetHook{Offsets::FUN_BINDINGS_SAVE_SET,
-                                          reinterpret_cast<void *>(&SaveSet_h),
-                                          reinterpret_cast<void **>(&g_saveSetOriginal)};
-const Game::HookAutoRegister _copySetHook{Offsets::FUN_BINDINGS_COPY_SET,
-                                          reinterpret_cast<void *>(&CopySet_h),
-                                          reinterpret_cast<void **>(&g_copySetOriginal)};
+const Files::OnLoadSetEnd _loadSet{&LoadSet};
+const Files::OnSaveSet _saveSet{&SaveSet};
+const Files::OnCopySet _copySet{&CopySet};
 
 // The binding manager is rebuilt with every Lua state; so are its actions.
 void PrepareForReload() { g_clicks.clear(); }
