@@ -1,5 +1,7 @@
 if GetLocale() ~= "koKR" then return end
 
+BINDING_NAME_JUMPORASCEND = "위로 뛰기/위로";
+BINDING_NAME_SITSTANDORDESCEND = "앉기/내려가기";
 ACTION_LABEL_SELECT = "선택";
 ADDON_WRONG_ACTIVE_INTERFACE = "잘못 활성화된 사용자 인터페이스";
 ADDON_WRONG_GAME_TYPE = "잘못된 게임 유형";

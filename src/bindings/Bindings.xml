@@ -2,7 +2,8 @@
      load time by src/bindings/Inject.cpp. The `header` attribute on
      the root tag tells the splicer which engine section to extend —
      it picks the appropriate insertion point so the bindings appear
-     at the tail of that group in the keybind UI. The engine's own
+     at the tail of that group in the keybind UI. A <Section header>
+     child puts its bindings at the tail of another section. The engine's own
      XML parser ignores attributes on the root tag, so this is
      metadata for the splicer only. -->
 <Bindings header="TARGETING">
@@ -23,6 +24,26 @@
 	<Binding name="AOELOOT">
 		C_Loot.LootAllCorpses()
 	</Binding>
+	<!-- The swim pairs on bindings of their own, with the bodies later
+	     clients give JUMP and SITORSTAND (Bindings_Standard.xml), which stay
+	     1.12's. Jumps, or sits or stands; under water, swims up or down while
+	     held (src/input/Swim.cpp). -->
+	<Section header="MOVEMENT">
+		<Binding name="JUMPORASCEND" runOnUp="true">
+			if ( keystate == "down" ) then
+				JumpOrAscendStart();
+			else
+				AscendStop();
+			end
+		</Binding>
+		<Binding name="SITSTANDORDESCEND" runOnUp="true">
+			if ( keystate == "down" ) then
+				SitStandOrDescendStart();
+			else
+				DescendStop();
+			end
+		</Binding>
+	</Section>
 	<!-- 4.3.4's modified-click actions and defaults (FrameXML\Bindings.xml),
 	     plus MOUSEOVERCAST: the mouseover-cast key of the 3.80.2 client's
 	     enableMouseoverCast, with retail's default (Bindings_Standard.xml).

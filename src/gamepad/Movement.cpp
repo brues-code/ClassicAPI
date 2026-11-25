@@ -66,6 +66,7 @@
 #include "gamepad/GamePad.h"
 #include "gamepad/Names.h"
 #include "gamepad/State.h"
+#include "input/Swim.h"
 #include "input/EventBus.h"
 #include "object/Resolve.h"
 #include "tick/FrameTick.h"
@@ -193,7 +194,8 @@ using Unit::Position::SetFacing;
 
 void HandOffPitch(uint32_t now, float pitch) {
     void *ic = InputControl();
-    if (ic == nullptr)
+    // A held ascend or descend (Input::Swim) holds the swim pitch.
+    if (ic == nullptr || Input::Swim::HoldingPitch())
         return;
     pitch = pitch < -kMaxPitch ? -kMaxPitch : (pitch > kMaxPitch ? kMaxPitch : pitch);
     using HandOff_t = void(__fastcall *)(void *ic, void *edx, uint32_t time, float pitch);

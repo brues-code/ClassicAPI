@@ -286,6 +286,37 @@ enum Offsets {
     // spell allows, then CGUnit_C::Jump 0x0060DEA0 when the gates pass.
     // Disassembled.
     FUN_SCRIPT_JUMP = 0x00513BD0,
+    // Script_SitOrStand — the Lua `SitOrStand()` (docs/raw_globals.txt): sit
+    // when standing, else stand, through the stand-state setter 0x005ED430,
+    // which refuses a mover that moves or swims (benilla-re
+    // objectlayer/standstate).
+    FUN_SCRIPT_SIT_OR_STAND = 0x0048B920,
+    // CGUnit_C::SetPitch — `void __thiscall(unit, uint32_t time, float
+    // pitch)`, ret 8: queues the pitch for the mover's next step, which
+    // stores it (0x007C6F70, in or out of water) and sends MSG_MOVE_SET_PITCH
+    // only while swimming. HandOffPitch (FUN_INPUT_HAND_OFF_PITCH) sets the
+    // body pitch through it.
+    FUN_UNIT_SET_PITCH = 0x0060DE70,
+    // CGUnit_C::Jump — `void __thiscall(unit, uint32_t time)`, ret 4: queues
+    // a jump (a swimmer at the surface leaves the water this way), or plays
+    // MountSpecial for a mounted unit standing still (benilla-re
+    // objectlayer/unitmovement).
+    FUN_UNIT_JUMP = 0x0060DEA0,
+    // The unit's collision height h (its CMovement + 0xB4): the swim
+    // decision (0x006030C0) and IsInDeepLiquid (0x00605650) read it here.
+    OFF_UNIT_COLLISION_HEIGHT = 0xA5C,
+    // The swim decision's depth factor, float 0.75 (`fmul [0x008012CC]` at
+    // 0x006030E6): a unit swims above depth 0.75h. The liquid sweep scales a
+    // swimmer's volume by it too (0x00632C6F), so a rising swimmer comes to
+    // rest at depth 0.75h (within VAR_MOVER_SKIN; VanillaSwimAscend's
+    // surface jump confirms it in game).
+    VAR_SWIM_DEPTH_FACTOR = 0x008012CC,
+    // CWorld::GetEntityLight — `int __fastcall(entity, uint32_t *liquidType,
+    // float *surface, float out[3], uint32_t *flag)`, ret 0xC: an entity's
+    // cached liquid (+0x90 bit 5 set): the surface height (+0x98), the liquid
+    // type (+0xF0); 0 without liquid. The camera's water band takes depth =
+    // surface - feet z from it for its target (0x00511B39..0x00511B5E).
+    FUN_WORLD_GET_ENTITY_LIQUID = 0x00670630,
     // s_modifierKeys: bit 0 shift, 1 ctrl, 2 alt, set and cleared by the key
     // records of codes 0..2 before their dispatch and copied into every key
     // and mouse event payload, which the chord builder reads (disassembled).
@@ -13954,6 +13985,9 @@ enum Offsets {
 
     // Inside the MovementInfo block:
     OFF_MOVEMENT_FLAGS = 0x40,        // u32 — engine's MOVEFLAG_* bits
+    // f32 swim pitch: the basis 0x007C5880 tilts the forward direction by it
+    // while swimming (VanillaSwimAscend's rise reads the same field).
+    OFF_MOVEMENT_PITCH = 0x20,
     // f32 facing, transport-local radians 0..2pi: what SetFacing queues and
     // the movement step stores (0x007C6F30). It is the player's +0x9C4, as
     // +0x118 points at the inline CMovement at +0x9A8 (benilla-re fields).

@@ -31,7 +31,8 @@
 // What gets spliced is driven by `src/bindings/Bindings.xml`. The
 // root `<Bindings header="X">` tag names the engine section to extend
 // (e.g. `"TARGETING"`); the inner `<Binding>` children are spliced
-// verbatim. The splicer locates `header="X"` in the engine file
+// verbatim. A `<Section header="Y">` child holds bindings for another
+// section: its children go to the tail of Y, without the wrapper. The splicer locates `header="X"` in the engine file
 // (which appears on the first binding of section X), then the next
 // `header="..."` after that (start of the following section), and
 // inserts our content just before that next-section marker — so our
@@ -56,6 +57,8 @@
 
 #include <cstdio>
 #include <cstring>
+#include <string>
+#include <vector>
 
 namespace Bindings::Inject {
 
@@ -63,20 +66,19 @@ namespace {
 
 constexpr const char *kFrameXMLBindingsPath = "Interface\\FrameXML\\Bindings.xml";
 
-// Parsed view of `src/bindings/Bindings.xml`:
-//   - `header` is the value of `header="..."` on the root `<Bindings>`
-//     tag. Tells the splicer which engine section to extend.
-//   - `innerData / innerSize` point at the bytes between the
-//     `<Bindings ...>` opening and `</Bindings>` closing tags.
+// Parsed view of `src/bindings/Bindings.xml`: what goes to the tail of
+// each engine section, in file order. The root `<Bindings header="X">`
+// gives X everything outside its `<Section>` children; each
+// `<Section header="Y">` gives Y its own children.
 //
-// All-zero fields mean "embedded buffer is malformed" — defensive,
-// shouldn't happen since the source is build-time-validated. Splice
-// is skipped (engine sees its original Bindings.xml unchanged).
-struct EmbeddedConfig {
-    char header[64];
-    const char *innerData;
-    size_t innerSize;
+// Empty means "embedded buffer is malformed" — defensive, shouldn't
+// happen since the source is build-time-validated. Splice is skipped
+// (engine sees its original Bindings.xml unchanged).
+struct Splice {
+    std::string header;
+    std::string text;
 };
+using EmbeddedConfig = std::vector<Splice>;
 
 // Advances `p` past any `<!-- ... -->` comment block starting at the
 // current position. Returns the new position (past the closing `-->`)
@@ -134,7 +136,7 @@ bool ExtractHeaderAttr(const char *tagStart, const char *tagEnd,
 }
 
 EmbeddedConfig ResolveEmbeddedConfig() {
-    EmbeddedConfig out = {};
+    EmbeddedConfig out;
     const Embed::Bytes xml = Embed::File(Embed::Ids::kBindingsXml, 0);
     if (xml.data == nullptr) return out;
     const char *content = reinterpret_cast<const char *>(xml.data);
@@ -152,18 +154,39 @@ EmbeddedConfig ResolveEmbeddedConfig() {
 
     // Pull out the `header="..."` attribute. Required — this tells
     // the splicer which engine section to extend.
-    if (!ExtractHeaderAttr(open, tagEnd, out.header, sizeof(out.header)))
+    char header[64];
+    if (!ExtractHeaderAttr(open, tagEnd, header, sizeof(header)))
         return out;
 
     const char *innerStart = tagEnd + 1;
     const char *close = FindOutsideComment(innerStart, end, "</Bindings>");
-    if (close == nullptr || close < innerStart) {
-        out.header[0] = '\0';
+    if (close == nullptr || close < innerStart)
         return out;
-    }
 
-    out.innerData = innerStart;
-    out.innerSize = static_cast<size_t>(close - innerStart);
+    // The root's own text, less each `<Section>`, which is its own splice.
+    Splice root{header, {}};
+    std::vector<Splice> sections;
+    const char *p = innerStart;
+    while (p < close) {
+        const char *section = FindOutsideComment(p, close, "<Section");
+        if (section == nullptr)
+            break;
+        const char *sectionTagEnd = section;
+        while (sectionTagEnd < close && *sectionTagEnd != '>') ++sectionTagEnd;
+        const char *sectionClose = FindOutsideComment(sectionTagEnd, close, "</Section>");
+        if (sectionTagEnd == close || sectionClose == nullptr)
+            return {};
+        char sectionHeader[64];
+        if (!ExtractHeaderAttr(section, sectionTagEnd, sectionHeader, sizeof(sectionHeader)))
+            return {};
+        root.text.append(p, section);
+        sections.push_back({sectionHeader, std::string(sectionTagEnd + 1, sectionClose)});
+        p = sectionClose + sizeof("</Section>") - 1;
+    }
+    root.text.append(p, close);
+    out.push_back(std::move(root));
+    for (Splice &section : sections)
+        out.push_back(std::move(section));
     return out;
 }
 
@@ -233,30 +256,25 @@ bool TryHandle(int unused, const char *path, void **outBuf, size_t *outSize,
         return false;
 
     static const EmbeddedConfig config = ResolveEmbeddedConfig();
-    if (config.innerData == nullptr || config.innerSize == 0 ||
-        config.header[0] == '\0') {
-        // Embedded XML is missing the `<Bindings header="...">` root
-        // or the `</Bindings>` close tag. Pass the original through.
+    // Each splice at the tail of its section. A section missing from this
+    // engine file (heavily modified FrameXML or different build) is
+    // skipped rather than risking corruption.
+    std::string output(static_cast<const char *>(origBuf), origSize);
+    bool spliced = false;
+    for (const Splice &splice : config) {
+        const char *at = FindSplicePosition(output.data(), output.size(), splice.header.c_str());
+        if (at == nullptr)
+            continue;
+        output.insert(static_cast<size_t>(at - output.data()), splice.text);
+        spliced = true;
+    }
+    if (!spliced) {
         if (outBuf != nullptr) *outBuf = origBuf;
         if (outSize != nullptr) *outSize = origSize;
         return true;
     }
 
-    const char *content = static_cast<const char *>(origBuf);
-    const char *splice = FindSplicePosition(content, origSize, config.header);
-    if (splice == nullptr) {
-        // Requested section isn't present in this engine file (heavily
-        // modified FrameXML or different build). Pass through unchanged
-        // rather than risking corruption.
-        if (outBuf != nullptr) *outBuf = origBuf;
-        if (outSize != nullptr) *outSize = origSize;
-        return true;
-    }
-
-    const size_t splicePos = static_cast<size_t>(splice - content);
-    const size_t newSize = origSize + config.innerSize;
-
-
+    const size_t newSize = output.size();
     void *newBuf = Storm::Alloc(newSize + extraBytes, __FILE__, __LINE__);
     if (newBuf == nullptr) {
         // Allocation failed — fall back to the original buffer so the
@@ -267,10 +285,7 @@ bool TryHandle(int unused, const char *path, void **outBuf, size_t *outSize,
     }
 
     auto *dest = static_cast<char *>(newBuf);
-    std::memcpy(dest, content, splicePos);
-    std::memcpy(dest + splicePos, config.innerData, config.innerSize);
-    std::memcpy(dest + splicePos + config.innerSize,
-                content + splicePos, origSize - splicePos);
+    std::memcpy(dest, output.data(), newSize);
     if (extraBytes > 0)
         std::memset(dest + newSize, 0, extraBytes);
 
