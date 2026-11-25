@@ -1441,6 +1441,7 @@ build instructions.
   - [`UnitStandState(unit)`](#unitstandstateunit)
   - [`UnitInRange(unit)`](#unitinrangeunit)
   - [`UnitDistanceSquared(unit)`](#unitdistancesquaredunit)
+  - [`UnitCombatReach(unit)`](#unitcombatreachunit)
   - [`UnitPosition(unit)`](#unitpositionunit)
   - [`UnitFacing(unit)`](#unitfacingunit)
   - [`UnitInLineOfSight(unit)`](#unitinlineofsightunit)
@@ -27639,8 +27640,9 @@ C_Spell.IsSpellInRange(1006, "target")     -- Inner Fire (self) → nil
 ```
 
 The range check is the same one that `IsActionInRange` uses for the
-range color of action buttons. It includes the target's bounding radius
-in the spell's min/max range and measures center-to-center distance.
+range color of action buttons. It adds the combat reach of both units
+(see [`UnitCombatReach`](#unitcombatreachunit)) to the spell's min/max
+range and measures center-to-center distance.
 Thus the boundary matches the client exactly, melee and min-range ("too close") spells included.
 
 The target must be one that the spell can be cast on. If it is not,
@@ -31830,7 +31832,7 @@ A group member who is not in view gives `(false, true)`. In a group,
 **Reach-aware.** The threshold is not a flat 40 yards on the raw
 center-to-center distance — it's `40 + playerReach + targetReach`, the
 same formula the game uses for spell range. Each unit's reach is its
-bounding radius. A 40-yard heal lands on a target whose *center* is up to
+combat reach (see [`UnitCombatReach`](#unitcombatreachunit)). A 40-yard heal lands on a target whose *center* is up to
 `40 + reach` yards away, so a bare center-distance cap of 40 wrongly
 reports out-of-range for a target the client can actually heal (on a
 large target the reach gap is 2–3 yards). If the size of a unit is not
@@ -31869,9 +31871,37 @@ different map, the distance is not known.
 
 > A group unit with no known distance gives `(0, true)`, and so does
 > `UnitDistanceSquared("player")`. Thus a `0` distance does not tell you
-> if the distance is known. To compare with a spell range between two players, add 3
-> yards to the range: spell range adds the reach of both units, which
-> is 1.5 yards for a player.
+> if the distance is known.
+
+To compare the distance with a spell range, subtract the combat reach of
+both units. See [`UnitCombatReach`](#unitcombatreachunit).
+
+### `UnitCombatReach(unit)`
+
+Returns `reach`: the combat reach of the unit, in yards. Returns nothing
+when the unit does not exist.
+
+```lua
+local reach = UnitCombatReach("target")
+```
+
+Spell range, melee range and interact range add the combat reach of
+both units to the range. A player has a reach of 1.5 yards. Large
+creatures, for example dragons and giants, have a much larger reach. The
+reach is `0` until the server sends the size of the unit.
+
+The distance that spell range measures is the distance between the two
+centers minus the reach of both units:
+
+```lua
+local distance, checked = UnitDistanceSquared("target")
+if checked and distance > 0 then
+    local range = math.sqrt(distance) - UnitCombatReach("player") - UnitCombatReach("target")
+    -- the target is in range of a 30-yard spell when range <= 30
+end
+```
+
+`UnitDistanceSquared` ignores height, so this range ignores height too.
 
 ### `UnitPosition(unit)`
 
