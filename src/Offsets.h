@@ -12201,6 +12201,11 @@ enum Offsets {
     EVENT_ID_ACTIVATE = 2,
     EVENT_ID_MOUSEDOWN = 0xB,
     EVENT_ID_MOUSEUP = 0xE,
+    // Mouse motion: PostMouseMoveEvent 0x00423FE0 (absolute, the cursor's
+    // position) and PostMouseDeltaEvent 0x00424050 (relative, while the
+    // mouse is held for mouselook) dispatch these (disassembled).
+    EVENT_ID_MOUSEMOVE = 0xC,
+    EVENT_ID_MOUSEMOVE_RELATIVE = 0xD,
     OFF_MOUSE_EVENT_BUTTON = 0x04,
     // The engine's held-button mask, same bits. PostMouseDownEvent ORs the
     // button in (`0x00423DB6`..`0x00423DCF`), PostMouseUpEvent clears it, every
@@ -13190,7 +13195,10 @@ enum Offsets {
     // Walk mode: CMovement::GetCurrentSpeed (0x007C4C90) moves the unit at the
     // lower of its walk and run speeds while it is set.
     MOVEFLAG_WALK_MODE = 0x100,
-    MOVEFLAG_JUMPING = 0x1000,
+    // Rooted: CInputControl's MayTranslate 0x00514560 refuses movement for
+    // flags & 0x1200, and vmangos names 0x1000 MOVEFLAG_ROOT (an earlier
+    // entry here called it JUMPING; 0x2000 is the fall).
+    MOVEFLAG_ROOT = 0x1000,
     MOVEFLAG_FALLING = 0x2000,
     MOVEFLAG_FALLING_FAR = 0x4000,
     MOVEFLAG_SWIMMING = 0x200000,
@@ -13466,14 +13474,35 @@ enum Offsets {
     VAR_GAME_STATE_PTR = 0x00B4B2BC,
     OFF_GAME_STATE_CAMERA_PTR = 0x65B8,
 
-    // Camera yaw, relative to the character (radians). `0` =
-    // camera-behind-character default. Accumulates as the user
-    // LMB-orbits; stays at `0` during RMB-mouselook (camera rotates
-    // *with* the character, so relative offset doesn't change).
-    // Verified empirically: clean 180° LMB orbit moves this from
-    // `0` to `~π`. Mirrored at `+0x210` and `+0x214` (smoothing /
-    // last-applied buffers); we read the primary at `+0xF0`.
+    // Camera yaw (radians), live value; the target and from values of its
+    // transition are at +0x210 / +0x214, and ShiftYaw moves all three. While
+    // the absolute-frame counter (OFF_CAMERA_ABSOLUTE_FRAMES) is 0 it is
+    // relative to the character: `0` is behind it, a clean 180° LMB orbit
+    // gives `~π`. While the counter is raised (mouselook, fear, the gamepad's
+    // freelook) it is the absolute yaw: EnterAbsoluteFrame 0x0050D3B0 adds the
+    // facing on the first raise and LeaveAbsoluteFrame 0x0050D440 takes it
+    // off on the last, and CommitFacing hands it to the body as is
+    // (disassembled).
     OFF_CAMERA_RELATIVE_YAW = 0xF0,
+    OFF_CAMERA_ABSOLUTE_FRAMES = 0xA4,
+    // CCamera::EnterAbsoluteFrame / LeaveAbsoluteFrame, `void __thiscall
+    // (CCamera *)`: the reference-counted absolute frame above. Callers:
+    // CameraEnterFreelook / CameraLeaveFreelook, BeginExternalMove 0x005111D0
+    // / EndExternalMove 0x005111B0 (fear) and SetTrackFlag 0x00511040.
+    FUN_CAMERA_ENTER_ABSOLUTE_FRAME = 0x0050D3B0,
+    FUN_CAMERA_LEAVE_ABSOLUTE_FRAME = 0x0050D440,
+    // CCamera::MouseTurn — `void __thiscall(CCamera *, float dx, float dy)`,
+    // ret 8: the mouse-look step. dx / dy are window pixels times the DDC
+    // scales (VAR_COORD_DDC_WIDTH_SCALE / _HEIGHT_SCALE), which it divides
+    // out; yaw step = dx * 0.00125 * cameraYawMoveSpeed degrees, pitch step =
+    // dy / 600 * cameraPitchMoveSpeed, with mouseInvertYaw / Pitch and the
+    // pivot bias (FUN_CAMERA_PIVOT_BIAS_ALLOWED). Only AccumulateMotion
+    // 0x00514400 calls it, while a command is held; it never touches the
+    // input word, so a call with no button held is safe (disassembled).
+    FUN_CAMERA_MOUSE_TURN = 0x0050FEE0,
+    // CCamera::ShiftYaw — `void __thiscall(CCamera *, float delta)`, ret 4:
+    // adds delta to the yaw target, from and live values, each wrapped.
+    FUN_CAMERA_SHIFT_YAW = 0x005102B0,
 
     // Camera pitch clamp, radians: +/-1.55334306 (89 degrees). 4.3.4's
     // MAX_PITCH_ANGLE / MIN_PITCH_ANGLE, which its `pitchLimit` console
@@ -13624,6 +13653,44 @@ enum Offsets {
     // which lives until the client tears down (rare in practice).
     // NULL during pre-login.
     VAR_UI_INPUT_CONTROLLER = 0x00BE1148,
+    // CInputControl::SetCommands — `void __thiscall(CInputControl *, uint32_t
+    // commands, uint32_t press, uint32_t time, uint32_t extra)`, ret 0x10:
+    // Press 0x00514840 ORs the bits in (a no-op when any is already held) or
+    // Release 0x00514B70 clears them whoever pressed them, then a press of
+    // movement bits (0x10F0) cancels a cast that movement interrupts, and
+    // Tick 0x00514640 applies the word to the active mover. The command word
+    // is a plain mask, so two sources pressing the same bit behave like two
+    // keys bound to one command. `extra` only matters for a release of the
+    // last mouse button (LeaveMouselook's no-auto-return); pass 0. The Lua
+    // MoveForwardStart & co. (0x00513E20..) call it after the taint gate
+    // 0x00494A50 (disassembled).
+    FUN_INPUT_SET_COMMANDS = 0x00515090,
+    // CInputControl::HandOffPitch — `__thiscall(CInputControl *, uint32_t
+    // time, float pitch)`, ret 8: SetPitch(active mover, time, -pitch) when
+    // PitchGate 0x00515250 allows it (CommitFacing passes the camera pitch).
+    FUN_INPUT_HAND_OFF_PITCH = 0x00515330,
+    // The input control's movement predicates, `int __stdcall(CGUnit_C *)`,
+    // ret 4. CanControlUnit: alive, no unfinished spline (taxi), no knockdown,
+    // not far sight. MayTranslate: that and not rooted (movement flags
+    // 0x1200) and not dead (stand state 7). MayTurn: CanControlUnit and not
+    // stunned (UNIT_FIELD_FLAGS 0x40000). Keyboard movement and turning go
+    // through them (Tick); disassembled.
+    FUN_CAN_CONTROL_UNIT = 0x005144E0,
+    FUN_MAY_TRANSLATE = 0x00514560,
+    FUN_MAY_TURN = 0x005145B0,
+    // CGUnit_C::SetFacing — `void __thiscall(CGUnit_C *, uint32_t time,
+    // float facing)`, ret 8: queues a facing event on the unit's movement
+    // (MSG_MOVE_SET_FACING once it moved 0.1 rad from the last facing sent),
+    // stands up from sleep, and stops a turn in progress (movement flags
+    // 0x10 / 0x20). Facing is transport-local, 0..2pi, and turning right
+    // lowers it (disassembled; benilla-re moveemitter).
+    FUN_UNIT_SET_FACING = 0x0060DE30,
+    // CGUnit_C::SetRunMode — `void __thiscall(CGUnit_C *, uint32_t time, int
+    // run)`, ret 8: queues the run (MSG_MOVE_SET_RUN_MODE) or walk
+    // (MSG_MOVE_SET_WALK_MODE) event, whatever the mode is; MOVEFLAG_WALK_MODE
+    // changes at the next movement step. ToggleRun 0x00513D50 → 0x0060E080
+    // calls it with the flipped flag (disassembled).
+    FUN_UNIT_SET_RUN_MODE = 0x0060E060,
     // Master input flags. Single u32 at `+0x04` of the controller,
     // touched by the engine's button-press/release handlers
     // (`FUN_00514840` / `FUN_00514B70`) on every mouse-button or
@@ -13673,6 +13740,10 @@ enum Offsets {
 
     // Inside the MovementInfo block:
     OFF_MOVEMENT_FLAGS = 0x40,        // u32 — engine's MOVEFLAG_* bits
+    // f32 facing, transport-local radians 0..2pi: what SetFacing queues and
+    // the movement step stores (0x007C6F30). It is the player's +0x9C4, as
+    // +0x118 points at the inline CMovement at +0x9A8 (benilla-re fields).
+    OFF_MOVEMENT_FACING = 0x1C,
     OFF_MOVEMENT_WALK_SPEED = 0x88,
     OFF_MOVEMENT_RUN_SPEED = 0x8C,
     OFF_MOVEMENT_RUN_BACK_SPEED = 0x90,

@@ -42,6 +42,7 @@
 #include "gamepad/Buttons.h"
 #include "gamepad/Config.h"
 #include "gamepad/Device.h"
+#include "gamepad/Movement.h"
 #include "gamepad/State.h"
 #include "tick/FrameTick.h"
 #include "unit/Identity.h"
@@ -269,6 +270,7 @@ void Tick() {
         return;
     Poll();
     Buttons::Dispatch();
+    Movement::Update();
     UpdateActive();
 }
 
@@ -308,6 +310,7 @@ void Stop() {
         return;
     g_started = false;
     Buttons::Reset();
+    Movement::Reset();
     Device::Quit();
     Config::ClearAll();
     ResetSlots();

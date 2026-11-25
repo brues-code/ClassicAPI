@@ -602,6 +602,7 @@ build instructions.
   - [Emulated modifiers](#emulated-modifiers)
   - [Gamepad binding text](#gamepad-binding-text)
   - [Gamepad sticks](#gamepad-sticks)
+  - [Gamepad movement and camera](#gamepad-movement-and-camera)
   - [Gamepad frame methods](#gamepad-frame-methods)
   - [`C_GamePad.IsEnabled()`](#c_gamepadisenabled)
   - [`C_GamePad.GetActiveDeviceID()`](#c_gamepadgetactivedeviceid)
@@ -14006,6 +14007,55 @@ The game sends the event to the visible frames that enabled sticks and
 have the script, topmost first. The first frame without
 `propagateKeyboardInput` takes the stick for this frame of the game. The
 `Cursor` stick is not sent.
+
+### Gamepad movement and camera
+
+The `Movement` stick moves the character and the `Camera` stick turns the
+camera. A stick that a frame took with `OnGamePadStick` does neither in
+that frame of the game.
+
+The `Movement` stick presses the movement commands that the movement keys
+use, so the stick and the keys work together like two keys bound to one
+command. When `GamePadAnalogMovement` is `0`, the stick moves the character
+in 8 directions relative to the camera, and the character faces the
+camera. When it is `1`, the character faces the direction of the stick and
+runs forward. In combat, a stick near the camera direction strafes or
+back-pedals instead (`GamePadFaceMovementMaxAngleCombat`). A stick moved
+less than `GamePadRunThreshold` walks.
+
+The `Camera` stick turns the camera like mouse-look. At the defaults, it
+turns 225 degrees a second sideways and 90 degrees a second up or down.
+The `Look` stick moves the camera by up to `GamePadCameraLookMaxYaw` and
+`GamePadCameraLookMaxPitch` degrees, and the camera returns when the stick
+is released.
+
+Gamepad freelook comes on when you use a stick or hold a gamepad button.
+It goes off when you move the mouse after `GamePadOverlapMouseMs` without
+gamepad input, and then the character turns to the camera.
+`GAME_PAD_ACTIVE_CHANGED` fires with `true` or `false` on each change.
+While freelook is on, the camera keeps its direction when the character
+turns, and `GamePadTurnWithCamera` turns the character with the camera.
+
+| Cvar | Default | Value |
+|------|---------|-------|
+| `GamePadAnalogMovement` | `0` | `1` faces the stick direction instead of 8 directions. |
+| `GamePadRunThreshold` | `0.5` | The stick distance, 0 to 1, where walking changes to running. |
+| `GamePadFaceMovementMaxAngle` | `0` | Out of combat with `GamePadAnalogMovement` `1`: the angle from the camera, in degrees, beyond which the character faces the stick. |
+| `GamePadFaceMovementMaxAngleCombat` | `180` | The same angle in combat. |
+| `GamePadTankTurnSpeed` | `0` | Not 0: the stick turns the character like a tank at this speed. |
+| `GamePadCameraYawSpeed` | `1` | Multiplies the sideways camera speed. |
+| `GamePadCameraPitchSpeed` | `1` | Multiplies the up and down camera speed. |
+| `GamePadCameraLookMaxYaw` | `0` | The sideways range of the `Look` stick, in degrees. |
+| `GamePadCameraLookMaxPitch` | `0` | The up and down range of the `Look` stick, in degrees. |
+| `GamePadTurnWithCamera` | `1` | `0` never, `1` while moving or in combat, `2` always. |
+| `GamePadOverlapMouseMs` | `2000` | The time, in milliseconds, after gamepad input before the mouse ends freelook. |
+
+| Function | Returns |
+|----------|---------|
+| `IsGamePadFreelookEnabled()` | `true` while gamepad freelook is on. |
+| `SetGamePadFreeLook(enable)` | Turns gamepad freelook on or off. |
+| `IsUsingGamepad()` | `true` when the gamepad was used within `GamePadOverlapMouseMs`. |
+| `IsUsingMouse()` | `true` when the mouse moved within `GamePadOverlapMouseMs`. |
 
 ### Gamepad frame methods
 
