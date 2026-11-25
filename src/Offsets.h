@@ -11523,6 +11523,9 @@ enum Offsets {
     GLUE_EVENT_COUNT = 26,
     VAR_CHAT_TYPE_EVENT_IDS = 0x008062E0, // uint32[CHAT_TYPE_COUNT]
     CHAT_TYPE_COUNT = 0x5E,
+    // Chat type 0x0A, which FUN_0049B0B0 fires as event 238, CHAT_MSG_SYSTEM
+    // (see PATCH_QUEST_COMPLETE_MSG_CHAIN_SKIP).
+    CHAT_TYPE_SYSTEM = 0x0A,
 
     // Subscriber-chain node layout — the linked list hanging off each
     // entry's +0x0C head, derived from Frame::RegisterEvent

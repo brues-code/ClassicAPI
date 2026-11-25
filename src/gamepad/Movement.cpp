@@ -211,7 +211,7 @@ void HandOffPitch(uint32_t now, float pitch) {
 // The camera's pitch as CommitFacing hands it to the body: the live pitch
 // plus the pivot bias.
 float CameraPitch(const void *cam) {
-    return Game::Read<float>(cam, Offsets::OFF_CAMERA_PITCH) + Game::Read<float>(cam, 0x104);
+    return Game::Read<float>(cam, Offsets::OFF_CAMERA_PITCH) + Game::Read<float>(cam, Offsets::OFF_CAMERA_PIVOT_BIAS);
 }
 
 float CameraYaw(const void *cam) { return Game::Read<float>(cam, Offsets::OFF_CAMERA_RELATIVE_YAW); }
@@ -337,8 +337,10 @@ void ApplyBits(uint32_t bits, uint32_t now) {
 // --- mouse --------------------------------------------------------------------------
 
 // The absolute event's cursor fractions (the payload CSimpleTop copies to
-// +0x1104, so they sit at the offsets of OFF_UI_CONTEXT_MOUSE_POSITION).
-constexpr uintptr_t kMoveEventPoint = Offsets::OFF_UI_CONTEXT_MOUSE_POSITION - 0x1104;
+// OFF_UI_CONTEXT_SAVED_MOUSE_EVENT, so they sit at the offsets of
+// OFF_UI_CONTEXT_MOUSE_POSITION).
+constexpr uintptr_t kMoveEventPoint =
+    Offsets::OFF_UI_CONTEXT_MOUSE_POSITION - Offsets::OFF_UI_CONTEXT_SAVED_MOUSE_EVENT;
 float g_lastMoveU = -1.0f, g_lastMoveV = -1.0f;
 
 // 0x14125E3B0 (from the world frame's mouse handler 0x14169B2B0): real mouse
@@ -377,10 +379,15 @@ bool g_busRegistered = false;
 
 // A new world builds a new camera and resets the input control (3.80.2's
 // 0x14125E6B0 zeroes the owned bits and the look state without events, and
-// turns cursor mode off); the glue screens have none of it.
+// turns cursor mode off); the glue screens have none of it. A /reload runs
+// this too and keeps the camera and the mover, so what we hold on them is
+// released, not just forgotten: HoldFrame leaves a camera that is still the
+// live one and drops one that was rebuilt.
 void ResetWorld() {
+    if (g_owned != 0 && Mover() != nullptr)
+        ReleaseOwned(Time::Clock::NowMs());
     g_owned = 0;
-    g_frameCamera = nullptr;
+    HoldFrame(false);
     g_freelook = false;
     g_prevLookYaw = g_prevLookPitch = 0.0f;
     g_runModeSent = false;

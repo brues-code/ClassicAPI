@@ -88,6 +88,7 @@ float g_vibrationStrength = 1.0f;
 bool g_ledOverride = false;
 uint32_t g_ledOverrideColor = 0;
 uint32_t g_lastColor = 0;
+bool g_ledDirty = false; // a device connected: its record starts with the LED off
 uint8_t g_lastPower = Device::kPowerUnknown;
 bool g_activeWasConnected = false;
 bool g_seenGlue = false;
@@ -125,10 +126,11 @@ void ChatPrint(const char *stringName, uint32_t id) {
     using ChatDispatch_t = void(__fastcall *)(const char *, int, const char *, int, const char *, const char *,
                                               const char *, int, int, int, int, int);
     reinterpret_cast<ChatDispatch_t>(static_cast<uintptr_t>(Offsets::FUN_CHAT_DISPATCH))(
-        buf, 0x0A /* CHAT_MSG_SYSTEM */, nullptr, 0, nullptr, nullptr, nullptr, 0, 0, 0, 0, 0);
+        buf, Offsets::CHAT_TYPE_SYSTEM, nullptr, 0, nullptr, nullptr, nullptr, 0, 0, 0, 0, 0);
 }
 
 void Connected(uint32_t id) {
+    g_ledDirty = true;
     ChatPrint("GAMEPAD_CONNECTED", id);
     WriteDefaultFile(true);
     Event::Custom::Fire(_connected.Slot(), "");
@@ -257,8 +259,9 @@ void UpdateActive() {
     } else {
         color = 0;
     }
-    if (color != g_lastColor) {
+    if (color != g_lastColor || g_ledDirty) {
         g_lastColor = color;
+        g_ledDirty = false;
         ForTargets([&](const Device::Slot &s) { Device::SetLED(s, color); });
     }
     if (active.power != g_lastPower) {

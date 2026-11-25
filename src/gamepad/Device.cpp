@@ -174,9 +174,11 @@ void Add(SDL_JoystickID id) {
     if (ByInstance(id) != nullptr)
         return;
     Sleep(100); // 3.80.2 lets a new device settle before opening it
+    // A closed record a slot still holds (a device removed before it sent
+    // any input keeps its slot) is not reused, or two slots would share it.
     Record *rec = nullptr;
     for (auto &r : g_records)
-        if (r->instance == 0) {
+        if (r->instance == 0 && r->slot < 0) {
             rec = r.get();
             break;
         }
@@ -482,6 +484,10 @@ void Drain(uint64_t now) {
                 break;
             case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
             case SDL_EVENT_GAMEPAD_BUTTON_UP:
+                // SDL2's buttons, as 3.80.2 has them: SDL3's MISC2..MISC6 (21..)
+                // would land on the touchpad side bits kTouchLeft / kTouchRight.
+                if (ev.gbutton.button > SDL_GAMEPAD_BUTTON_TOUCHPAD)
+                    break;
                 if ((r = Assigned(ev.gbutton.which, slot)) != nullptr) {
                     Button(slot, g_raw[slot], ev.gbutton.button, ev.gbutton.down, now);
                     if (ev.gbutton.button == SDL_GAMEPAD_BUTTON_TOUCHPAD)
@@ -638,7 +644,7 @@ void Quit() {
         return;
     g_sdl = false;
     for (auto &r : g_records)
-        if (r->pad != nullptr)
+        if (r->pad != nullptr || r->joy != nullptr)
             Close(*r);
     g_records.clear();
     for (Record *&r : g_slotRecord)

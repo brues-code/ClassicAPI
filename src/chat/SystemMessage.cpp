@@ -30,8 +30,6 @@ namespace Chat::SystemMessage {
 
 namespace {
 
-constexpr int CHAT_MSG_SYSTEM = 0x0A;
-
 using ChatDispatch_t = void(__fastcall *)(
     const char *message, int chatType,
     const char *senderName, int languageID, const char *channel, const char *targetName,
@@ -43,7 +41,7 @@ int __fastcall Script_SendSystemMessage(void *L) {
         Game::Lua::Error(L, "Usage: SendSystemMessage(\"message\")");
     auto dispatch = reinterpret_cast<ChatDispatch_t>(
         static_cast<uintptr_t>(Offsets::FUN_CHAT_DISPATCH));
-    dispatch(Game::Lua::ToString(L, 1), CHAT_MSG_SYSTEM, nullptr, 0, nullptr, nullptr,
+    dispatch(Game::Lua::ToString(L, 1), Offsets::CHAT_TYPE_SYSTEM, nullptr, 0, nullptr, nullptr,
              nullptr, 0, 0, 0, 0, 0);
     return 0;
 }
