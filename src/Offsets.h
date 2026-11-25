@@ -13610,6 +13610,34 @@ enum Offsets {
     // / EndExternalMove 0x005111B0 (fear) and SetTrackFlag 0x00511040.
     FUN_CAMERA_ENTER_ABSOLUTE_FRAME = 0x0050D3B0,
     FUN_CAMERA_LEAVE_ABSOLUTE_FRAME = 0x0050D440,
+    // CCamera::EnterMouselook / LeaveMouselook, `void __thiscall(CCamera *)`,
+    // plain ret. The input's PressCommands calls Enter (through the thunk
+    // 0x0050F930, at 0x0051491F) when a mouse button (command bits 0x3)
+    // goes down with none held, ReleaseCommands calls Leave (through
+    // 0x0050F940, at 0x00514C48) when the last one comes up; ToggleMouselook
+    // 0x0050F910 picks one by mode bit 0. Enter returns at once while bit 0
+    // is set; else it sets it, hides the cursor (FUN_SET_CURSOR_SHOWN 0),
+    // takes relative mouse (0x00420540), starts the world frame's mouselook
+    // (0x00493070), raises both absolute frames (0x0050D3B0, 0x0050D500),
+    // then cancels the pitch, pivot-bias and yaw transitions (target = live,
+    // times 0) and clears CAMERA_MODE_MOUSELOOK_CLEARS (0x0050FE7E..
+    // 0x0050FED3). Leave returns at once while bit 0 is clear; else it
+    // undoes each step. 3.80.2's camera half of it is 0x141B62100 (bit, one
+    // frame, the same cancel), which its SetCommands 0x14125F420 also runs
+    // for gamepad freelook (command bit 0x2000000, grouped with the mouse
+    // buttons as 0x2000003). Disassembled.
+    FUN_CAMERA_ENTER_MOUSELOOK = 0x0050FE30,
+    FUN_CAMERA_LEAVE_MOUSELOOK = 0x0050FDD0,
+    // The transitions EnterMouselook cancels, each a pair of start-time words
+    // and a target (benilla-re uicamera/transitions, the channel table):
+    // pitch (target to OFF_CAMERA_PITCH), pivot bias (to
+    // OFF_CAMERA_PIVOT_BIAS), yaw (to OFF_CAMERA_RELATIVE_YAW).
+    OFF_CAMERA_PITCH_TRANSITION_TIMES = 0x1D8,
+    OFF_CAMERA_PITCH_TRANSITION_TARGET = 0x1E0,
+    OFF_CAMERA_PIVOT_BIAS_TRANSITION_TIMES = 0x1F0,
+    OFF_CAMERA_PIVOT_BIAS_TRANSITION_TARGET = 0x1F8,
+    OFF_CAMERA_YAW_TRANSITION_TIMES = 0x208,
+    OFF_CAMERA_YAW_TRANSITION_TARGET = 0x210,
     // CCamera::MouseTurn — `void __thiscall(CCamera *, float dx, float dy)`,
     // ret 8: the mouse-look step. dx / dy are window pixels times the DDC
     // scales (VAR_COORD_DDC_WIDTH_SCALE / _HEIGHT_SCALE), which it divides
@@ -13719,6 +13747,12 @@ enum Offsets {
     CAMERA_MODE_YAW_TRANSITION = 0x1000000,
     CAMERA_MODE_PITCH_TRANSITION = 0x2000000,
     CAMERA_MODE_COLLISION_BITS = 0x30000,
+    // The mode bits EnterMouselook clears with its cancel (0x0050FEC2's
+    // `and 0xF4FFBFFF`): the yaw, pitch and pivot-bias transitions running
+    // (0x1000000, 0x2000000, 0x8000000; the driver clears 0x8000000 as it
+    // cancels the pivot bias, 0x0050EDAD) and 0x4000, which Leave also
+    // clears.
+    CAMERA_MODE_MOUSELOOK_CLEARS = 0x0B004000,
     // Live orbit distance and the distance it eases to (the zoom target).
     OFF_CAMERA_DISTANCE = 0xEC,
     OFF_CAMERA_TARGET_DISTANCE = 0x198,

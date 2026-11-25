@@ -45,12 +45,14 @@
 // real mouse motion GamePadOverlapMouseMs after the last pad input turns it
 // off, and the character first turns to the camera. GAME_PAD_ACTIVE_CHANGED
 // fires on each change. Mouse motion within 200 ms of a gamepad cursor move
-// is that move's own and does not count (GamePad::Cursor). While it is on, the camera holds one count of its
-// absolute frame (CCamera::EnterAbsoluteFrame, which mouse-look and fear
-// use), so its yaw is the world direction the character is turned to, as
-// 3.80.2's freelook puts the camera under user control (0x141B62100).
-// Entering 1.12's own mouse-look mode is not an option: it hides the cursor
-// and the nameplates and belongs to the mouse buttons.
+// is that move's own and does not count (GamePad::Cursor). While it is on,
+// the camera gets the camera half of 3.80.2's freelook start (0x141B62100):
+// one count of its absolute frame (CCamera::EnterAbsoluteFrame, which
+// mouse-look and fear use), so its yaw is the world direction the character
+// is turned to; mode bit 0, shared with the mouse buttons' mouselook as
+// 3.80.2 groups them; and its transitions cancelled. 1.12's whole
+// EnterMouselook is not an option: it also hides the cursor and starts the
+// world frame's mouselook, which belong to the mouse buttons.
 
 #include "gamepad/Movement.h"
 
@@ -230,6 +232,7 @@ float WrapPi(float a) {
 uint32_t g_owned = 0;           // the movement bits the stick pressed (0x1468C00D0)
 bool g_freelook = false;
 void *g_frameCamera = nullptr;  // the camera our absolute-frame count is on
+bool g_ownBit = false;          // mode bit 0 on g_frameCamera is freelook's
 uint32_t g_lastPadInput = 0;    // 0x1468C00CC
 uint32_t g_lastMouseInput = 0;
 float g_prevLookYaw = 0.0f, g_prevLookPitch = 0.0f;
@@ -247,16 +250,56 @@ void FireActiveChanged(bool on) {
     Game::Lua::SetTop(L, top);
 }
 
-// Keeps the absolute-frame count on the camera that exists now; a camera
-// rebuilt (world entry) has no count of ours to take off.
+uint32_t &CameraMode(void *cam) { return Game::Ref<uint32_t>(cam, Offsets::OFF_CAMERA_MODE); }
+
+// The camera half of 3.80.2's freelook start (0x141B62100), which is the
+// camera block of 1.12's EnterMouselook without its cursor and world-frame
+// steps: mode bit 0, then every transition target set to its live value
+// (0x0050FE7E..0x0050FED3). With bit 0 set, the yaw transition the
+// smart-camera arm 0x00510960 starts on a movement press does not play
+// (0x0050F629); the arm aims it at the saved yaw plus the facing the unit
+// had before the stick turned it, which would swing the camera back and
+// the stick's "up" with it.
+void TakeMouselookBit(void *cam) {
+    uint32_t &mode = CameraMode(cam);
+    if ((mode & Offsets::CAMERA_MODE_MOUSELOOK) != 0)
+        return; // a mouse button's mouselook holds it (the shared group)
+    mode |= Offsets::CAMERA_MODE_MOUSELOOK;
+    g_ownBit = true;
+    auto cancel = [cam](uintptr_t times, uintptr_t target, uintptr_t live) {
+        Game::Ref<uint32_t>(cam, times) = 0;
+        Game::Ref<uint32_t>(cam, times + 4) = 0;
+        Game::Ref<float>(cam, target) = Game::Read<float>(cam, live);
+    };
+    cancel(Offsets::OFF_CAMERA_PITCH_TRANSITION_TIMES, Offsets::OFF_CAMERA_PITCH_TRANSITION_TARGET,
+           Offsets::OFF_CAMERA_PITCH);
+    cancel(Offsets::OFF_CAMERA_PIVOT_BIAS_TRANSITION_TIMES, Offsets::OFF_CAMERA_PIVOT_BIAS_TRANSITION_TARGET,
+           Offsets::OFF_CAMERA_PIVOT_BIAS);
+    cancel(Offsets::OFF_CAMERA_YAW_TRANSITION_TIMES, Offsets::OFF_CAMERA_YAW_TRANSITION_TARGET,
+           Offsets::OFF_CAMERA_RELATIVE_YAW);
+    mode &= ~static_cast<uint32_t>(Offsets::CAMERA_MODE_MOUSELOOK_CLEARS);
+}
+
+void DropMouselookBit(void *cam) {
+    if (g_ownBit)
+        CameraMode(cam) &= ~static_cast<uint32_t>(Offsets::CAMERA_MODE_MOUSELOOK);
+    g_ownBit = false;
+}
+
+// Keeps the absolute-frame count and mode bit 0 on the camera that exists
+// now; a camera rebuilt (world entry) has neither of ours to take off.
 void HoldFrame(bool hold) {
     void *cam = Camera();
-    if (g_frameCamera != nullptr && g_frameCamera != cam)
+    if (g_frameCamera != nullptr && g_frameCamera != cam) {
         g_frameCamera = nullptr;
+        g_ownBit = false;
+    }
     if (hold && g_frameCamera == nullptr && cam != nullptr) {
         CameraCall(Offsets::FUN_CAMERA_ENTER_ABSOLUTE_FRAME, cam);
         g_frameCamera = cam;
+        TakeMouselookBit(cam);
     } else if (!hold && g_frameCamera != nullptr) {
+        DropMouselookBit(g_frameCamera);
         CameraCall(Offsets::FUN_CAMERA_LEAVE_ABSOLUTE_FRAME, g_frameCamera);
         g_frameCamera = nullptr;
     }
@@ -288,6 +331,37 @@ void Freelook(bool on) {
     }
     FireActiveChanged(on);
 }
+
+// A mouse button's mouselook and freelook share mode bit 0, as 3.80.2
+// groups its mouse buttons and freelook (0x2000003). 1.12's EnterMouselook
+// also owns the cursor and the world frame's mouselook, and its Leave undoes
+// both frames it raised, so a press while freelook holds the bit hands the
+// bit over first and Enter runs whole; after the Leave, freelook (still on,
+// still holding its own frame) takes the bit back.
+using CameraFn_t = void(__fastcall *)(void *cam, void *edx);
+CameraFn_t EnterMouselook_o = nullptr;
+CameraFn_t LeaveMouselook_o = nullptr;
+
+void __fastcall EnterMouselook_h(void *cam, void *edx) {
+    if (cam == g_frameCamera)
+        DropMouselookBit(cam);
+    EnterMouselook_o(cam, edx);
+}
+
+void __fastcall LeaveMouselook_h(void *cam, void *edx) {
+    LeaveMouselook_o(cam, edx);
+    if (cam == g_frameCamera && (CameraMode(cam) & Offsets::CAMERA_MODE_MOUSELOOK) == 0) {
+        CameraMode(cam) |= Offsets::CAMERA_MODE_MOUSELOOK;
+        g_ownBit = true;
+    }
+}
+
+const Game::HookAutoRegister _enterMouselookHook{Offsets::FUN_CAMERA_ENTER_MOUSELOOK,
+                                                 reinterpret_cast<void *>(&EnterMouselook_h),
+                                                 reinterpret_cast<void **>(&EnterMouselook_o)};
+const Game::HookAutoRegister _leaveMouselookHook{Offsets::FUN_CAMERA_LEAVE_MOUSELOOK,
+                                                 reinterpret_cast<void *>(&LeaveMouselook_h),
+                                                 reinterpret_cast<void **>(&LeaveMouselook_o)};
 
 bool InCombat(const void *unit) {
     return (UnitFlags(unit) & (Offsets::UNIT_FLAG_IN_COMBAT | Offsets::UNIT_FLAG_PET_IN_COMBAT)) != 0;
