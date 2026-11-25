@@ -101,6 +101,9 @@ const Event::Custom::AutoReserve _reserveModifierStateChanged{kModifierStateChan
 // Which side of each modifier the message hook last saw go down. Only
 // meaningful under the engine's held-key list (see HeldMask).
 uint32_t g_sideMask = 0;
+// The right-side bits a gamepad button holds (Emulate). Kept apart from the
+// keyboard's sides, which Reconcile drops when the merged key goes up.
+uint32_t g_emulated = 0;
 // The held mask `MODIFIER_STATE_CHANGED` last reported (see Reconcile).
 uint32_t g_reportedMask = 0;
 
@@ -133,21 +136,23 @@ const Game::HookAutoRegister _isKeyDownHook{Offsets::FUN_GAMEUI_IS_KEY_DOWN,
 // The held modifiers by side: the engine's held-key list says WHETHER each
 // merged key is down (the original EventIsKeyDown, not the override), the
 // side mask says WHICH side.
-uint32_t HeldMask() {
+uint32_t Gate(uint32_t sides) {
     uint32_t mask = 0;
     for (int key = 0; key < 3; ++key)
         if (g_isKeyDownOriginal(key))
-            mask |= g_sideMask & kPairs[key];
+            mask |= sides & kPairs[key];
     return mask;
 }
+
+uint32_t HeldMask() { return Gate(g_sideMask | g_emulated); }
 
 // Run from the engine's key / activation handlers, after the dispatch has
 // updated the held-key list: drop side bits the engine no longer holds, and
 // fire `MODIFIER_STATE_CHANGED` for each bit that differs from the last
 // report.
 void Reconcile() {
+    g_sideMask = Gate(g_sideMask);
     const uint32_t held = HeldMask();
-    g_sideMask = held;
     const uint32_t changed = held ^ g_reportedMask;
     g_reportedMask = held;
     if (changed == 0)
@@ -312,6 +317,31 @@ uint32_t CurrentMask() {
 
 bool IsKeyDown(int key) {
     return reinterpret_cast<IsKeyDown_t>(Offsets::FUN_GAMEUI_IS_KEY_DOWN)(key) != 0;
+}
+
+void Emulate(int key, bool down) {
+    if (key < 0 || key > 2)
+        return;
+    static constexpr uint32_t kRight[3] = {1u << BIT_RSHIFT, 1u << BIT_RCTRL, 1u << BIT_RALT};
+    static constexpr int kVk[3] = {VK_SHIFT, VK_CONTROL, VK_MENU};
+    const uint32_t bit = kRight[key];
+    if (down == ((g_emulated & bit) != 0))
+        return;
+    if (down)
+        g_emulated |= bit;
+    else
+        g_emulated &= ~bit;
+    // 1.12's shift / ctrl / alt is one key for both sides. While the keyboard
+    // holds it, a pad press adds only its side and a pad release takes only
+    // its side away, so the keyboard's key stays down.
+    if ((GetAsyncKeyState(kVk[key]) & 0x8000) != 0) {
+        Reconcile();
+        return;
+    }
+    using Enqueue_t = void(__fastcall *)(uint32_t kind, uint32_t a, uint32_t b, uint32_t c, uint32_t unused);
+    reinterpret_cast<Enqueue_t>(static_cast<uintptr_t>(Offsets::FUN_ENQUEUE_INPUT_EVENT))(
+        down ? Offsets::INPUT_RECORD_KEY_DOWN : Offsets::INPUT_RECORD_KEY_UP, static_cast<uint32_t>(key),
+        1, 0, 0);
 }
 
 uint32_t ParseModifiers(const char *&text) {

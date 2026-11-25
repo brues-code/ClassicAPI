@@ -39,6 +39,7 @@
 #include "creature/Info.h"
 #include "cvar/Factory.h"
 #include "event/Custom.h"
+#include "gamepad/Buttons.h"
 #include "gamepad/Config.h"
 #include "gamepad/Device.h"
 #include "gamepad/State.h"
@@ -267,6 +268,7 @@ void Tick() {
     if (!g_started)
         return;
     Poll();
+    Buttons::Dispatch();
     UpdateActive();
 }
 
@@ -305,6 +307,7 @@ void Stop() {
     if (!g_started)
         return;
     g_started = false;
+    Buttons::Reset();
     Device::Quit();
     Config::ClearAll();
     ResetSlots();

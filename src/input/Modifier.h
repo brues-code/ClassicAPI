@@ -35,6 +35,16 @@ uint32_t CurrentMask();
 // `key` is 0 shift, 1 ctrl, 2 alt, or any other KEY code.
 bool IsKeyDown(int key);
 
+// Presses (`down`) or releases a modifier for a gamepad button that emulates
+// it (GamePadEmulateShift / Ctrl / Alt). `key` is 0 shift, 1 ctrl, 2 alt.
+// 3.80.2 sends the right-side key (VK_RSHIFT / VK_RCONTROL / VK_RMENU) down
+// its OS key path, so the press is a real key press here too: a record in
+// the window input ring, which the next tick's input drain dispatches like
+// the keyboard's (IsShiftKeyDown, the key walk, chords). It shows as the
+// right side: IsRightShiftKeyDown, MODIFIER_STATE_CHANGED("RSHIFT", 1).
+// A repeat of the current state does nothing.
+void Emulate(int key, bool down);
+
 // CGUIBindings::AddModifiers: consumes leading modifier names from `text`
 // ("SHIFT", "LCTRL", "RALT", … each optionally followed by '-') and returns
 // their bits. `text` is left at the first character that is not one.

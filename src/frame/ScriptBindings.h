@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include "AutoList.h"
+
 #include <cstdint>
 
 // A script's three bindings — see ScriptBindings.cpp.
@@ -36,6 +38,14 @@ bool HookIntrinsic(void *L, void *frame, Binding binding);
 // The context of the script's extrinsic binding — the handler GetScript
 // returns — or 0 when the frame has no such script.
 uint32_t ExtrinsicContext(void *frame, const char *name);
+
+// Called after SetScript stores a function in a frame's script, and so after
+// HookScript, which stores its hook through SetScript. The XML <Scripts>
+// loader does not pass here. `name` is the script name as the caller gave it.
+// 3.80.2's SetScript enables the input kind a script needs (keyboard for
+// OnKeyDown, gamepad for OnGamePadButtonDown, ...) from this point.
+using HandlerSet = void (*)(void *frame, const char *name);
+using HandlerSetAutoSubscribe = AutoList<struct HandlerSetTag, HandlerSet>;
 
 // The dispatcher closure body, so Frame::ScriptArgs can look at the
 // bindings it runs (upvalues 1..3, in binding order).

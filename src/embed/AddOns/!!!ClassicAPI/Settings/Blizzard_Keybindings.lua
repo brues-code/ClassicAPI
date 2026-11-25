@@ -2,8 +2,7 @@
 --
 -- Differences from the retail source:
 --   - 1.12 sends a key to a frame only when the frame takes keyboard input,
---     so the listener turns keyboard input on while it listens. It has no
---     gamepad script: this client has no gamepad.
+--     so the listener turns keyboard input on while it listens.
 --   - 1.12 offers a key to the frames from the top stratum down, and an edit
 --     box with the focus takes every key it is offered. A click does not take
 --     the focus from a box. So the listener is in the FULLSCREEN_DIALOG
@@ -32,6 +31,10 @@ function KeybindListener:OnKeyDown(key)
 	self:ProcessInput(key);
 end
 
+function KeybindListener:OnGamePadButtonDown(key)
+	self:ProcessInput(key);
+end
+
 function KeybindListener:OnClick(key)
 end
 
@@ -55,10 +58,12 @@ function KeybindListener:SetListening(listen)
 			focus:ClearFocus();
 		end
 		self:SetScript("OnKeyDown", self.OnKeyDown);
+		self:SetScript("OnGamePadButtonDown", self.OnGamePadButtonDown);
 		self:SetScript("OnClick", self.OnClick);
 		self:SetScript("OnMouseWheel", self.OnMouseWheel);
 	else
 		self:SetScript("OnKeyDown", nil);
+		self:SetScript("OnGamePadButtonDown", nil);
 		self:SetScript("OnClick", nil);
 		self:SetScript("OnMouseWheel", nil);
 	end

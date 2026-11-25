@@ -184,11 +184,17 @@ uint32_t *ArgSlot(void *L, void **frame) {
 
 // The engine's SetScript always stores into the slot once it returns.
 int __fastcall SetScript_h(void *L) {
+    // Read before the engine runs: its luaL_ref pops the handler off the stack.
+    const bool setsFunction = Game::Lua::Type(L, 3) == Game::Lua::TYPE_FUNCTION;
     const int n = g_origSetScript(L);
     void *frame = nullptr;
-    if (uint32_t *slot = ArgSlot(L, &frame))
+    if (uint32_t *slot = ArgSlot(L, &frame)) {
         if (Entry *e = Find(slot))
             Adopt(L, *e);
+        if (setsFunction)
+            for (auto *node = HandlerSetAutoSubscribe::head; node != nullptr; node = node->next)
+                node->fn(frame, Game::Lua::ToString(L, 2));
+    }
     return n;
 }
 

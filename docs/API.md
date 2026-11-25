@@ -598,6 +598,11 @@ build instructions.
   - [Configs](#configs)
   - [GamePad cvars and commands](#gamepad-cvars-and-commands)
   - [GamePad events](#gamepad-events)
+  - [Gamepad buttons and bindings](#gamepad-buttons-and-bindings)
+  - [Emulated modifiers](#emulated-modifiers)
+  - [Gamepad binding text](#gamepad-binding-text)
+  - [Gamepad sticks](#gamepad-sticks)
+  - [Gamepad frame methods](#gamepad-frame-methods)
   - [`C_GamePad.IsEnabled()`](#c_gamepadisenabled)
   - [`C_GamePad.GetActiveDeviceID()`](#c_gamepadgetactivedeviceid)
   - [`C_GamePad.GetCombinedDeviceID()`](#c_gamepadgetcombineddeviceid)
@@ -13929,6 +13934,87 @@ disconnects.
 | `High` | 3 |
 | `Wired` | 4 |
 | `Unknown` | 5 |
+
+### Gamepad buttons and bindings
+
+The game sends each button of the active device to frames first, then to
+the key bindings. A gamepad button does not repeat while it is held.
+
+A frame gets the buttons when it enabled them with
+`frame:EnableGamePadButton()`, or when `SetScript` or `HookScript` set its
+`OnGamePadButtonDown` or `OnGamePadButtonUp` script. A script in XML does
+not enable the buttons. The game sends a button press to the visible
+frames that enabled buttons and have one of the two scripts, topmost first.
+Each runs `OnGamePadButtonDown(self, button)`. `button` is the button key,
+for example `"PAD1"`, without modifiers.
+
+The first frame without `propagateKeyboardInput` takes the button. Only
+this frame gets `OnGamePadButtonUp(self, button)` when the button goes up.
+A frame that has only `OnGamePadButtonUp` also takes the press. The return
+value of the scripts has no effect.
+
+When no frame takes the press, the button runs its key binding. The
+binding key is the chord of the held modifiers and the button, for example
+`"SHIFT-PAD1"`, as `SetBinding` stores it. When the binding runs, the release
+runs the same chord, also when the modifier went up first. Bindings use
+gamepad keys like keyboard keys: movement, `SPELL`, `ITEM`, `MACRO`, and
+`CLICK` bindings, and override bindings.
+
+`SetBinding` and the key binding window accept the button keys, with or
+without modifiers. The key binding window takes a gamepad button while it
+waits for a key.
+
+### Emulated modifiers
+
+Three cvars make gamepad buttons into modifier keys:
+
+| Cvar | Default | The button that is |
+|------|---------|--------------------|
+| `GamePadEmulateShift` | `PADLTRIGGER` | Shift |
+| `GamePadEmulateCtrl` | `PADLSHOULDER` | Ctrl |
+| `GamePadEmulateAlt` | `none` | Alt |
+
+A button that is a modifier is a key press of the right Shift, Ctrl, or
+Alt key. `IsShiftKeyDown` and `IsRightShiftKeyDown` return `1`, and
+`MODIFIER_STATE_CHANGED` fires with `"RSHIFT"`. Such a button goes to
+frames and bindings as its button key only when you tap it. A tap is a
+release within `GamePadEmulateTapWindowMs` (350 milliseconds), with no
+other button press in that time. A tap presses and releases the button key. A value that is not a button key or `none` is refused, and the
+console shows the valid names.
+
+### Gamepad binding text
+
+`GetBindingText` shows a gamepad key as its button glyph. The glyph
+matches the label style of the active gamepad: Xbox letters, PlayStation
+shapes, or Nintendo letters. A modifier shows as the glyph of the button
+that is that modifier, for example `SHIFT-PAD1` as LT + A. The parts are
+joined with `+`, or with nothing in the abbreviated text.
+
+`IsBindingForGamePad(key)` returns `true` when `key` is a gamepad key: it
+has `PAD` at its start or after a `-`. `"NUMPAD1"` is not a gamepad key.
+
+### Gamepad sticks
+
+A frame gets the sticks when it enabled them with
+`frame:EnableGamePadStick()`, or when `SetScript` or `HookScript` set its
+`OnGamePadStick` script. In each frame of the game, each stick that is off
+center sends `OnGamePadStick(self, stick, x, y, len)`. `stick` is the stick
+name, for example `"Movement"`. The game also sends one more event with all
+values at 0 after the stick returns to the center.
+
+The game sends the event to the visible frames that enabled sticks and
+have the script, topmost first. The first frame without
+`propagateKeyboardInput` takes the stick for this frame of the game. The
+`Cursor` stick is not sent.
+
+### Gamepad frame methods
+
+| Method | Does |
+|--------|------|
+| `frame:EnableGamePadButton([enable])` | Turns gamepad buttons on (`true` or no argument) or off for the frame. |
+| `frame:IsGamePadButtonEnabled()` | Returns whether the frame gets gamepad buttons, also while it is hidden. |
+| `frame:EnableGamePadStick([enable])` | Turns gamepad sticks on or off for the frame. |
+| `frame:IsGamePadStickEnabled()` | Returns whether the frame gets gamepad sticks. |
 
 ### `C_GamePad.IsEnabled()`
 

@@ -60,6 +60,21 @@ enum Offsets {
     // layer rather than temporarily mutating the character/account binding
     // table. The normal dispatcher is called unchanged when no override wins.
     FUN_BINDING_KEY_DISPATCH = 0x004B7990,
+    // AppendModifierPrefixes — `int __fastcall(uint32_t mask /*ecx*/, char
+    // **cursor /*edx*/, int *remaining)`, ret 4: writes "ALT-", "CTRL-",
+    // "SHIFT-" (in that order, from the table 0x00846BD4 walked backwards) for
+    // the bits 4 / 2 / 1 of `mask`, advancing the cursor; 0 when one does not
+    // fit. BuildKeyChord (0x004B66B0) calls it and then appends the key name
+    // (disassembled).
+    FUN_APPEND_MODIFIER_PREFIXES = 0x004B6630,
+    // IsValidBindingKey — `int __fastcall(const char *key)`, plain ret: strips
+    // any "SHIFT-" / "CTRL-" / "ALT-" (table 0x00846BEC, case-sensitive,
+    // any order), then accepts one character, F / NUMPAD / BUTTON + digits
+    // (0x00846C04) or one of 26 names (0x00846C20). Its only caller is
+    // SetKeyBinding 0x004B7490, which serves Lua SetBinding, the
+    // bindings-cache.wtf loader 0x004B6140 and the console `bind` 0x004B60B0
+    // (disassembled; benilla-re ui/keybindings).
+    FUN_IS_VALID_BINDING_KEY = 0x004B7890,
 
     // Executes a resolved binding command:
     //   int __thiscall(manager, command, isDown)
@@ -178,6 +193,24 @@ enum Offsets {
     // 4.3.4's version answers from the binding manager's held-modifier mask
     // while a key binding runs; `Input::Modifier` co-hooks it to do the same.
     FUN_GAMEUI_IS_KEY_DOWN = 0x0041F8F0,
+    // EnqueueInputEvent — `void __fastcall(uint32_t kind /*ecx*/, uint32_t a
+    // /*edx*/, uint32_t b, uint32_t c, uint32_t unused)`, ret 0xC: appends
+    // {kind, a, b, c, clock} to the window input ring (16 slots at 0x00884CC0,
+    // keeps 15 and drops the oldest when full, no lock). The tick's input
+    // drain (0x00423920 at 0x00420D23) dispatches each record as the window
+    // procedure's own: kind INPUT_RECORD_KEY_DOWN / _UP with a = key code and
+    // b = repeat count goes to PostKeyDownEvent / PostKeyUpEvent
+    // (0x00423D00 / 0x00423D50), which keep the merged modifier mask
+    // VAR_MODIFIER_KEYS for codes 0..2 and the held-key list, then the key
+    // walk and the bindings. The engine queues a synthetic Shift release this
+    // way itself (0x0042D40E, on WM_IME_NOTIFY). Disassembled.
+    FUN_ENQUEUE_INPUT_EVENT = 0x0042D780,
+    INPUT_RECORD_KEY_DOWN = 7,
+    INPUT_RECORD_KEY_UP = 8,
+    // s_modifierKeys: bit 0 shift, 1 ctrl, 2 alt, set and cleared by the key
+    // records of codes 0..2 before their dispatch and copied into every key
+    // and mouse event payload, which the chord builder reads (disassembled).
+    VAR_MODIFIER_KEYS = 0x00883F34,
     // OsWriteFile — `int __fastcall(HANDLE /*ecx*/, const void *buffer /*edx*/,
     // uint32_t size, uint32_t *written)`, `ret 8`.
     FUN_OS_WRITE_FILE = 0x0042A5D0,

@@ -38,6 +38,7 @@ Util\CallbackRegistry.lua
 Util\GlobalCallbackRegistry.lua
 Util\CvarUtil.lua
 Util\BindingUtil.lua
+Util\GamePadBindingText.lua
 Util\TemplateInfoCache.lua
 Util\FrameFactory.lua
 Util\DataProvider.lua
