@@ -107,6 +107,11 @@ build instructions.
   - [`C_KeyBindings.GetBindingIndex(action)`](#c_keybindingsgetbindingindexaction)
   - [`C_KeyBindings.GetBindingContextForAction(action)` / `C_KeyBindings.GetCustomBindingType(bindingIndex)`](#c_keybindingsgetbindingcontextforactionaction--c_keybindingsgetcustombindingtypebindingindex)
 
+- [Camera](#camera)
+  - [ActionCam](#actioncam)
+  - [`ActionCam [option]` (console command)](#actioncam-option-console-command)
+  - [ActionCam settings](#actioncam-settings)
+
 - [CharacterList](#characterlist)
   - [`SaveCharacterOrder(translationTable)` — GlueXML only](#savecharacterordertranslationtable--gluexml-only)
 
@@ -3458,6 +3463,176 @@ local action, key1, key2 = GetBinding(index)
 Both functions return `nil`. The client has one set of key bindings for all
 actions, so no action has a binding context of its own. The client has no
 custom binding types.
+
+## Camera
+
+### ActionCam
+
+ActionCam is a set of camera features. Each feature has its own settings.
+The game keeps the settings in `WTF\Config.wtf`, so you do not need an addon.
+The `ActionCam` console command changes groups of these settings at one time.
+
+The features:
+
+- **Over the shoulder**: the camera moves to one side of the character.
+- **Dynamic pitch**: the camera tilts down so that the feet of the character
+  stay in the lower part of the screen.
+- **Head movement**: the camera follows the head of the character.
+- **Target focus**: the camera turns part of the way toward your enemy
+  target, or toward the NPC or object that you talk to.
+- **Vertical smoothing**: the camera moves up and down more slowly than the
+  character.
+- **Indirect visibility**: when an object comes between the camera and the
+  character, the camera looks for a clear position around the object. If it
+  finds none, it moves closer.
+
+`CameraKeepCharacterCentered` is `1` by default. While it is `1`, only target
+focus on an NPC or object operates. Set it to `0` before you use the other
+features:
+
+```
+/console CameraKeepCharacterCentered 0
+/console ActionCam on
+```
+
+The features do not operate while far sight is active. Over the shoulder,
+dynamic pitch and target focus also do not operate in first person.
+
+### `ActionCam [option]` (console command)
+
+Each option sets some of the ActionCam settings. The option does not change
+the other settings, and it never changes `CameraKeepCharacterCentered`. The
+case of the letters in the option is not important. The command writes its
+result to the console. Without a valid option, it writes the list of
+options.
+
+In the table, a dash means that the option does not change that setting.
+
+| Option | `test_cameraDynamicPitch` | `test_cameraOverShoulder` | `test_cameraTargetFocusEnemyEnable` | `test_cameraTargetFocusInteractEnable` | `test_cameraHeadMovementStrength` |
+|---|---|---|---|---|---|
+| `default` | `0` | `0` | `0` | `0` | `0` |
+| `off` | `0` | `0` | `0` | `0` | `0` |
+| `on` | `1` | `1` | `0` | `1` | `1` |
+| `basic` | `1` | `0` | `0` | `0` | `0` |
+| `full` | `1` | `1` | `1` | `1` | `1` |
+| `focusOff` | – | – | `0` | `0` | – |
+| `focusInteract` | – | – | `0` | `1` | – |
+| `focusEnemy` | – | – | `1` | `0` | – |
+| `focusAll` | – | – | `1` | `1` | – |
+| `headMove` | – | – | – | – | `1` |
+| `lowHeadMove` | – | – | – | – | `0.5` |
+| `noHeadMove` | – | – | – | – | `0` |
+| `heavyHeadMove` | – | – | – | – | `2` |
+
+```
+> ActionCam basic
+ACTION Camera set to 'basic' - 'Basic ActionCam'
+```
+
+### ActionCam settings
+
+If a value is out of range, the game does not accept it. The console then
+shows `Value out of range (min - max)`.
+
+**General**
+
+| Setting | Default | What it does |
+|---|---|---|
+| `CameraKeepCharacterCentered` | `1` | `1` keeps the head of the character at the center of the screen. It stops over the shoulder, dynamic pitch, head movement and enemy focus. |
+| `CameraReduceUnexpectedMovement` | `0` | `1` stops over the shoulder and lets vertical smoothing operate. |
+
+**Over the shoulder**
+
+| Setting | Default | What it does |
+|---|---|---|
+| `test_cameraOverShoulder` | `0` | The distance of the camera to the side, in yards, times the scale of the character. A positive value moves the camera to the right, a negative value to the left. `0` stops the feature. |
+
+- While you are mounted, the camera moves a tenth of this distance.
+- While you target yourself, the camera stays behind the character.
+- If a wall is in the way, the camera moves closer.
+- If dynamic pitch is also on, the camera moves in to about 1 yard while you
+  look up. This occurs only within the distance in
+  `test_cameraDynamicPitchSmartPivotCutoffDist`, and not while you are
+  mounted.
+
+**Dynamic pitch**
+
+| Setting | Default | What it does |
+|---|---|---|
+| `test_cameraDynamicPitch` | `0` | Any value other than `0` starts the feature. |
+| `test_cameraDynamicPitchBaseFovPad` | `0.4` | The part of the screen height that the feet of the character stay below, from `0` to `1`. |
+| `test_cameraDynamicPitchBaseFovPadDownScale` | `0.25` | How much the feature tilts the camera while you look down, from `0` to `1`. |
+| `test_cameraDynamicPitchSmartPivotCutoffDist` | `10` | Within this camera distance, in yards (`0` to `50`), the feature stops `cameraPivot`. While you look up, the camera then moves around the character and does not tilt in place. |
+
+The feature tilts the camera down by 5 degrees at most. The tilt eases in
+and out when you turn the feature on or off.
+
+**Head movement**
+
+| Setting | Default | What it does |
+|---|---|---|
+| `test_cameraHeadMovementStrength` | `0` | How much the camera follows the head. `0` stops the feature. |
+| `test_cameraHeadMovementStandingStrength` | `0.3` | The strength while you stand still. With `0`, the camera follows the head only while you move or fall. |
+| `test_cameraHeadMovementMovingStrength` | `0.5` | The strength while you move. |
+| `test_cameraHeadMovementRangeScale` | `5` | The camera distance for full strength, in yards (`0` to `50`), times the scale of the character. The strength decreases to none at three times this distance. |
+| `test_cameraHeadMovementDeadZone` | `0.015` | How far the head can move, in yards (`0` to `50`), before the camera follows it. |
+| `test_cameraHeadMovementStandingDampRate` | `10` | How fast the camera catches up with the head while you stand still. A higher value is faster. |
+| `test_cameraHeadMovementMovingDampRate` | `10` | The same, while you move. |
+| `test_cameraHeadMovementFirstPersonDampRate` | `20` | The same, in first person. |
+
+- The three damp rates go from `0.0027778` (1/360) to `50`.
+- The strength doubles in first person. It is half while you are mounted.
+- Head movement does not operate on a flight path.
+
+**Target focus**
+
+| Setting | Default | What it does |
+|---|---|---|
+| `test_cameraTargetFocusEnemyEnable` | `0` | `1` turns the camera toward your target. |
+| `test_cameraTargetFocusEnemyStrengthPitch` | `0.4` | The part of the up and down angle to the target that the camera turns, from `0` to `1`. |
+| `test_cameraTargetFocusEnemyStrengthYaw` | `0.5` | The part of the side angle to the target that the camera turns, from `0` to `1`. |
+| `test_cameraTargetFocusInteractEnable` | `0` | `1` turns the camera toward the NPC or object that you talk to. |
+| `test_cameraTargetFocusInteractStrengthPitch` | `0.75` | The same as the enemy pitch strength, for the NPC or object. |
+| `test_cameraTargetFocusInteractStrengthYaw` | `1` | The same as the enemy yaw strength, for the NPC or object. |
+
+- Enemy focus applies only to a target that you can attack.
+- Focus on an NPC or object starts when its window opens, for example a
+  vendor, a trainer or a quest giver. It stops when the window closes. A loot
+  window does not start it.
+- If both kinds of focus are on, the NPC or object has priority while its
+  window is open.
+- The camera turns toward a point at 0.6 of the height of the target.
+- The turn decreases after 50 yards and stops at 80 yards. It also decreases
+  when the target is more than 60 degrees to the side.
+- The turn is never more than 0.15 of the field of view up or down, or 0.25
+  of it to the side.
+
+**Vertical smoothing**
+
+| Setting | Default | What it does |
+|---|---|---|
+| `cameraZSmooth` | `1` | `1` smooths only while the character moves. `2` also smooths while the character stands still. `0` stops the feature. |
+
+Vertical smoothing operates only while `CameraReduceUnexpectedMovement` is
+`1`. It stops while the character falls fast, jumps, swims, flies on a flight
+path or moves on a fixed path, for example a knockback.
+
+**Indirect visibility**
+
+| Setting | Default | What it does |
+|---|---|---|
+| `cameraIndirectVisibility` | `0` | `1` starts the feature. |
+| `cameraIndirectOffset` | `6` | How far to the sides of the character and above it the camera looks for a clear view, in yards. The scale of the character adds to this distance on the sides. |
+
+The camera keeps its distance only if it finds a clear view from a point
+near the character. The new distance must be at least 1 yard more than the
+distance without the feature.
+
+```
+/console test_cameraOverShoulder -1
+/console cameraIndirectVisibility 1
+```
+
 ## CharacterList
 
 ### `SaveCharacterOrder(translationTable)` — GlueXML only
