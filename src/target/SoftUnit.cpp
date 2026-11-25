@@ -167,10 +167,11 @@ void OnFrameTick() {
     const uint64_t target = Reason::Selection();
     const bool allowed = target == 0 || CVar::Factory::GetInt(g_withLocked) != 0;
     if (!allowed) {
+        // 3.80.2's FUN_1405e2120: only the three soft targets go; the
+        // candidate list stays, so UnitIsInteractable keeps answering.
         g_enemy.soft = 0;
         g_friend.soft = 0;
         SoftInteract::Clear();
-        Priority::Invalidate();
     } else if (rebuilt) {
         const uint32_t locked = LockedFlags(target);
         g_enemy.soft = Pick(g_enemy, locked, target);

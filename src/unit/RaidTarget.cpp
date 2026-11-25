@@ -38,7 +38,11 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "lua/Arg.h"
+#include "object/Resolve.h"
 #include "tick/WorldTick.h"
+#include "unit/Identity.h"
+#include "unit/Relation.h"
 #include "unit/TokenEvents.h"
 
 #include <cstdint>
@@ -78,6 +82,82 @@ void ClearOnLogout() {
         g_markGUID[i] = 0;
 }
 const Game::GlueModuleAutoRegister _clearOnLogout{&ClearOnLogout};
+
+// A marker a new holder can take: nobody wears it, or (when asked) its
+// holder is a dead unit that is not friendly. A holder that is not loaded
+// counts as alive.
+bool Available(int mark, bool deadNonFriendly) {
+    const uint64_t guid = MarkerTable()[mark - 1];
+    if (guid == 0)
+        return true;
+    if (!deadNonFriendly)
+        return false;
+    const void *unit = Object::ByGuid(Offsets::TYPEMASK_UNIT, guid);
+    const uint8_t *fields = unit != nullptr ? Object::Fields(unit) : nullptr;
+    const void *player = Unit::Identity::PlayerObject();
+    return fields != nullptr && player != nullptr &&
+           Game::Read<int32_t>(fields, Offsets::OFF_UNIT_FIELD_HEALTH) <= 0 &&
+           Unit::Relation::Reaction(unit, player) <= 3;
+}
+
+// GetNextAvailableRaidTargetMarkerIndex(startIndex [, reverseSearch,
+// wrapSearch, treatDeadNonFriendlyAsAvailable]) — retail only (no 3.80.2
+// code): from startIndex up (or down) through 1..8, once round with
+// wrapSearch, the first marker available; 0 when none is.
+int __fastcall Script_GetNextAvailableRaidTargetMarkerIndex(void *L) {
+    constexpr const char *kUsage =
+        "Usage: local nextAvailableRaidTargetMarkerIndex = GetNextAvailableRaidTargetMarkerIndex(startIndex [, "
+        "reverseSearch, wrapSearch, treatDeadNonFriendlyAsAvailable])";
+    uint32_t start;
+    bool reverse = false, wrap = false, deadNonFriendly = false;
+    if (!Game::Lua::Arg::Index(L, 1, kUsage, start) || !Game::Lua::Arg::Bool(L, 2, kUsage, reverse, true) ||
+        !Game::Lua::Arg::Bool(L, 3, kUsage, wrap, true) || !Game::Lua::Arg::Bool(L, 4, kUsage, deadNonFriendly, true))
+        return 0;
+    const int step = reverse ? -1 : 1;
+    int slot = static_cast<int32_t>(start);
+    int found = 0;
+    for (int k = 0; k < kMarkCount; ++k, slot += step) {
+        if (wrap)
+            slot = (slot % kMarkCount + kMarkCount) % kMarkCount;
+        else if (slot < 0 || slot >= kMarkCount)
+            break;
+        if (Available(slot + 1, deadNonFriendly)) {
+            found = slot + 1;
+            break;
+        }
+    }
+    Game::Lua::PushNumber(L, found);
+    return 1;
+}
+
+const Game::Doc::Field kNextArgs[] = {
+    Game::Doc::Req("startIndex", "luaIndex"),
+    Game::Doc::Opt("reverseSearch", "bool", "false"),
+    Game::Doc::Opt("wrapSearch", "bool", "false"),
+    Game::Doc::Opt("treatDeadNonFriendlyAsAvailable", "bool", "false"),
+};
+const Game::Doc::Field kNextRets[] = {
+    Game::Doc::Req("nextAvailableRaidTargetMarkerIndex", "luaIndex", "0 when no marker is available."),
+};
+const Game::Doc::Function kGetNextAvailableRaidTargetMarkerIndex{
+    "Returns the first raid target marker from startIndex that nobody wears.", kNextArgs, kNextRets, "RaidMarker"};
+
+// Retail's RaidMarkerConstantsDocumentation, values as generated.
+const Game::Lua::EnumIntegerEntry kRaidMarkerConsts[] = {
+    {"MAX_RAID_TARGETS_USER", kMarkCount},
+    {"MAX_RAID_TARGETS_RESTRICTED", kMarkCount},
+    {"MAX_VALID_RAID_TARGETS", 0},
+    {"MAX_RAID_MARKERS", kMarkCount},
+};
+
+void RegisterLuaFunctions() {
+    Game::Lua::RegisterGlobalFunction("GetNextAvailableRaidTargetMarkerIndex",
+                                      &Script_GetNextAvailableRaidTargetMarkerIndex,
+                                      &kGetNextAvailableRaidTargetMarkerIndex);
+    Game::Lua::RegisterConstants("RaidMarkerConsts", kRaidMarkerConsts, "RaidMarker");
+}
+
+const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 
 } // namespace
 

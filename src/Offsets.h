@@ -302,6 +302,12 @@ enum Offsets {
     // MountSpecial for a mounted unit standing still (benilla-re
     // objectlayer/unitmovement).
     FUN_UNIT_JUMP = 0x0060DEA0,
+    // CGUnit_C::IsLootable — `int __thiscall(unit, uint32_t nowMs)`, ret 4:
+    // health 0 or less, the death time (+0xCB4) passed or unset, and the
+    // lootable dynamic flag (descriptor +0x224 bit 0). The hover cursor
+    // (0x004824F2), the hit test (0x00480CDE) and LootUnit (0x005DF2D6) ask
+    // it (disassembled).
+    FUN_UNIT_IS_LOOTABLE = 0x006003A0,
     // The unit's collision height h (its CMovement + 0xB4): the swim
     // decision (0x006030C0) and IsInDeepLiquid (0x00605650) read it here.
     OFF_UNIT_COLLISION_HEIGHT = 0xA5C,

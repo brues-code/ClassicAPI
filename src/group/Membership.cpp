@@ -44,6 +44,8 @@
 #include "event/Custom.h"
 #include "event/SignalHook.h"
 #include "group/Roster.h"
+#include "lua/Arg.h"
+#include "unit/Identity.h"
 
 namespace Group::Membership {
 
@@ -100,6 +102,47 @@ const Event::SignalHook::AutoObserve _raid{Offsets::EVENT_RAID_ROSTER_UPDATE, &O
 void ResetOnLogout() { g_inGroup = false; }
 
 const Game::GlueModuleAutoRegister _logout{&ResetOnLogout};
+
+// UnitInAnyGroup([unit [, partyIndex]]) — 3.80.2's 0x140E390D0: the unit is
+// in the player's home group (partyIndex 1) or instance group (2), either
+// when none is given. 1.12 has only the home group (a battleground raid is
+// it), so 2 is always false. 3.80.2 also counts a unit a member controls and
+// a stranger flagged as in some party (player +0x12ED8 / +0x12ED9); 1.12 has
+// neither. The player itself is in one while grouped.
+int __fastcall Script_UnitInAnyGroup(void *L) {
+    constexpr const char *kUsage = "Usage: local result = UnitInAnyGroup([unit, partyIndex])";
+    uint64_t guid;
+    if (!Game::Lua::Arg::UnitToken(L, 1, kUsage, guid, true))
+        return 0;
+    bool home = true;
+    if (Game::Lua::Type(L, 2) > Game::Lua::TYPE_NIL) {
+        uint32_t index;
+        if (!Game::Lua::Arg::Index(L, 2, kUsage, index))
+            return 0;
+        home = index == static_cast<uint32_t>(kPartyCategoryHome - 1);
+    }
+    bool in = false;
+    if (home && guid != 0)
+        in = guid == Unit::Identity::PlayerGuid()
+                 ? InGroup()
+                 : Group::Roster::IsPartyMember(guid) || Group::Roster::IsRaidMember(guid);
+    Game::Lua::PushBool(L, in);
+    return 1;
+}
+
+const Game::Doc::Field kAnyGroupArgs[] = {
+    Game::Doc::Opt("unit", "UnitToken"),
+    Game::Doc::Opt("partyIndex", "luaIndex", nullptr, "1 for the home group, 2 for an instance group; both when nil."),
+};
+const Game::Doc::Field kAnyGroupRets[] = {Game::Doc::Req("result", "bool")};
+const Game::Doc::Function kUnitInAnyGroup{"Returns true if the unit is in one of the player's groups.",
+                                          kAnyGroupArgs, kAnyGroupRets, "Unit"};
+
+void RegisterLuaFunctions() {
+    Game::Lua::RegisterGlobalFunction("UnitInAnyGroup", &Script_UnitInAnyGroup, &kUnitInAnyGroup);
+}
+
+const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 
 } // namespace
 

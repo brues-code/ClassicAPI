@@ -15,6 +15,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "unit/Identity.h"
 
 #include <cfloat>
 #include <cmath>
@@ -250,6 +251,20 @@ bool Enum(void *L, int arg, const char *usage, uint32_t maxValue, uint32_t &out,
 
 bool Bool(void *L, int arg, const char *usage, bool &out, bool optional, Error *error) {
     return ReadBool(L, Slot{arg, nullptr}, usage, out, optional, error);
+}
+
+bool UnitToken(void *L, int arg, const char *usage, uint64_t &guid, bool optional, Error *error) {
+    const Slot at{arg, nullptr};
+    guid = 0;
+    const int present = Present(L, at, usage, optional, error);
+    if (present <= 0)
+        return present == 0;
+    const int type = Type(L, arg);
+    if (type != TYPE_NUMBER && type != TYPE_STRING)
+        return Fail(L, at, nullptr, usage, error);
+    if (type == TYPE_STRING)
+        guid = Unit::Identity::GuidForToken(ToString(L, arg));
+    return true;
 }
 
 bool FieldStringView(void *L, int table, const char *key, const char *usage, Text &out, bool optional,

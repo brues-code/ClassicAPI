@@ -98,6 +98,12 @@ bool UInt32(void *L, int arg, const char *usage, uint32_t &out, bool optional = 
 // every value but false counts as true.
 bool Bool(void *L, int arg, const char *usage, bool &out, bool optional = false, Error *error = nullptr);
 
+// A UnitToken argument (FUN_140B296B0): a string is resolved to its GUID
+// (Unit::Identity::GuidForToken; an unknown token is 0, not an error), a
+// number is a token that names no unit (0), and any other type is the usage
+// error. `guid` is 0 for a missing optional one.
+bool UnitToken(void *L, int arg, const char *usage, uint64_t &guid, bool optional = false, Error *error = nullptr);
+
 // A float argument (FUN_140A6DF60): a finite number within +-FLT_MAX. Else
 // "must be a finite number" or "outside of expected range -3.402823e+38 to
 // 3.402823e+38".
