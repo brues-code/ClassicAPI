@@ -40,6 +40,7 @@
 #include "cvar/Factory.h"
 #include "event/Custom.h"
 #include "gamepad/Buttons.h"
+#include "gamepad/Cursor.h"
 #include "gamepad/Config.h"
 #include "gamepad/Device.h"
 #include "gamepad/Movement.h"
@@ -188,6 +189,7 @@ void Poll() {
             continue;
         Device::Raw &raw = Device::RawOf(static_cast<int>(id) - 1);
         raw.pressed = raw.released = 0;
+        raw.touchDelta[0] = raw.touchDelta[1] = 0.0f;
         for (int a = 0; a < Names::kAxisCount; ++a)
             raw.min[a] = raw.max[a] = raw.cur[a];
     }
@@ -311,6 +313,7 @@ void Stop() {
     g_started = false;
     Buttons::Reset();
     Movement::Reset();
+    Cursor::Reset();
     Device::Quit();
     Config::ClearAll();
     ResetSlots();
@@ -378,8 +381,15 @@ int __fastcall OnTouchTapMaxMs(CVar::Factory::Handle, const char *, const char *
     return 1;
 }
 
-int __fastcall OnTouchTapButtons(CVar::Factory::Handle, const char *, const char *value, void *) {
-    Device::Touch().tapButtons = value != nullptr && std::atoi(value) != 0;
+template <bool Device::TouchSettings::*Field>
+int __fastcall OnTouchFlag(CVar::Factory::Handle, const char *, const char *value, void *) {
+    Device::Touch().*Field = value != nullptr && std::atoi(value) != 0;
+    return 1;
+}
+
+template <float Device::TouchSettings::*Field>
+int __fastcall OnTouchFloat(CVar::Factory::Handle, const char *, const char *value, void *) {
+    Device::Touch().*Field = value != nullptr ? static_cast<float>(std::strtod(value, nullptr)) : 0.0f;
     return 1;
 }
 
@@ -405,10 +415,16 @@ int __fastcall Console_ListDevices(const char *, const char *) {
 
 // --- lifecycle hooks --------------------------------------------------------------
 
+// The game's own exit runs this after it tore its world, interface and
+// graphics device down, so nothing the gamepad holds in them is released
+// here (the cursor's show would call into the gone device): the addon
+// configs are saved and SDL closes.
 void __cdecl OnProcessExit() {
-    if (g_started)
-        Config::SaveAddons();
-    Stop();
+    if (!g_started)
+        return;
+    Config::SaveAddons();
+    g_started = false;
+    Device::Quit();
 }
 
 void RegisterGlue() {
@@ -437,12 +453,22 @@ void RegisterGlue() {
     Register("GamePadVibrationStrength", "GamePad vibration effect strength", kCategory, "1", &OnVibrationStrength);
     g_cvFactionColor = Register("GamePadFactionColor", "Enable setting GamePad's led color to match current faction",
                                 kCategory, "1");
+    Register("GamePadTouchCursorEnable", "Enable cursor control with GamePad's touch pad", kCategory, "1",
+             &OnTouchFlag<&Device::TouchSettings::cursorEnable>);
     Register("GamePadTouchCursorMoveThreshold", "Change before touchpad moves the cursor (larger for easier taps)",
              kCategory, "0.042", &OnTouchMoveThreshold);
+    Register("GamePadTouchCursorAccel", "Cursor acceleration for touchpad control", kCategory, "1.0",
+             &OnTouchFloat<&Device::TouchSettings::accel>);
+    Register("GamePadTouchCursorSpeed", "Cursor speed for touchpad control", kCategory, "1.0",
+             &OnTouchFloat<&Device::TouchSettings::speed>);
     Register("GamePadTouchTapMaxMs", "Max time in ms for a touch to register a tap/click", kCategory, "200",
              &OnTouchTapMaxMs);
     Register("GamePadTouchTapButtons", "Enable touch tap to press TouchPad buttons", kCategory, "0",
-             &OnTouchTapButtons);
+             &OnTouchFlag<&Device::TouchSettings::tapButtons>);
+    Register("GamePadTouchTapOnlyClick", "Only use taps for cursor clicks, do not use tap presses", kCategory, "1",
+             &OnTouchFlag<&Device::TouchSettings::tapOnlyClick>);
+    Register("GamePadTouchTapRightClick", "Taps for cursor clicks are right clicks instead of left clicks",
+             kCategory, "0", &OnTouchFlag<&Device::TouchSettings::tapRightClick>);
     // Last, as in 3.80.2: a saved GamePadEnable=1 starts the gamepad here.
     Register("GamePadEnable", "Whether GamePad input should be enabled", kCategory, "0", &OnEnable);
     g_registering = false;

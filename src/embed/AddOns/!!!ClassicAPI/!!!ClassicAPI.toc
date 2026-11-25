@@ -181,6 +181,7 @@ FrameXML\ModelScene\ModelSceneControlFrame.xml
 FrameXML\DressUpFrame.xml
 FrameXML\DressUpFrame.lua
 FrameXML\ChatFrame.lua
+FrameXML\GamePadCursor.lua
 
 Menu\MenuConstants.lua
 Menu\Mainline\MenuConstants.lua

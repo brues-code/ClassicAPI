@@ -35,6 +35,9 @@ struct Mapped {
     float axesMin[Names::kAxisCount] = {};
     float axesMax[Names::kAxisCount] = {};
     StickValue sticks[Names::kStickCount];
+    float touchDelta[2] = {};      // +0xEC, the raw state's touch cursor move
+    uint32_t touchButton = 0;      // +0xF4, its touch click (1 left, 4 right)
+    uint32_t prevTouchButton = 0;  // +0xF8, last frame's
 };
 
 // Slot `id`'s (1..5) resolved config and mapped state.

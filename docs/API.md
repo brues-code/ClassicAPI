@@ -13901,9 +13901,14 @@ there. It reads the file when gamepad support starts.
 | `GamePadStickAxisButtons` | `0` | `1` makes the stick directions into buttons. A saved `1` takes effect at the first logout, or when the value changes. |
 | `GamePadVibrationStrength` | `1` | Multiplies the strength of `C_GamePad.SetVibration`. |
 | `GamePadFactionColor` | `1` | `1` sets the gamepad light to the color of your faction. |
+| `GamePadTouchCursorEnable` | `1` | `1` lets the touchpad move the cursor and click. |
 | `GamePadTouchCursorMoveThreshold` | `0.042` | How far a finger moves on the touchpad before the touch is not a tap. |
+| `GamePadTouchCursorAccel` | `1` | The acceleration of the touchpad cursor, 0 to 10. |
+| `GamePadTouchCursorSpeed` | `1` | The speed of the touchpad cursor, 0 to 10. |
 | `GamePadTouchTapMaxMs` | `200` | The longest touch, in milliseconds, that is a tap. |
 | `GamePadTouchTapButtons` | `0` | `1` makes a tap on the touchpad press a touchpad button. |
+| `GamePadTouchTapOnlyClick` | `1` | `1`: only a tap clicks the mouse. `0`: a touchpad click also clicks the mouse. |
+| `GamePadTouchTapRightClick` | `0` | `1` makes a tap a right click. |
 
 The console command `GamePadListDevices` shows the connected gamepads with
 their vendorID and productID.
@@ -14006,7 +14011,8 @@ values at 0 after the stick returns to the center.
 The game sends the event to the visible frames that enabled sticks and
 have the script, topmost first. The first frame without
 `propagateKeyboardInput` takes the stick for this frame of the game. The
-`Cursor` stick is not sent.
+`Cursor` stick is sent only in gamepad cursor mode. In cursor mode, a
+stick that uses an axis of the `Cursor` stick is not sent.
 
 ### Gamepad movement and camera
 
@@ -14056,6 +14062,88 @@ turns, and `GamePadTurnWithCamera` turns the character with the camera.
 | `SetGamePadFreeLook(enable)` | Turns gamepad freelook on or off. |
 | `IsUsingGamepad()` | `true` when the gamepad was used within `GamePadOverlapMouseMs`. |
 | `IsUsingMouse()` | `true` when the mouse moved within `GamePadOverlapMouseMs`. |
+
+### Gamepad cursor
+
+In cursor mode, the gamepad controls the mouse cursor. The `Cursor` stick
+moves the cursor. The `GamePadCursorLeftClick` button is the left mouse
+button and the `GamePadCursorRightClick` button is the right mouse button.
+A gamepad click is the same as a mouse click for frames and for the world.
+Outside cursor mode, these two buttons are usual gamepad buttons. In cursor
+mode, a stick that uses an axis of the `Cursor` stick does nothing. At the
+defaults, this is the `Camera` stick.
+
+The cursor starts at the speed `GamePadCursorSpeedStart`. The speed
+increases by `GamePadCursorSpeedAccel` each second, up to
+`GamePadCursorSpeedMax`. At speed `1`, the full stick moves the cursor one
+window width a second, also up and down. A movement of less than one pixel
+in a frame of the game does not move the cursor. At the edge of the window,
+more stick movement turns the camera at the rate `GamePadCursorPushCamera`.
+The cursor does not move while a mouse button holds mouse-look.
+
+These turn cursor mode on:
+
+- `SetGamePadCursorControl(true)`.
+- The login and character screens, when `GamePadCursorOnLogin` is `1`.
+  There, cursor mode stays on, and the `Movement` stick also moves the
+  cursor.
+- A finger that moves on the touchpad.
+- A spell that needs a target point, cast from a gamepad key binding while
+  you have a target, when `GamePadCursorForTargeting` is not `0`. The
+  cursor then starts on the target.
+- With the gamepad in use and `GamePadCursorAutoEnable` `1`: a window, a
+  bag or the game menu opens. Escape also turns cursor mode on, unless it
+  stops a cast, stops spell targeting or clears your target.
+
+These turn cursor mode off:
+
+- `SetGamePadCursorControl(false)`.
+- Mouse movement, or a mouse button that starts mouse-look.
+- Stick movement, as `GamePadCursorAutoDisableSticks` sets.
+- A jump, when `GamePadCursorAutoDisableJump` is `1`.
+- With `GamePadCursorAutoEnable` `1`: windows or the game menu close, or
+  Escape has nothing else to close or stop.
+
+While a spell waits for a target point, sticks and jumps do not turn
+cursor mode off. If you cast the same spell again from a gamepad key
+binding, or while gamepad freelook is on, the spell goes down where the
+targeting circle is. Cursor mode does not come on while a mouse button holds
+mouse-look, or when the active device is not connected.
+
+While gamepad freelook is on, the cursor is hidden, unless cursor mode is
+on or the mouse moved within `GamePadOverlapMouseMs`. While the cursor is
+hidden, no frame gets the mouse, and `GetMouseFocus()` returns
+`WorldFrame`. The mouseover unit and the targeting circle are then at the
+center of the screen, at the height `CursorCenteredYPos`.
+
+The touchpad also moves the cursor (`GamePadTouchCursorEnable`). A move
+on the touchpad turns cursor mode on, and in this mode the click buttons
+are usual gamepad buttons. A tap on the touchpad clicks, also outside
+cursor mode. A tap with two fingers is a right click.
+
+| Cvar | Default | Value |
+|------|---------|-------|
+| `GamePadCursorLeftClick` | `PADRTRIGGER` | The button for the left mouse button, or `none`. |
+| `GamePadCursorRightClick` | `PADRSHOULDER` | The button for the right mouse button, or `none`. |
+| `GamePadCursorSpeedStart` | `0.1` | The speed when the cursor starts to move. |
+| `GamePadCursorSpeedAccel` | `2` | The speed increase each second. |
+| `GamePadCursorSpeedMax` | `1` | The highest speed. |
+| `GamePadCursorPushCamera` | `1` | The rate at which the cursor at the window edge turns the camera. `0` stops it. |
+| `GamePadCursorAutoEnable` | `1` | `1` lets the interface turn cursor mode on and off. |
+| `GamePadCursorOnLogin` | `1` | `1` keeps cursor mode on in the login and character screens. |
+| `GamePadCursorAutoDisableSticks` | `2` | `0` never. `1`: the `Movement` stick. `2`: the `Movement` stick while the `Cursor` stick moves, or the `Camera` stick. |
+| `GamePadCursorAutoDisableJump` | `1` | `1` turns cursor mode off when you jump. |
+| `GamePadCursorForTargeting` | `1` | Not `0`: a spell that needs a target point puts the cursor on your target. |
+| `GamePadCursorCentering` | `0` | With `GamePadCursorCenteredEmulation` `1`: the click buttons also click while freelook hides the cursor. |
+| `GamePadCursorCenteredEmulation` | `1` | See `GamePadCursorCentering`. |
+| `CursorCenteredYPos` | `0.6` | The height of the screen center point, 0 at the bottom to 1 at the top. |
+
+| Function | Returns |
+|----------|---------|
+| `SetGamePadCursorControl(enable)` | Turns cursor mode on or off. Nothing. |
+| `IsGamePadCursorControlEnabled()` | `true` while cursor mode is on. |
+| `CanAutoSetGamePadCursorControl(enable)` | `true` when the interface can turn cursor mode on (`enable` is `true`) or off (`false`). On: `GamePadCursorAutoEnable` is `1`, gamepad freelook is on and cursor mode is off. Off: `GamePadCursorAutoEnable` is `1` and cursor mode is on. |
+| `CanGamePadControlCursor()` | `true` when the active device is connected. |
 
 ### Gamepad frame methods
 

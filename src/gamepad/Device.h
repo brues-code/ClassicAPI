@@ -59,6 +59,8 @@ struct Raw {
     float cur[Names::kAxisCount] = {};
     float min[Names::kAxisCount] = {};
     float max[Names::kAxisCount] = {};
+    float touchDelta[2] = {}; // +0x94: the touch cursor's move, cleared each poll
+    uint32_t touchClick = 0;  // +0x9C: the mouse button a touch clicks, 1 left, 4 right
 };
 
 // Slot `id` (1..5), or null.
@@ -99,11 +101,16 @@ int AddMapping(const char *mapping);
 uint64_t NowNs();
 
 // The touchpad cvars the drain reads (GamePadTouchCursorMoveThreshold,
-// GamePadTouchTapMaxMs, GamePadTouchTapButtons), set by their callbacks.
+// GamePadTouchCursorAccel / Speed, GamePadTouchTapMaxMs, GamePadTouchTapButtons,
+// GamePadTouchTapOnlyClick / RightClick, GamePadTouchCursorEnable), set by
+// their callbacks.
 struct TouchSettings {
     float moveThreshold = 0.042f;
+    float accel = 1.0f, speed = 1.0f;
     uint32_t tapMaxMs = 200;
     bool tapButtons = false;
+    bool tapOnlyClick = true, tapRightClick = false;
+    bool cursorEnable = true;
 };
 TouchSettings &Touch();
 

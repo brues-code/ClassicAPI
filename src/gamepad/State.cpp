@@ -107,6 +107,10 @@ void Map(const Device::Raw &raw, const Config::Resolved &cfg, Mapped &m) {
             m.released |= cfg.rawButtonMap[j];
     }
     m.held = m.buttons & ~(m.pressed | m.released);
+    m.touchDelta[0] = raw.touchDelta[0];
+    m.touchDelta[1] = raw.touchDelta[1];
+    m.prevTouchButton = m.touchButton;
+    m.touchButton = raw.touchClick;
     for (const Config::ButtonAxis &e : cfg.buttonAxis) {
         if (e.axis >= Names::kAxisCount)
             continue;
@@ -165,6 +169,10 @@ void Combine() {
         out.prevButtons |= m.prevButtons;
         out.pressed |= m.pressed;
         out.released |= m.released;
+        // [I] the combined touch: the moves add, the clicks merge.
+        out.touchDelta[0] += m.touchDelta[0];
+        out.touchDelta[1] += m.touchDelta[1];
+        out.touchButton |= m.touchButton;
         if (s.power < power)
             power = s.power;
         gyro |= s.hasGyro;
@@ -228,6 +236,7 @@ void Combine() {
     }
     slot5.power = power;
     out.held = c.held; // not written for the combined device
+    out.prevTouchButton = c.touchButton;
     // A press on one device and a release on another in the same frame.
     const uint32_t pressed = out.pressed;
     out.pressed |= out.released & out.buttons;
@@ -261,6 +270,8 @@ void Resolve(uint32_t id) {
 void RawReset(Device::Raw &raw, const Config::Resolved &cfg) {
     raw.lastInput = 0;
     raw.buttons = raw.pressed = raw.released = 0;
+    raw.touchDelta[0] = raw.touchDelta[1] = 0.0f;
+    raw.touchClick = 0;
     for (int i = 0; i < Names::kAxisCount; ++i) {
         const uint8_t d = cfg.rawAxisMap[i];
         const float rest = d < Names::kAxisCount ? -cfg.shift[d] : 0.0f;

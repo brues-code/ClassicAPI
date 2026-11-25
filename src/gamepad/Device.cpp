@@ -218,14 +218,19 @@ void Add(SDL_JoystickID id) {
 void Remove(SDL_JoystickID id);
 
 // --- touchpad (0x141275570 / 0x1412759A0) --------------------------------------
-//
-// The touch-cursor half (the cursor delta and the click button it emulates)
-// belongs to the gamepad cursor and is not here.
 
+float Sign(float v) { return v > 0.0f ? 1.0f : (v < 0.0f ? -1.0f : 0.0f); }
+
+float Clamp(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
+
+// The touch-side buttons, and the mouse click a touch makes: a tap (left,
+// right with two fingers or GamePadTouchTapRightClick), or a held touchpad
+// click when GamePadTouchTapOnlyClick is off.
 void TouchButtons(Record &r, Raw &raw) {
     TouchState *t = r.touch.get();
     if (t == nullptr)
         return;
+    raw.touchClick = 0;
     const bool click = (raw.buttons & kTouchClick) != 0;
     const int tf = t->tapFinger;
     const uint32_t prev = t->mask;
@@ -233,21 +238,27 @@ void TouchButtons(Record &r, Raw &raw) {
         return;
     t->tapCandidate = false;
     uint32_t now = 0;
+    int fingers = 0;
     if ((click && t->startMs != 0) || tf <= 1) {
         const bool c0 = t->fingerDown[0] || tf == 0;
         const bool c1 = t->fingerDown[1] || tf == 1;
         const uint32_t b0 = t->xy[0][0] > 0.5f ? kTouchRight : kTouchLeft;
         const uint32_t b1 = t->xy[1][0] > 0.5f ? kTouchRight : kTouchLeft;
         now = (c0 ? b0 : 0) | (c1 ? b1 : 0);
+        fingers = (c0 ? 1 : 0) + (c1 ? 1 : 0);
     } else if (click) {
         now = kTouchLeft; // clicked with no touch: the left side
+        fingers = 1;
     }
-    if (!(click || prev != 0 || (tf <= 1 && g_touch.tapButtons)))
+    if (click || prev != 0 || (tf <= 1 && g_touch.tapButtons)) {
+        raw.buttons = (raw.buttons & ~prev) | now;
+        raw.pressed |= ~prev & now;
+        raw.released |= prev & ~now;
+        t->mask = now;
+    }
+    if (tf > 1 && (!click || g_touch.tapOnlyClick))
         return;
-    raw.buttons = (raw.buttons & ~prev) | now;
-    raw.pressed |= ~prev & now;
-    raw.released |= prev & ~now;
-    t->mask = now;
+    raw.touchClick = fingers >= 2 || (tf <= 1 && g_touch.tapRightClick) ? 4 : 1;
 }
 
 void TouchEvent(Record &r, Raw &raw, const SDL_GamepadTouchpadEvent &ev, uint32_t ts) {
@@ -293,15 +304,39 @@ void TouchEvent(Record &r, Raw &raw, const SDL_GamepadTouchpadEvent &ev, uint32_
             t->startMs = ts != 0 ? ts : 1;
             t->tapFinger = kNoFinger;
             t->tapCandidate = true;
-        } else if (!t->moved) {
-            float thr = g_touch.moveThreshold;
-            thr = thr < 0.0f ? 0.0f : (thr > 0.5f ? 0.5f : thr);
-            const float dx = x - t->anchorX, dy = y - t->anchorY;
-            if (dx * dx + dy * dy > thr * thr) {
-                t->tapCandidate = false;
-                t->moved = true;
-                t->anchorX = x;
-                t->anchorY = y;
+        } else {
+            // The touch cursor: past the move threshold, the change since the
+            // anchor with an acceleration curve. 3.80.2 stores (does not add)
+            // the delta, so of several moves in one poll the last one counts.
+            float dx = x - t->anchorX, dy = y - t->anchorY;
+            const float sx = Sign(dx), sy = Sign(dy);
+            bool moves = true;
+            if (!t->moved) {
+                const float thr = Clamp(g_touch.moveThreshold, 0.0f, 0.5f);
+                if (dx * dx + dy * dy <= thr * thr) {
+                    moves = false;
+                } else {
+                    t->tapCandidate = false;
+                    t->moved = true;
+                    dx = std::fmax(dx * sx - thr, 0.0f) * sx;
+                    dy = std::fmax(dy * sy - thr, 0.0f) * sy;
+                    t->anchorX = x;
+                    t->anchorY = y;
+                }
+            }
+            if (moves) {
+                const float acc = Clamp(g_touch.accel, 0.0f, 10.0f);
+                const float spd = Clamp(g_touch.speed, 0.0f, 10.0f);
+                const float fx = (((1.0f - (sx - dx) * (sx - dx)) * sx - dx) * acc * 1.875f + dx) * spd;
+                const float fy = (((1.0f - (sy - dy) * (sy - dy)) * sy - dy) * acc * 2.5f + dy) * spd;
+                if (std::fabs(fy * fy * 0.140625f + fx * fx * 0.390625f) >= 2.3841858e-07f) {
+                    t->anchorX = x;
+                    t->anchorY = y;
+                    if (g_touch.cursorEnable) {
+                        raw.touchDelta[0] = fx * 0.625f;
+                        raw.touchDelta[1] = fy * 0.375f;
+                    }
+                }
             }
         }
     }

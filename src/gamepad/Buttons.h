@@ -31,4 +31,11 @@ void Reset();
 // or the camera.
 bool StickUnclaimed(int stick);
 
+// Puts the cursor clicks on the GamePadCursorLeftClick / RightClick buttons,
+// or takes them off (0x141264A50). Off, those buttons are plain PAD keys.
+void AssignClicks(bool on);
+
+// True while a key binding a pad button pressed runs (3.80.2's 0x144C95BBC).
+bool InPadBinding();
+
 } // namespace GamePad::Buttons

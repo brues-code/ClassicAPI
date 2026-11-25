@@ -34,4 +34,12 @@ void Drop(void *object);
 // Takes an object being destroyed out of the motion focus, with no leave.
 void Forget(void *object);
 
+// Holds the motion focus on `frame` (null: nothing): it changes to it now,
+// and every pass keeps it there whatever is under the cursor, until Release,
+// which asks for a re-pick. GamePad::Cursor holds it while the gamepad hides
+// the cursor (3.80.2 clears the focus while its cursor is hidden,
+// 0x140563000).
+void Hold(void *frame);
+void Release();
+
 } // namespace Frame::MotionFocus

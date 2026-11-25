@@ -92,6 +92,11 @@ void *g_notifying = nullptr;
 // script in the middle of one is not notified afterwards.
 std::vector<std::vector<void *> *> g_pending;
 
+// Hold: while set, every pass commits g_holdFrame (or nothing) whatever is
+// under the cursor.
+bool g_hold = false;
+void *g_holdFrame = nullptr;
+
 bool Contains(const std::vector<void *> &list, const void *frame) {
     return std::find(list.begin(), list.end(), frame) != list.end();
 }
@@ -228,6 +233,13 @@ class FrameWalk {
 void *__stdcall CommitPass(uint8_t *ctx, void *primary, const void *event) {
     Frame::MouseInput::ProbePressed(event);
     Sync(ctx);
+    if (g_hold) {
+        std::vector<void *> held;
+        if (g_holdFrame != nullptr)
+            held.push_back(g_holdFrame);
+        Apply(ctx, std::move(held));
+        return g_holdFrame;
+    }
     std::vector<void *> regions;
     if (Frame::RegionInput::Any()) {
         float point[2];
@@ -481,7 +493,33 @@ void Drop(void *frame) {
         Remove(ctx, frame);
 }
 
+void Hold(void *frame) {
+    uint8_t *ctx = Context();
+    if (ctx == nullptr)
+        return;
+    g_hold = true;
+    g_holdFrame = frame;
+    Sync(ctx);
+    if (g_list.size() == (frame != nullptr ? 1u : 0u) && (frame == nullptr || g_list.front() == frame))
+        return;
+    std::vector<void *> held;
+    if (frame != nullptr)
+        held.push_back(frame);
+    Apply(ctx, std::move(held));
+}
+
+void Release() {
+    if (!g_hold)
+        return;
+    g_hold = false;
+    g_holdFrame = nullptr;
+    if (uint8_t *ctx = Context())
+        Game::Ref<int>(ctx, Offsets::OFF_UI_CONTEXT_REPICK) = 1;
+}
+
 void Forget(void *object) {
+    if (g_holdFrame == object)
+        g_holdFrame = nullptr;
     g_list.erase(std::remove(g_list.begin(), g_list.end(), object), g_list.end());
     for (std::vector<void *> *pending : g_pending)
         std::replace(pending->begin(), pending->end(), object, static_cast<void *>(nullptr));

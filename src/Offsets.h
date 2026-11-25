@@ -207,6 +207,57 @@ enum Offsets {
     FUN_ENQUEUE_INPUT_EVENT = 0x0042D780,
     INPUT_RECORD_KEY_DOWN = 7,
     INPUT_RECORD_KEY_UP = 8,
+    // Kind 0xA {0, client x, client y}: an absolute cursor move, what the
+    // window procedure's WM_MOUSEMOVE arm queues (0x0042D2xx) before it saves
+    // the point; the drain posts EVENT_ID_MOUSEMOVE (PostMouseMoveEvent
+    // 0x00423FE0). Disassembled.
+    INPUT_RECORD_MOUSE_MOVE = 0xA,
+    // The window procedure's mouse-button arms, `int __fastcall(HWND hwnd,
+    // UINT msg, WPARAM wParam, LRESULT *out)`, ret 8: the button from the
+    // message (0x0042DC00: left 1, middle 2, right 4, X1 8, X2 0x10), the
+    // window capture (SetCapture on the first held button,
+    // VAR_CAPTURED_MOUSE_BUTTONS; ReleaseCapture when the last goes up), then
+    // EnqueueMouseButtonRecord 0x0042DD00, which queues ring kind 9 (down) or
+    // 0xD (up) at the live OS cursor (GetCursorPos + ScreenToClient, the saved
+    // point in relative mode). The drain turns them into EVENT_ID_MOUSEDOWN /
+    // _UP exactly as for a real click. Disassembled.
+    FUN_WINDOW_MOUSE_BUTTON_DOWN = 0x0042DB90,
+    FUN_WINDOW_MOUSE_BUTTON_UP = 0x0042DD90,
+    VAR_CAPTURED_MOUSE_BUTTONS = 0x00884E1C,
+    // OsInputGetCursorPos — `void __fastcall(int *x, int *y)`: the live OS
+    // cursor in client pixels (GetCursorPos + ScreenToClient), also saved as
+    // the last cursor point 0x00884E44. Disassembled.
+    FUN_OS_INPUT_GET_CURSOR_POS = 0x0042CDE0,
+    // SetCursorClientPos — `void __fastcall(int x, int y)`, plain ret: saves
+    // the point as the last cursor point, then ClientToScreen + SetCursorPos.
+    // The engine's own "put the OS cursor at this client pixel" (its other
+    // users are mouselook's restore). Disassembled.
+    FUN_OS_INPUT_SET_CURSOR_POS = 0x0042CE50,
+    // The cached client rectangle {left, top, right, bottom} in client pixels
+    // (left and top 0), filled by GetClientRectCached 0x0042CEA0 and rewritten
+    // by the pump on a resize. ClientPointToFractions 0x00423E20 divides by
+    // its width and height. Disassembled.
+    VAR_CLIENT_RECT = 0x00884E20,
+    // s_relativeMouse: 1 while mouselook holds the cursor (OsInputSetMouseMode
+    // 0x0042CC90). Every WM_MOUSEMOVE then becomes a ring delta and the cursor
+    // is warped back, so a SetCursorPos in that mode turns the camera.
+    // (Octo's patched CenterMouse 0x0042CCD0 holds it at the last point, not
+    // the centre.) Disassembled.
+    VAR_RELATIVE_MOUSE = 0x00884E5C,
+    // SetCursorShown — `void __fastcall(int shown)`, plain ret: device slot
+    // +0xEC on [VAR_GX_DEVICE], which stores OFF_GXDEV_CURSOR_SHOWN (the last
+    // call wins, no count; the D3D device also calls
+    // IDirect3DDevice9::ShowCursor). Mouselook (CameraEnterFreelook 0x0050FE30
+    // / CameraLeaveFreelook), cinematics and the glue Show/HideCursor call it.
+    // Disassembled.
+    FUN_SET_CURSOR_SHOWN = 0x0058B590,
+    OFF_GXDEV_CURSOR_SHOWN = 0x2880,
+    // Script_Jump — `int __fastcall(lua_State *)`, plain ret, returns 0: the
+    // Lua `Jump` the JUMP binding runs (its only reference is the input
+    // control's script table, 0x008500BC). Cancels a cast or channel the
+    // spell allows, then CGUnit_C::Jump 0x0060DEA0 when the gates pass.
+    // Disassembled.
+    FUN_SCRIPT_JUMP = 0x00513BD0,
     // s_modifierKeys: bit 0 shift, 1 ctrl, 2 alt, set and cleared by the key
     // records of codes 0..2 before their dispatch and copied into every key
     // and mouse event payload, which the chord builder reads (disassembled).
@@ -10018,6 +10069,16 @@ enum Offsets {
     // placement is active (no-ops). Wraps the action behind
     // `Script_SpellStopTargeting`.
     FUN_STOP_PLACEMENT = 0x006E4900,
+    // The two casts that take back the spell whose placement is up: the
+    // spellbook cast (CastBookSpell 0x004B3300: CastSpell, CastSpellByName,
+    // /cast, SPELL bindings) and the action-bar cast (UseActionSlot
+    // 0x004E5EE0) each compare the spell with the targeting one
+    // (0x006E48E0) and, when equal, `call FUN_STOP_PLACEMENT; return` at
+    // these sites. So a second press of the spell never reaches the cast
+    // request. nampower detours both functions' entries, not these calls.
+    // Disassembled.
+    CALL_CAST_BOOK_SPELL_STOP_PLACEMENT = 0x004B347D,
+    CALL_USE_ACTION_STOP_PLACEMENT = 0x004E60F3,
 
     // `*VAR_GAME_STATE_PTR` is also the engine's CWorldFrame "click info"
     // struct — the data block where the input

@@ -13,6 +13,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 // The sticks moving the character and the camera, and gamepad freelook, as
 // the 3.80.2 client drives them (0x141264B20).
 namespace GamePad::Movement {
@@ -23,5 +25,21 @@ void Update();
 // Releases the movement the gamepad holds and leaves freelook, as when
 // gamepad support stops.
 void Reset();
+
+// Gamepad freelook (3.80.2's input-control bit 0x2000000) and its toggle
+// 0x1412648B0, which fires GAME_PAD_ACTIVE_CHANGED on a change.
+bool FreelookOn();
+void SetFreelook(bool on);
+
+// True when real mouse motion came within GamePadOverlapMouseMs.
+bool MouseRecent(uint32_t now);
+
+// The world's camera and the unit the player moves, or null.
+void *ActiveCamera();
+void *ActiveMover();
+
+// CGCamera_ApplyMouseLook (0x141B621A0) in its own units, then the character
+// turns with the camera when GamePadTurnWithCamera says so.
+void MouseLook(float yaw, float pitch);
 
 } // namespace GamePad::Movement

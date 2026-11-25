@@ -41,9 +41,10 @@
 // A stick with a length this frame or last frame sends OnGamePadStick(self,
 // stick, x, y, len) to the visible frames that enabled sticks and have the
 // script, topmost first, until one takes it (the same propagate rule). A
-// stick no frame took is "unclaimed" for this frame: the character and the
-// camera may use it. The Cursor stick is sent only in cursor mode, which this
-// layer does not have.
+// stick no frame took is "unclaimed" for this frame: the character, the
+// camera and the cursor may use it. The Cursor stick is sent only in cursor
+// mode, and then (unless the touchpad started it) a stick that shares one of
+// its axes is not sent at all.
 //
 // The buttons named by GamePadEmulateShift / Ctrl / Alt are those modifiers
 // (Input::Modifier::Emulate), never PAD keys, except when tapped: released
@@ -51,6 +52,10 @@
 // the button is pressed as its PAD key. 3.80.2 sends that press at once, after
 // the modifier's release; 1.12 delivers the release at the next tick's input
 // drain, so the press waits one frame and its release one more.
+//
+// The GamePadCursorLeftClick / RightClick buttons click the mouse while the
+// cursor clicks are on (GamePad::Cursor), and are plain PAD keys otherwise.
+// A touchpad click or tap clicks too, with or without cursor mode.
 
 #include "gamepad/Buttons.h"
 
@@ -63,6 +68,7 @@
 #include "frame/RegionInput.h"
 #include "frame/ScriptArgs.h"
 #include "frame/ScriptBindings.h"
+#include "gamepad/Cursor.h"
 #include "gamepad/Device.h"
 #include "gamepad/GamePad.h"
 #include "gamepad/Names.h"
@@ -198,13 +204,24 @@ bool BuildChord(uint8_t button, char (&out)[32]) {
     return true;
 }
 
+bool g_inPadBinding = false;
+
 bool RunBinding(const char *chord, bool down) {
     void *mgr = Game::Read<void *>(Offsets::VAR_BINDINGS_MANAGER);
     if (mgr == nullptr || chord[0] == '\0')
         return false; // no bindings on the login screens
+    // 3.80.2 marks the binding as a pad one while it runs (0x144C95BBC), and
+    // its cast start places the cursor for the targeting that cast begins.
+    const bool targeting = Game::Read<uint32_t>(Offsets::VAR_SPELL_TARGETING_FLAGS) != 0;
     using Dispatch_t = int(__fastcall *)(void *mgr, void *edx, const char *chord, int down);
-    return reinterpret_cast<Dispatch_t>(static_cast<uintptr_t>(Offsets::FUN_BINDING_KEY_DISPATCH))(
-               mgr, nullptr, chord, down ? 1 : 0) != 0;
+    const bool outer = g_inPadBinding;
+    g_inPadBinding = true;
+    const bool ran = reinterpret_cast<Dispatch_t>(static_cast<uintptr_t>(Offsets::FUN_BINDING_KEY_DISPATCH))(
+                         mgr, nullptr, chord, down ? 1 : 0) != 0;
+    g_inPadBinding = outer;
+    if (!targeting && Game::Read<uint32_t>(Offsets::VAR_SPELL_TARGETING_FLAGS) != 0)
+        Cursor::OnPadTargeting();
+    return ran;
 }
 
 // --- button events --------------------------------------------------------------
@@ -258,9 +275,9 @@ void SendButton(uint8_t b, bool down) {
 
 // --- emulated modifiers (0x14125B5F0 / 0x14125BB90 / 0x1412637A0) --------------
 
-// Function codes, 3.80.2's: 1 Alt, 2 Ctrl, 3 Shift (4 / 5 are the cursor's
-// clicks).
-enum Code : uint8_t { kNoCode = 0, kAlt = 1, kCtrl = 2, kShift = 3, kCodeCount = 4 };
+// Function codes, 3.80.2's: 1 Alt, 2 Ctrl, 3 Shift, 4 / 5 the cursor's left
+// and right clicks.
+enum Code : uint8_t { kNoCode = 0, kAlt = 1, kCtrl = 2, kShift = 3, kLeftClick = 4, kRightClick = 5, kCodeCount = 6 };
 
 uint8_t g_function[Names::kButtonCount] = {};
 uint32_t g_functionMask = 0; // buttons with a function (0x1468BFFE0)
@@ -270,11 +287,18 @@ uint64_t g_tapWindowNs = 350ull * 1000000ull;
 
 int KeyOf(uint8_t code) { return code == kShift ? 0 : code == kCtrl ? 1 : 2; }
 
-void SetModifier(uint8_t code, bool down) {
+bool IsClick(uint8_t code) { return code == kLeftClick || code == kRightClick; }
+
+// 0x141277010 for one function's edge.
+void SetFunction(uint8_t code, bool down) {
     const uint32_t bit = 1u << code;
     if (down == ((g_activeCodes & bit) != 0))
         return;
     g_activeCodes = down ? g_activeCodes | bit : g_activeCodes & ~bit;
+    if (IsClick(code)) {
+        Cursor::Click(code, down);
+        return;
+    }
     const uint32_t merged = 1u << KeyOf(code);
     if (down) {
         g_pendingModifiers |= merged;
@@ -294,9 +318,9 @@ void RebuildMask() {
 }
 
 void Assign(uint8_t code, uint8_t button) {
-    SetModifier(code, false);
+    SetFunction(code, false);
     if (button < Names::kButtonCount && g_function[button] != kNoCode)
-        SetModifier(g_function[button], false);
+        SetFunction(g_function[button], false);
     for (uint8_t &f : g_function)
         if (f == code)
             f = kNoCode;
@@ -306,7 +330,12 @@ void Assign(uint8_t code, uint8_t button) {
 }
 
 void EmulatedEdge(uint8_t button, uint8_t code, bool down) {
-    SetModifier(code, down);
+    SetFunction(code, down);
+    if (IsClick(code)) {
+        if (down)
+            g_tapCandidates = 0; // a click down ends every tap
+        return;
+    }
     const uint64_t now = Device::NowNs();
     const uint32_t bit = 1u << code;
     if (down) {
@@ -327,6 +356,11 @@ void Emit(uint8_t b, bool down) {
         SendButton(b, down);
 }
 
+CVar::Factory::Handle g_cvLeftClick = nullptr, g_cvRightClick = nullptr;
+bool g_clicksAssigned = false; // 0x144C9A406
+
+// 0x1412637A0, shared by the five function cvars. A click cvar applies at
+// once only while the clicks are on.
 template <uint8_t C> int __fastcall OnEmulate(CVar::Factory::Handle, const char *, const char *value, void *) {
     const uint8_t button = Names::BindingToIndex(value);
     if (button == Names::kNone && (value == nullptr || _stricmp(value, "NONE") != 0)) {
@@ -336,7 +370,8 @@ template <uint8_t C> int __fastcall OnEmulate(CVar::Factory::Handle, const char 
                                   Names::kButtonBinding[i + 2], Names::kButtonBinding[i + 3]);
         return 0;
     }
-    Assign(C, button);
+    if (!IsClick(C) || Cursor::ClicksWanted())
+        Assign(C, button);
     return 1;
 }
 
@@ -358,15 +393,33 @@ void RegisterCVars() {
     Register("GamePadEmulateTapWindowMs",
              "GamePad buttons emulating Ctrl/Alt/Shift will be 'tapped' if released withing this time in MS",
              kCategory, "350", &OnTapWindow);
+    g_cvLeftClick = Register("GamePadCursorLeftClick",
+                             "GamePad button that should emulate mouse Left Click while controlling the mouse cursor",
+                             kCategory, "PADRTRIGGER", &OnEmulate<kLeftClick>);
+    g_cvRightClick =
+        Register("GamePadCursorRightClick",
+                 "GamePad button that should emulate mouse Right Click while controlling the mouse cursor", kCategory,
+                 "PADRSHOULDER", &OnEmulate<kRightClick>);
 }
 
 const Game::GlueModuleAutoRegister _cvars{&RegisterCVars};
 
 // --- sticks (0x1401E8B80) ---------------------------------------------------------
 
+// 0x141266EF0's test: the stick's X or Y axis is one of the Cursor stick's.
+bool SharesCursorAxis(const Config::Resolved &cfg, int s) {
+    auto bit = [](uint8_t axis) { return axis < Names::kAxisCount ? 1u << axis : 0u; };
+    return ((bit(cfg.stickX[s]) | bit(cfg.stickY[s])) &
+            (bit(cfg.stickX[Names::Cursor]) | bit(cfg.stickY[Names::Cursor]))) != 0;
+}
+
 void SendStick(int s, const State::StickValue &v) {
-    if (s == Names::Cursor)
-        return; // only in cursor mode
+    if (!Cursor::ModeOn()) {
+        if (s == Names::Cursor)
+            return;
+    } else if (!Cursor::TouchMode() && s != Names::Cursor && SharesCursorAxis(State::ConfigOf(ActiveID()), s)) {
+        return;
+    }
     const std::vector<void *> list = Candidates(g_sticks, [](const void *f) { return HasScript(g_onStick, f); });
     for (void *f : list) {
         if (!g_sticks.Has(f) || !Visible(f))
@@ -389,10 +442,11 @@ void ReleaseAll() {
         if (g_capture[b] != nullptr)
             ButtonUp(b);
     for (uint8_t code = kAlt; code < kCodeCount; ++code)
-        SetModifier(code, false);
+        SetFunction(code, false);
     g_tapCandidates = g_tapDowns = g_tapUps = 0;
     for (float &len : g_lastSentLen)
         len = 0.0f;
+    Cursor::ReleaseClicks(); // a touchpad click holds its button outside the functions
 }
 
 // --- frame methods ------------------------------------------------------------------
@@ -515,6 +569,15 @@ void Dispatch() {
     }
     const State::Mapped &m = State::MappedOf(id);
 
+    // Touchpad clicks and taps click directly, without cursor mode.
+    if (Device::Touch().cursorEnable) {
+        const uint32_t changed = m.touchButton ^ m.prevTouchButton;
+        if ((changed & 1) != 0)
+            Cursor::Click(kLeftClick, (m.touchButton & 1) != 0);
+        if ((changed & 4) != 0)
+            Cursor::Click(kRightClick, (m.touchButton & 4) != 0);
+    }
+
     const uint32_t ups = g_tapUps;
     g_tapUps = 0;
     for (uint8_t b = 0; b < Names::kButtonCount; ++b)
@@ -560,5 +623,21 @@ void Dispatch() {
 void Reset() { ReleaseAll(); }
 
 bool StickUnclaimed(int stick) { return stick >= 0 && stick < Names::kStickCount && g_unclaimed[stick]; }
+
+bool InPadBinding() { return g_inPadBinding; }
+
+void AssignClicks(bool on) {
+    if (on == g_clicksAssigned)
+        return;
+    if (on && g_cvLeftClick != nullptr && g_cvRightClick != nullptr) {
+        g_clicksAssigned = true;
+        Assign(kLeftClick, Names::BindingToIndex(CVar::Factory::GetString(g_cvLeftClick)));
+        Assign(kRightClick, Names::BindingToIndex(CVar::Factory::GetString(g_cvRightClick)));
+    } else {
+        g_clicksAssigned = false;
+        Assign(kLeftClick, Names::kNone);
+        Assign(kRightClick, Names::kNone);
+    }
+}
 
 } // namespace GamePad::Buttons

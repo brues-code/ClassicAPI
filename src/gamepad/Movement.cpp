@@ -44,7 +44,8 @@
 // Freelook. Using a stick or holding a pad button turns gamepad freelook on;
 // real mouse motion GamePadOverlapMouseMs after the last pad input turns it
 // off, and the character first turns to the camera. GAME_PAD_ACTIVE_CHANGED
-// fires on each change. While it is on, the camera holds one count of its
+// fires on each change. Mouse motion within 200 ms of a gamepad cursor move
+// is that move's own and does not count (GamePad::Cursor). While it is on, the camera holds one count of its
 // absolute frame (CCamera::EnterAbsoluteFrame, which mouse-look and fear
 // use), so its yaw is the world direction the character is turned to, as
 // 3.80.2's freelook puts the camera under user control (0x141B62100).
@@ -58,6 +59,7 @@
 #include "cvar/Factory.h"
 #include "event/Custom.h"
 #include "gamepad/Buttons.h"
+#include "gamepad/Cursor.h"
 #include "gamepad/Device.h"
 #include "gamepad/GamePad.h"
 #include "gamepad/Names.h"
@@ -271,10 +273,12 @@ void SetRun(void *unit, uint32_t now, bool run) {
 }
 
 void Freelook(bool on) {
+    Cursor::Refresh(); // 3.80.2's toggle refreshes the cursor on every call
     if (on == g_freelook)
         return;
     g_freelook = on;
     HoldFrame(on);
+    Cursor::OnFreelookChanged();
     if (!on) {
         // 3.80.2's freelook end runs again (0x1412648B0).
         void *unit = Mover();
@@ -332,41 +336,68 @@ void ApplyBits(uint32_t bits, uint32_t now) {
 
 // --- mouse --------------------------------------------------------------------------
 
-// 0x14125E3B0: real mouse motion ends freelook once the pad has been idle for
-// GamePadOverlapMouseMs, and the character turns to the camera first.
-int __fastcall OnMouseMove(const void *, void *) {
+// The absolute event's cursor fractions (the payload CSimpleTop copies to
+// +0x1104, so they sit at the offsets of OFF_UI_CONTEXT_MOUSE_POSITION).
+constexpr uintptr_t kMoveEventPoint = Offsets::OFF_UI_CONTEXT_MOUSE_POSITION - 0x1104;
+float g_lastMoveU = -1.0f, g_lastMoveV = -1.0f;
+
+// 0x14125E3B0 (from the world frame's mouse handler 0x14169B2B0): real mouse
+// motion ends cursor mode, and ends freelook once the pad has been idle for
+// GamePadOverlapMouseMs, the character turning to the camera first.
+int __fastcall OnMouseMove(const void *data, void *param) {
     const uint32_t now = Time::Clock::NowMs();
+    if (Cursor::FiltersMotion(now))
+        return 1;
+    if (param == nullptr) { // absolute: only a move that went somewhere (3.80.2's event+0x29)
+        const float u = Game::Read<float>(data, kMoveEventPoint);
+        const float v = Game::Read<float>(data, kMoveEventPoint + 4);
+        if (u == g_lastMoveU && v == g_lastMoveV)
+            return 1;
+        g_lastMoveU = u;
+        g_lastMoveV = v;
+    }
     g_lastMouseInput = now;
-    if (!g_freelook)
-        return 1;
+    Cursor::Mode(false, false);
     const uint32_t overlap = static_cast<uint32_t>(I(g_cv.overlapMouse, 0) > 0 ? I(g_cv.overlapMouse, 0) : 0);
-    if (g_lastPadInput != 0 && Time::Clock::Elapsed(g_lastPadInput, now) < overlap)
+    if (g_freelook && (g_lastPadInput == 0 || Time::Clock::Elapsed(g_lastPadInput, now) >= overlap)) {
+        void *unit = Mover();
+        if (unit != nullptr && TurnsWithCamera(unit))
+            TurnWithCamera(unit, Camera(), now, true);
+        Freelook(false);
         return 1;
-    void *unit = Mover();
-    if (unit != nullptr && TurnsWithCamera(unit))
-        TurnWithCamera(unit, Camera(), now, true);
-    Freelook(false);
+    }
+    Cursor::OnMouseMotion();
     return 1;
 }
 
+// A marker for the relative handler's param.
+int g_relative = 0;
+
 bool g_busRegistered = false;
 
-void RegisterWorld() {
-    // A new world builds a new camera and resets the input control (3.80.2's
-    // 0x14125E6B0 zeroes the owned bits and the look state without events).
+// A new world builds a new camera and resets the input control (3.80.2's
+// 0x14125E6B0 zeroes the owned bits and the look state without events, and
+// turns cursor mode off); the glue screens have none of it.
+void ResetWorld() {
     g_owned = 0;
     g_frameCamera = nullptr;
     g_freelook = false;
     g_prevLookYaw = g_prevLookPitch = 0.0f;
     g_runModeSent = false;
+    Cursor::Reset();
+}
+
+void RegisterWorld() {
+    ResetWorld();
     if (!g_busRegistered) {
         g_busRegistered = true;
         Input::EventBus::Register(Offsets::EVENT_ID_MOUSEMOVE, &OnMouseMove, nullptr, FLT_MAX);
-        Input::EventBus::Register(Offsets::EVENT_ID_MOUSEMOVE_RELATIVE, &OnMouseMove, nullptr, FLT_MAX);
+        Input::EventBus::Register(Offsets::EVENT_ID_MOUSEMOVE_RELATIVE, &OnMouseMove, &g_relative, FLT_MAX);
     }
 }
 
 const Game::ModuleAutoRegister _world{&RegisterWorld};
+const Game::GlueModuleAutoRegister _glue{&ResetWorld};
 
 // --- Lua ----------------------------------------------------------------------------
 
@@ -433,6 +464,7 @@ void Update() {
     void *cam = Camera();
     void *unit = Mover();
     HoldFrame(g_freelook); // follow a rebuilt camera
+    Cursor::Begin(m, cam != nullptr);
 
     const bool canMove = Predicate(Offsets::FUN_MAY_TRANSLATE, unit);
     const bool canTurn = Predicate(Offsets::FUN_MAY_TURN, unit);
@@ -460,10 +492,14 @@ void Update() {
     const bool pitchReady = g_pitchReadyAt == 0 || Time::Clock::Reached(now, g_pitchReadyAt);
     bool pitchUsed = false;
 
+    Cursor::AutoDisable(moveActive, camActive);
     if (moveActive || camActive || m.buttons != 0) {
         g_lastPadInput = now;
-        if (cam != nullptr)
+        if (cam != nullptr) {
             Freelook(true);
+            if (moveActive && camActive)
+                Cursor::Refresh();
+        }
     }
 
     // Camera (3.80.2's camera block, into MouseTurn's units: a mouse-look
@@ -580,11 +616,42 @@ void Update() {
     }
     if (pitchUsed)
         g_pitchReadyAt = now + 15;
+    Cursor::End(m, dt, moveActive, camActive);
 }
 
 void Reset() {
     ReleaseOwned(Time::Clock::NowMs());
     Freelook(false);
+}
+
+bool FreelookOn() { return g_freelook; }
+
+void SetFreelook(bool on) { Freelook(on); }
+
+bool MouseRecent(uint32_t now) {
+    const int overlap = I(g_cv.overlapMouse, 0);
+    return g_lastMouseInput != 0 &&
+           Time::Clock::Elapsed(g_lastMouseInput, now) < static_cast<uint32_t>(overlap > 0 ? overlap : 0);
+}
+
+void *ActiveCamera() { return Camera(); }
+
+void *ActiveMover() { return Mover(); }
+
+void MouseLook(float yaw, float pitch) {
+    void *cam = Camera();
+    void *unit = Mover();
+    if (cam == nullptr || unit == nullptr)
+        return;
+    // ApplyMouseLook takes interface units (0.8 x 0.6 for the 800 x 600
+    // virtual screen); MouseTurn takes the DDC units of 1.12's mouse.
+    const float k1 = Game::Read<float>(Offsets::VAR_COORD_DDC_WIDTH_SCALE);
+    const float k2 = Game::Read<float>(Offsets::VAR_COORD_DDC_HEIGHT_SCALE);
+    using MouseTurn_t = void(__fastcall *)(void *cam, void *edx, float dx, float dy);
+    reinterpret_cast<MouseTurn_t>(static_cast<uintptr_t>(Offsets::FUN_CAMERA_MOUSE_TURN))(
+        cam, nullptr, yaw / 0.8f * k1, pitch / 0.6f * k2);
+    if (TurnsWithCamera(unit))
+        TurnWithCamera(unit, cam, Time::Clock::NowMs(), true);
 }
 
 } // namespace GamePad::Movement
