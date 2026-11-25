@@ -128,6 +128,10 @@ bool FieldString(void *L, int table, const char *key, const char *usage, Text &o
                  Error *error = nullptr, const char *path = nullptr);
 bool FieldFiniteNumber(void *L, int table, const char *key, const char *usage, double &out,
                        bool optional = false, Error *error = nullptr, const char *path = nullptr);
+// A uint32 field (FUN_140AC5690 when optional, as C_GamePad's GamePadConfigID
+// reads vendorID / productID): UInt32's checks on t[key].
+bool FieldUInt32(void *L, int table, const char *key, const char *usage, uint32_t &out, bool optional = false,
+                 Error *error = nullptr, const char *path = nullptr);
 bool FieldBool(void *L, int table, const char *key, const char *usage, bool &out, bool optional = false,
                Error *error = nullptr, const char *path = nullptr);
 bool FieldFiniteFloat(void *L, int table, const char *key, const char *usage, float &out, bool optional = false,

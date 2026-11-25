@@ -14937,6 +14937,9 @@ enum Offsets {
     VAR_GLUE_SELECTED_CHAR = 0x00B41DF4,
     OFF_GLUE_CHAR_GUID = 0x00,
     OFF_GLUE_CHAR_NAME = 0x08,
+    // The race byte of a character record (same layout in the roster), read
+    // by `Script_GetCharacterInfo` 0x004732A0.
+    OFF_GLUE_CHAR_RACE = 0x100,
 
     // The character-select roster: a growable array of 0x120-byte records
     // whose first 0x110 bytes copy net's records (OFF_CLIENT_CONNECTION_CHARS),
@@ -14947,6 +14950,15 @@ enum Offsets {
     VAR_GLUE_ROSTER_COUNT = 0x00B42140,
     VAR_GLUE_ROSTER_RECORDS = 0x00B42144,
     GLUE_ROSTER_STRIDE = 0x120,
+    // CGlueMgr's suspended flag, int: CGlueMgr::Suspend (0x0046AC90) stores 1
+    // before CCharSelectInfo::Shutdown (0x00472090) frees the roster, on
+    // entering the world; the glue resume clears it. So the roster is
+    // readable only while this is 0 (disassembled).
+    VAR_GLUE_SUSPENDED = 0x00B41D94,
+    // The roster index the character screen has selected, 0-based. It is
+    // written only by SelectCharSelectRecord 0x00472740, which clamps it to
+    // [0, VAR_GLUE_ROSTER_COUNT) (a negative index stores 0; disassembled).
+    VAR_GLUE_ROSTER_SELECTED_INDEX = 0x0083856C,
 
     // LoadCharSelectRoster — `void __cdecl(void)`, called only from the glue
     // Idle in state 3 once a character list arrives. Empties the roster,

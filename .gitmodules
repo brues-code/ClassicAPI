@@ -8,3 +8,11 @@
 	path = external/rapidjson
 	url = https://github.com/Tencent/rapidjson.git
 	shallow = true
+[submodule "external/SDL"]
+	path = external/SDL
+	url = https://github.com/libsdl-org/SDL.git
+	shallow = true
+	ignore = dirty
+[submodule "external/GamepadMotionHelpers"]
+	path = external/GamepadMotionHelpers
+	url = https://github.com/JibbSmart/GamepadMotionHelpers.git

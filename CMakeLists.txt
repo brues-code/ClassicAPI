@@ -1,6 +1,12 @@
 cmake_minimum_required(VERSION 3.10)
 
-project(ClassicAPI LANGUAGES CXX RC)
+# CMAKE_MSVC_RUNTIME_LIBRARY below picks the static CRT for every target,
+# the C targets of external/SDL included. Under the 3.10 policy set CMake
+# instead bakes /MD into the default C flags, and SDL then links against the
+# DLL CRT.
+cmake_policy(SET CMP0091 NEW)
+
+project(ClassicAPI LANGUAGES C CXX RC)
 
 # WoW.exe is x86, so the injected DLL must be x86 too — there is no valid
 # 64-bit configure of this project. Fail here rather than let one through:
@@ -27,6 +33,46 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")
 # patching the vendored submodule.
 set(CMAKE_POLICY_VERSION_MINIMUM 3.10)
 add_subdirectory(external/minhook)
+
+# SDL3, static, for gamepads (src/gamepad/). Only the joystick side is built:
+# gamepad mapping, rumble, LED and battery state live in the joystick
+# subsystem, HIDAPI gives the PlayStation / Switch drivers, and the sensor
+# subsystem gives gyro and accelerometer. The helper window SDL needs for
+# device notifications is in its core, not its video subsystem.
+foreach(_sdl_off SDL_SHARED SDL_TEST_LIBRARY SDL_TESTS SDL_EXAMPLES SDL_INSTALL
+                 SDL_AUDIO SDL_VIDEO SDL_GPU SDL_RENDER SDL_CAMERA SDL_HAPTIC
+                 SDL_POWER SDL_DIALOG SDL_TRAY)
+    set(${_sdl_off} OFF CACHE BOOL "" FORCE)
+endforeach()
+foreach(_sdl_on SDL_STATIC SDL_JOYSTICK SDL_HIDAPI SDL_SENSOR)
+    set(${_sdl_on} ON CACHE BOOL "" FORCE)
+endforeach()
+# SDL's dynamic API (a jump table to every SDL function, so another SDL3.dll
+# named by the SDL3_DYNAMIC_API environment variable can replace it) is on
+# for every Windows build and can only be turned off in its header. It keeps
+# all of SDL in the DLL (turning it off saves about 400 KB of video, render
+# and GPU code that nothing calls), and lets that variable load a foreign DLL
+# into the game. The patch turns it off for static builds; the submodule is
+# set to ignore the resulting dirty state. (The surface and blit code that
+# stays is reached from SDL's event subsystem, which gamepads need.)
+find_package(Git REQUIRED)
+set(_sdl_patch "${CMAKE_CURRENT_SOURCE_DIR}/cmake/patches/SDL-static-no-dynapi.patch")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_sdl_patch}")
+execute_process(
+    COMMAND "${GIT_EXECUTABLE}" apply --reverse --check "${_sdl_patch}"
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/external/SDL"
+    RESULT_VARIABLE _sdl_patched OUTPUT_QUIET ERROR_QUIET)
+if(NOT _sdl_patched EQUAL 0)
+    execute_process(
+        COMMAND "${GIT_EXECUTABLE}" apply "${_sdl_patch}"
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/external/SDL"
+        RESULT_VARIABLE _sdl_apply ERROR_VARIABLE _sdl_apply_error)
+    if(NOT _sdl_apply EQUAL 0)
+        message(FATAL_ERROR "Could not apply ${_sdl_patch} to external/SDL "
+                            "(an SDL update moved the code it changes): ${_sdl_apply_error}")
+    endif()
+endif()
+add_subdirectory(external/SDL EXCLUDE_FROM_ALL)
 
 file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS "src/*.cpp")
 file(GLOB_RECURSE HEADERS CONFIGURE_DEPENDS "src/*.h")
@@ -113,14 +159,17 @@ target_sources(${PROJECT_NAME} PRIVATE src/ClassicAPI.def)
 # instantiated in that TU via <initguid.h>, so no sapi.lib is needed.
 # user32: Win32 clipboard API (OpenClipboard / SetClipboardData) for
 # CopyToClipboard in src/clipboard/Copy.cpp.
-target_link_libraries(${PROJECT_NAME} PRIVATE minhook advapi32 ole32 user32)
+# SDL3::SDL3-static carries its own system libraries (setupapi, winmm, imm32,
+# version, cfgmgr32, ...) as interface dependencies.
+target_link_libraries(${PROJECT_NAME} PRIVATE minhook SDL3::SDL3-static advapi32 ole32 user32)
 
 target_include_directories(
   ${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src
                           ${CMAKE_BINARY_DIR}/generated
                           external/minhook/include
                           external/rapidjson/include
-                          external/unordered_dense/include)
+                          external/unordered_dense/include
+                          external/GamepadMotionHelpers)
 
 set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "ClassicAPI")
 

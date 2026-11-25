@@ -125,6 +125,17 @@ bool ReadFiniteFloat(void *L, const Slot &at, const char *usage, float &out, boo
     return true;
 }
 
+bool ReadUInt32(void *L, const Slot &at, const char *usage, uint32_t &out, bool optional, Error *error) {
+    const int present = Present(L, at, usage, optional, error);
+    if (present <= 0)
+        return present == 0;
+    const double v = IsNumber(L, at.index) ? ToNumber(L, at.index) : NAN;
+    if (!(v >= 0.0 && v <= 4294967295.0))
+        return Fail(L, at, "outside of expected range 0 to 4294967295", usage, error);
+    out = static_cast<uint32_t>(v);
+    return true;
+}
+
 bool ReadBool(void *L, const Slot &at, const char *usage, bool &out, bool optional, Error *error) {
     const int present = Present(L, at, usage, optional, error);
     if (present <= 0)
@@ -203,15 +214,7 @@ bool Int32(void *L, int arg, const char *usage, int32_t &out, bool optional, Err
 }
 
 bool UInt32(void *L, int arg, const char *usage, uint32_t &out, bool optional, Error *error) {
-    const Slot at{arg, nullptr};
-    const int present = Present(L, at, usage, optional, error);
-    if (present <= 0)
-        return present == 0;
-    const double v = IsNumber(L, arg) ? ToNumber(L, arg) : NAN;
-    if (!(v >= 0.0 && v <= 4294967295.0))
-        return Fail(L, at, "outside of expected range 0 to 4294967295", usage, error);
-    out = static_cast<uint32_t>(v);
-    return true;
+    return ReadUInt32(L, Slot{arg, nullptr}, usage, out, optional, error);
 }
 
 bool Index(void *L, int arg, const char *usage, uint32_t &out, Error *error) {
@@ -265,6 +268,12 @@ bool FieldFiniteNumber(void *L, int table, const char *key, const char *usage, d
                        Error *error, const char *path) {
     return ReadField(L, table, key, path,
                      [&](const Slot &at) { return ReadFiniteNumber(L, at, usage, out, optional, error); });
+}
+
+bool FieldUInt32(void *L, int table, const char *key, const char *usage, uint32_t &out, bool optional,
+                 Error *error, const char *path) {
+    return ReadField(L, table, key, path,
+                     [&](const Slot &at) { return ReadUInt32(L, at, usage, out, optional, error); });
 }
 
 bool FieldBool(void *L, int table, const char *key, const char *usage, bool &out, bool optional, Error *error,

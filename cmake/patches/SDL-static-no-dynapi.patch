@@ -1,0 +1,13 @@
+diff --git a/src/dynapi/SDL_dynapi.h b/src/dynapi/SDL_dynapi.h
+index 786d86e..5738405 100644
+--- a/src/dynapi/SDL_dynapi.h
++++ b/src/dynapi/SDL_dynapi.h
+@@ -67,6 +67,8 @@
+ #define SDL_DYNAMIC_API 0
+ #elif defined(DYNAPI_NEEDS_DLOPEN) && !defined(HAVE_DLOPEN)
+ #define SDL_DYNAMIC_API 0 // we need dlopen(), but don't have it....
++#elif defined(SDL_STATIC_LIB) // ClassicAPI: static SDL inside an injected DLL, nothing to redirect.
++#define SDL_DYNAMIC_API 0
+ #endif
+ 
+ // everyone else. This is where we turn on the API if nothing forced it off.

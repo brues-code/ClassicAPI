@@ -593,6 +593,31 @@ build instructions.
   - [`C_GameObjectInfo.RequestLoadGameObjectByID(gameObjectID)`](#c_gameobjectinforequestloadgameobjectbyidgameobjectid)
   - [`ClosestGameObjectPosition(gameObjectID)`](#closestgameobjectpositiongameobjectid)
 
+- [GamePad](#gamepad)
+  - [Devices](#devices)
+  - [Configs](#configs)
+  - [GamePad cvars and commands](#gamepad-cvars-and-commands)
+  - [GamePad events](#gamepad-events)
+  - [`C_GamePad.IsEnabled()`](#c_gamepadisenabled)
+  - [`C_GamePad.GetActiveDeviceID()`](#c_gamepadgetactivedeviceid)
+  - [`C_GamePad.GetCombinedDeviceID()`](#c_gamepadgetcombineddeviceid)
+  - [`C_GamePad.GetAllDeviceIDs()`](#c_gamepadgetalldeviceids)
+  - [`C_GamePad.GetDeviceMappedState([deviceID])`](#c_gamepadgetdevicemappedstatedeviceid)
+  - [`C_GamePad.GetDeviceRawState(deviceID)`](#c_gamepadgetdevicerawstatedeviceid)
+  - [`C_GamePad.GetPowerLevel([deviceID])`](#c_gamepadgetpowerleveldeviceid)
+  - [`C_GamePad.GetConfig(configID)`](#c_gamepadgetconfigconfigid)
+  - [`C_GamePad.GetAllConfigIDs()`](#c_gamepadgetallconfigids)
+  - [`C_GamePad.SetConfig(config)`](#c_gamepadsetconfigconfig)
+  - [`C_GamePad.DeleteConfig(configID)`](#c_gamepaddeleteconfigconfigid)
+  - [`C_GamePad.ApplyConfigs()`](#c_gamepadapplyconfigs)
+  - [`C_GamePad.SetVibration(vibrationType, intensity)`](#c_gamepadsetvibrationvibrationtype-intensity)
+  - [`C_GamePad.StopVibration()`](#c_gamepadstopvibration)
+  - [`C_GamePad.GetLedColor()`](#c_gamepadgetledcolor)
+  - [`C_GamePad.SetLedColor(color)`](#c_gamepadsetledcolorcolor)
+  - [`C_GamePad.ClearLedColor()`](#c_gamepadclearledcolor)
+  - [`C_GamePad.AddSDLMapping(platform, mapping)`](#c_gamepadaddsdlmappingplatform-mapping)
+  - [Index and name functions](#index-and-name-functions)
+
 - [GameTooltip](#gametooltip)
   - [`GameTooltip:AddTexture(texture)`](#gametooltipaddtexturetexture)
   - [`GameTooltip:SetSpellByID(spellID [, isPet [, showSubtext]])`](#gametooltipsetspellbyidspellid--ispet--showsubtext)
@@ -13765,6 +13790,355 @@ the objects that the client currently sees, but only game objects.
 Same caveat: this finds the nearest **currently-visible**
 object of that entry rather than reading a static starting-zone
 database (there is no such database here).
+
+## GamePad
+
+Gamepad support reads the gamepads that are connected to the computer.
+Addons read their buttons, axes, and sticks through `C_GamePad`. Gamepad
+support is off by default. The `GamePadEnable` cvar turns it on and off.
+`C_GamePad` is available on the login screens and in the world.
+
+### Devices
+
+Each gamepad that connects gets a device ID from 1 to 4. Device 5 is the
+combined device. It holds the input of all connected gamepads together:
+
+- A button is down when it is down on one or more gamepads.
+- Each axis and each stick direction has the value with the largest size
+  of all gamepads.
+- The battery level is the lowest level of all gamepads.
+
+The active device is the device that the game reads. The
+`GamePadSingleActiveID` cvar sets it. The default value `0` selects the
+combined device. Functions that take an optional `deviceID` use the active
+device when the argument is `nil` or `0`.
+
+A device has 32 buttons, 10 axes, and 8 sticks. Indices start at 0 in the
+index functions and in configs. In the tables of
+`C_GamePad.GetDeviceMappedState`, they start at 1.
+
+| Index | Button key | Config name | Index | Button key | Config name |
+|-------|-----------|-------------|-------|-----------|-------------|
+| 0 | `PADDUP` | `Up` | 16 | `PADLSTICKUP` | `LStickUp` |
+| 1 | `PADDRIGHT` | `Right` | 17 | `PADLSTICKRIGHT` | `LStickRight` |
+| 2 | `PADDDOWN` | `Down` | 18 | `PADLSTICKDOWN` | `LStickDown` |
+| 3 | `PADDLEFT` | `Left` | 19 | `PADLSTICKLEFT` | `LStickLeft` |
+| 4 | `PAD1` | `Face1` | 20 | `PADRSTICKUP` | `RStickUp` |
+| 5 | `PAD2` | `Face2` | 21 | `PADRSTICKRIGHT` | `RStickRight` |
+| 6 | `PAD3` | `Face3` | 22 | `PADRSTICKDOWN` | `RStickDown` |
+| 7 | `PAD4` | `Face4` | 23 | `PADRSTICKLEFT` | `RStickLeft` |
+| 8 | `PAD5` | `Face5` | 24 | `PADPADDLE1` | `Paddle1` |
+| 9 | `PAD6` | `Face6` | 25 | `PADPADDLE2` | `Paddle2` |
+| 10 | `PADLSTICK` | `LStickIn` | 26 | `PADPADDLE3` | `Paddle3` |
+| 11 | `PADRSTICK` | `RStickIn` | 27 | `PADPADDLE4` | `Paddle4` |
+| 12 | `PADLSHOULDER` | `LShoulder` | 28 | `PADFORWARD` | `Forward` |
+| 13 | `PADRSHOULDER` | `RShoulder` | 29 | `PADBACK` | `Back` |
+| 14 | `PADLTRIGGER` | `LTrigger` | 30 | `PADSYSTEM` | `System` |
+| 15 | `PADRTRIGGER` | `RTrigger` | 31 | `PADSOCIAL` | `Social` |
+
+The axes are `LStickX`, `LStickY`, `RStickX`, `RStickY`, `GStickX`,
+`GStickY`, `PStickX`, `PStickY`, `LTrigger`, and `RTrigger`, index 0 to 9.
+`G` is the gyro (the tilt of the gamepad) and `P` is the touchpad. Stick
+axes go from -1 to 1. Trigger axes go from 0 to 1.
+
+The sticks are `Left`, `Right`, `Gyro`, `Pad`, `Movement`, `Camera`,
+`Look`, and `Cursor`, index 0 to 7. `Movement` uses the left stick axes.
+`Camera` and `Cursor` use the right stick axes. `Look` uses the gyro axes.
+Each stick has its own deadzone.
+
+The triggers are also the buttons `PADLTRIGGER` and `PADRTRIGGER`. Each is
+down when its trigger axis is 0.5 or more. When
+`GamePadStickAxisButtons` is `1`, the stick directions are also buttons,
+`PADLSTICKUP` to `PADRSTICKLEFT`.
+
+While the game window is not the foreground window, the game reads all
+buttons as up and all axes at their rest position.
+
+### Configs
+
+A config maps the raw buttons and raw axes of a gamepad model to the
+buttons and axes above. It also sets the deadzones and the stick axes. A
+`configID` table identifies a config:
+
+| `configID` | The config applies to |
+|------------|----------------------|
+| `{}` | All devices. |
+| `{vendorID = v}` | All devices of the vendor `v`. |
+| `{vendorID = v, productID = p}` | One gamepad model. |
+
+The game merges configs from three sources, in this order:
+
+1. The default configs of the game. The file
+   `WTF\GamePadConfig_Default.json` shows them, with a description of the
+   file format. The game writes this file again, so changes to it are lost.
+2. Your own files `WTF\GamePadConfig_<name>.json`, in alphabetical order.
+   They use the format of the default file.
+3. The configs that addons set with `C_GamePad.SetConfig` and
+   `C_GamePad.ApplyConfigs`. The game saves them in
+   `WTF\GamePadConfig_Addons.json` when you log out and when you exit.
+
+In each source, the config for all devices comes first, then the config of
+the vendor, then the config of the model. A config changes only the fields
+that it sets. Use `GamePadListDevices` to see the vendorID and productID of
+your gamepads.
+
+The file `WTF\gamecontrollerdb.txt` holds SDL mapping strings for gamepad
+models that the game does not know. The game makes this file when it is not
+there. It reads the file when gamepad support starts.
+
+### GamePad cvars and commands
+
+| Cvar | Default | Value |
+|------|---------|-------|
+| `GamePadEnable` | `0` | `1` turns gamepad support on. |
+| `GamePadSingleActiveID` | `0` | The active device: `0` is the combined device, `1` to `5` a device ID. Other values are refused. |
+| `GamePadStickAxisButtons` | `0` | `1` makes the stick directions into buttons. A saved `1` takes effect at the first logout, or when the value changes. |
+| `GamePadVibrationStrength` | `1` | Multiplies the strength of `C_GamePad.SetVibration`. |
+| `GamePadFactionColor` | `1` | `1` sets the gamepad light to the color of your faction. |
+| `GamePadTouchCursorMoveThreshold` | `0.042` | How far a finger moves on the touchpad before the touch is not a tap. |
+| `GamePadTouchTapMaxMs` | `200` | The longest touch, in milliseconds, that is a tap. |
+| `GamePadTouchTapButtons` | `0` | `1` makes a tap on the touchpad press a touchpad button. |
+
+The console command `GamePadListDevices` shows the connected gamepads with
+their vendorID and productID.
+
+The touchpad also gives two buttons. A click on the left half of the
+touchpad is a press of the `PADBACK` button by default. A click on the
+right half is a press of `PAD6`.
+
+### GamePad events
+
+| Event | Arguments | Fires when |
+|-------|-----------|------------|
+| `GAME_PAD_CONNECTED` | none | A gamepad connects. |
+| `GAME_PAD_DISCONNECTED` | none | A gamepad disconnects. |
+| `GAME_PAD_CONFIGS_CHANGED` | none | Gamepad support starts, you log out, or `GamePadStickAxisButtons` changes. The game reads all config sources again at these times. |
+| `GAME_PAD_POWER_CHANGED` | `powerLevel` | The battery level of the active device changes. |
+
+`UPDATE_BINDINGS` also fires when the active device connects or
+disconnects. In the world, a chat line shows each gamepad that connects or
+disconnects.
+
+`Enum.GamePadPowerLevel` has the battery levels:
+
+| Name | Value |
+|------|-------|
+| `Critical` | 0 |
+| `Low` | 1 |
+| `Medium` | 2 |
+| `High` | 3 |
+| `Wired` | 4 |
+| `Unknown` | 5 |
+
+### `C_GamePad.IsEnabled()`
+
+Returns `true` when gamepad support is on. `GamePadEnable` is `1` and the
+game started the gamepad support. Otherwise it returns `false`.
+
+### `C_GamePad.GetActiveDeviceID()`
+
+Returns the ID of the active device, from 1 to 5.
+
+### `C_GamePad.GetCombinedDeviceID()`
+
+Returns `5`, the ID of the combined device.
+
+### `C_GamePad.GetAllDeviceIDs()`
+
+Returns a table with the IDs of the connected devices, in increasing
+order. When one or more gamepads are connected, the table also has `5`.
+
+```lua
+/dump C_GamePad.GetAllDeviceIDs()
+-- { 1, 5 }
+```
+
+### `C_GamePad.GetDeviceMappedState([deviceID])`
+
+Returns the state of a device after its config, as a table:
+
+| Field | Value |
+|-------|-------|
+| `name` | The name of the config, or else the name of the gamepad. |
+| `labelStyle` | The button labels of the gamepad: `"Generic"`, `"Letters"` (Xbox), `"Shapes"` (PlayStation), or `"Reverse"` (Nintendo). |
+| `buttonCount` | Always `32`. |
+| `axisCount` | Always `10`. |
+| `stickCount` | Always `8`. |
+| `buttons` | 32 booleans, `true` for each button that is down. |
+| `axes` | 10 numbers. |
+| `sticks` | 8 tables `{x, y, len}`. `len` is the distance from the center. |
+
+Returns `nil` when gamepad support is off, or when the device is not
+connected.
+
+```lua
+local state = C_GamePad.GetDeviceMappedState()
+if state and state.buttons[C_GamePad.ButtonBindingToIndex("PAD1") + 1] then
+    print("PAD1 is down")
+end
+```
+
+### `C_GamePad.GetDeviceRawState(deviceID)`
+
+Returns the raw input of a gamepad, before its config, as a table:
+
+| Field | Value |
+|-------|-------|
+| `name` | The name of the config, or else the name of the gamepad. |
+| `vendorID`, `productID` | The IDs of the gamepad model. |
+| `rawButtonCount`, `rawAxisCount` | The number of raw buttons and raw axes. |
+| `rawButtons` | A boolean for each raw button. |
+| `rawAxes` | A number for each raw axis. |
+
+The argument is necessary. `0` is the active device. The combined device
+has no raw state. Its ID, and an active combined device, return `nil`.
+The function also returns `nil` when gamepad support is off, or when the
+device is not connected.
+
+### `C_GamePad.GetPowerLevel([deviceID])`
+
+Returns the battery level of a device, an `Enum.GamePadPowerLevel` value.
+A device that is not connected returns `Unknown`.
+
+### `C_GamePad.GetConfig(configID)`
+
+Returns a config that addons set, as a table, or `nil` when there is no
+such config. The table has the fields that `C_GamePad.SetConfig` takes.
+The four arrays are always there. The default configs and your own config
+files are not available through this function.
+
+Button names in the result are button keys, for example `"PAD1"`. A raw
+button or an axis that maps to nothing shows as `"None"`.
+
+### `C_GamePad.GetAllConfigIDs()`
+
+Returns a table with the `configID` of each config that addons set. The
+default configs and your own config files are not in it.
+
+### `C_GamePad.SetConfig(config)`
+
+Merges `config` into the configs that addons set. The changes have no
+effect on the devices until `C_GamePad.ApplyConfigs()`. A config that is
+already there keeps each field that `config` does not set.
+
+| Field | Value |
+|-------|-------|
+| `configID` | Necessary. The `configID` table. |
+| `name`, `comment` | Optional strings. The name is cut to 255 bytes. |
+| `labelStyle` | Optional. `"Generic"`, `"Letters"`, `"Reverse"`, or `"Shapes"`. |
+| `rawButtonMappings` | Necessary array of `{rawIndex, button, axis, axisValue, comment}`. `button` is a button key or a config name. A raw button with `axis` and `axisValue` also sets that axis to `axisValue` while it is down. |
+| `rawAxisMappings` | Necessary array of `{rawIndex, axis, comment}`. |
+| `axisConfigs` | Necessary array of `{axis, shift, scale, deadzone, buttonThreshold, buttonPos, buttonNeg, comment}`. The axis value is `(raw + shift) * scale`, then the deadzone. `buttonPos` is down when the value is `buttonThreshold` or more. `buttonNeg` is down when the value is `-buttonThreshold` or less. |
+| `stickConfigs` | Necessary array of `{stick, axisX, axisY, deadzone, deadzoneX, deadzoneY, comment}`. |
+
+The arrays can be empty. Names are not case-sensitive. The function ignores
+a name that it does not know. An `axisConfigs` or `stickConfigs` entry with
+an unknown `axis` or `stick` has no effect. An `axis` without an
+`axisValue` has no effect. `buttonThreshold` has an effect only together
+with `buttonPos`, `buttonNeg`, or both. Deadzones are limited to the range
+0 to 0.99.
+
+A field of the wrong type raises an error that names the field.
+
+```lua
+-- Swap PAD1 and PAD2 on all devices.
+C_GamePad.SetConfig({
+    configID = {},
+    rawButtonMappings = {
+        { rawIndex = 0, button = "PAD2" },
+        { rawIndex = 1, button = "PAD1" },
+    },
+    rawAxisMappings = {},
+    axisConfigs = {},
+    stickConfigs = {},
+})
+C_GamePad.ApplyConfigs()
+```
+
+### `C_GamePad.DeleteConfig(configID)`
+
+Removes a config that addons set. The change has no effect on the devices
+until `C_GamePad.ApplyConfigs()`.
+
+### `C_GamePad.ApplyConfigs()`
+
+Replaces the saved addon configs with the configs that addons set, and
+applies all configs to the devices. The game writes the file at logout and
+at exit.
+
+The game loads the saved addon configs for `C_GamePad` at the first call of
+`C_GamePad.GetConfig`, `C_GamePad.GetAllConfigIDs`, or
+`C_GamePad.SetConfig`. After each `GAME_PAD_CONFIGS_CHANGED`, it loads them
+again at the next of these calls. Before that load, `C_GamePad.DeleteConfig`
+removes nothing, and `C_GamePad.ApplyConfigs` removes all saved addon
+configs.
+
+### `C_GamePad.SetVibration(vibrationType, intensity)`
+
+Vibrates the active device for half a second. To vibrate for a longer
+time, call the function again before the half second ends.
+`vibrationType` is one of these values:
+
+| `vibrationType` | Motor |
+|-----------------|-------|
+| `"Low"` | The large motor. |
+| `"High"` | The small motor. |
+| `"LTrigger"` | The motor of the left trigger. |
+| `"RTrigger"` | The motor of the right trigger. |
+
+`intensity` goes from 0 to 1. The game multiplies it by
+`GamePadVibrationStrength`. An unknown `vibrationType` does nothing. When
+the active device is the combined device, all gamepads vibrate.
+
+### `C_GamePad.StopVibration()`
+
+Stops the vibration of the active device.
+
+### `C_GamePad.GetLedColor()`
+
+Returns the color of the gamepad light, as a `ColorMixin` with `r`, `g`,
+and `b`. The table has no `a`.
+
+The color is the color that `C_GamePad.SetLedColor` set. Otherwise, when
+`GamePadFactionColor` is `1`, it is the color of the faction of your
+character: red for the Horde and blue for the Alliance. On the character
+screen, the selected character gives the color. Without a character, the
+light is gray. When `GamePadFactionColor` is `0`, the light is off.
+
+### `C_GamePad.SetLedColor(color)`
+
+Sets the color of the gamepad light. `color` is a table with `r`, `g`, and
+`b` from 0 to 1, for example a `ColorMixin`. Only gamepads with a color
+light show it. The color stays until `C_GamePad.ClearLedColor()`, or until
+you leave the world.
+
+### `C_GamePad.ClearLedColor()`
+
+Removes the color that `C_GamePad.SetLedColor` set.
+
+### `C_GamePad.AddSDLMapping(platform, mapping)`
+
+Adds an SDL mapping string for a gamepad model, until you exit the game.
+`platform` is an `Enum.ClientPlatformType` value. The function returns
+`true` when it adds or changes the mapping. It returns `false` for
+`Macintosh`, for a string that is not a valid mapping, and when gamepad
+support is off.
+
+To keep a mapping, put it in `WTF\gamecontrollerdb.txt`.
+
+### Index and name functions
+
+| Function | Returns |
+|----------|---------|
+| `C_GamePad.ButtonIndexToBinding(buttonIndex)` | The button key, for example `"PAD1"`. |
+| `C_GamePad.ButtonBindingToIndex(bindingName)` | The index of a button key. `nil` for any other string, also for a key with a modifier, for example `"SHIFT-PAD1"`. |
+| `C_GamePad.ButtonIndexToConfigName(buttonIndex)` | The config name, for example `"Face1"`. After gamepad support starts for the first time, this returns the button key. |
+| `C_GamePad.AxisIndexToConfigName(axisIndex)` | The axis name, for example `"LStickX"`. |
+| `C_GamePad.StickIndexToConfigName(stickIndex)` | The stick name, for example `"Movement"`. |
+
+Indices start at 0. An index that is too large returns `nil`. The functions
+use only the lowest 8 bits of an index, so `256` is the same as `0`. A
+negative number or a value that is not a number raises an error.
 
 ## GameTooltip
 
