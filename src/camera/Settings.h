@@ -54,5 +54,9 @@ float FollowPitchDeadZone();
 float FollowPitchOffset(); // degrees
 float FollowAdjustDelay();
 float FollowAdjustEaseIn();
+float FollowSnapCharacterAngle(); // degrees
+bool FollowTarget();
+bool FollowTargetCombat();
+bool FollowTargetPvp();
 
 } // namespace Camera::Settings

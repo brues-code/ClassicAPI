@@ -17,6 +17,9 @@
 #include "Offsets.h"
 #include "object/Resolve.h"
 
+#include <cmath>
+#include <cstdint>
+
 // Shared world-position and facing reads for any CGObject-derived unit.
 // The position comes from the object's `GetPosition` virtual (vtable
 // slot 5) — the same one `CheckInteractDistance` / `UnitInRange` use —
@@ -60,6 +63,27 @@ inline float Facing(void *obj) {
     using GetFacing_t = float(__thiscall *)(void *self);
     return reinterpret_cast<GetFacing_t>(
         vtable[Offsets::OFF_CGOBJECT_VTBL_GET_FACING / 4])(obj);
+}
+
+// A unit's own facing as its movement keeps it (transport-local, 0..2pi):
+// what CGUnit_C::SetFacing writes. 0 without movement info.
+inline float MoverFacing(const void *unit) {
+    const uint8_t *mv = Game::Read<const uint8_t *>(unit, Offsets::OFF_UNIT_MOVEMENT_INFO_PTR);
+    return mv != nullptr ? Game::Read<float>(mv, Offsets::OFF_MOVEMENT_FACING) : 0.0f;
+}
+
+// Turns the unit through CGUnit_C::SetFacing (FUN_UNIT_SET_FACING), the
+// facing wrapped into 0..2pi. An unchanged facing queues nothing.
+inline void SetFacing(void *unit, uint32_t now, float facing) {
+    constexpr float kTwoPi = 6.28318530717959f;
+    facing = std::fmod(facing, kTwoPi);
+    if (facing < 0.0f)
+        facing += kTwoPi;
+    if (std::fabs(facing - MoverFacing(unit)) < 1e-4f)
+        return; // still: no event to queue
+    using SetFacing_t = void(__fastcall *)(void *unit, void *edx, uint32_t time, float facing);
+    reinterpret_cast<SetFacing_t>(static_cast<uintptr_t>(Offsets::FUN_UNIT_SET_FACING))(unit, nullptr, now,
+                                                                                       facing);
 }
 
 // Convenience: resolve a token and read its position in one step.

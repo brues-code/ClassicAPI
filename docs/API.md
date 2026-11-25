@@ -3742,6 +3742,8 @@ if a stick joins it to the character. When you move, the camera stays where
 it is and turns to look at the character. The camera also tilts toward a
 view 15 degrees down, plus the slope of your movement.
 
+With `CameraFollowTarget`, the camera turns toward your target instead.
+
 | Setting | Default | What it does |
 |---|---|---|
 | `CameraFollowOnStick` | `0` | `1` starts the feature. |
@@ -3752,6 +3754,10 @@ view 15 degrees down, plus the slope of your movement.
 | `CameraFollowPitchOffset` | `15` | The down angle that the camera tilts toward, in degrees. |
 | `CameraFollowGamepadAdjustDelay` | `1` | After you turn the camera with a gamepad, the seconds before the camera follows again. |
 | `CameraFollowGamepadAdjustEaseIn` | `1` | The seconds that the camera then takes to follow at full speed. |
+| `CameraFollowSnapCharacterAngle` | `45` | When you move and the camera is more than this angle from your facing, in degrees, your character turns to the camera. `0` stops this turn. |
+| `CameraFollowTarget` | `0` | `1` makes the camera turn toward your target. |
+| `CameraFollowTargetCombat` | `1` | `1` makes the camera turn toward your target only in combat. |
+| `CameraFollowTargetPvp` | `0` | `1` lets the camera turn toward your target in PvP. |
 
 - The camera does not follow while you hold a mouse button to look, while
   it moves to a new view, in first person or on a transport.
@@ -3760,6 +3766,12 @@ view 15 degrees down, plus the slope of your movement.
 - The camera does not tilt while you fall. With
   `CameraReduceUnexpectedMovement` at `1`, the slope has no effect, and the
   camera tilts toward the down angle only.
+- When you move without mouse look or gamepad look, part of the turn goes
+  to your character. A turn key stops this turn. When the camera is near your
+  facing, it moves back behind you.
+- The camera does not turn toward a soft target. In PvP, it does not turn
+  toward your target unless `CameraFollowTargetPvp` is `1`. PvP is a duel,
+  a battleground, free-for-all PvP, or a target that has PvP on.
 
 ```
 /console CameraFollowOnStick 1

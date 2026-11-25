@@ -71,6 +71,7 @@
 #include "group/Roster.h"
 #include "map/Instance.h"
 #include "object/Resolve.h"
+#include "pvp/Context.h"
 #include "target/Nearest.h"
 #include "target/Reason.h"
 #include "time/Clock.h"
@@ -285,71 +286,10 @@ bool IsBoss(uint64_t guid) {
                               Offsets::CREATURE_TYPE_FLAG_BOSS) != 0;
 }
 
-// --- PvP (FUN_1405e35d0 / 3530 / 6cf0 / 14ab560) on 1.12's fields --------
+// --- PvP: Pvp::Context (FUN_1405e35d0 / 3530 on 1.12's fields) ------------
 
-using ControllingPlayer_t = void *(__fastcall *)(void *unit);
-
-bool IsPlayerObject(const void *unit) {
-    return Game::Read<int>(unit, Offsets::OFF_CGOBJECT_TYPE_ID) == Offsets::OBJECT_TYPE_PLAYER;
-}
-
-// A player's block (PLAYER_FLAGS, the duel fields); only a player has one.
-const uint8_t *PlayerInfo(const void *player) {
-    return IsPlayerObject(player) ? Game::Read<const uint8_t *>(player, Offsets::OFF_CGPLAYER_INFO)
-                                  : nullptr;
-}
-
-uint32_t PlayerFlags(const void *player) {
-    const uint8_t *info = PlayerInfo(player);
-    return info ? Game::Read<uint32_t>(info, Offsets::OFF_PLAYER_INFO_FLAGS) : 0;
-}
-
-int DuelTeam(const void *player) {
-    const uint8_t *info = PlayerInfo(player);
-    return info ? Game::Read<int>(info, Offsets::OFF_PLAYER_INFO_DUEL_TEAM) : 0;
-}
-
-uint64_t DuelArbiter(const void *player) {
-    const uint8_t *info = PlayerInfo(player);
-    return info ? Game::Read<uint64_t>(info, Offsets::OFF_PLAYER_INFO_DUEL_ARBITER) : 0;
-}
-
-// FUN_1414ab560: the two player-controlled units' players duel each other
-// (one arbiter, two teams).
-bool Dueling(void *a, void *b) {
-    if ((UnitFlags(a) & Offsets::UNIT_FLAG_PLAYER_CONTROLLED) == 0 ||
-        (UnitFlags(b) & Offsets::UNIT_FLAG_PLAYER_CONTROLLED) == 0)
-        return false;
-    const auto controller = reinterpret_cast<ControllingPlayer_t>(Offsets::FUN_UNIT_CONTROLLING_PLAYER);
-    void *pa = controller(a);
-    void *pb = controller(b);
-    if (pa == nullptr || pb == nullptr)
-        return false;
-    const int ta = DuelTeam(pa), tb = DuelTeam(pb);
-    return ta != 0 && tb != 0 && ta != tb && DuelArbiter(pa) == DuelArbiter(pb);
-}
-
-// FUN_1405e35d0: the player is in a PvP context — dueling, free-for-all
-// PvP, or on a battleground map. (3.80.2 also counts an arena and its "in
-// PvP combat" flag; 1.12 has neither.)
-bool PvpContext(const void *player) {
-    return DuelTeam(player) != 0 || (PlayerFlags(player) & Offsets::PLAYER_FLAG_FFA_PVP) != 0 ||
-           Map::Instance::CurrentType() == Offsets::MAP_INSTANCE_TYPE_BATTLEGROUND;
-}
-
-// FUN_1405e3530: the unit is a PvP unit. A creature: player-controlled and
-// PvP flagged. A player: PvP flagged, free-for-all, wanting PvP
-// (PLAYER_FLAGS_PVP_DESIRED), or in a duel with the player.
-bool PvpUnit(void *player, void *unit) {
-    const uint32_t flags = UnitFlags(unit);
-    if (!IsPlayerObject(unit))
-        return (flags & Offsets::UNIT_FLAG_PLAYER_CONTROLLED) != 0 &&
-               (flags & Offsets::UNIT_FLAG_PVP) != 0;
-    if ((flags & Offsets::UNIT_FLAG_PVP) != 0 ||
-        (PlayerFlags(unit) & (Offsets::PLAYER_FLAG_FFA_PVP | Offsets::PLAYER_FLAG_PVP_DESIRED)) != 0)
-        return true;
-    return unit != player && DuelTeam(unit) != 0 && Dueling(player, unit);
-}
+using Pvp::Context::PvpContext;
+using Pvp::Context::PvpUnit;
 
 // The rebuild's PvP inputs: the context, the player as a PvP unit (or in
 // the context), and TargetPriorityPvp.

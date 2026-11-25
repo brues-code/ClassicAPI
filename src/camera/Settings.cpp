@@ -69,6 +69,10 @@ CVar::Factory::Handle g_followPitchDeadZone = nullptr;
 CVar::Factory::Handle g_followPitchOffset = nullptr;
 CVar::Factory::Handle g_followAdjustDelay = nullptr;
 CVar::Factory::Handle g_followAdjustEaseIn = nullptr;
+CVar::Factory::Handle g_followSnapAngle = nullptr;
+CVar::Factory::Handle g_followTarget = nullptr;
+CVar::Factory::Handle g_followTargetCombat = nullptr;
+CVar::Factory::Handle g_followTargetPvp = nullptr;
 
 bool InRange(const char *value, float min, float max) {
     const float v = Storm::ToFloat(value);
@@ -203,6 +207,21 @@ void Register() {
         "CameraFollowGamepadAdjustEaseIn",
         "Ease-in time for follow resuming after manually adjusting the camera with Gamepad input",
         Offsets::CVAR_CATEGORY_GAME, "1.000000");
+    g_followSnapAngle = CVar::Factory::Register(
+        "CameraFollowSnapCharacterAngle",
+        "Angle beyond which character will snap to camera's facing when moving", Offsets::CVAR_CATEGORY_GAME,
+        "45.000000");
+    // 3.80.2 gives CameraFollowTarget and CameraFollowTargetPvp flag 0x40,
+    // and they are the two missing from every retail and camelot dump.
+    g_followTarget = CVar::Factory::Register("CameraFollowTarget",
+                                             "Camera follow the locked target instead of your movement.",
+                                             Offsets::CVAR_CATEGORY_GAME, "0");
+    g_followTargetCombat = CVar::Factory::Register("CameraFollowTargetCombat",
+                                                   "Camera follow the locked target only during combat.",
+                                                   Offsets::CVAR_CATEGORY_GAME, "1");
+    g_followTargetPvp = CVar::Factory::Register("CameraFollowTargetPvp",
+                                                "Camera follow the locked target allowed during pvp",
+                                                Offsets::CVAR_CATEGORY_GAME, "0");
 }
 
 const Game::GlueModuleAutoRegister _autoreg{&Register};
@@ -271,5 +290,9 @@ float FollowPitchDeadZone() { return CVar::Factory::GetFloat(g_followPitchDeadZo
 float FollowPitchOffset() { return CVar::Factory::GetFloat(g_followPitchOffset, 15.0f); }
 float FollowAdjustDelay() { return CVar::Factory::GetFloat(g_followAdjustDelay, 1.0f); }
 float FollowAdjustEaseIn() { return CVar::Factory::GetFloat(g_followAdjustEaseIn, 1.0f); }
+float FollowSnapCharacterAngle() { return CVar::Factory::GetFloat(g_followSnapAngle, 45.0f); }
+bool FollowTarget() { return CVar::Factory::GetInt(g_followTarget, 0) != 0; }
+bool FollowTargetCombat() { return CVar::Factory::GetInt(g_followTargetCombat, 1) != 0; }
+bool FollowTargetPvp() { return CVar::Factory::GetInt(g_followTargetPvp, 0) != 0; }
 
 } // namespace Camera::Settings

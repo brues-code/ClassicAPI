@@ -13673,6 +13673,13 @@ enum Offsets {
     // vtable turn the transport-local basis by its facing (benilla-re
     // uicamera/driver "Riding a transport").
     OFF_CAMERA_TRANSPORT_GUID = 0x98,
+    // The object the camera follows, a GUID: SetTarget 0x0050D0F0 compares
+    // (0x0050D11A) and stores it (0x0050D223); the world frame resolves it
+    // for the driver, ArmAutoReturn for the facing (0x00510EAC).
+    OFF_CAMERA_TARGET_GUID = 0x88,
+    // The yaw flip bias, radians: FlipCameraYaw adds to it (0x0050B6D2) and
+    // the view angles add it to the yaw (0x0050F7DE).
+    OFF_CAMERA_YAW_FLIP = 0x100,
 
     // Camera pitch clamp, radians: +/-1.55334306 (89 degrees). 4.3.4's
     // MAX_PITCH_ANGLE / MIN_PITCH_ANGLE, which its `pitchLimit` console
@@ -13906,6 +13913,10 @@ enum Offsets {
     INPUT_FLAG_STRAFE_LEFT = 0x40,
     INPUT_FLAG_STRAFE_RIGHT = 0x80,
     INPUT_FLAG_AUTORUN = 0x1000,
+    // TurnLeft / TurnRight keys (benilla-re input: the turn emitter 0x00514F50
+    // reads 0x100 / 0x200). 3.80.2 tests the pair as 0x300, the same bits.
+    INPUT_FLAG_TURN_LEFT = 0x100,
+    INPUT_FLAG_TURN_RIGHT = 0x200,
     INPUT_FLAGS_MOVING_ANY =
         INPUT_FLAG_MOVE_FORWARD | INPUT_FLAG_MOVE_BACKWARD |
         INPUT_FLAG_STRAFE_LEFT | INPUT_FLAG_STRAFE_RIGHT |

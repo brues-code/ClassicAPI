@@ -70,6 +70,7 @@
 #include "object/Resolve.h"
 #include "tick/FrameTick.h"
 #include "time/Clock.h"
+#include "unit/Position.h"
 
 #include <cfloat>
 #include <cmath>
@@ -84,7 +85,8 @@ constexpr float kDegToRad = 0.017453292f;
 constexpr float kActive = 0.001f;
 constexpr float kMaxPitch = 1.553343f; // the camera's 89 degrees
 
-constexpr uint32_t kForward = 0x10, kBack = 0x20, kStrafeLeft = 0x40, kStrafeRight = 0x80;
+constexpr uint32_t kForward = Offsets::INPUT_FLAG_MOVE_FORWARD, kBack = Offsets::INPUT_FLAG_MOVE_BACKWARD,
+                   kStrafeLeft = Offsets::INPUT_FLAG_STRAFE_LEFT, kStrafeRight = Offsets::INPUT_FLAG_STRAFE_RIGHT;
 constexpr uint32_t kMovementBits = kForward | kBack | kStrafeLeft | kStrafeRight;
 
 const Game::Doc::Field kActivePayload[] = {
@@ -171,11 +173,6 @@ uint32_t MoveFlags(const void *unit) {
     return mv != nullptr ? Game::Read<uint32_t>(mv, Offsets::OFF_MOVEMENT_FLAGS) : 0;
 }
 
-float Facing(const void *unit) {
-    const uint8_t *mv = Game::Read<const uint8_t *>(unit, Offsets::OFF_UNIT_MOVEMENT_INFO_PTR);
-    return mv != nullptr ? Game::Read<float>(mv, Offsets::OFF_MOVEMENT_FACING) : 0.0f;
-}
-
 uint32_t UnitFlags(const void *unit) {
     const uint8_t *fields = Game::Read<const uint8_t *>(unit, Offsets::OFF_OBJECT_FIELDS);
     return fields != nullptr ? Game::Read<uint32_t>(fields, Offsets::OFF_UNIT_FIELD_FLAGS) : 0;
@@ -191,15 +188,8 @@ void SetCommand(uint32_t bit, bool press, uint32_t now) {
         ic, nullptr, bit, press ? 1 : 0, now, 0);
 }
 
-void SetFacing(void *unit, uint32_t now, float facing) {
-    facing = std::fmod(facing, 2.0f * kPi);
-    if (facing < 0.0f)
-        facing += 2.0f * kPi;
-    if (std::fabs(facing - Facing(unit)) < 1e-4f)
-        return; // still: no event to queue
-    using SetFacing_t = void(__fastcall *)(void *unit, void *edx, uint32_t time, float facing);
-    reinterpret_cast<SetFacing_t>(static_cast<uintptr_t>(Offsets::FUN_UNIT_SET_FACING))(unit, nullptr, now, facing);
-}
+using Unit::Position::MoverFacing;
+using Unit::Position::SetFacing;
 
 void HandOffPitch(uint32_t now, float pitch) {
     void *ic = InputControl();
@@ -638,7 +628,7 @@ void Update() {
                         SetFacing(unit, now, CameraYaw(cam));
                 }
             } else {
-                const float camYaw = cam != nullptr ? CameraYaw(cam) : Facing(unit);
+                const float camYaw = cam != nullptr ? CameraYaw(cam) : MoverFacing(unit);
                 float pitch = cam != nullptr ? CameraPitch(cam) : 0.0f;
                 const float a = WrapPi(std::atan2(move.y, move.x) - kPi / 2.0f); // 0 up, positive left
                 const float A = std::fabs(a);
@@ -670,10 +660,10 @@ void Update() {
                         if (swimming)
                             s = strafe;
                         // Freelook joins mouse-look's group there: a turn key strafes.
-                        const bool looking = (held & 1) != 0 || g_freelook;
-                        if ((held & kStrafeLeft) != 0 || (looking && (held & 0x100) != 0))
+                        const bool looking = (held & Offsets::INPUT_FLAG_MOUSELOOK) != 0 || g_freelook;
+                        if ((held & kStrafeLeft) != 0 || (looking && (held & Offsets::INPUT_FLAG_TURN_LEFT) != 0))
                             s = kStrafeLeft;
-                        else if ((held & kStrafeRight) != 0 || (looking && (held & 0x200) != 0))
+                        else if ((held & kStrafeRight) != 0 || (looking && (held & Offsets::INPUT_FLAG_TURN_RIGHT) != 0))
                             s = kStrafeRight;
                         const bool fwd = A < 1.1780972f, back = A > 2.1816616f;
                         bits = (back ? kBack : 0) | (fwd ? kForward : 0) | s;

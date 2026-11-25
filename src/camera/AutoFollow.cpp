@@ -35,12 +35,19 @@
 //   - gamepad freelook: GamePad::Movement::FreelookOn (3.80.2's input flag
 //     0x2000000).
 //
-// Not yet ported (the note's §3.3 and the facing half of §3.6): following
-// the locked target (CameraFollowTarget, its combat and PvP tests) and
-// turning or snapping the character. 3.80.2 runs that half only while the
-// camera yaw is relative to the character (absolute-frame counter 0); under
-// gamepad freelook the counter is raised, so there 3.80.2 does what this
-// does: the whole turn goes to the camera. On a transport the step rests;
+//   - "can turn the character" (FUN_1412610e0): 1.12's MayTurn
+//     0x005145B0, the camera following the player, and the same input bits
+//     (1.12's mouselook command bit stands for 3.80.2's mouselook mode and
+//     mouse button; its 0x10000000 bit has no 1.12 counterpart).
+//   - the combat test's player GUID +0x6a8: the melee victim, 1.12's
+//     +0xC48 (inferred: 3.80.2's field was not traced to a writer).
+//
+// With CameraFollowTarget the camera instead turns toward the locked target
+// (in combat, by default; not in PvP unless CameraFollowTargetPvp). While
+// the camera yaw is relative to the character (no absolute frame, so not
+// under mouselook or gamepad freelook) and the character can turn, part of
+// the turn goes to the character, and past CameraFollowSnapCharacterAngle a
+// moving character snaps to the camera. On a transport the step rests;
 // 3.80.2 works in the transport's frame, which is not worked out for 1.12.
 
 #include "camera/AutoFollow.h"
@@ -50,7 +57,11 @@
 #include "camera/Settings.h"
 #include "camera/View.h"
 #include "gamepad/Movement.h"
+#include "object/Resolve.h"
+#include "pvp/Context.h"
+#include "target/Reason.h"
 #include "time/Clock.h"
+#include "unit/Identity.h"
 #include "unit/Position.h"
 
 #include <cmath>
@@ -67,6 +78,7 @@ constexpr float kEps = View::kEpsilon;
 constexpr float kMoveEpsSq = 0.0001f;       // 3.80.2's per-frame movement threshold
 constexpr float kEaseInMin = 4.7683716e-07f; // below it the ease-in is instant
 constexpr float kInvPitchLimit = 0.6510884f; // 1 / 88 degrees: steep views weaken the yaw turn
+constexpr float kFacingEps = 9.5367432e-07f; // a facing turn smaller than this is dropped
 
 struct State {
     void *camera = nullptr;
@@ -77,6 +89,8 @@ struct State {
     bool initialized = false;
     bool resuming = false;      // inside the adjust delay
     uint32_t seen = 0;          // last stamp this step saw
+    float pending = 0.0f;       // yaw to give back after a character snap
+    uint64_t lockGuid = 0;      // the locked target followed last
 };
 
 State g_state;
@@ -117,8 +131,72 @@ float Dot3(const float a[3], const float b[3]) { return a[0] * b[0] + a[1] * b[1
 void Reset(State &s) {
     s.smoothed[0] = s.smoothed[1] = s.smoothed[2] = 0.0f;
     s.ease = 1.0f;
+    s.pending = 0.0f;
     s.initialized = false;
     s.resuming = false;
+    s.lockGuid = 0;
+}
+
+uint32_t InputFlags() {
+    const void *ic = Game::Read<void *>(Offsets::VAR_UI_INPUT_CONTROLLER);
+    return ic != nullptr ? Game::Read<uint32_t>(ic, Offsets::OFF_UI_INPUT_FLAGS) : 0;
+}
+
+uint32_t UnitFlags(const void *unit) {
+    const uint8_t *fields = Object::Fields(unit);
+    return fields != nullptr ? Game::Read<uint32_t>(fields, Offsets::OFF_UNIT_FIELD_FLAGS) : 0;
+}
+
+uint32_t MoveFlags(const void *unit) {
+    const uint8_t *mv = Game::Read<const uint8_t *>(unit, Offsets::OFF_UNIT_MOVEMENT_INFO_PTR);
+    return mv != nullptr ? Game::Read<uint32_t>(mv, Offsets::OFF_MOVEMENT_FLAGS) : 0;
+}
+
+// 3.80.2's mouselook or freelook: its mouselook mode, right mouse button or
+// freelook (input+0x20 == 1, flags 0x2000001). 1.12's mouselook mode and its
+// button are one command bit (MouselookStart and IsMouselooking use it).
+bool Looking(uint32_t flags) {
+    return (flags & Offsets::INPUT_FLAG_MOUSELOOK) != 0 || GamePad::Movement::FreelookOn();
+}
+
+// §3.3: the locked target, or null.
+void *LockedTarget(State &s, void *player) {
+    bool follow = true;
+    if (Settings::FollowTargetCombat() && player != nullptr) {
+        const uint32_t flags = UnitFlags(player);
+        follow = (flags & Offsets::UNIT_FLAG_PET_IN_COMBAT) != 0 ||
+                 Game::Read<uint64_t>(player, Offsets::OFF_UNIT_ATTACK_TARGET) != 0 ||
+                 (flags & Offsets::UNIT_FLAG_IN_COMBAT) != 0;
+    }
+    const uint64_t guid = Target::Reason::Selection();
+    if (!follow || guid == 0 || Target::Reason::IsLoose())
+        return nullptr;
+    void *unit = Object::ByGuid(Offsets::TYPEMASK_UNIT, guid);
+    if (unit == nullptr)
+        return nullptr;
+    if (!Settings::FollowTargetPvp() &&
+        (Pvp::Context::PvpContext(player) || Pvp::Context::PvpUnit(player, unit)))
+        return nullptr;
+    if (s.lockGuid != guid)
+        s.ease = 0.75f;
+    s.lockGuid = guid;
+    return unit;
+}
+
+// FUN_1412610e0(input, 0): the character may turn and is being driven.
+bool CanTurnCharacter(const void *camera, void *player) {
+    if (player == nullptr || reinterpret_cast<int(__stdcall *)(void *)>(Offsets::FUN_MAY_TURN)(player) == 0)
+        return false;
+    if (Game::Read<uint64_t>(camera, Offsets::OFF_CAMERA_TARGET_GUID) != Unit::Identity::PlayerGuid())
+        return false;
+    const uint32_t flags = InputFlags();
+    if (Looking(flags))
+        return true;
+    // FUN_14125c210: strafing (the turn keys count only while looking).
+    if ((flags & (Offsets::INPUT_FLAG_STRAFE_LEFT | Offsets::INPUT_FLAG_STRAFE_RIGHT)) != 0)
+        return true;
+    return (flags & (Offsets::INPUT_FLAG_MOVE_FORWARD | Offsets::INPUT_FLAG_MOVE_BACKWARD |
+                     Offsets::INPUT_FLAG_AUTORUN)) != 0;
 }
 
 void ShiftYaw(void *camera, float delta) {
@@ -132,8 +210,8 @@ void ShiftPitch(void *camera, float delta) {
 }
 
 // §3.1: every case that resets the step.
-bool Gated(const void *camera, const State &s) {
-    if (!Settings::FollowOnStick())
+bool Gated(const void *camera, const State &s, bool onStick, bool follow) {
+    if (!onStick && !follow)
         return true;
     const uint32_t mode = Game::Read<uint32_t>(camera, Offsets::OFF_CAMERA_MODE);
     if ((mode & Offsets::CAMERA_MODE_MOUSELOOK) != 0 && !GamePad::Movement::FreelookOn())
@@ -148,17 +226,31 @@ bool Gated(const void *camera, const State &s) {
     return Game::Read<uint64_t>(camera, Offsets::OFF_CAMERA_TRANSPORT_GUID) != 0;
 }
 
-// §3.6, the camera half.
-void FollowYaw(void *camera, State &s, const float move[3], const float toPivot[3]) {
+// What FollowYaw needs about this frame beyond the move.
+struct Frame {
+    void *lock;        // the locked target, or null
+    void *player;      // the active player, or null
+    const void *unit;  // the camera target as a unit, or null
+    bool pendingRan;   // §3.2 gave back a snap this frame
+    uint32_t now;
+    float dt;
+};
+
+// §3.6.
+void FollowYaw(void *camera, State &s, const Frame &f, const float move[3], const float toPivot[3]) {
     const float yawSpeed = Settings::FollowYawSpeed();
     if (yawSpeed <= 0.0f || move[0] * move[0] + move[1] * move[1] <= kMoveEpsSq)
         return;
-    float forward[3];
-    View::Row(camera, Offsets::VTBL_CAMERA_FORWARD, forward);
-    const float length = std::sqrt(Dot3(move, move));
-    const float dir[3] = {move[0] / length, move[1] / length, move[2] / length};
-    const float along = std::fabs(Dot3(forward, dir));
-    const float k = Clamp((1.5f * (1.0f - along) + 4.0f * along) * yawSpeed, 0.0f, 100.0f);
+    float k = 2.0f;
+    if (f.lock == nullptr) {
+        float forward[3];
+        View::Row(camera, Offsets::VTBL_CAMERA_FORWARD, forward);
+        const float length = std::sqrt(Dot3(move, move));
+        const float dir[3] = {move[0] / length, move[1] / length, move[2] / length};
+        const float along = std::fabs(Dot3(forward, dir));
+        k = 1.5f * (1.0f - along) + 4.0f * along;
+    }
+    k = Clamp(k * yawSpeed, 0.0f, 100.0f);
     const float p[3] = {toPivot[0] + move[0] * k, toPivot[1] + move[1] * k, toPivot[2] + move[2] * k};
     const float steep = std::fmin(std::fabs(View::PitchAngle(p[0], p[1], p[2])) * kInvPitchLimit, 1.0f);
     float delta = WrapPi(Norm2Pi(std::atan2(p[1], p[0])) - Norm2Pi(std::atan2(toPivot[1], toPivot[0])));
@@ -167,6 +259,50 @@ void FollowYaw(void *camera, State &s, const float move[3], const float toPivot[
         s.resuming = false;
     if (std::fabs(s.ease) < kEps)
         return;
+    // The facing half: only while the camera yaw is relative to the
+    // character, which then is the camera's target.
+    if (Game::Read<int>(camera, Offsets::OFF_CAMERA_ABSOLUTE_FRAMES) < 1 && CanTurnCharacter(camera, f.player)) {
+        const float relYaw = Game::Read<float>(camera, Offsets::OFF_CAMERA_RELATIVE_YAW);
+        const float facing = Unit::Position::MoverFacing(f.player);
+        const float camYaw = Norm2Pi(relYaw + Game::Read<float>(camera, Offsets::OFF_CAMERA_YAW_FLIP) + facing);
+        float diff = WrapPi(camYaw - facing);
+        const float snap = Settings::FollowSnapCharacterAngle() * kDegToRad;
+        const uint32_t mf = f.unit != nullptr ? MoveFlags(f.unit) : 0;
+        const bool forwardBack = (mf & (Offsets::MOVEFLAG_FORWARD | Offsets::MOVEFLAG_BACKWARD)) != 0;
+        const bool strafing = (mf & (Offsets::MOVEFLAG_STRAFE_LEFT | Offsets::MOVEFLAG_STRAFE_RIGHT)) != 0;
+        if (f.pendingRan || s.resuming || snap <= 0.0f || std::fabs(diff) <= snap || f.unit == nullptr ||
+            (!strafing && !forwardBack)) {
+            if (delta * diff >= 0.0f) {
+                // Near the facing: the relative yaw eases back behind.
+                if (std::fabs(diff) < 15.0f * kDegToRad ||
+                    (std::fabs(diff) < 45.0f * kDegToRad && f.unit != nullptr && forwardBack)) {
+                    const float dist = Clamp(View::TargetDistance(camera), 0.0f, 50.0f);
+                    const float r = std::fmax((1.0f - dist * 0.015f) * yawSpeed, 0.0f);
+                    const float y = WrapPi(relYaw);
+                    ShiftYaw(camera, WrapPi(Approach(y, 0.0f, r, f.dt) - y));
+                }
+            } else {
+                // Turning back toward the facing: the camera takes it first.
+                const float t = std::fabs(diff) <= std::fabs(delta) ? -diff : delta;
+                ShiftYaw(camera, t);
+                delta -= t;
+                diff += t;
+            }
+            // The rest turns the character, when no turn key fights it.
+            const uint32_t flags = InputFlags();
+            if (std::fabs(delta) >= kFacingEps && std::fabs(diff) < 45.0f * kDegToRad &&
+                ((flags & (Offsets::INPUT_FLAG_TURN_LEFT | Offsets::INPUT_FLAG_TURN_RIGHT)) == 0 ||
+                 Looking(flags))) {
+                Unit::Position::SetFacing(f.player, f.now, facing + delta);
+                delta = 0.0f;
+            }
+        } else {
+            // Moving and too far off: the character snaps to the camera, and
+            // next frame's §3.2 turns the camera back so the view holds.
+            s.pending = -delta - diff;
+            Unit::Position::SetFacing(f.player, f.now, camYaw + delta);
+        }
+    }
     if (std::fabs(delta) >= kEps)
         ShiftYaw(camera, delta);
 }
@@ -227,19 +363,55 @@ const Game::HookAutoRegister _mouseTurnHook{Offsets::FUN_CAMERA_MOUSE_TURN,
 
 void Update(void *camera, void *target, uint32_t now, float dt) {
     State &s = For(camera);
-    if (target == nullptr || Gated(camera, s)) {
+    const bool onStick = Settings::FollowOnStick();
+    const bool follow = Settings::FollowTarget();
+    if (target == nullptr || Gated(camera, s, onStick, follow)) {
         Reset(s);
         return;
     }
 
-    const float *last = s.lastFeet;
+    // §3.2: give back last frame's snap.
+    const bool pendingRan = std::fabs(s.pending) >= kEps;
+    if (pendingRan) {
+        ShiftYaw(camera, s.pending);
+        s.pending = 0.0f;
+    }
+
+    void *player = const_cast<uint8_t *>(Unit::Identity::PlayerObject());
+    void *lock = follow ? LockedTarget(s, player) : nullptr;
+
     float position[3];
     if (!Unit::Position::Read(target, position))
         return;
-    // §3.4, on stick: this frame's move, scaled down closer than 4 yards.
-    const float w = std::fmin(View::TargetDistance(camera) * 0.25f, 1.0f);
-    const float move[3] = {(position[0] - last[0]) * w, (position[1] - last[1]) * w,
-                           (position[2] - last[2]) * w};
+    // §3.4. The last pivot is the driver's +0x174; its offset from the
+    // feet stands for 3.80.2's pivot offset.
+    const float *pivot = &Game::Ref<float>(camera, Offsets::OFF_CAMERA_LAST_PIVOT);
+    const float *last = s.lastFeet;
+    float move[3] = {0.0f, 0.0f, 0.0f};
+    if (lock == nullptr) {
+        s.lockGuid = 0;
+        if (onStick) {
+            // This frame's move, scaled down closer than 4 yards.
+            const float w = std::fmin(View::TargetDistance(camera) * 0.25f, 1.0f);
+            for (int i = 0; i < 3; ++i)
+                move[i] = (position[i] - last[i]) * w;
+        }
+    } else {
+        // Toward the locked target at pivot height: a unit direction from 2
+        // yards out, shorter inside.
+        float lockPos[3];
+        if (Unit::Position::Read(lock, lockPos)) {
+            float v[3];
+            for (int i = 0; i < 3; ++i)
+                v[i] = lockPos[i] + (pivot[i] - last[i]) - position[i];
+            const float d = std::sqrt(Dot3(v, v));
+            if (d > kEps) {
+                const float scale = d >= 2.0f ? 1.0f / d : 0.5f;
+                for (int i = 0; i < 3; ++i)
+                    move[i] = v[i] * scale;
+            }
+        }
+    }
 
     // §3.5: the adjust delay and the ease back in.
     const uint32_t delayMs = static_cast<uint32_t>(Settings::FollowAdjustDelay() * 1000.0f);
@@ -276,10 +448,10 @@ void Update(void *camera, void *target, uint32_t now, float dt) {
     }
 
     // Camera to pivot, last frame.
-    const float *pivot = &Game::Ref<float>(camera, Offsets::OFF_CAMERA_LAST_PIVOT);
     const float *eye = &Game::Ref<float>(camera, Offsets::OFF_CAMERA_POSITION);
     const float toPivot[3] = {pivot[0] - eye[0], pivot[1] - eye[1], pivot[2] - eye[2]};
-    FollowYaw(camera, s, move, toPivot);
+    const Frame f{lock, player, View::Unit(target), pendingRan, now, dt};
+    FollowYaw(camera, s, f, move, toPivot);
     FollowPitch(camera, target, s, toPivot, dt);
 }
 
