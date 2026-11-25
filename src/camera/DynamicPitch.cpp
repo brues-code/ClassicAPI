@@ -32,8 +32,10 @@
 //   - The gate's view-mode test (1 <= +0xcc <= 5) has no 1.12 field; far
 //     sight, which forces the distance to 0, is the 1.12 mode it excludes.
 //   - The pad target never uses BaseFovPadFlying (1.12 has no flying).
-//   - The vertical stabilizer (CameraReduceUnexpectedMovement) is not
-//     ported, so its term is 0.
+//   - 3.80.2 measures the feet with its height less the vertical
+//     stabilizer's offset (+0x478, 0x141bc7eb0). Here the stabilizer raises
+//     the pivot before 1.12's solve (camera/Follow.cpp), so the solved height
+//     passed in does not include the offset and is used as it is.
 //   - The look-up zoom writes 1.12's live distance (+0xEC). Both solvers
 //     cap the distance at the live one, which is how it takes effect; 1.12
 //     keeps no distance velocity to zero.

@@ -3487,8 +3487,8 @@ The features:
   finds none, it moves closer.
 
 `CameraKeepCharacterCentered` is `1` by default. While it is `1`, only target
-focus on an NPC or object operates. Set it to `0` before you use the other
-features:
+focus on an NPC or object and indirect visibility operate. Set it to `0` before
+you use the other features:
 
 ```
 /console CameraKeepCharacterCentered 0

@@ -90,7 +90,7 @@ uint32_t TraceMask() {
     const void *cvar = Game::Read<void *>(Offsets::VAR_CVAR_CAMERA_WATER_COLLISION);
     const bool water =
         cvar != nullptr && Game::Read<int32_t>(cvar, Offsets::OFF_CVAR_VALUE_INT) != 0;
-    return Offsets::CAMERA_TRACE_MASK | (water ? Offsets::CAMERA_TRACE_MASK_WATER : 0u);
+    return Offsets::CAMERA_TRACE_MASK | (water ? Offsets::LIQUID_TRIANGLE_CLASS : 0u);
 }
 
 void PlaceEye(void *camera, float out[3], const float pivot[3], float distance,
@@ -100,14 +100,22 @@ void PlaceEye(void *camera, float out[3], const float pivot[3], float distance,
                                                                 offset);
 }
 
-// Intersect with the hit fraction; false (t untouched) for no hit.
+// Intersect with the hit fraction in 0..1; false for no hit. A fraction
+// past the end counts as clear (FUN_CWORLD_INTERSECT's contract), and one
+// before the start, which UnitXP_SP3's 0.01 shortening of camera-mask hits
+// can give, is a hit at the start.
 bool Sweep(const float start[3], const float end[3], uint32_t mask, float &t) {
     using Intersect_t = char(__fastcall *)(const float *, const float *, int, float *, float *,
                                            uint32_t);
     float hit[3];
     t = 1.0f;
-    return reinterpret_cast<Intersect_t>(Offsets::FUN_CWORLD_INTERSECT)(start, end, 0, hit, &t,
-                                                                         mask) != 0;
+    if (reinterpret_cast<Intersect_t>(Offsets::FUN_CWORLD_INTERSECT)(start, end, 0, hit, &t,
+                                                                      mask) == 0 ||
+        t > 1.0f)
+        return false;
+    if (t < 0.0f)
+        t = 0.0f;
+    return true;
 }
 
 bool ClipNearBox(void *camera, float *distance, const float trial[3], uint32_t mask) {

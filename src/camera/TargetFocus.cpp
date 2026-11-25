@@ -40,6 +40,14 @@
 //     (VAR_INTERACTION_TARGET_GUID 0x00B4E2D0), which only the
 //     interaction begin and the closer write. It holds the unit or object
 //     whose window is open; 1.12 keeps loot out of it.
+//   - 3.80.2 also drops the interaction object when byte +0x18 mask 0x01 of
+//     its object (entity+0x30) is clear. It runs the same test on every
+//     GUID-to-camera-object lookup (SCENE_SetGameCameraTargetActor,
+//     CGCamera_UpdatePerFrame, ...), so it is a "usable as a scene object"
+//     gate. Its setter was not found. 1.12 has no counterpart: an object
+//     the manager resolves always has a position, and 3.3.5's
+//     ClntObjMgrObjectPtr checks only presence and type. So the lookup
+//     here is the same.
 //   - The attack test is 1.12's CanAttack (FUN_UNIT_CAN_ATTACK).
 //   - The height is the model box's (bounds +0xC0 × scale +0x90), the
 //     height the soft-targeting port uses for 3.80.2's object height.

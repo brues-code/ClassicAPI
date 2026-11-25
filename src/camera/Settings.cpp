@@ -66,7 +66,7 @@ bool InRange(const char *value, float min, float max) {
     const float v = Storm::ToFloat(value);
     if (v >= min && v <= max)
         return true;
-    Game::Console::Printf("Value out of range (%f - %f)\n", static_cast<double>(min),
+    Game::Console::Printf("Value out of range (%f - %f)", static_cast<double>(min),
                           static_cast<double>(max));
     return false;
 }

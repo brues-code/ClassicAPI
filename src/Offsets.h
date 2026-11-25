@@ -13454,6 +13454,9 @@ enum Offsets {
     VAR_CAMERA_PIVOT_MIN = 0x008089CC,      // float 5/6
     VAR_CAMERA_PIVOT_MAX = 0x008089C8,      // float 15
     VAR_CAMERA_NEAR_DISTANCE = 0x008089B0,  // float 1.8315
+    // float 1/360 (bytes 61 0B 36 3B): the self fade's distance at or under
+    // which the target is fully hidden.
+    VAR_CAMERA_FADE_HIDDEN = 0x00808ABC,
 
     // ---- The follow camera's per-frame update (benilla-re uicamera/driver,
     // solver; Ghidra of each function) ---------------------------------------
@@ -13520,11 +13523,10 @@ enum Offsets {
     // The solver's boom bit: set by the boom sweep (0x0050E82A) and the near
     // clip (0x0050E86A).
     CAMERA_MODE_BOOM_HIT = 0x10000,
-    // The solver's trace mask (0x0050E5EC): CAMERA_TRACE_MASK, plus
-    // CAMERA_TRACE_MASK_WATER while cameraWaterCollision (CVar* below,
-    // int at +0x28) is nonzero.
+    // The solver's trace mask (0x0050E5EC): CAMERA_TRACE_MASK, plus the
+    // liquid class LIQUID_TRIANGLE_CLASS while cameraWaterCollision (CVar*
+    // below, int at +0x28) is nonzero.
     CAMERA_TRACE_MASK = 0x100171,
-    CAMERA_TRACE_MASK_WATER = 0xF0000,
     VAR_CVAR_CAMERA_WATER_COLLISION = 0x00BE1088,
     // float 1/9: how far the solver backs the distance off after a hit
     // (0x0050E887) and the pull-in margin (0x0050EE6B).
@@ -13552,9 +13554,8 @@ enum Offsets {
     // The movement's spline, null when none (the driver's spline test
     // 0x0050E957 reads its flags at +0x18).
     OFF_MOVEMENT_SPLINE = 0xA4,
-    // float: the terminal fall velocity GetFallSpeed caps at without feather
-    // fall (0x007C5D34).
-    VAR_TERMINAL_VELOCITY = 0x0087D894,
+    // The terminal fall velocity GetFallSpeed caps at without feather fall
+    // (0x007C5D34) is VAR_MOVER_TERMINAL_SPEED.
     // CCamera::SetFacing — `void __thiscall(camera, float yaw, float pitch,
     // float roll)`, `ret 0xC`: builds the basis (+0x14) from the angles
     // (BuildYawPitchRollBasis). The view angles' last step (0x0050F866).

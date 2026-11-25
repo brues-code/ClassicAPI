@@ -35,7 +35,7 @@
 //
 // 1.12 pieces:
 //   - The fall speed is CMovement::GetCurrentFallSpeed 0x007C5D70 (the same
-//     model as 3.80.2's FUN_140f3e7c0) against VAR_TERMINAL_VELOCITY.
+//     model as 3.80.2's FUN_140f3e7c0) against VAR_MOVER_TERMINAL_SPEED.
 //   - Swimming is MOVEFLAG_SWIMMING (retail 0x100000; retail's flying
 //     0x1000000 has no 1.12 counterpart). On a taxi is UNIT_FLAG_TAXI_FLIGHT.
 //     The spline is CMovement +0xA4: 3.80.2's +0x2b0 is the pointer its
@@ -100,7 +100,7 @@ bool MovementAllows(const void *unit) {
     using FallSpeed_t = float(__thiscall *)(void *);
     const float fallSpeed =
         reinterpret_cast<FallSpeed_t>(Offsets::FUN_CMOVEMENT_GET_CURRENT_FALL_SPEED)(movement);
-    if (Game::Read<float>(Offsets::VAR_TERMINAL_VELOCITY) * kFallShare < fallSpeed)
+    if (Game::Read<float>(Offsets::VAR_MOVER_TERMINAL_SPEED) * kFallShare < fallSpeed)
         return false;
     const uint32_t flags = Game::Read<uint32_t>(movement, Offsets::OFF_MOVEMENT_FLAGS);
     if ((flags & Offsets::MOVEFLAG_SWIMMING) != 0)

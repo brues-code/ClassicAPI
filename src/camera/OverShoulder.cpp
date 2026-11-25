@@ -46,7 +46,6 @@ namespace {
 
 constexpr float kOmega = 30.0f;           // 0x41f00000 at 0x141bc8300
 constexpr float kMountedShare = 0.1f;     // 0x141bc82d9
-constexpr float kFadeHidden = 1.0f / 360.0f; // 0x00808ABC, 1.12's hidden distance
 constexpr float kFadePitch = -1.0471976f;    // 0x14415c8f4, -60 degrees
 constexpr float kFadePitchScale = -2.046278f; // 0x14415c94c, -1/28 degrees
 constexpr float kFadeFar = 2.5f;             // 0x14415c02c
@@ -134,7 +133,7 @@ void Fade(void *camera, const float feet[3]) {
                             kFadeNear * (1.0f - s);
     uint32_t alpha = 255;
     if (d < threshold) {
-        if (d <= kFadeHidden)
+        if (d <= Game::Read<float>(Offsets::VAR_CAMERA_FADE_HIDDEN))
             alpha = 0;
         else
             alpha = static_cast<uint32_t>((1.0f - std::cos(kPi * d / threshold)) * 0.5f * 255.0f);
