@@ -31,13 +31,17 @@
 //     rest of 3.80.2's solver (camera/Collision.cpp: over-shoulder sweeps,
 //     indirect visibility, eye-offset sweep) and the solved pivot height for
 //     the pitch delta.
+//   - UpdateTransitions (0x0050F160), after: the camera follow (step 8,
+//     camera/AutoFollow.cpp).
 //   - Update, after: the view-only pitch delta (step 15), target focus
-//     (step 16) and the over-shoulder self fade (step 19).
+//     (step 16) and the over-shoulder self fade (step 19); then the camera
+//     follow's last-frame record.
 //   - PivotBiasAllowed: 3.80.2's GetSmartPivotFlags turns the smart pivot
 //     off while dynamic pitch is on within the cutoff distance.
 
 #include "Game.h"
 #include "Offsets.h"
+#include "camera/AutoFollow.h"
 #include "camera/Collision.h"
 #include "camera/DynamicPitch.h"
 #include "camera/HeadMovement.h"
@@ -90,11 +94,26 @@ void __fastcall Update_h(void *camera, void *edx, void *target, uint32_t now) {
     DynamicPitch::Apply(camera, target, g_solvedHeight, g_frame.dt);
     TargetFocus::Apply(camera, g_feet, g_pivot, g_frame.dt);
     OverShoulder::Fade(camera, g_feet);
+    AutoFollow::Record(camera, g_feet);
 }
 
 const Game::HookAutoRegister _updateHook{Offsets::FUN_CAMERA_UPDATE,
                                          reinterpret_cast<void *>(&Update_h),
                                          reinterpret_cast<void **>(&Update_o)};
+
+// The transitions (one caller, the driver): 3.80.2's camera follow runs
+// right after them, before the view angles (step 8).
+using UpdateTransitions_t = void(__fastcall *)(void *camera, void *edx, void *target, uint32_t now);
+UpdateTransitions_t UpdateTransitions_o = nullptr;
+
+void __fastcall UpdateTransitions_h(void *camera, void *edx, void *target, uint32_t now) {
+    UpdateTransitions_o(camera, edx, target, now);
+    AutoFollow::Update(camera, target, now, g_frame.camera == camera ? g_frame.dt : 0.0f);
+}
+
+const Game::HookAutoRegister _transitionsHook{Offsets::FUN_CAMERA_UPDATE_TRANSITIONS,
+                                              reinterpret_cast<void *>(&UpdateTransitions_h),
+                                              reinterpret_cast<void **>(&UpdateTransitions_o)};
 
 using SolveLimits_t = uint32_t(__fastcall *)(void *camera, void *edx, float *pivot,
                                              float *distance, float *height, float *offset,

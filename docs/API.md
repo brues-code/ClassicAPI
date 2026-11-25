@@ -112,6 +112,7 @@ build instructions.
   - [ActionCam](#actioncam)
   - [`ActionCam [option]` (console command)](#actioncam-option-console-command)
   - [ActionCam settings](#actioncam-settings)
+  - [Camera follow](#camera-follow)
 
 - [CharacterList](#characterlist)
   - [`SaveCharacterOrder(translationTable)` — GlueXML only](#savecharacterordertranslationtable--gluexml-only)
@@ -3732,6 +3733,36 @@ distance without the feature.
 ```
 /console test_cameraOverShoulder -1
 /console cameraIndirectVisibility 1
+```
+
+### Camera follow
+
+Camera follow turns the camera to follow your movement. The camera acts as
+if a stick joins it to the character. When you move, the camera stays where
+it is and turns to look at the character. The camera also tilts toward a
+view 15 degrees down, plus the slope of your movement.
+
+| Setting | Default | What it does |
+|---|---|---|
+| `CameraFollowOnStick` | `0` | `1` starts the feature. |
+| `CameraFollowYawSpeed` | `1` | How fast the camera turns to the side. `0` stops the side turn. |
+| `CameraFollowPitchSpeed` | `1` | How fast the camera tilts up and down. `0` stops the tilt. |
+| `CameraFollowPitchStrength` | `0.7` | How much the slope of your movement changes the tilt, from `0` to `1`. |
+| `CameraFollowPitchDeadZone` | `5` | How far the tilt can be from its goal, in degrees, before the camera tilts. |
+| `CameraFollowPitchOffset` | `15` | The down angle that the camera tilts toward, in degrees. |
+| `CameraFollowGamepadAdjustDelay` | `1` | After you turn the camera with a gamepad, the seconds before the camera follows again. |
+| `CameraFollowGamepadAdjustEaseIn` | `1` | The seconds that the camera then takes to follow at full speed. |
+
+- The camera does not follow while you hold a mouse button to look, while
+  it moves to a new view, in first person or on a transport.
+- The side turn is weaker while you look steeply up or down. Closer than 4
+  yards, the camera follows less.
+- The camera does not tilt while you fall. With
+  `CameraReduceUnexpectedMovement` at `1`, the slope has no effect, and the
+  camera tilts toward the down angle only.
+
+```
+/console CameraFollowOnStick 1
 ```
 
 ## CharacterList

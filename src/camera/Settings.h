@@ -13,7 +13,7 @@
 
 #pragma once
 
-// The ActionCam cvars as the 3.80.2 client registers them (names, defaults,
+// The ActionCam and camera follow cvars as the 3.80.2 client registers them (names, defaults,
 // help, ranges). Each reader falls back to the compiled default while the
 // cvar is not registered yet, as 3.80.2's readers fall back to the static
 // default beside each cvar. See docs/notes/actioncam-3802.md A §1.
@@ -44,5 +44,15 @@ float TargetFocusEnemyStrengthYaw();
 bool TargetFocusInteractEnable();
 float TargetFocusInteractStrengthPitch();
 float TargetFocusInteractStrengthYaw();
+
+// Camera follow (docs/notes/camera-follow-3802.md §1).
+bool FollowOnStick();
+float FollowYawSpeed();
+float FollowPitchSpeed();
+float FollowPitchStrength();
+float FollowPitchDeadZone();
+float FollowPitchOffset(); // degrees
+float FollowAdjustDelay();
+float FollowAdjustEaseIn();
 
 } // namespace Camera::Settings

@@ -13622,6 +13622,29 @@ enum Offsets {
     // CCamera::ShiftYaw — `void __thiscall(CCamera *, float delta)`, ret 4:
     // adds delta to the yaw target, from and live values, each wrapped.
     FUN_CAMERA_SHIFT_YAW = 0x005102B0,
+    // CCamera::ShiftPitch — `void __thiscall(CCamera *, float delta)`, ret 4:
+    // adds delta to the pitch target (+0x1E0), from (+0x1E4) and live value
+    // (+0xF4), each clamped to the pitch limits (benilla-re uicamera/
+    // transitions; 3.80.2's AddPitch 0x141b62620 is the same writer).
+    FUN_CAMERA_SHIFT_PITCH = 0x00510120,
+    // CCamera::UpdateTransitions — `void __thiscall(CCamera *, CGObject_C
+    // *target, uint32_t now)`, ret 8: eases the bob offsets and the seven
+    // channels. Its one caller is the driver (0x0050EA54); only argument
+    // pushes sit between it and the view angles 0x0050F710 (0x0050EA68),
+    // which is where 3.80.2 runs its camera follow (step 8). Disassembled.
+    FUN_CAMERA_UPDATE_TRANSITIONS = 0x0050F160,
+    // Last frame's pivot, the point the eye was placed from (3 floats). The
+    // driver reads the target's position into a local (0x0050E9CE), the
+    // solver works on it (0x0050ED59), 0x0050ED67 adds the solved pivot
+    // height to its z in place, and the end of the driver stores that local
+    // here (0x0050F026). So it is the feet plus height, not the target's
+    // position, and before 0x0050F026 it is last frame's. The compare at
+    // 0x0050E9D4..0x0050E9FF tests this frame's feet against it.
+    OFF_CAMERA_LAST_PIVOT = 0x174,
+    // The transport the camera rides, a GUID (0 when none): rows 1-3 of the
+    // vtable turn the transport-local basis by its facing (benilla-re
+    // uicamera/driver "Riding a transport").
+    OFF_CAMERA_TRANSPORT_GUID = 0x98,
 
     // Camera pitch clamp, radians: +/-1.55334306 (89 degrees). 4.3.4's
     // MAX_PITCH_ANGLE / MIN_PITCH_ANGLE, which its `pitchLimit` console
@@ -13689,6 +13712,12 @@ enum Offsets {
     OFF_CAMERA_MODE = 0x90,
     CAMERA_MODE_PIVOT_HEIGHTS = 0x4,
     CAMERA_MODE_FAR_SIGHT = 0x8,
+    // Bit 0: mouselook (the yaw transition skips while it is set, 0x0050F629).
+    // 0x1000000 / 0x2000000: the yaw / pitch transitions are running
+    // (benilla-re uicamera/transitions, the channel table).
+    CAMERA_MODE_MOUSELOOK = 0x1,
+    CAMERA_MODE_YAW_TRANSITION = 0x1000000,
+    CAMERA_MODE_PITCH_TRANSITION = 0x2000000,
     CAMERA_MODE_COLLISION_BITS = 0x30000,
     // Live orbit distance and the distance it eases to (the zoom target).
     OFF_CAMERA_DISTANCE = 0xEC,

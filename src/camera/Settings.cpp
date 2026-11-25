@@ -61,6 +61,14 @@ CVar::Factory::Handle g_focusEnemyYaw = nullptr;
 CVar::Factory::Handle g_focusInteractEnable = nullptr;
 CVar::Factory::Handle g_focusInteractPitch = nullptr;
 CVar::Factory::Handle g_focusInteractYaw = nullptr;
+CVar::Factory::Handle g_followOnStick = nullptr;
+CVar::Factory::Handle g_followYawSpeed = nullptr;
+CVar::Factory::Handle g_followPitchSpeed = nullptr;
+CVar::Factory::Handle g_followPitchStrength = nullptr;
+CVar::Factory::Handle g_followPitchDeadZone = nullptr;
+CVar::Factory::Handle g_followPitchOffset = nullptr;
+CVar::Factory::Handle g_followAdjustDelay = nullptr;
+CVar::Factory::Handle g_followAdjustEaseIn = nullptr;
 
 bool InRange(const char *value, float min, float max) {
     const float v = Storm::ToFloat(value);
@@ -163,6 +171,38 @@ void Register() {
         "0.750000");
     g_focusInteractYaw = CVar::Factory::Register("test_cameraTargetFocusInteractStrengthYaw",
                                                  nullptr, Offsets::CVAR_CATEGORY_GAME, "1.000000");
+
+    // Camera follow (docs/notes/camera-follow-3802.md §1): 3.80.2's
+    // initializers 0x1401a7dc0..0x1401a8300, no validators. The retail and
+    // camelot dumps list them in category 4 with the same defaults and help.
+    g_followOnStick = CVar::Factory::Register(
+        "CameraFollowOnStick",
+        "Enable camera to follow target as though being pushed/pulled along on a stick",
+        Offsets::CVAR_CATEGORY_GAME, "0");
+    g_followYawSpeed = CVar::Factory::Register("CameraFollowYawSpeed", "Controls speed of yaw following",
+                                               Offsets::CVAR_CATEGORY_GAME, "1.000000");
+    g_followPitchSpeed = CVar::Factory::Register(
+        "CameraFollowPitchSpeed", "Controls speed of pitch following", Offsets::CVAR_CATEGORY_GAME,
+        "1.000000");
+    g_followPitchStrength = CVar::Factory::Register(
+        "CameraFollowPitchStrength", "Controls strength of pitch following", Offsets::CVAR_CATEGORY_GAME,
+        "0.700000");
+    g_followPitchDeadZone = CVar::Factory::Register(
+        "CameraFollowPitchDeadZone", "Controls pitch follow deadzone size", Offsets::CVAR_CATEGORY_GAME,
+        "5.000000");
+    // The camelot client's (the _forever_ dump). 3.80.2 has no such cvar and
+    // adds the same 15 degrees as a constant (0x14415b99c).
+    g_followPitchOffset = CVar::Factory::Register(
+        "CameraFollowPitchOffset", "Controls the pitch offset in degrees that the camera will move towards",
+        Offsets::CVAR_CATEGORY_GAME, "15.000000");
+    g_followAdjustDelay = CVar::Factory::Register(
+        "CameraFollowGamepadAdjustDelay",
+        "Delay before follow resuming after manually adjusting the camera with Gamepad input",
+        Offsets::CVAR_CATEGORY_GAME, "1.000000");
+    g_followAdjustEaseIn = CVar::Factory::Register(
+        "CameraFollowGamepadAdjustEaseIn",
+        "Ease-in time for follow resuming after manually adjusting the camera with Gamepad input",
+        Offsets::CVAR_CATEGORY_GAME, "1.000000");
 }
 
 const Game::GlueModuleAutoRegister _autoreg{&Register};
@@ -222,5 +262,14 @@ float TargetFocusInteractStrengthPitch() {
 float TargetFocusInteractStrengthYaw() {
     return CVar::Factory::GetFloat(g_focusInteractYaw, 1.0f);
 }
+
+bool FollowOnStick() { return CVar::Factory::GetInt(g_followOnStick, 0) != 0; }
+float FollowYawSpeed() { return CVar::Factory::GetFloat(g_followYawSpeed, 1.0f); }
+float FollowPitchSpeed() { return CVar::Factory::GetFloat(g_followPitchSpeed, 1.0f); }
+float FollowPitchStrength() { return CVar::Factory::GetFloat(g_followPitchStrength, 0.7f); }
+float FollowPitchDeadZone() { return CVar::Factory::GetFloat(g_followPitchDeadZone, 5.0f); }
+float FollowPitchOffset() { return CVar::Factory::GetFloat(g_followPitchOffset, 15.0f); }
+float FollowAdjustDelay() { return CVar::Factory::GetFloat(g_followAdjustDelay, 1.0f); }
+float FollowAdjustEaseIn() { return CVar::Factory::GetFloat(g_followAdjustEaseIn, 1.0f); }
 
 } // namespace Camera::Settings
