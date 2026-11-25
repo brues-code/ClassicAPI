@@ -22,6 +22,9 @@ namespace Camera::Settings {
 
 bool KeepCharacterCentered();
 bool ReduceUnexpectedMovement();
+int ZSmooth();
+bool IndirectVisibility();
+float IndirectOffset();
 float OverShoulder();
 float DynamicPitch();
 float DynamicPitchBaseFovPad();

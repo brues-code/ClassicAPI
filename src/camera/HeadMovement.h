@@ -22,7 +22,10 @@ namespace Camera::HeadMovement {
 // Before the solve: pulls the dead-zone rope after the head (3.80.2 step 4),
 // then eases the eye offset toward it and adds it to `offset`, the eye
 // offset the solve and the eye placement use (step 11). `feet` is the
-// target's position. Returns true while an offset is in play.
-bool Apply(void *camera, const void *target, const float feet[3], float dt, float offset[3]);
+// target's position and `stabilizer` the vertical stabilizer's offset as
+// last updated. `tracked` says whether the rope ran. Returns true while an
+// offset is in play.
+bool Apply(void *camera, const void *target, const float feet[3], float stabilizer, float dt,
+           float offset[3], bool &tracked);
 
 } // namespace Camera::HeadMovement

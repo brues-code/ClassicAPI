@@ -2160,6 +2160,8 @@ enum Offsets {
     // rows forward, left, up). 4.3.4 names it CGCamera::Right (row b of the
     // facing matrix); in WoW's axes the row points left.
     VTBL_CAMERA_LEFT = 0x08,
+    // The third row (up), slot 0x00512080, turned the same way.
+    VTBL_CAMERA_UP = 0x0C,
     // The camera's near clip, the value CGWorldFrame::GetScreenCoordinates
     // culls against (`znear > clip.z`, benilla-re ui screen_projection.rs).
     OFF_CAMERA_NEAR_CLIP = 0x38,
@@ -13540,6 +13542,19 @@ enum Offsets {
     OFF_M2MODEL_LOADED = 0x10,
     // The live roll the view angles pass on (0x0050F720).
     OFF_CAMERA_ROLL = 0xF8,
+    // CMovement::GetCurrentFallSpeed — `float __thiscall(CMovement *)`: the
+    // down-positive vertical speed at the fall time (+0x78), from the fall
+    // start speed (+0xA0) capped at the terminal velocity, plus gravity
+    // 19.291105 x t (GetFallSpeed 0x007C5D20; 3.80.2's FUN_140f3e7c0 is the
+    // same model).
+    FUN_CMOVEMENT_GET_CURRENT_FALL_SPEED = 0x007C5D70,
+    OFF_MOVEMENT_FALL_START_SPEED = 0xA0,
+    // The movement's spline, null when none (the driver's spline test
+    // 0x0050E957 reads its flags at +0x18).
+    OFF_MOVEMENT_SPLINE = 0xA4,
+    // float: the terminal fall velocity GetFallSpeed caps at without feather
+    // fall (0x007C5D34).
+    VAR_TERMINAL_VELOCITY = 0x0087D894,
     // CCamera::SetFacing — `void __thiscall(camera, float yaw, float pitch,
     // float roll)`, `ret 0xC`: builds the basis (+0x14) from the angles
     // (BuildYawPitchRollBasis). The view angles' last step (0x0050F866).

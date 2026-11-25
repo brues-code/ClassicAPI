@@ -25,10 +25,12 @@
 //
 //   - SolveLimits (0x0050E570, the driver's only call to it, after the view
 //     angles and with the bob and shakes already in the eye offset): before
-//     it, head movement (3.80.2 steps 4 and 11), the dynamic-pitch blend
-//     (step 9) and the over-shoulder offset (step 10); after it, the
-//     over-shoulder and eye-offset sweeps (3.80.2's solver) and the solved
-//     pivot height for the pitch delta.
+//     it, head movement (3.80.2 steps 4 and 11), the vertical stabilizer
+//     (inside step 7, raising the pivot by its offset), the dynamic-pitch
+//     blend (step 9) and the over-shoulder offset (step 10); after it, the
+//     rest of 3.80.2's solver (camera/Collision.cpp: over-shoulder sweeps,
+//     indirect visibility, eye-offset sweep) and the solved pivot height for
+//     the pitch delta.
 //   - Update, after: the view-only pitch delta (step 15), target focus
 //     (step 16) and the over-shoulder self fade (step 19).
 //   - PivotBiasAllowed: 3.80.2's GetSmartPivotFlags turns the smart pivot
@@ -36,9 +38,11 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "camera/Collision.h"
 #include "camera/DynamicPitch.h"
 #include "camera/HeadMovement.h"
 #include "camera/OverShoulder.h"
+#include "camera/Stabilizer.h"
 #include "camera/TargetFocus.h"
 #include "time/Clock.h"
 
@@ -103,7 +107,11 @@ uint32_t __fastcall SolveLimits_h(void *camera, void *edx, float *pivot, float *
     g_feet[0] = pivot[0];
     g_feet[1] = pivot[1];
     g_feet[2] = pivot[2];
-    const bool headOffset = HeadMovement::Apply(camera, target, g_feet, g_frame.dt, offset);
+    bool tracked = false;
+    const bool headOffset = HeadMovement::Apply(camera, target, g_feet,
+                                                Stabilizer::Offset(camera), g_frame.dt, offset,
+                                                tracked);
+    pivot[2] += Stabilizer::Update(camera, target, g_feet, tracked, g_frame.dt);
     DynamicPitch::UpdateBlend(camera, target, g_frame.dt);
     OverShoulder::Update(camera, target, g_frame.dt);
     // The distance 1.12's solve starts from: the larger of the target and
@@ -114,7 +122,10 @@ uint32_t __fastcall SolveLimits_h(void *camera, void *edx, float *pivot, float *
 
     uint32_t bits = SolveLimits_o(camera, edx, pivot, distance, height, offset, band);
     g_solvedHeight = *height;
-    bits |= OverShoulder::Solve(camera, pivot, distance, height, offset, distanceIn, headOffset);
+    float shoulder[3];
+    OverShoulder::Offset(camera, shoulder);
+    bits = Collision::Solve(camera, target, pivot, distance, height, offset, distanceIn, shoulder,
+                            headOffset, bits);
     g_pivot[0] = pivot[0];
     g_pivot[1] = pivot[1];
     g_pivot[2] = pivot[2] + *height;

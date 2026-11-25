@@ -4877,7 +4877,7 @@ What could still be done without breaking anything, if picked up again:
   3.80.2's addon would then need a 1.12-name translation table, so it would
   not be a verbatim port.
 
-## 116. ActionCam — the `test_camera*` cvars — large, all four layers built (command, dynamic pitch, over-shoulder, head movement, target focus)
+## 116. ActionCam — the `test_camera*` cvars — large, built (command, dynamic pitch, over-shoulder, head movement, target focus, stabilizer, indirect visibility)
 
 The retail camera set that the DynamicCam addon drives entirely through
 SetCVar. 3.80.2 has all 20:
@@ -4923,5 +4923,9 @@ Open items:
 - UnitXP_SP3 post-hooks `0x511BC0` with its own displacement, pitch and
   follow-target terms, which would stack with ours. Decided 2026-11-24:
   ignore it.
-- Not ported: the vertical stabilizer (CameraReduceUnexpectedMovement only
-  gates over-shoulder), cameraIndirectVisibility/Offset, BaseFovPadFlying.
+- Layer 5: the vertical stabilizer (cameraZSmooth under
+  CameraReduceUnexpectedMovement) and indirect visibility
+  (cameraIndirectVisibility, 1.12 default 0; cameraIndirectOffset).
+- Not ported: BaseFovPadFlying (no flying in 1.12). nameplateOtherAtBase is
+  a nameplate feature; the presets only ever set it to 0.
+- Left: the API.md entry for the command and the cvars.

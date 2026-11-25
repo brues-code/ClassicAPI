@@ -24,8 +24,7 @@
 // work before every feature exists.
 // test_cameraDynamicPitchBaseFovPadFlying is not registered: 3.80.2 reads it
 // only for a unit that can fly (movement flag 0x800000), which 1.12 has no
-// counterpart for. CameraReduceUnexpectedMovement turns over-shoulder off as
-// in 3.80.2; its vertical stabilizer is not ported.
+// counterpart for.
 
 #include "camera/Settings.h"
 
@@ -41,6 +40,9 @@ namespace {
 CVar::Factory::Handle g_keepCharacterCentered = nullptr;
 CVar::Factory::Handle g_reduceUnexpectedMovement = nullptr;
 CVar::Factory::Handle g_overShoulder = nullptr;
+CVar::Factory::Handle g_zSmooth = nullptr;
+CVar::Factory::Handle g_indirectVisibility = nullptr;
+CVar::Factory::Handle g_indirectOffset = nullptr;
 CVar::Factory::Handle g_dynamicPitch = nullptr;
 CVar::Factory::Handle g_baseFovPad = nullptr;
 CVar::Factory::Handle g_baseFovPadDownScale = nullptr;
@@ -99,6 +101,16 @@ void Register() {
         Offsets::CVAR_CATEGORY_GAME, "0");
     g_overShoulder = CVar::Factory::Register("test_cameraOverShoulder", nullptr,
                                              Offsets::CVAR_CATEGORY_GAME, "0.000000");
+    g_zSmooth = CVar::Factory::Register(
+        "cameraZSmooth",
+        "Smooths camera vertical movement. 1 = only while moving, 2 = also while standing still",
+        Offsets::CVAR_CATEGORY_GAME, "1");
+    // Retail's default is 1. 1.12's is kept, as for maxFPS: on by default
+    // it would change every camera, ActionCam or not.
+    g_indirectVisibility = CVar::Factory::Register("cameraIndirectVisibility", nullptr,
+                                                   Offsets::CVAR_CATEGORY_GAME, "0");
+    g_indirectOffset = CVar::Factory::Register("cameraIndirectOffset", nullptr,
+                                               Offsets::CVAR_CATEGORY_GAME, "6.000000");
     g_dynamicPitch = CVar::Factory::Register(
         "test_cameraDynamicPitch",
         "Adjust camera pitch according to zoom distance for a more cinematic view",
@@ -164,6 +176,12 @@ bool ReduceUnexpectedMovement() {
 }
 
 float OverShoulder() { return CVar::Factory::GetFloat(g_overShoulder, 0.0f); }
+
+int ZSmooth() { return CVar::Factory::GetInt(g_zSmooth, 1); }
+
+bool IndirectVisibility() { return CVar::Factory::GetInt(g_indirectVisibility, 0) != 0; }
+
+float IndirectOffset() { return CVar::Factory::GetFloat(g_indirectOffset, 6.0f); }
 
 float DynamicPitch() { return CVar::Factory::GetFloat(g_dynamicPitch, 0.0f); }
 

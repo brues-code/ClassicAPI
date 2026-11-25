@@ -17,35 +17,9 @@
 // 3.80.2 eases a sideways offset (CGCamera_ApplyOverShoulderOffset
 // 0x141bc81b0: toward −(object scale × cvar) along the basis's left row,
 // stiffness 30; 0 while you target yourself, a tenth while mounted) and
-// hands it to its solver (CGCamera_SolveCollision 0x141b5cbc0), which:
-//   1. sweeps from the pivot to the trial eye pivot − forward·distance +
-//      offset; a hit scales the distance and the offset alike;
-//   2. clips the near box at that trial eye; after any shortening, backs
-//      the distance off;
-//   3. scales the offset by the new distance over the one it started from;
-//   4. adds the part of the offset it lost to the eye offset and sweeps
-//      that from the trial eye, extended by the back-off, then takes the
-//      back-off off again.
-// The follow update then puts the pivot at target + offset + height and the
-// eye at pivot − forward·distance + eye offset (0x141b5e900 step 14).
-//
-// 1.12's solver (SolveLimits 0x0050E570) sweeps the boom without an offset,
-// so steps 1–4 run after it, on its result, with the engine's own pieces:
-// PlaceEye for the trial eye, Intersect with the solver's trace mask for the
-// sweeps, ClipNearBox for the near box, its 1/9 back-off. The pivot pointer
-// is the driver's own local, which it raises by the height and places the
-// eye from, and the offset pointer is its bob-and-shake offset, which it
-// adds to the eye; so moving the pivot and adding to the offset is all the
-// driver needs. A hit sets 1.12's boom bit, which, like 3.80.2's 0x20000,
-// is one of the bits the smart pivot test returns.
+// hands it to its solver, whose sweeps of it are camera/Collision.cpp.
 //
 // 1.12 differences:
-//   - 3.80.2 sweeps its whole eye offset every frame; here only while a
-//     shoulder or head-movement offset is in play, so the bob and shakes
-//     keep 1.12's behaviour otherwise.
-//   - 3.80.2's second near-box clip runs along the eye-offset sweep
-//     (FUN_141b5ca10, a segment clip); 1.12 has only the trial-eye clip, so
-//     that sweep has no clip.
 //   - The self fade keeps 1.12's threshold (1.8315) and smoothstep, with
 //     3.80.2's over-shoulder changes: the distance is from the eye to the
 //     character, not along the boom, and the threshold is
@@ -72,9 +46,6 @@ namespace {
 
 constexpr float kOmega = 30.0f;           // 0x41f00000 at 0x141bc8300
 constexpr float kMountedShare = 0.1f;     // 0x141bc82d9
-constexpr float kMinSweep = 0.002f;       // 3.80.2's boom guard
-constexpr float kMinOffsetSq = 1.0000001e-06f;
-constexpr float kMinExtent = 0.001f;
 constexpr float kFadeHidden = 1.0f / 360.0f; // 0x00808ABC, 1.12's hidden distance
 constexpr float kFadePitch = -1.0471976f;    // 0x14415c8f4, -60 degrees
 constexpr float kFadePitchScale = -2.046278f; // 0x14415c94c, -1/28 degrees
@@ -98,41 +69,6 @@ State &For(const void *camera) {
         g_state.camera = camera;
     }
     return g_state;
-}
-
-uint32_t TraceMask() {
-    const void *cvar = Game::Read<void *>(Offsets::VAR_CVAR_CAMERA_WATER_COLLISION);
-    const bool water = cvar != nullptr && Game::Read<int32_t>(cvar, Offsets::OFF_CVAR_VALUE_INT) != 0;
-    return Offsets::CAMERA_TRACE_MASK | (water ? Offsets::CAMERA_TRACE_MASK_WATER : 0u);
-}
-
-void PlaceEye(void *camera, float out[3], const float pivot[3], float distance,
-              const float offset[3]) {
-    using PlaceEye_t = float *(__thiscall *)(void *, float *, const float *, float, const float *);
-    reinterpret_cast<PlaceEye_t>(Offsets::FUN_CAMERA_PLACE_EYE)(camera, out, pivot, distance,
-                                                                offset);
-}
-
-// Intersect with the hit fraction; false (t untouched) for no hit.
-bool Sweep(const float start[3], const float end[3], uint32_t mask, float &t) {
-    using Intersect_t = char(__fastcall *)(const float *, const float *, int, float *, float *,
-                                           uint32_t);
-    float hit[3];
-    t = 1.0f;
-    return reinterpret_cast<Intersect_t>(Offsets::FUN_CWORLD_INTERSECT)(start, end, 0, hit, &t,
-                                                                         mask) != 0;
-}
-
-bool ClipNearBox(void *camera, float *distance, const float trial[3], uint32_t mask) {
-    using Clip_t = int(__thiscall *)(void *, float *, const float *, uint32_t);
-    return reinterpret_cast<Clip_t>(Offsets::FUN_CAMERA_CLIP_NEAR_BOX)(camera, distance, trial,
-                                                                        mask) != 0;
-}
-
-void Scale(float v[3], float k) {
-    v[0] *= k;
-    v[1] *= k;
-    v[2] *= k;
 }
 
 } // namespace
@@ -176,82 +112,11 @@ void Update(void *camera, const void *target, float dt) {
         s.offset[i] = s.current.value * left[i];
 }
 
-uint32_t Solve(void *camera, float *pivot, float *distance, const float *height, float *offset,
-               float distanceIn, bool sweepEyeOffset) {
-    State &s = For(camera);
-    const float *start = s.offset;
-    const bool hasShoulder = start[0] != 0.0f || start[1] != 0.0f || start[2] != 0.0f;
-    if (!hasShoulder && !sweepEyeOffset)
-        return 0;
-    const uint32_t mask = TraceMask();
-    const float backoff = Game::Read<float>(Offsets::VAR_CAMERA_COLLISION_BACKOFF);
-    const float top[3] = {pivot[0], pivot[1], pivot[2] + *height};
-    float shoulder[3] = {start[0], start[1], start[2]};
-    float d = *distance;
-    float trial[3];
-    uint32_t bits = 0;
-
-    // Steps 1 and 2.
-    if (hasShoulder && d > kMinSweep) {
-        bool hit = false;
-        PlaceEye(camera, trial, top, d, shoulder);
-        float t;
-        if (Sweep(top, trial, mask, t)) {
-            d *= t;
-            Scale(shoulder, t);
-            hit = true;
-        }
-        if (d >= kMinSweep) {
-            if (hit)
-                PlaceEye(camera, trial, top, d, shoulder);
-            if (ClipNearBox(camera, &d, trial, mask))
-                hit = true;
-            if (std::fabs(*distance - d) >= View::kEpsilon) {
-                d -= backoff;
-                if (d <= 0.0f)
-                    d = 0.0f;
-            }
-        }
-        if (hit)
-            bits |= Offsets::CAMERA_MODE_BOOM_HIT;
-    }
-
-    // Step 3.
-    if (hasShoulder && std::fabs(distanceIn - d) >= View::kEpsilon &&
-        std::fabs(d) >= View::kEpsilon)
-        Scale(shoulder, d / distanceIn);
-
-    // Step 4.
-    for (int i = 0; i < 3; ++i)
-        offset[i] += start[i] - shoulder[i];
-    const float lengthSq = offset[0] * offset[0] + offset[1] * offset[1] + offset[2] * offset[2];
-    if (kMinOffsetSq < lengthSq) {
-        PlaceEye(camera, trial, top, d, shoulder);
-        const float length = std::sqrt(lengthSq);
-        float extent = length + backoff;
-        float v[3] = {offset[0], offset[1], offset[2]};
-        Scale(v, extent / length);
-        const float end[3] = {trial[0] + v[0], trial[1] + v[1], trial[2] + v[2]};
-        float t;
-        if (Sweep(trial, end, mask, t)) {
-            Scale(v, t);
-            extent *= t;
-        }
-        if (extent <= kMinExtent) {
-            offset[0] = offset[1] = offset[2] = 0.0f;
-        } else {
-            const float keep = extent - backoff;
-            Scale(v, (keep <= 0.0f ? 0.0f : keep) / extent);
-            offset[0] = v[0];
-            offset[1] = v[1];
-            offset[2] = v[2];
-        }
-    }
-
-    *distance = d;
-    for (int i = 0; i < 3; ++i)
-        pivot[i] += shoulder[i];
-    return bits;
+void Offset(const void *camera, float out[3]) {
+    const State &s = For(camera);
+    out[0] = s.offset[0];
+    out[1] = s.offset[1];
+    out[2] = s.offset[2];
 }
 
 void Fade(void *camera, const float feet[3]) {

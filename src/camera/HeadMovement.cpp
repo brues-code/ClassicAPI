@@ -18,8 +18,11 @@
 //   - The rope (0x141b5ec26..0x141b5ee2e), only while the camera follows
 //     the active player. The head is attachment 55, attachment 17 or their
 //     midpoint, taken relative to the model's origin and, in z, to the
-//     pivot height. Each axis of the rope (+0x1b4) follows it once it is
-//     more than the dead zone away.
+//     pivot height plus the vertical stabilizer's offset. Each axis of the
+//     rope (+0x1b4) follows it once it is more than the dead zone away.
+//     When the pivot height then moves on a frame the rope ran, its z
+//     takes the change back (old − new, 0x141b60fca), so a height ease
+//     does not pull the rope.
 //   - The eye offset (0x141b5f58d..0x141b5f6e5). The goal is strength ×
 //     rope (CGCamera_GetHeadMovementStrength 0x141b63aa0, gated by
 //     CGCamera_IsHeadMovementActive 0x141b62b50). The offset (+0x178) moves
@@ -41,8 +44,9 @@
 //   - 3.80.2 caches the dead zone when it rebuilds the pivot heights; this
 //     reads the cvar each frame.
 //   - Both steps run at the head of 1.12's solve, after its transitions, so
-//     the rope uses this frame's pivot height where 3.80.2 uses the one
-//     before its transitions.
+//     the height compensation comes first: the rope's z takes the change
+//     since last frame's height, then the rope runs on this frame's. That
+//     is 3.80.2's order seen from the next frame.
 
 #include "camera/HeadMovement.h"
 
@@ -70,6 +74,8 @@ struct State {
     const void *camera = nullptr;
     float rope[3] = {0.0f, 0.0f, 0.0f};   // 3.80.2's +0x1b4
     float offset[3] = {0.0f, 0.0f, 0.0f}; // 3.80.2's +0x178
+    bool hasHeight = false;
+    float height = 0.0f;                  // the pivot height last frame
 };
 
 State g_state;
@@ -158,19 +164,20 @@ void AttachmentPosition(void *model, uint32_t id, float out[3]) {
     reinterpret_cast<Position_t>(Offsets::FUN_M2MODEL_GET_ATTACHMENT_POSITION)(model, out, id);
 }
 
-// The head-tracking block of 0x141b5e900.
-void Track(State &s, const void *camera, const void *target, const void *unit,
-           const float feet[3]) {
+// The head-tracking block of 0x141b5e900. True when the rope ran.
+bool Track(State &s, const void *camera, const void *target, const void *unit,
+           const float feet[3], float stabilizer, float height, float heightChange) {
     if (Object::Guid(target) != Unit::Identity::PlayerGuid() || !IsActive(camera, unit))
-        return;
+        return false;
     void *model = Game::Read<void *>(unit, Offsets::OFF_CGOBJECT_MODEL);
     // Both engine calls wait for the model file while it has not loaded.
     if (model == nullptr || Game::Read<uint32_t>(model, Offsets::OFF_M2MODEL_LOADED) == 0)
-        return;
+        return false;
     const bool has55 = HasAttachment(model, kHeadAttachment);
     const bool has17 = HasAttachment(model, kPivotAttachment);
     if (!has55 && !has17)
-        return;
+        return false;
+    s.rope[2] -= heightChange;
     float head[3];
     if (has55 && has17) {
         float a55[3], a17[3];
@@ -182,24 +189,31 @@ void Track(State &s, const void *camera, const void *target, const void *unit,
         AttachmentPosition(model, has55 ? kHeadAttachment : kPivotAttachment, head);
     }
     const float deadZone = Settings::HeadMovementDeadZone();
-    const float height = Game::Read<float>(camera, Offsets::OFF_CAMERA_HEIGHT);
-    const float delta[3] = {head[0] - feet[0], head[1] - feet[1], head[2] - feet[2] - height};
+    const float delta[3] = {head[0] - feet[0], head[1] - feet[1],
+                            head[2] - feet[2] - (stabilizer + height)};
     for (int i = 0; i < 3; ++i) {
         const float d = delta[i] - s.rope[i];
         const float size = std::fabs(d);
         if (deadZone < size)
             s.rope[i] += (size - deadZone) * (d > 0.0f ? 1.0f : (d < 0.0f ? -1.0f : 0.0f));
     }
+    return true;
 }
 
 } // namespace
 
-bool Apply(void *camera, const void *target, const float feet[3], float dt, float offset[3]) {
+bool Apply(void *camera, const void *target, const float feet[3], float stabilizer, float dt,
+           float offset[3], bool &tracked) {
     State &s = For(camera);
+    tracked = false;
+    const float height = Game::Read<float>(camera, Offsets::OFF_CAMERA_HEIGHT);
+    const float heightChange = s.hasHeight ? height - s.height : 0.0f;
+    s.hasHeight = true;
+    s.height = height;
     if (target == nullptr)
         return false;
     const void *unit = View::Unit(target);
-    Track(s, camera, target, unit, feet);
+    tracked = Track(s, camera, target, unit, feet, stabilizer, height, heightChange);
     if (unit == nullptr)
         return false;
     const float k = IsActive(camera, unit) ? Strength(camera, unit) : 0.0f;
