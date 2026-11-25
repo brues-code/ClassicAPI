@@ -51,7 +51,7 @@ bool InReach(void *player, void *target) {
         return false;
     // `CanLootNow`'s reach for a unit (`0x005EC142`..`0x005EC17E`), with the
     // engine's own constants read live.
-    float reach = Unit::Position::BoundingRadius(target) + Unit::Position::BoundingRadius(player) +
+    float reach = Unit::Position::CombatReach(target) + Unit::Position::CombatReach(player) +
                   Game::Read<float>(static_cast<uintptr_t>(Offsets::VAR_MELEE_REACH_LEEWAY));
     const float minReach =
         Game::Read<float>(static_cast<uintptr_t>(Offsets::VAR_MELEE_REACH_MIN));

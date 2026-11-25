@@ -48,7 +48,7 @@
 //
 // The tables are 3.80.2's three banks; soft targeting uses bank 1 (its
 // TargetPriorityValueBank default; bank 2 is hold-to-target, not here). Where 1.12 has
-// the input, it is 1.12's own: reach is UNIT_FIELD_BOUNDINGRADIUS (what its
+// the input, it is 1.12's own: reach is UNIT_FIELD_COMBATREACH (what its
 // melee and interact ranges add), the model's box is the bounds the engine
 // stores when the model loads (+0xC0) times the scale, the frustum is the world
 // frame's own view-projection, and line of sight is CWorld::Intersect with
@@ -260,7 +260,7 @@ bool MeleeRange(void *a, const float *aPos, void *b, const float *bPos) {
     const float leeway = Game::Read<float>(static_cast<uintptr_t>(Offsets::VAR_MELEE_REACH_LEEWAY));
     const float floor = Game::Read<float>(static_cast<uintptr_t>(Offsets::VAR_MELEE_REACH_MIN));
     const float range = std::max(
-        Unit::Position::BoundingRadius(a) + Unit::Position::BoundingRadius(b) + leeway, floor);
+        Unit::Position::CombatReach(a) + Unit::Position::CombatReach(b) + leeway, floor);
     const float dx = aPos[0] - bPos[0], dy = aPos[1] - bPos[1], dz = aPos[2] - bPos[2];
     return dx * dx + dy * dy + dz * dz < range * range;
 }
@@ -446,8 +446,8 @@ bool Admit(void *player, const float *playerPos, uint64_t playerGuid, const Bank
         e.flags |= Dead;
         range = bank.interactRange;
     } else {
-        range = bank.rangeFar + Unit::Position::BoundingRadius(player) +
-                Unit::Position::BoundingRadius(unit);
+        range = bank.rangeFar + Unit::Position::CombatReach(player) +
+                Unit::Position::CombatReach(unit);
     }
     if (!WithinRange(e.pos, playerPos, range))
         return false;
@@ -519,8 +519,8 @@ bool Geometry(const Camera &c, const Entry &player, float facing, const Bank &ba
     const float camAngle = Wrap(heading - c.yaw);
     e.aCam = std::fabs(camAngle);
     if ((e.flags & (Unit | Dead)) == Unit)
-        d -= Unit::Position::BoundingRadius(player.object) +
-             Unit::Position::BoundingRadius(e.object);
+        d -= Unit::Position::CombatReach(player.object) +
+             Unit::Position::CombatReach(e.object);
 
     bool hitsMe = false;
     if ((e.flags & Enemy) != 0) {

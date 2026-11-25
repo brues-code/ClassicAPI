@@ -45,9 +45,9 @@
 //
 // Reach-awareness: the engine's spell-range helper `FUN_006e3480` compares
 // center distance against `baseRange + reachCaster + reachTarget`, where
-// each unit's reach is the bounding-radius float at `[m_objectFields +
-// 0x1F0]` (the same size factor the interact-distance and loot-range
-// checks add). So the effective in-range distance for a 40-yard heal is
+// each unit's reach is its combat reach (UNIT_FIELD_COMBATREACH,
+// `[m_objectFields + 0x1F0]`), the same size factor the interact-distance
+// and loot-range checks add. So the effective in-range distance for a 40-yard heal is
 // `40 + playerReach + targetReach`. On big targets that's easily 2–3
 // yards past the raw 40, which is why a pure center-to-center 40-yard cap
 // reported out-of-range for a target the client could actually heal.
@@ -167,7 +167,7 @@ bool InRange(uint64_t guid, bool *inRange) {
     // whose center sits just past 40 yards but whose body is within reach
     // reports out-of-range even though a 40-yard heal would land.
     const float effRange =
-        kRangeYards + Unit::Position::BoundingRadius(from) + Unit::Position::BoundingRadius(unit);
+        kRangeYards + Unit::Position::CombatReach(from) + Unit::Position::CombatReach(unit);
     *inRange = Game::DistanceSq(unitPos, fromPos) <= effRange * effRange;
     return true;
 }

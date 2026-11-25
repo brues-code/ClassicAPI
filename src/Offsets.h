@@ -4069,7 +4069,7 @@ enum Offsets {
     // `char __fastcall(void *caster /*ecx*/, void *target /*edx*/,
     //                  int spellID, char *outMinMaxFlag)`.
     // Computes the spell's min/max range via `FUN_006e3480` (which folds
-    // in the target's bounding radius), reads both objects' world
+    // in both units' combat reach), reads both objects' world
     // positions (GetPosition, vtable+0x14), and compares center-to-center
     // squared distance. Returns low byte 1 = in range, 0 = out (too close
     // OR too far); `*outMinMaxFlag` is set to 1 on a max-range (too far)
@@ -13754,15 +13754,25 @@ enum Offsets {
     UNIT_DYNFLAG_TAPPED = 0x04,
     UNIT_DYNFLAG_TAPPED_BY_PLAYER = 0x08,
 
-    // UNIT_FIELD_BOUNDINGRADIUS within m_objectFields — single
-    // float, the unit's interact-radius in world yards. Both
-    // `FUN_005EC110` (interact-state check) and `FUN_005DF130`
-    // (CMSG_LOOT sender) compute the interaction-range threshold
-    // as `target_radius + player_radius + INTERACT_REACH`, clamped
-    // to a floor of `MIN_INTERACT_RANGE`. Verified at `0x005EC1A4`
-    // where the function reads
-    // `[(target_m_objectFields) + 0x1F0]`.
-    OFF_UNIT_FIELD_BOUNDING_RADIUS = 0x1F0,
+    // UNIT_FIELD_BOUNDINGRADIUS and UNIT_FIELD_COMBATREACH within
+    // m_objectFields, floats in yards. Indices 0x7B and 0x7C in the
+    // binary's own UpdateField table (entries 0x83A714 / 0x83A728).
+    //
+    // Combat reach is the size every client range check adds:
+    // `FUN_005EC110` (interact-state check, reads +0x1F0 at 0x5EC14A /
+    // 0x5EC156) and `FUN_005DF130` (CMSG_LOOT sender) compute
+    // `target_reach + player_reach + INTERACT_REACH` floored at
+    // `MIN_INTERACT_RANGE`, and the spell min/max range resolver
+    // `FUN_006E3480` adds both reaches (+0x1F0 at 0x6E358E..0x6E3620).
+    // 1.5 for a player, larger for big creatures. The server's spell
+    // range (SizeFactor::CombatReach) uses the same field.
+    //
+    // The bounding radius is the smaller body size (about 0.3 to 0.4 for
+    // a player). No client range check reads it; the server adds it in
+    // IsWithinDistInMap's default SizeFactor::BoundingRadius, which the
+    // spell-focus check uses.
+    OFF_UNIT_FIELD_BOUNDING_RADIUS = 0x1EC,
+    OFF_UNIT_FIELD_COMBAT_REACH = 0x1F0,
 
     // `__thiscall(player, target, useDistanceCheck)` — engine's
     // CMSG_LOOT sender for **dead mobs** (CGCreature_C with

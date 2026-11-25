@@ -43,7 +43,7 @@ void CasterMinMax(void *caster, int spellID, float &minRange, float &maxRange);
 //        unit token, or either unit's position can't be read.
 // Backed by the engine's geometric range core `FUN_SPELL_RANGE_CHECK`
 // (the same test the action-button range coloring uses), which folds in
-// the target's bounding radius so the boundary matches the client's own
+// both units' combat reach so the boundary matches the client's own
 // "in range" exactly — melee and min-range (too-close) spells included.
 // Ignores line of sight and whether the spell may target the unit at all;
 // `CastVsUnit` is the check with that gate.

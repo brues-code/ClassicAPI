@@ -138,8 +138,8 @@ bool InMeleeRange(void *player, void *target) {
         Game::Read<float>(static_cast<uintptr_t>(Offsets::VAR_MELEE_REACH_LEEWAY));
     const float floorRange =
         Game::Read<float>(static_cast<uintptr_t>(Offsets::VAR_MELEE_REACH_MIN));
-    float maxRange = Unit::Position::BoundingRadius(player) +
-                     Unit::Position::BoundingRadius(target) + leeway;
+    float maxRange = Unit::Position::CombatReach(player) +
+                     Unit::Position::CombatReach(target) + leeway;
     if (maxRange < floorRange)
         maxRange = floorRange;
 
