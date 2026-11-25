@@ -2160,6 +2160,8 @@ enum Offsets {
     // rows forward, left, up). 4.3.4 names it CGCamera::Right (row b of the
     // facing matrix); in WoW's axes the row points left.
     VTBL_CAMERA_LEFT = 0x08,
+    // The third row (up), slot 0x00512080, turned the same way.
+    VTBL_CAMERA_UP = 0x0C,
     // The camera's near clip, the value CGWorldFrame::GetScreenCoordinates
     // culls against (`znear > clip.z`, benilla-re ui screen_projection.rs).
     OFF_CAMERA_NEAR_CLIP = 0x38,
@@ -13452,6 +13454,124 @@ enum Offsets {
     VAR_CAMERA_PIVOT_MIN = 0x008089CC,      // float 5/6
     VAR_CAMERA_PIVOT_MAX = 0x008089C8,      // float 15
     VAR_CAMERA_NEAR_DISTANCE = 0x008089B0,  // float 1.8315
+    // float 1/360 (bytes 61 0B 36 3B): the self fade's distance at or under
+    // which the target is fully hidden.
+    VAR_CAMERA_FADE_HIDDEN = 0x00808ABC,
+
+    // ---- The follow camera's per-frame update (benilla-re uicamera/driver,
+    // solver; Ghidra of each function) ---------------------------------------
+    // CCamera::Update — `void __thiscall(camera, CGObject_C *target, uint32_t
+    // now)`, `ret 8`. The driver: axes, transitions, view angles, solver, eye,
+    // pivot bias, pull-in, self fade. Its only caller is OnFrame 0x00511BC0,
+    // which passes OsGetAsyncTimeMs. It returns early on a null target and
+    // while BuildPivotHeights fails (mode bit CAMERA_MODE_PIVOT_HEIGHTS clear);
+    // otherwise it rebuilds the eye and the basis from scratch.
+    FUN_CAMERA_UPDATE = 0x0050E8D0,
+    // CCamera::SolveLimits — `uint32_t __thiscall(camera, float pivot[3],
+    // float *distance, float *height, float offset[3], float band)`,
+    // `ret 0x14`, one caller (0x0050ED59). Clamps the height under a ceiling
+    // and the distance along the boom; returns the collision bits the driver
+    // ORs into the mode word (CAMERA_MODE_COLLISION_BITS).
+    FUN_CAMERA_SOLVE_LIMITS = 0x0050E570,
+    // CCamera::PivotBiasAllowed — `uint32_t __thiscall(camera, CGUnit_C
+    // *unit)`, `ret 4`: the smart pivot test (cameraPivot on, no move key,
+    // pitch level or up) returning mode & CAMERA_MODE_COLLISION_BITS.
+    // Callers: MouseTurn 0x0050FEE0, PivotBiasNeedsClear 0x005107F0.
+    FUN_CAMERA_PIVOT_BIAS_ALLOWED = 0x00510690,
+    // RotateMatrix3 — `void __thiscall(float m[9], float angle, const float
+    // axis[3], uint8_t axisIsUnit)`, `ret 0xC`: m = R(axis, angle) * m. About
+    // (0, 1, 0) on the camera basis it gives forward' = cos·forward −
+    // sin·up, so a positive angle looks further down (benilla-re cmath/
+    // matrices "Axis and angle rotations"). The driver turns the basis by
+    // the pivot bias this way at 0x0050EE58.
+    FUN_ROTATE_MATRIX3 = 0x007BE730,
+    // The camera basis: rows forward, left, up (9 floats). Transport-local
+    // when the target rides one; the driver rebuilds it every frame.
+    OFF_CAMERA_BASIS = 0x14,
+    // Base field of view, radians (vtable slot 0 0x0050D6D0 adds the eased
+    // bias +0x10C and clamps; benilla-re uicamera/transitions).
+    OFF_CAMERA_BASE_FOV = 0x40,
+    // The mode word. Bit 2: pivot heights built (0x0050E8F4). Bit 3: far
+    // sight, distance forced to 0 (0x0050EDB7). Bits 0x30000: the solver's
+    // collision bits, cleared before each solve (0x0050ED39).
+    OFF_CAMERA_MODE = 0x90,
+    CAMERA_MODE_PIVOT_HEIGHTS = 0x4,
+    CAMERA_MODE_FAR_SIGHT = 0x8,
+    CAMERA_MODE_COLLISION_BITS = 0x30000,
+    // Live orbit distance and the distance it eases to (the zoom target).
+    OFF_CAMERA_DISTANCE = 0xEC,
+    OFF_CAMERA_TARGET_DISTANCE = 0x198,
+    // The pivot bias: a view-only pitch the driver applies after the eye,
+    // when at least 0.001 in size (0x0050EE32).
+    OFF_CAMERA_PIVOT_BIAS = 0x104,
+    // The live pitch the view angles start from (0x0050F720).
+    OFF_CAMERA_PITCH = 0xF4,
+    // CCamera::PlaceEye — `float *__thiscall(camera, float out[3], const
+    // float pivot[3], float distance, const float offset[3])`, `ret 0x10`:
+    // pivot − distance·forward + offset. The solver's trial eye (0x0050E854)
+    // and the driver's eye (0x0050EDDB).
+    FUN_CAMERA_PLACE_EYE = 0x0050DE00,
+    // CCamera::ClipNearBox — `int __thiscall(camera, float *distance, const
+    // float trialEye[3], uint32_t mask)`, `ret 0xC`: shortens the distance
+    // so the near end of the view volume clears the world; nonzero when it
+    // clipped (0x0050E861, which then sets CAMERA_MODE_BOOM_HIT).
+    FUN_CAMERA_CLIP_NEAR_BOX = 0x0050DE90,
+    // CCamera::SetTargetAlpha — `void __thiscall(camera, uint32_t alpha)`,
+    // `ret 4`: the self fade, forwarded to the world frame (0x00482C10 sets
+    // the own-model flag and the model alpha; the last call in a frame wins).
+    FUN_CAMERA_SET_TARGET_ALPHA = 0x0050F8F0,
+    // The solver's boom bit: set by the boom sweep (0x0050E82A) and the near
+    // clip (0x0050E86A).
+    CAMERA_MODE_BOOM_HIT = 0x10000,
+    // The solver's trace mask (0x0050E5EC): CAMERA_TRACE_MASK, plus the
+    // liquid class LIQUID_TRIANGLE_CLASS while cameraWaterCollision (CVar*
+    // below, int at +0x28) is nonzero.
+    CAMERA_TRACE_MASK = 0x100171,
+    VAR_CVAR_CAMERA_WATER_COLLISION = 0x00BE1088,
+    // float 1/9: how far the solver backs the distance off after a hit
+    // (0x0050E887) and the pull-in margin (0x0050EE6B).
+    VAR_CAMERA_COLLISION_BACKOFF = 0x00808A00,
+    // Mode bit 9: a movement command is active. The input control sets it
+    // when one starts and clears it when none is (0x005110F0 / 0x00511110,
+    // from 0x00514840 / 0x00514B70; benilla-re uicamera/cvars "Bobbing and
+    // pivot tests"), whatever the unit's speed. 3.80.2's +0xa8 bit 0x200,
+    // which its head movement reads as "moving", is the same bit.
+    CAMERA_MODE_MOVE_COMMAND = 0x200,
+    // The live pivot height (benilla-re uicamera/driver "Pivot height").
+    OFF_CAMERA_HEIGHT = 0xFC,
+    // CM2Model's loaded word: HasAttachment and GetAttachmentPosition wait
+    // for the model file while it is 0 (0x00712CB6).
+    OFF_M2MODEL_LOADED = 0x10,
+    // The live roll the view angles pass on (0x0050F720).
+    OFF_CAMERA_ROLL = 0xF8,
+    // CMovement::GetCurrentFallSpeed — `float __thiscall(CMovement *)`: the
+    // down-positive vertical speed at the fall time (+0x78), from the fall
+    // start speed (+0xA0) capped at the terminal velocity, plus gravity
+    // 19.291105 x t (GetFallSpeed 0x007C5D20; 3.80.2's FUN_140f3e7c0 is the
+    // same model).
+    FUN_CMOVEMENT_GET_CURRENT_FALL_SPEED = 0x007C5D70,
+    OFF_MOVEMENT_FALL_START_SPEED = 0xA0,
+    // The movement's spline, null when none (the driver's spline test
+    // 0x0050E957 reads its flags at +0x18).
+    OFF_MOVEMENT_SPLINE = 0xA4,
+    // The terminal fall velocity GetFallSpeed caps at without feather fall
+    // (0x007C5D34) is VAR_MOVER_TERMINAL_SPEED.
+    // CCamera::SetFacing — `void __thiscall(camera, float yaw, float pitch,
+    // float roll)`, `ret 0xC`: builds the basis (+0x14) from the angles
+    // (BuildYawPitchRollBasis). The view angles' last step (0x0050F866).
+    FUN_CAMERA_SET_FACING = 0x0050AB50,
+    // The camera's field of view, vtable slot 0 (0x0050D6D0): `float
+    // __thiscall(camera)`, the base +0x40 plus the eased bias, 0 in far
+    // sight, clamped to 0..179 degrees.
+    VTBL_CAMERA_FOV = 0x00,
+    // The interaction target (u64): the unit or object the player is
+    // talking to. Written only by the interaction begin 0x004930D0 (at
+    // 0x00493114, which also arms the interaction range) and the closer
+    // 0x00493310 (at 0x0049334B), which closes the window whose GUID matches
+    // (benilla-re ui/gameui, ui/loot: loot never stores it). It sits before
+    // the current target (VAR_CURRENT_SELECTION_GUID_LO), as 3.80.2's
+    // interaction object 0x144ba0d40 sits beside its target.
+    VAR_INTERACTION_TARGET_GUID = 0x00B4E2D0,
 
     // UI input controller — heap-allocated struct holding the
     // engine's master input-state bitfield (mouselook / free-look /
