@@ -44,6 +44,11 @@
 //     (the scan code / extended bit in `lParam`). It fires nothing: at that
 //     point the engine has not seen the key yet — it only queues it for the
 //     tick's input drain.
+//   - The same hook keeps the merged key down while any side holds it. Each
+//     side sends its own key-up, and 1.12 lets go of the merged key on the
+//     first one. So a release while the other keyboard side or a gamepad
+//     button (Emulate) still holds the modifier becomes WM_NULL, and the
+//     engine sees only the last side's release, as modern clients do.
 //   - Every read is the side bits gated by EventIsKeyDown for the merged key,
 //     so IsLeftShiftKeyDown() can never be true while IsShiftKeyDown() is nil.
 //   - `MODIFIER_STATE_CHANGED` fires from handlers on the engine's own key and
@@ -215,14 +220,29 @@ int VkToBitIdx(WPARAM wParam, LPARAM lParam) {
     return -1;
 }
 
-void ProcessKeyMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
+// Records the side a modifier message moved. Returns true for a release the
+// engine must not see: 1.12's merged key would go up while another side —
+// the keyboard's other key or a gamepad button (g_emulated) — still holds it.
+// The other keyboard side is read from the hardware, not g_sideMask: Windows
+// sends one VK_SHIFT key-up when both Shift keys are released together, so a
+// remembered bit could swallow the last release and leave Shift stuck.
+bool ProcessKeyMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
+    static constexpr int kSideVk[6] = {VK_LSHIFT, VK_RSHIFT, VK_LCONTROL,
+                                       VK_RCONTROL, VK_LMENU, VK_RMENU};
     const int bitIdx = VkToBitIdx(wParam, lParam);
     if (bitIdx < 0)
-        return;
-    if (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN)
+        return false;
+    if (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN) {
         g_sideMask |= 1u << bitIdx;
+        return false;
+    }
+    const int other = bitIdx ^ 1;
+    g_sideMask &= ~(1u << bitIdx);
+    if ((GetAsyncKeyState(kSideVk[other]) & 0x8000) != 0)
+        g_sideMask |= 1u << other;
     else
-        g_sideMask &= ~(1u << bitIdx);
+        g_sideMask &= ~(1u << other);
+    return ((g_sideMask | g_emulated) & kPairs[bitIdx / 2]) != 0;
 }
 
 LRESULT CALLBACK GetMsgHook(int code, WPARAM wParam, LPARAM lParam) {
@@ -230,10 +250,14 @@ LRESULT CALLBACK GetMsgHook(int code, WPARAM wParam, LPARAM lParam) {
     // (`PM_REMOVE` / `GetMessage`); `PM_NOREMOVE` peeks would deliver
     // the same key twice if we processed both.
     if (code == HC_ACTION && wParam == PM_REMOVE) {
-        const MSG *m = reinterpret_cast<const MSG *>(lParam);
+        // WH_GETMESSAGE may modify the message before GetMessage /
+        // PeekMessage returns it; WM_NULL drops it before the window
+        // procedure queues the key-up.
+        MSG *m = reinterpret_cast<MSG *>(lParam);
         if (m->message == WM_KEYDOWN || m->message == WM_KEYUP ||
             m->message == WM_SYSKEYDOWN || m->message == WM_SYSKEYUP) {
-            ProcessKeyMessage(m->message, m->wParam, m->lParam);
+            if (ProcessKeyMessage(m->message, m->wParam, m->lParam))
+                m->message = WM_NULL;
         }
     }
     return CallNextHookEx(nullptr, code, wParam, lParam);
@@ -323,7 +347,6 @@ void Emulate(int key, bool down) {
     if (key < 0 || key > 2)
         return;
     static constexpr uint32_t kRight[3] = {1u << BIT_RSHIFT, 1u << BIT_RCTRL, 1u << BIT_RALT};
-    static constexpr int kVk[3] = {VK_SHIFT, VK_CONTROL, VK_MENU};
     const uint32_t bit = kRight[key];
     if (down == ((g_emulated & bit) != 0))
         return;
@@ -333,8 +356,10 @@ void Emulate(int key, bool down) {
         g_emulated &= ~bit;
     // 1.12's shift / ctrl / alt is one key for both sides. While the keyboard
     // holds it, a pad press adds only its side and a pad release takes only
-    // its side away, so the keyboard's key stays down.
-    if ((GetAsyncKeyState(kVk[key]) & 0x8000) != 0) {
+    // its side away, so the keyboard's key stays down. The other order — the
+    // keyboard releasing while the pad holds — is the message hook's job
+    // (ProcessKeyMessage swallows that key-up).
+    if ((g_sideMask & kPairs[key]) != 0) {
         Reconcile();
         return;
     }
