@@ -182,6 +182,7 @@ FrameXML\DressUpFrame.xml
 FrameXML\DressUpFrame.lua
 FrameXML\ChatFrame.lua
 FrameXML\GamePadCursor.lua
+FrameXML\BindingUI.lua
 
 Menu\MenuConstants.lua
 Menu\Mainline\MenuConstants.lua
