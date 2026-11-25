@@ -191,12 +191,21 @@ void OnFrameTick() {
 
 const Tick::FrameTick::AutoSubscribe _tick{&OnFrameTick};
 
+// The values of the SoftTargetEnemy / Friend / Interact cvars (SoftTarget.h).
+const Game::Lua::EnumIntegerEntry kSoftTargetEnableFlags[] = {
+    {"None", 0},
+    {"Gamepad", 1},
+    {"Kbm", 2},
+    {"Any", 3},
+};
+
 void Register() {
+    Game::Lua::RegisterIntegerEnum("Enum", "SoftTargetEnableFlags", kSoftTargetEnableFlags, "SoftTargetConstants");
     const auto reg = [](const char *name, const char *help, const char *value) {
         return CVar::Factory::Register(name, help, Offsets::CVAR_CATEGORY_GAME, value);
     };
     g_enemy.enable = reg("SoftTargetEnemy",
-        "Sets when enemy soft targeting should be enabled. 0=off, 1=gamepad, 2=KBM, 3=always", "0");
+        "Sets when enemy soft targeting should be enabled. 0=off, 1=gamepad, 2=KBM, 3=always", "1");
     g_enemy.arc = reg("SoftTargetEnemyArc",
         "0 = No yaw arc allowance, must be directly in front. 1 = Must be in front yaw arc. 2 = Can be anywhere in tab targeting area.", "2");
     g_enemy.range = reg("SoftTargetEnemyRange",

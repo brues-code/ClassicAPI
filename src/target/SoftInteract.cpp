@@ -119,7 +119,7 @@ void Register() {
                                        &SettingChanged);
     };
     g_enable = reg("SoftTargetInteract",
-        "Sets when soft interact should be enabled. 0=off, 1=gamepad, 2=KBM, 3=always", "0");
+        "Sets when soft interact should be enabled. 0=off, 1=gamepad, 2=KBM, 3=always", "1");
     g_arc = reg("SoftTargetInteractArc",
         "0 = No yaw arc allowance, must be directly in front. 1 = Must be in front yaw arc. 2 = Can be anywhere in targeting area.", "0");
     g_range = reg("SoftTargetInteractRange",

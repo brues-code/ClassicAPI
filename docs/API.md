@@ -30580,7 +30580,8 @@ Soft interact picks the best object in front of you that you can
 interact with. Bind **Interact With Target** to a key, then press it to
 interact with that object. This is the Interact Key.
 
-Soft interact is off by default. To turn it on:
+By default, soft interact is on only while you control the camera with a
+gamepad. To turn it on for the keyboard and mouse too:
 
 ```
 /console SoftTargetInteract 3
@@ -30620,7 +30621,7 @@ the GUID of that object. Functions that read unit data, such as
 
 | cvar | default | values |
 |---|---|---|
-| `SoftTargetInteract` | `0` | `0` off, `1` gamepad, `2` keyboard and mouse, `3` always. Only `2` and `3` turn soft interact on. |
+| `SoftTargetInteract` | `1` | `0` off, `1` gamepad, `2` keyboard and mouse, `3` always. `1` is on while you control the camera with a gamepad (`IsGamePadFreelookEnabled()`). `2` is on at all other times. |
 | `SoftTargetInteractArc` | `0` | `0`: directly in front. The object is very near, or the center line of the camera or of your character goes through it. `1`: also inside a small cone in front of the camera. `2`: anywhere on the screen. |
 | `SoftTargetInteractRange` | `10` | The maximum distance in yards. A soft object farther away is removed. |
 | `SoftTargetInteractRangeIsHard` | `0` | `0`: an object that you can interact with now is picked also when it is past the range. `1`: the range always applies. |
@@ -30694,7 +30695,8 @@ Soft enemy picks the best enemy near you, and soft friend picks the
 best friendly unit. They never change a target that you chose. An addon or a
 macro uses the picked unit through its token.
 
-Both are off by default. To turn them on:
+By default, soft enemy is on only while you control the camera with a
+gamepad, and soft friend is off. To turn both on at all times:
 
 ```
 /console SoftTargetEnemy 3
@@ -30813,7 +30815,7 @@ with `"target"` and one time with `"softenemy"`. `"anyenemy"` and
 
 | cvar | default | values |
 |---|---|---|
-| `SoftTargetEnemy` | `0` | `0` off, `1` gamepad, `2` keyboard and mouse, `3` always. Only `2` and `3` turn soft enemy on. |
+| `SoftTargetEnemy` | `1` | `0` off, `1` gamepad, `2` keyboard and mouse, `3` always. `1` is on while you control the camera with a gamepad (`IsGamePadFreelookEnabled()`). `2` is on at all other times. |
 | `SoftTargetFriend` | `0` | The same values, for soft friend. |
 | `SoftTargetEnemyArc` / `SoftTargetFriendArc` | `2` | `0`: directly in front. The unit is very near, or the center line of the camera or of your character goes through it. `1`: also inside a small cone in front of the camera. `2`: anywhere on the screen. |
 | `SoftTargetEnemyRange` / `SoftTargetFriendRange` | `45` | The maximum distance in yards. A soft unit farther away is removed. `0` turns the side off. |

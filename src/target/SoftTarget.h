@@ -14,14 +14,18 @@
 #pragma once
 
 #include "cvar/Factory.h"
+#include "gamepad/Movement.h"
 
 namespace Target::SoftTarget {
 
-// A SoftTarget<Kind> cvar's 0 off / 1 gamepad / 2 KBM / 3 always. 1.12 has
-// no gamepad, so only 2 and 3 turn the kind on.
+// A SoftTarget<Kind> cvar's flags (Enum.SoftTargetEnableFlags): 1 gamepad,
+// 2 keyboard and mouse, 3 both. As 3.80.2's soft pick (FUN_1405e1410) reads
+// them: "gamepad" is the freelook bit 0x2000000 of the input-control flags
+// (DAT_1444a7a54, toggled by 0x1412648B0), so bit 1 counts while the pad
+// drives the camera and bit 2 the rest of the time.
 inline bool Enabled(CVar::Factory::Handle enable) {
     const int v = CVar::Factory::GetInt(enable);
-    return v == 2 || v == 3;
+    return (v & (GamePad::Movement::FreelookOn() ? 1 : 2)) != 0;
 }
 
 } // namespace Target::SoftTarget

@@ -24,16 +24,19 @@
 -- retail's GlobalStrings key where retail has the string
 -- (ENABLE_INTERACT_TEXT and the like), a CLASSICAPI_ one where it does not.
 
--- The soft-target enable cvars: 0 off, 1 gamepad, 2 keyboard and mouse,
--- 3 always. This client has no gamepad, so 2 and 3 are on.
-local function RegisterSoftTargetSetting(category, variable, cvar, name)
+-- A soft-target enable cvar (Enum.SoftTargetEnableFlags) as retail's Combat
+-- and Controls pages show it: ticked is Any, unticked is `offValue`. Retail's
+-- Action Targeting and Interact Key boxes untick to Gamepad, so the gamepad
+-- keeps them. Retail has no Friend box; it unticks to None, as retail's
+-- gamepad mode leaves friend soft targeting off.
+local function RegisterSoftTargetSetting(category, variable, cvar, name, offValue)
 	local function GetValue()
-		return (tonumber(GetCVar(cvar)) or 0) >= 2;
+		return tonumber(GetCVar(cvar)) == Enum.SoftTargetEnableFlags.Any;
 	end
 	local function SetValue(value)
-		SetCVar(cvar, value and "3" or "0");
+		SetCVar(cvar, tostring(value and Enum.SoftTargetEnableFlags.Any or offValue));
 	end
-	local defaultValue = (tonumber(GetCVarDefault(cvar)) or 0) >= 2;
+	local defaultValue = false;
 	return Settings.RegisterProxySetting(category, variable, Settings.VarType.Boolean, name, defaultValue, GetValue, SetValue);
 end
 
@@ -137,7 +140,7 @@ local function RegisterInteractKey()
 	local category, layout = Settings.RegisterVerticalLayoutCategory(CLASSICAPI_INTERACT_KEY);
 	Settings.RegisterCategory(category);
 
-	Settings.CreateCheckbox(category, RegisterSoftTargetSetting(category, "PROXY_ENABLE_INTERACT", "SoftTargetInteract", ENABLE_INTERACT_TEXT), OPTION_TOOLTIP_ENABLE_INTERACT);
+	Settings.CreateCheckbox(category, RegisterSoftTargetSetting(category, "PROXY_ENABLE_INTERACT", "SoftTargetInteract", ENABLE_INTERACT_TEXT, Enum.SoftTargetEnableFlags.Gamepad), OPTION_TOOLTIP_ENABLE_INTERACT);
 	AddKeybinding(layout, "INTERACTTARGET");
 	AddKeybinding(layout, "INTERACTMOUSEOVER");
 	AddDropdown(category, "SoftTargetInteractArc", CLASSICAPI_INTERACT_DIRECTION, CLASSICAPI_INTERACT_DIRECTION_TOOLTIP, ARC_CHOICES);
@@ -177,13 +180,13 @@ local function RegisterActionTargeting()
 	Settings.RegisterCategory(category);
 
 	AddHeader(layout, CLASSICAPI_ENEMIES);
-	Settings.CreateCheckbox(category, RegisterSoftTargetSetting(category, "PROXY_ACTION_TARGETING", "SoftTargetEnemy", ACTION_TARGETING_OPTION), OPTION_TOOLTIP_ACTION_TARGETING);
+	Settings.CreateCheckbox(category, RegisterSoftTargetSetting(category, "PROXY_ACTION_TARGETING", "SoftTargetEnemy", ACTION_TARGETING_OPTION, Enum.SoftTargetEnableFlags.Gamepad), OPTION_TOOLTIP_ACTION_TARGETING);
 	AddDropdown(category, "SoftTargetEnemyArc", CLASSICAPI_ENEMY_DIRECTION, CLASSICAPI_UNIT_DIRECTION_TOOLTIP, ARC_CHOICES);
 	AddNumberBox(category, "SoftTargetEnemyRange", CLASSICAPI_ENEMY_RANGE, CLASSICAPI_RANGE_TOOLTIP);
 	AddCVarCheckbox(category, "SoftTargetIconEnemy", CLASSICAPI_ENEMY_ICON, CLASSICAPI_ENEMY_ICON_TOOLTIP);
 
 	AddHeader(layout, CLASSICAPI_FRIENDS);
-	Settings.CreateCheckbox(category, RegisterSoftTargetSetting(category, "PROXY_FRIEND_TARGETING", "SoftTargetFriend", CLASSICAPI_FRIEND_TARGETING), CLASSICAPI_FRIEND_TARGETING_TOOLTIP);
+	Settings.CreateCheckbox(category, RegisterSoftTargetSetting(category, "PROXY_FRIEND_TARGETING", "SoftTargetFriend", CLASSICAPI_FRIEND_TARGETING, Enum.SoftTargetEnableFlags.None), CLASSICAPI_FRIEND_TARGETING_TOOLTIP);
 	AddDropdown(category, "SoftTargetFriendArc", CLASSICAPI_FRIEND_DIRECTION, CLASSICAPI_UNIT_DIRECTION_TOOLTIP, ARC_CHOICES);
 	AddNumberBox(category, "SoftTargetFriendRange", CLASSICAPI_FRIEND_RANGE, CLASSICAPI_RANGE_TOOLTIP);
 	AddCVarCheckbox(category, "SoftTargetIconFriend", CLASSICAPI_FRIEND_ICON, CLASSICAPI_FRIEND_ICON_TOOLTIP);
