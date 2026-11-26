@@ -9552,6 +9552,36 @@ enum Offsets {
     // `Macro::ShowTooltip` co-hooks this to keep its DISPLAY resolution out of
     // the comparison.
     FUN_ACTION_BAR_PRUNE_SPELL = 0x004E5E20,
+    // The prune's one call, in FUN_005E9FE0 (`mov ecx,ebx` = the spellID just
+    // passed to FUN_UNLEARN_SPELL at 0x005EA24C). Action::ExtendedUpkeep
+    // redirects it.
+    CALL_UNLEARN_PRUNE_SPELL = 0x005EA253,
+    // The supercede replace — `__fastcall(uint oldSpell, uint newSpell)`.
+    // Each of the 120 slots whose FUN_ACTION_SLOT_TO_SPELL answer is
+    // `oldSpell`: a spell word is cleared (0x004E5DB0) and set to
+    // `newSpell` (0x004E5D60, send 1 / quiet 0); a macro word gets
+    // `newSpell` in its record's OFF_MACRO_PRIMARY_SPELL (0x004E5EC4); any
+    // other word is left. Read from its disassembly.
+    FUN_ACTION_BAR_REPLACE_SPELL = 0x004E5E60,
+    // Its one call, in the SMSG_SUPERCEDED_SPELL handler 0x005E6330 (ECX /
+    // EDX = the packet's old / new u16), before the handler's unlearn-old /
+    // learn-new (0x004B2F50). Action::ExtendedUpkeep redirects it.
+    CALL_SUPERCEDED_SPELL_REPLACE = 0x005E6356,
+    // The macro-delete clear — `__fastcall(uint macroID)`. Clears
+    // (0x004E5DB0, which sends a 0 word) every slot whose word is
+    // `macroID | ACTION_TYPE_BAG_OR_MACRO`; a 0 id does nothing.
+    FUN_ACTION_BAR_CLEAR_MACRO = 0x004E5D10,
+    // Its one call, at the end of the delete worker 0x004F1340 (ECX = the
+    // macroID, after the record is unlinked). Action::ExtendedUpkeep
+    // redirects it.
+    CALL_DELETE_MACRO_CLEAR_SLOTS = 0x004F1449,
+    // CGPlayer's learn — `__thiscall(player, uint spellID, int16, int, int)`,
+    // RET 0x10 (0x005E9C50 / 0x005E9FD8), which calls FUN_LEARN_SPELL at
+    // 0x005E9C62 and then files the spell in its tab and skill line. The
+    // SMSG_LEARNED_SPELL handler 0x005E61C0 calls it with (spell, i16, 1, 1)
+    // at the site below; Action::ExtendedUpkeep redirects that call.
+    FUN_PLAYER_LEARN_SPELL = 0x005E9C20,
+    CALL_LEARNED_SPELL_LEARN = 0x005E620D,
     // Count of `itemID` the player carries, as `UseAction` caches per
     // item-by-ID slot into VAR_ACTION_ITEM_COUNTS — `uint __fastcall(uint
     // itemID)`. Charged items (ItemStats `SPELL_CHARGES[0]` not 0 / -1) sum
