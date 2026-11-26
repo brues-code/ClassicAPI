@@ -476,6 +476,8 @@ const Game::HookAutoRegister _jumpHook{Offsets::FUN_SCRIPT_JUMP, reinterpret_cas
 
 // --- the second cast places the reticle ---------------------------------------------
 
+} // namespace
+
 // In place of the two casts' `call FUN_STOP_PLACEMENT`, which takes no
 // arguments.
 void __cdecl TakeBackOrPlace() {
@@ -483,6 +485,8 @@ void __cdecl TakeBackOrPlace() {
         return;
     Spell::Placement::Stop();
 }
+
+namespace {
 
 void RegisterRecast() {
     Common::RedirectCall(Offsets::CALL_CAST_BOOK_SPELL_STOP_PLACEMENT, Offsets::FUN_STOP_PLACEMENT,

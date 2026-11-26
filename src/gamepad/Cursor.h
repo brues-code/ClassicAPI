@@ -64,6 +64,15 @@ void OnFreelookChanged();
 // GamePadCursorForTargeting branch).
 void OnPadTargeting();
 
+// What a second press of the spell whose placement is up does: under
+// freelook or from a pad binding it commits the placement at the cursor,
+// else it takes the spell back (FUN_STOP_PLACEMENT). The spellbook cast and
+// UseActionSlot (CALL_CAST_BOOK_SPELL_STOP_PLACEMENT /
+// CALL_USE_ACTION_STOP_PLACEMENT) call it in place of FUN_STOP_PLACEMENT;
+// action slots the engine does not hold (Action::ExtendedUse) call it the same
+// way.
+void __cdecl TakeBackOrPlace();
+
 // Gamepad support stopped, or a new world / glue screen: cursor mode off,
 // the cursor shown again.
 void Reset();

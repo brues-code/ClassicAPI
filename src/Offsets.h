@@ -5220,6 +5220,10 @@ enum Offsets {
     // error. TryOnItem shows 0x13 (ERR_NOT_EQUIPPABLE) at 0x00504B2F.
     FUN_GAMEUI_DISPLAY_ERROR = 0x00496720,
     GAME_ERROR_NOT_EQUIPPABLE = 0x13,
+    // ERR_PASSIVE_ABILITY (message 158, benilla-re tables/messages.tsv): the
+    // refusal FUN_ACTION_PLACE shows for a passive spell (`push 0x9e` at
+    // 0x004E63AD after `test [rec+0x18],0x40`).
+    GAME_ERROR_PASSIVE_ABILITY = 0x9E,
     // Script_InviteByName shows 0x3B (ERR_INVITE_SELF) at 0x0048A485 when
     // the name is the player's own.
     GAME_ERROR_INVITE_SELF = 0x3B,
@@ -7365,6 +7369,13 @@ enum Offsets {
     VAR_ITEMDISPLAYINFO_RECORDS = 0x00C0DC10,
     VAR_ITEMDISPLAYINFO_COUNT = 0x00C0DC14,
     OFF_ITEMDISPLAYINFO_ICON = 0x14,
+    // That helper — `const char *__fastcall(uint displayId)`: the row's icon
+    // name (its alternate file name when the texture type asks, cached per
+    // display id), or "INV_Misc_QuestionMark" for a missing row or empty name
+    // (decompiled; benilla-re objectlayer/items#inventory-icons). The action
+    // texture resolver formats it behind `Interface\Icons\` (0x004E6B4B), so
+    // an uncached item (display 0) shows the question mark, never nil.
+    FUN_ITEM_DISPLAY_INVENTORY_ICON = 0x005D88B0,
     // ItemVisuals ID (column 22). Read by AttachItemModel (0x0047A200) and
     // GetItemDescVisual (0x0062EC93); 365 stock rows set it.
     OFF_ITEMDISPLAYINFO_ITEM_VISUAL = 0x58,
@@ -9462,6 +9473,20 @@ enum Offsets {
     // `Script_GetActionText(slot)` — `__fastcall(L)`. Pushes the macro name
     // for a macro slot, nil otherwise.
     FUN_SCRIPT_GET_ACTION_TEXT = 0x004E7050,
+    // The registered `PlaceAction(slot)` / `PickupAction(slot)` — `__fastcall(L)`,
+    // plain RET. Each reads `ftol(arg 1) - 1` and calls FUN_ACTION_PLACE /
+    // FUN_ACTION_PICKUP, pushing nothing; a non-number arg 1 is the usage
+    // error (docs/raw_globals.txt batch entries 7 and 8, disassembled
+    // 0x004E71D0..0x004E727F). `Action::ExtendedApi` re-registers both and
+    // tail-calls these for every slot the engine holds.
+    FUN_SCRIPT_PICKUP_ACTION = 0x004E71D0,
+    FUN_SCRIPT_PLACE_ACTION = 0x004E7240,
+    // `bool __fastcall(uint slot0)` behind `HasAction` (0x004E70D0, which
+    // pushes 1 or nil): the slot word is nonzero, and a 0x40000000 word also
+    // needs FUN_ACTION_IS_MACRO. NO bounds check of its own, and HasAction
+    // passes `ftol(arg 1) - 1` unchecked (disassembled 0x004E70D0..0x004E711E),
+    // so callers bound the slot to ACTION_TABLE_MAX_SLOTS first.
+    FUN_ACTION_SLOT_HAS_CONTENT = 0x004E6DD0,
     // SMSG_ACTION_BUTTONS leaf — `__stdcall(?, CDataStore *)`, RET 8 (stack
     // args at [ebp+8] / [ebp+0xC]; ECX/EDX unused). Reads 120 u32 into
     // `VAR_ACTION_BUTTONS_PENDING`; the local-player enter-world init
@@ -9502,6 +9527,17 @@ enum Offsets {
     FUN_INVMGR_FIND_ITEM_BY_ID = 0x00622270,     // → CGItem *, first match
     FUN_INVMGR_COUNT_STACKS_BY_ID = 0x00622130,  // → summed ITEM_FIELD_STACK_COUNT (3.3.5 GetItemTypeCount)
     FUN_INVMGR_COUNT_CHARGES_BY_ID = 0x00622180, // → summed abs(SPELL_CHARGES[0]) (3.3.5 GetItemTypeCharges)
+    // The search with the hit's position — `CGItem *__thiscall(invMgr, uint
+    // itemID, uint64 *outContainerGuid, uint *outSlot, uint flags)`, RET 0x10:
+    // the first match plus the GUID of the list holding it and its slot there.
+    // UseActionSlot calls it with flags 0 and hands both to
+    // FUN_PLAYER_AUTO_EQUIP_ITEM_IN_SLOT (0x004E5FF9..0x004E602A).
+    FUN_INVMGR_FIND_ITEM_SLOT_BY_ID = 0x006222B0,
+    // `void __thiscall(CGPlayer *player, uint containerGuidLo, uint
+    // containerGuidHi, uint slot, int flag)`, RET 0x10: picks the slot's item
+    // up and auto-equips it (one CMSG_AUTOEQUIP_ITEM), refusing an item in
+    // trade (benilla-re objectlayer/inventory). UseActionSlot passes flag 0.
+    FUN_PLAYER_AUTO_EQUIP_ITEM_IN_SLOT = 0x005E1840,
     // The walk with a caller callback — `CGItem *__thiscall(invMgr,
     // int (__fastcall *cb)(CGItem *item, void *ctx), void *ctx, uint flags)`,
     // returning the first item `cb` answered nonzero for (null = none).
@@ -10141,6 +10177,17 @@ enum Offsets {
     // instead. nampower hooks the higher Spell_C_CastSpell, not this inner
     // writer, so contention is low.
     FUN_CAST_START_SET = 0x006E4AD0,
+    // The spell awaiting a target — `uint __cdecl()`, plain RET:
+    // `[VAR_PENDING_CAST_SPELL]` while the 16-bit `VAR_SPELL_TARGETING_FLAGS`
+    // is nonzero, else 0 (disassembled 0x006E48E0..0x006E48F3). UseActionSlot
+    // compares the slot's spell with it before CALL_USE_ACTION_STOP_PLACEMENT.
+    FUN_TARGETING_SPELL_ID = 0x006E48E0,
+    // The action-bar cast — `uint8 __fastcall(uint spellID, CGItem *item,
+    // uint64 target)`, RET 8 (the target GUID is the two stack dwords): resolves
+    // the active player and runs the cast attempt (TryCastSpell 0x006E4B60,
+    // which nampower detours). UseActionSlot passes item 0 and the active
+    // player's GUID as target when onSelf, else 0 (0x004E6103..0x004E6119).
+    FUN_CAST_SPELL_AS_ACTIVE_PLAYER = 0x006E5A90,
     // Previous / queued cast — holds the spellID that was active
     // before the latest one superseded it (mid-GCD queueing in
     // vanilla). When the current cast ends, `FUN_006E4AD0(0, ...)`
@@ -15457,6 +15504,22 @@ enum Offsets {
     // with FUN_CURSOR_CLEAR(1, 1) and returns 1 (consumed). It tests the
     // payload globals, not VAR_CURSOR_TYPE. Disassembled.
     FUN_WORLD_BUTTON_HOOK = 0x00492B50,
+    // The cursor setters the action-bar place / pickup hand a slot's old
+    // content to (benilla-re ui/cursor, decompiled):
+    //   FUN_CURSOR_PICKUP_SPELL `void __fastcall(uint spellID)`: a spell with
+    //     no record or no icon path does nothing at all (no clear); else
+    //     ClearCursor(1,1), kind 3, grab sound, the attack / ranged / SpellIcon
+    //     picture, ACTIONBAR_SHOWGRID and VAR_CURSOR_SHOWS_ACTION_GRID = 1.
+    //   FUN_CURSOR_PICKUP_VIRTUAL_ITEM `void __fastcall(uint entry, uint
+    //     displayId, uint index, uint mode)`, RET 8: needs player control
+    //     unless mode 7 (an action-bar item); ClearCursor(1,1), then for a
+    //     nonzero entry stores entry / display / index in VAR_CURSOR_GENERIC_*,
+    //     kind = mode, the grid for mode 7, picture, sound, CURSOR_UPDATE.
+    //   FUN_CURSOR_CLEAR_IF_SPELL `void __cdecl()`: ClearCursor(1,1) only
+    //     while kind 3 — the place's same-spell arm.
+    FUN_CURSOR_PICKUP_SPELL = 0x00494D20,
+    FUN_CURSOR_PICKUP_VIRTUAL_ITEM = 0x004950F0,
+    FUN_CURSOR_CLEAR_IF_SPELL = 0x00494DF0,
 
 
     // Virtual XML-template registry (a Storm hash table) — the store that
