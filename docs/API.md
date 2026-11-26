@@ -14368,9 +14368,10 @@ center sends `OnGamePadStick(self, stick, x, y, len)`. `stick` is the stick
 name, for example `"Movement"`. The game also sends one more event with all
 values at 0 after the stick returns to the center.
 
-The game sends the event to the visible frames that enabled sticks and
-have the script, topmost first. The first frame without
-`propagateKeyboardInput` takes the stick for this frame of the game. The
+Only the topmost visible frame that enabled sticks and has the script gets
+the event. The stick then also moves the character or the camera when the
+script returns `true`, or when the frame has `propagateKeyboardInput`.
+Otherwise the frame takes the stick for this frame of the game. The
 `Cursor` stick is sent only in gamepad cursor mode. In cursor mode, a
 stick that uses an axis of the `Cursor` stick is not sent.
 
