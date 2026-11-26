@@ -24,4 +24,10 @@ namespace Frame::Alpha {
 // for the whole plate subtree.
 uint8_t OwnAlpha(const void *frame);
 
+// SetIgnoreParentAlpha / IsIgnoringParentAlpha on a frame: an ignoring frame
+// draws at its own alpha, not its own times its parent's; its children
+// multiply by that. Setting it redraws the frame's subtree.
+void SetIgnoreParentAlpha(void *frame, bool ignore);
+bool IgnoresParentAlpha(const void *frame);
+
 } // namespace Frame::Alpha

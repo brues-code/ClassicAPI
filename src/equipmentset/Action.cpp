@@ -305,11 +305,9 @@ void __fastcall CursorClear_h(int returnItem, int fireMoneyEvent) {
 // FUN_WORLD_BUTTON_HOOK's right-press branch for our cursor type: clear
 // and consume, as it does for every payload it knows.
 uint32_t __fastcall WorldButton_h(void *event, void *edx) {
-    constexpr uint32_t kEvtButtonDown = 0x400500C8;
     constexpr uint32_t kButtonRight = 4;
-    const auto *e = static_cast<const uint8_t *>(event);
-    if (CursorSetID() != 0 && *reinterpret_cast<const uint32_t *>(e + 0x08) == kEvtButtonDown &&
-        *reinterpret_cast<const uint32_t *>(e + 0x14) == kButtonRight) {
+    if (CursorSetID() != 0 && Game::Read<uint32_t>(event, Offsets::OFF_UI_MOUSE_EVENT_ID) == Offsets::UI_MOUSE_EVENT_ID_DOWN &&
+        Game::Read<uint32_t>(event, Offsets::OFF_UI_MOUSE_EVENT_BUTTON) == kButtonRight) {
         ::Cursor::Info::Clear();
         return 1;
     }

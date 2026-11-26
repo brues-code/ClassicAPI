@@ -81,6 +81,7 @@
 #include "Common.h"
 #include "Game.h"
 #include "Offsets.h"
+#include "event/Custom.h"
 #include "frame/Layout.h"
 #include "baselib/Ascii.h"
 #include "frame/ClickEvents.h"
@@ -330,9 +331,45 @@ void RunExtras(std::vector<void *> extras, uintptr_t slot, const void *event) {
     }
 }
 
+// GLOBAL_REGION_MOUSE_DOWN / GLOBAL_REGION_MOUSE_UP(region, button)
+// (_forever_ only; no 3.80.2 counterpart): the frame or region a press or
+// release goes to, fired before its script runs, as 3.80.2 fires its global
+// mouse hook before the press list. The world frame and no target at all
+// are nil: the world was clicked.
+const Game::Doc::Field kRegionMousePayload[] = {
+    Game::Doc::Opt("region", "ScriptRegion", nullptr, "Nil when the click went to the world or to nothing."),
+    Game::Doc::Req("button", "cstring"),
+};
+const Game::Doc::Event kRegionMouseDownDoc{
+    "UIParent", "Fires when a mouse button is pressed, with the frame or region the press goes to.",
+    kRegionMousePayload};
+const Game::Doc::Event kRegionMouseUpDoc{
+    "UIParent", "Fires when a mouse button is released, with the frame or region the release goes to.",
+    kRegionMousePayload};
+const Event::Custom::AutoReserve _regionMouseDown{"GLOBAL_REGION_MOUSE_DOWN", &kRegionMouseDownDoc};
+const Event::Custom::AutoReserve _regionMouseUp{"GLOBAL_REGION_MOUSE_UP", &kRegionMouseUpDoc};
+
+void FireRegionMouse(const Event::Custom::AutoReserve &reserve, void *object, const void *event) {
+    const int slot = reserve.Slot();
+    void *L = Game::Lua::State();
+    if (slot < 0 || L == nullptr)
+        return;
+    if (object == Game::Read<void *>(Offsets::VAR_GAME_STATE_PTR))
+        object = nullptr;
+    const int top = Game::Lua::GetTop(L);
+    if (object != nullptr)
+        Game::Lua::PushObject(L, object);
+    else
+        Game::Lua::PushNil(L);
+    Game::Lua::PushString(L, ButtonName(event));
+    Event::Custom::FireValues(slot, L, top + 1, 2);
+    Game::Lua::SetTop(L, top);
+}
+
 // Runs a press whose target is a region: down on the target, then on each
 // object the press propagated to.
 void RunRegionPress(const void *event) {
+    FireRegionMouse(_regionMouseDown, g_pressed.primary, event);
     if (g_pressed.primary != nullptr)
         RegionDown(g_pressed.primary, event);
     RunExtras(g_pressed.extras, Offsets::VTBL_FRAME_ON_MOUSE_DOWN, event);
@@ -347,12 +384,18 @@ void *__stdcall PressTarget(uint8_t *ctx, const void *event) {
         return nullptr;
     }
     if (g_clickOff.empty() && g_motionOff.empty() && g_propagatesClicks.empty() && g_passThrough.empty() &&
-        !Frame::RegionInput::Any())
-        return Game::Read<void *>(ctx, Offsets::OFF_UI_CONTEXT_MOUSE_FOCUS);
+        !Frame::RegionInput::Any()) {
+        void *focus = Game::Read<void *>(ctx, Offsets::OFF_UI_CONTEXT_MOUSE_FOCUS);
+        if (focus == nullptr)
+            FireRegionMouse(_regionMouseDown, nullptr, event);
+        return focus;
+    }
     std::vector<void *> targets;
     ClickTargets(ctx, Game::Read<uint32_t>(event, Offsets::OFF_UI_MOUSE_EVENT_BUTTON), targets);
-    if (targets.empty())
+    if (targets.empty()) {
+        FireRegionMouse(_regionMouseDown, nullptr, event);
         return nullptr;
+    }
     if (IsRegion(targets.front())) {
         g_pressed = Press{targets.front(), std::vector<void *>(targets.begin() + 1, targets.end())};
         g_regionPress = 1;
@@ -368,8 +411,11 @@ void *__stdcall PressTarget(uint8_t *ctx, const void *event) {
 // The release with no pressed frame: a region's press, if one is held.
 // Returns what the handler's [ebp-8] takes, 1 for taken.
 int __stdcall ReleaseRegion(const void *event) {
-    if (g_regionPress == 0)
+    if (g_regionPress == 0) {
+        FireRegionMouse(_regionMouseUp, nullptr, event);
         return 0;
+    }
+    FireRegionMouse(_regionMouseUp, g_pressed.primary, event);
     if (g_pressed.primary != nullptr)
         RegionUp(g_pressed.primary, event);
     RunExtras(g_pressed.extras, Offsets::VTBL_FRAME_ON_MOUSE_UP, event);
@@ -386,11 +432,13 @@ void __stdcall PressDispatch(uint8_t * /*ctx*/, void *frame, const void *event) 
     else if (frame != g_pressed.primary)
         g_pressed = Press{frame, {}};
     g_pending = Press{};
+    FireRegionMouse(_regionMouseDown, frame, event);
     RunButton(frame, Offsets::VTBL_FRAME_ON_MOUSE_DOWN, event);
     RunExtras(g_pressed.extras, Offsets::VTBL_FRAME_ON_MOUSE_DOWN, event);
 }
 
 void __stdcall ReleaseDispatch(uint8_t * /*ctx*/, void *frame, const void *event) {
+    FireRegionMouse(_regionMouseUp, frame, event);
     RunButton(frame, Offsets::VTBL_FRAME_ON_MOUSE_UP, event);
     if (frame == g_pressed.primary)
         RunExtras(g_pressed.extras, Offsets::VTBL_FRAME_ON_MOUSE_UP, event);

@@ -31,6 +31,11 @@
 // that leave and join the focus, and it names the frame it is notifying, so
 // a nested enter/leave a handler causes — a frame hidden under the cursor —
 // is told apart from the pass's own and gets false, as in 3.3.5.
+//
+// A scripted enter or leave (FocusEnter / FocusExit) offers its own `motion`
+// to the frame it runs for (Offer).
+
+#include "frame/EnterLeaveMotion.h"
 
 #include "Game.h"
 #include "Offsets.h"
@@ -47,6 +52,10 @@ struct Pass {
     bool motion;
 };
 Pass g_pass = {nullptr, false};
+
+// The scripted enter or leave in progress; frame null outside one.
+void *g_offerFrame = nullptr;
+bool g_offerMotion = false;
 
 using FocusPass_t = int(__fastcall *)(const void *event, void *context);
 FocusPass_t g_origFocusPass = nullptr;
@@ -75,12 +84,25 @@ bool Motion(int handlerRef, void *frame, bool *value) {
     const bool enter = Game::Read<int>(frame, Offsets::OFF_FRAME_ONENTER_SLOT) == handlerRef;
     if (!enter && Game::Read<int>(frame, Offsets::OFF_FRAME_ONLEAVE_SLOT) != handlerRef)
         return false;
-    *value = g_pass.context != nullptr && g_pass.motion && frame == Frame::MotionFocus::Notifying();
+    if (frame == g_offerFrame)
+        *value = g_offerMotion;
+    else
+        *value = g_pass.context != nullptr && g_pass.motion && frame == Frame::MotionFocus::Notifying();
     return true;
 }
 
 const Frame::ScriptArgs::AutoTrailingBool _motion{&Motion};
 
 } // namespace
+
+Offer::Offer(void *frame, bool motion) : m_frame(g_offerFrame), m_motion(g_offerMotion) {
+    g_offerFrame = frame;
+    g_offerMotion = motion;
+}
+
+Offer::~Offer() {
+    g_offerFrame = m_frame;
+    g_offerMotion = m_motion;
+}
 
 } // namespace Frame::EnterLeaveMotion

@@ -21,6 +21,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "frame/IgnoreParentAlpha.h"
 #include "frame/LayerChange.h"
 #include "frame/Region.h"
 #include "frame/RegionDestruction.h"
@@ -336,7 +337,11 @@ void SafeMirrorFade(void *fs) {
 }
 
 void __fastcall OnColorChanged_h(void *fs, void *edx, int changed) {
-    g_origOnColorChanged(fs, edx, changed);
+    {
+        // The shadow reads the owner's alpha byte itself, after the fold.
+        const Frame::IgnoreParentAlpha::OwnerOpaque opaque(fs);
+        g_origOnColorChanged(fs, edx, changed);
+    }
     SafeMirrorFade(fs);
 }
 

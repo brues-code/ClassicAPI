@@ -5507,6 +5507,19 @@ enum Offsets {
     // the payload's button (OFF_MOUSE_EVENT_BUTTON 0x04) sits at +0x14 and its
     // held mask at +0x18. 0x0076BF70 ANDs +0x14 with the drag mask.
     OFF_UI_MOUSE_EVENT_BUTTON = 0x14,
+    // How both handlers build that copy (Ghidra, OnMouseDown 0x007662C0 /
+    // OnMouseUp 0x00766420): the header {VTBL_UI_MOUSE_EVENT, 0, the event
+    // id, 0}, then FUN_UI_COPY_MOUSE_EVENT `void *__thiscall(copy, const
+    // payload *)`, ret 4, which copies the payload's dwords to +0x10..+0x30
+    // and scales its NDC cursor (payload +0x14 / +0x18) to +0x24 / +0x28. The
+    // id is 0x400500C8 in the press, 0x400500C9 in the release (the world's
+    // button hook FUN_WORLD_BUTTON_HOOK tests it). 0x34 bytes in all.
+    VTBL_UI_MOUSE_EVENT = 0x008013DC,
+    FUN_UI_COPY_MOUSE_EVENT = 0x00766F70,
+    UI_MOUSE_EVENT_ID_DOWN = 0x400500C8,
+    UI_MOUSE_EVENT_ID_UP = 0x400500C9,
+    OFF_UI_MOUSE_EVENT_ID = 0x08,
+    UI_MOUSE_EVENT_SIZE = 0x34,
     // The cursor in the same copy, in the units of OFF_REGION_RECT, y up:
     // CSimpleSlider::OnMouseMove reads x at +0x24 (0x00789BFE) and y at +0x28
     // (0x00789C2D) against the slider's rect.
@@ -5761,6 +5774,15 @@ enum Offsets {
     OFF_FRAME_CHILD_LIST = 0x300,
     VTBL_FRAME_SET_FRAME_ALPHA = 0x28,
     VTBL_REGION_RECOLOR = 0x20,
+    // CScriptRegion::UpdateFrameAlpha — `void __thiscall(region, char
+    // changed)`, ret 4: folds the owner frame's drawn alpha
+    // ([OFF_REGION_PARENT]+OFF_FRAME_ALPHA) into the region's vertex colour
+    // alphas, dropping the colour arrays for an opaque white region when that
+    // byte is 0xFE or more, and runs the layer-changed notify when `changed`
+    // or the arrays came or went (Ghidra). The texture's VTBL_REGION_RECOLOR
+    // (VTBL_SIMPLETEXTURE + 0x20 = 0x0081C738 holds it) and the font string's
+    // (0x00772180 calls it at 0x0077218D) both run it.
+    FUN_REGION_UPDATE_FRAME_ALPHA = 0x0077FAC0,
     // Region vtable+0x28 — `void __thiscall Emit(batch)`, ret 4: the region's
     // append to its layer batch. The frame's layer walk (0x0076B3A0) calls
     // this slot on every registered region of an enabled layer (0x0076B3E1);
@@ -5888,6 +5910,8 @@ enum Offsets {
     // HitRectOf), the layout rect less the hit-rect insets. CSimpleFrame::GetHitRect (0x0076B220) copies it when
     // the layout is valid; FUN_FRAME_HIT_TEST and the ScrollFrame's draw read it.
     OFF_FRAME_HIT_RECT = 0xD8,
+    // The highlight lock, an int: VTBL_FRAME_SET_HIGHLIGHT_LOCKED's store.
+    OFF_FRAME_HIGHLIGHT_LOCKED = 0xF8,
     // Frame::ClipChildren's own bit: the frame clips its child frames. No
     // engine code writes it (see FUN_FRAME_SET_FRAME_FLAG's callers).
     FRAME_FLAG_CLIPS_CHILDREN = 0x800000,
@@ -12378,6 +12402,16 @@ enum Offsets {
     // 4.3.4's KEY enum, unchanged in 1.12: the console's switch tests 0x200
     // Escape, 0x201 Enter, 0x203 Tab.
     KEY_TAB = 0x203,
+    // The rest of the KEY enum's named codes (benilla-re ui/keybindings "Key
+    // names", verified): 0x200..0x20F ESCAPE ENTER BACKSPACE TAB LEFT UP RIGHT
+    // DOWN INSERT DELETE HOME END PAGEUP PAGEDOWN CAPSLOCK NUMLOCK in that
+    // order, 0x212 PRINTSCREEN, 0x300..0x30B F1..F12, 0x30C NUMPADEQUALS.
+    // 0x20..0x10E are the character, NUMPAD0..9 and the numpad operators, the
+    // same codes the 3.80.2 client uses.
+    KEY_ESCAPE = 0x200,
+    KEY_PRINTSCREEN = 0x212,
+    KEY_F1 = 0x300,
+    KEY_NUMPADEQUALS = 0x30C,
     // The window procedure's key translator: `int __fastcall(uint32_t vk,
     // uint32_t *key)`, 1 when it stored a code. VK_F1..VK_F12 become 0x300..
     // 0x30B; every key outside its byte map 0x0042DAFC (VK_F13..VK_F24
@@ -15734,6 +15768,15 @@ enum Offsets {
     VTBL_FRAME_ON_MOUSE_DOWN = 0x68,
     VTBL_FRAME_ON_MOUSE_UP = 0x6C,
     VTBL_FRAME_EMIT_LAYER = 0x44,
+    // +0x80 SetHighlightLocked (this, int locked), ret 4: CSimpleFrame's
+    //       0x0076C2E0 stores OFF_FRAME_HIGHLIGHT_LOCKED on a change, then
+    //       enables the HIGHLIGHT layer (4), or on an unlock disables it
+    //       unless the frame is the mouse focus (+0x7C) (Ghidra). The button
+    //       family's 0x00495A80 runs it, then the label refresh. Read from the Button vtable 0x0081C7F8 (+0x80 =
+    //       0x00495A80) and the Model vtable 0x00803960 (+0x80 = 0x0076C2E0).
+    //       Lua LockHighlight / UnlockHighlight (Button methods) call it with
+    //       1 / 0.
+    VTBL_FRAME_SET_HIGHLIGHT_LOCKED = 0x80,
     VTBL_FRAME_HIDE = 0x84,
     VTBL_FRAME_SHOW = 0x88,
     // Layout-vtable slots, `this` = the layout sub-object:

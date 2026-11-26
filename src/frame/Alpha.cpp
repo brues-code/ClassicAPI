@@ -40,6 +40,11 @@
 //   - GetAlpha returns the own alpha.
 // A frame whose alpha was never set has own alpha 1.
 //
+// SetIgnoreParentAlpha (3.80.2's FUN_140589360, +0x144 bit 20): an ignoring
+// frame draws at its own alpha whatever its ancestors', and its children
+// multiply by that. Turning it on or off redraws the frame and its subtree.
+// The plate subtree keeps its vanilla alpha and ignores the flag.
+//
 // Engine code that reads the byte directly gets the drawn value. That's what
 // the region recolors and the Model want. The chat bubble and nameplate fades
 // compare it with their own targets. They're WorldFrame children, where drawn
@@ -67,6 +72,7 @@
 
 #include <cstdint>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace Frame::Alpha {
 
@@ -94,6 +100,9 @@ void __fastcall SetFrameAlpha_h(void *frame, void *edx, uint32_t alpha);
 // that outlives a /reload keeps its own alpha.
 std::unordered_map<const void *, uint8_t> g_own;
 
+// Frames that ignore their parent's alpha (SetIgnoreParentAlpha).
+std::unordered_set<const void *> g_ignoring;
+
 // Set while a frame is being given its drawn alpha through its vtable setter.
 bool g_propagating = false;
 int g_depth = 0;
@@ -120,9 +129,14 @@ uint8_t Mul(uint8_t a, uint8_t b) {
     return static_cast<uint8_t>(static_cast<uint32_t>(a) * b / 255);
 }
 
+// The drawn alpha of `frame` at `own` under a parent drawn at `parentDrawn`.
+uint8_t DrawnUnder(const void *frame, uint8_t own, uint8_t parentDrawn) {
+    return g_ignoring.count(frame) != 0 ? own : Mul(own, parentDrawn);
+}
+
 uint8_t DrawnFor(void *frame, uint8_t own) {
     void *parent = Game::Read<void *>(frame, Offsets::OFF_REGION_PARENT);
-    return parent != nullptr ? Mul(own, *DrawnByte(parent)) : own;
+    return parent != nullptr ? DrawnUnder(frame, own, *DrawnByte(parent)) : own;
 }
 
 // A live default nameplate, by its vtable pointer
@@ -209,7 +223,7 @@ void Draw(void *frame, uint8_t drawn) {
                         g_inOriginal = saved;
                         return;
                     }
-                    ApplyDrawn(child, Mul(Own(child), drawn));
+                    ApplyDrawn(child, DrawnUnder(child, Own(child), drawn));
                 });
 }
 
@@ -286,7 +300,10 @@ void OnParentChanged(void *frame) {
 
 const Frame::ParentChange::AutoSubscribe _parentSub{&OnParentChanged};
 
-void OnFrameDestroyed(void *frame) { g_own.erase(frame); }
+void OnFrameDestroyed(void *frame) {
+    g_own.erase(frame);
+    g_ignoring.erase(frame);
+}
 
 const Frame::Destruction::AutoSubscribe _destructionSub{&OnFrameDestroyed};
 
@@ -327,5 +344,19 @@ const Game::ModuleAutoRegister _autoreg{&RegisterCVar};
 } // namespace
 
 uint8_t OwnAlpha(const void *frame) { return Own(frame); }
+
+bool IgnoresParentAlpha(const void *frame) { return g_ignoring.count(frame) != 0; }
+
+void SetIgnoreParentAlpha(void *frame, bool ignore) {
+    if (ignore == IgnoresParentAlpha(frame))
+        return;
+    if (ignore)
+        g_ignoring.insert(frame);
+    else
+        g_ignoring.erase(frame);
+    if (IsNamePlate(frame) || UnderNamePlate(frame))
+        return;
+    ApplyDrawn(frame, DrawnFor(frame, Own(frame)));
+}
 
 } // namespace Frame::Alpha

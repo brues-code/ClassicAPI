@@ -64,6 +64,7 @@
 #include "Game.h"
 #include "Offsets.h"
 #include "cvar/Factory.h"
+#include "event/Custom.h"
 #include "frame/MotionFocus.h"
 #include "gamepad/Buttons.h"
 #include "gamepad/Device.h"
@@ -71,6 +72,7 @@
 #include "gamepad/Movement.h"
 #include "gamepad/Names.h"
 #include "gamepad/State.h"
+#include "lua/Arg.h"
 #include "object/Resolve.h"
 #include "spell/Placement.h"
 #include "target/Reason.h"
@@ -120,6 +122,7 @@ bool g_holding = false;        // the motion focus is held at the centre
 float g_savedU = 0, g_savedV = 0;
 uint32_t g_prevLookBits = 0;
 uint32_t g_heldClicks = 0;     // the mouse buttons the pad holds
+bool g_allowHover = true;      // SetAllowHoverEventsWithFreeLook
 
 // --- engine ---------------------------------------------------------------------
 
@@ -178,7 +181,9 @@ float CenteredY() {
 }
 
 // While hidden: the world frame holds the motion focus at the centre, so
-// nothing else hovers and the world picks there.
+// nothing else hovers and the world picks there. With hover events off
+// (SetAllowHoverEventsWithFreeLook(false)) nothing holds it, so the world
+// does not pick either and no unit is the mouseover.
 void Hold(bool on) {
     uint8_t *ctx = Game::Read<uint8_t *>(Offsets::VAR_UI_CONTEXT_PTR);
     if (ctx == nullptr)
@@ -192,7 +197,7 @@ void Hold(bool on) {
         }
         point[0] = 0.5f;
         point[1] = CenteredY();
-        Frame::MotionFocus::Hold(Game::Read<void *>(Offsets::VAR_GAME_STATE_PTR));
+        Frame::MotionFocus::Hold(g_allowHover ? Game::Read<void *>(Offsets::VAR_GAME_STATE_PTR) : nullptr);
     } else if (g_holding) {
         g_holding = false;
         point[0] = g_savedU;
@@ -364,6 +369,65 @@ int __fastcall Script_GetCursorCenterPosition(void *L) {
     return pushed;
 }
 
+// C_GamePad.SetAllowHoverEventsWithFreeLook / GetAllowHoverEventsWithFreeLook
+// (_forever_ only; no 3.80.2 counterpart): whether the hidden cursor's centre
+// point hovers the world under gamepad freelook. A gamepad UI turns it off
+// while a menu has its focus, so the centre does not show unit tooltips or
+// the mouseover behind the menu. The event fires on a change only.
+const Game::Doc::Field kAllowHoverPayload[] = {Game::Doc::Req("enabled", "bool")};
+const Game::Doc::Event kAllowHoverChangedDoc{
+    "GamePad", "Fires when SetAllowHoverEventsWithFreeLook changes whether gamepad freelook hovers the world.",
+    kAllowHoverPayload};
+const Event::Custom::AutoReserve _allowHoverChanged{"GAME_PAD_ALLOW_HOVER_EVENTS_WITH_FREE_LOOK_CHANGED",
+                                                    &kAllowHoverChangedDoc};
+
+void SetAllowHover(bool allow) {
+    if (allow == g_allowHover)
+        return;
+    g_allowHover = allow;
+    if (g_holding)
+        Hold(true);
+    void *L = Game::Lua::State();
+    if (L == nullptr)
+        return;
+    const int top = Game::Lua::GetTop(L);
+    Game::Lua::PushBool(L, allow);
+    Event::Custom::FireValues(_allowHoverChanged.Slot(), L, top + 1, 1);
+    Game::Lua::SetTop(L, top);
+}
+
+int __fastcall Script_SetAllowHoverEventsWithFreeLook(void *L) {
+    bool enable = false;
+    if (!Game::Lua::Arg::Bool(L, 1, "Usage: C_GamePad.SetAllowHoverEventsWithFreeLook(enable)", enable))
+        return 0;
+    SetAllowHover(enable);
+    return 0;
+}
+
+int __fastcall Script_GetAllowHoverEventsWithFreeLook(void *L) {
+    Game::Lua::PushBool(L, g_allowHover);
+    return 1;
+}
+
+// A reload: the UI that turned hover off is gone.
+void ResetAllowHover() {
+    g_allowHover = true;
+    if (g_holding)
+        Hold(true);
+}
+
+const Game::ReloadAutoRegister _reloadAllowHover{&ResetAllowHover};
+
+const Game::Doc::Field kAllowArg[] = {Game::Doc::Req("enable", "bool")};
+const Game::Doc::Field kAllowedRet[] = {Game::Doc::Req("enabled", "bool")};
+const Game::Doc::Function kSetAllowHoverEventsWithFreeLook{
+    "Sets whether the hidden cursor's centre point hovers the world (the mouseover unit, unit tooltips) under "
+    "gamepad freelook. On by default.",
+    kAllowArg, {}, "GamePad"};
+const Game::Doc::Function kGetAllowHoverEventsWithFreeLook{
+    "Returns whether the hidden cursor's centre point hovers the world under gamepad freelook.", {}, kAllowedRet,
+    "GamePad"};
+
 const Game::Doc::Field kVisibleRet[] = {Game::Doc::Req("visible", "bool")};
 const Game::Doc::Function kIsCursorVisible{"Returns whether the cursor is shown.", {}, kVisibleRet, "Input"};
 const Game::Doc::Field kCenterRets[] = {
@@ -382,6 +446,10 @@ void RegisterGlueLua() {
 }
 
 void RegisterWorldLua() {
+    Game::Lua::RegisterTableFunction("C_GamePad", "SetAllowHoverEventsWithFreeLook",
+                                     &Script_SetAllowHoverEventsWithFreeLook, &kSetAllowHoverEventsWithFreeLook);
+    Game::Lua::RegisterTableFunction("C_GamePad", "GetAllowHoverEventsWithFreeLook",
+                                     &Script_GetAllowHoverEventsWithFreeLook, &kGetAllowHoverEventsWithFreeLook);
     Game::Lua::RegisterGlobalFunction("IsCursorVisible", &Script_IsCursorVisible, &kIsCursorVisible);
     Game::Lua::RegisterGlobalFunction("GetCursorCenterPosition", &Script_GetCursorCenterPosition,
                                       &kGetCursorCenterPosition);

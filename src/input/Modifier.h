@@ -30,6 +30,9 @@ namespace Input::Modifier {
 // CGUIBindings::m_keyStateOverride.
 uint32_t CurrentMask();
 
+// The same held mask with no KeyStateOverride applied: the keys held now.
+uint32_t HeldMask();
+
 // The engine's EventIsKeyDown (FUN_GAMEUI_IS_KEY_DOWN), called the way its
 // own callers do — through the hook above, so a KeyStateOverride applies.
 // `key` is 0 shift, 1 ctrl, 2 alt, or any other KEY code.

@@ -149,8 +149,6 @@ uint32_t Gate(uint32_t sides) {
     return mask;
 }
 
-uint32_t HeldMask() { return Gate(g_sideMask | g_emulated); }
-
 // Run from the engine's key / activation handlers, after the dispatch has
 // updated the held-key list: drop side bits the engine no longer holds, and
 // fire `MODIFIER_STATE_CHANGED` for each bit that differs from the last
@@ -334,6 +332,8 @@ void RegisterLuaFunctions() {
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 
 } // namespace
+
+uint32_t HeldMask() { return Gate(g_sideMask | g_emulated); }
 
 uint32_t CurrentMask() {
     return g_overrideActive ? g_overrideMask : HeldMask();

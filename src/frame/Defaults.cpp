@@ -157,6 +157,7 @@ void ResetRegion(void *L, void *obj) {
     Method(L, obj, "SetWidth", {Num(0)});
     Method(L, obj, "SetHeight", {Num(0)});
     Method(L, obj, "SetAlpha", {Num(1)});
+    Method(L, obj, "SetIgnoreParentAlpha", {Bool(false)});
     Method(L, obj, "SetPassThroughButtons");
     Method(L, obj, "Show");
 }
@@ -231,6 +232,7 @@ void ResetFrame(void *L, void *frame) {
     Method(L, frame, "SetID", {Num(0)});
     for (const char *layer : {"BACKGROUND", "BORDER", "ARTWORK", "OVERLAY"})
         Method(L, frame, "EnableDrawLayer", {Str(layer)});
+    Method(L, frame, "UnlockHighlight");
     Method(L, frame, "DisableDrawLayer", {Str("HIGHLIGHT")});
 
     if (Game::Lua::IsA(frame, Offsets::VAR_STATUSBAR_LUA_TYPE_ID))
@@ -247,7 +249,6 @@ void ResetFrame(void *L, void *frame) {
     Method(L, frame, "SetHighlightFontObject", {Nil()});
     Method(L, frame, "SetDisabledFontObject", {Nil()});
     Method(L, frame, "Enable");
-    Method(L, frame, "UnlockHighlight");
     Method(L, frame, "SetButtonState", {Str("NORMAL")});
     Method(L, frame, "SetMotionScriptsWhileDisabled", {Bool(false)});
     Method(L, frame, "SetPushedTextOffset", {Num(0), Num(0)});
