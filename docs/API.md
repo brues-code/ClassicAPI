@@ -125,6 +125,8 @@ build instructions.
   - [`IsChatAFK()`](#ischatafk)
   - [`IsChatDND()`](#ischatdnd)
   - [`SetChatColorNameByClass(chatType, colorNameByClass)`](#setchatcolornamebyclasschattype-colornamebyclass)
+  - [`C_ChatInfo.SendChatMessage(message [, chatType [, languageID [, target]]])`](#c_chatinfosendchatmessagemessage--chattype--languageid--target)
+  - [`C_ChatInfo.PerformEmote(emoteName [, targetName [, suppressMoveError]])`](#c_chatinfoperformemoteemotename--targetname--suppressmoveerror)
 
 - [ChatBubbles](#chatbubbles)
   - [`C_ChatBubbles.GetAllChatBubbles([includeForbidden])`](#c_chatbubblesgetallchatbubblesincludeforbidden)
@@ -240,6 +242,7 @@ build instructions.
   - [`GetCursorInfo()`](#getcursorinfo)
   - [`CursorHasMacro()`](#cursorhasmacro)
   - [Expanded cursors (`expandedCursors`)](#expanded-cursors-expandedcursors)
+  - [`C_Cursor.GetCursorItem()`](#c_cursorgetcursoritem)
 
 - [CurveUtil](#curveutil)
   - [`C_CurveUtil.CreateCurve()`](#c_curveutilcreatecurve)
@@ -322,6 +325,7 @@ build instructions.
   - [Player input-state events (`PLAYER_STARTED_MOVING` / `LOOKING` / `TURNING` + `STOPPED_*`)](#player-input-state-events)
   - [`GLOBAL_MOUSE_DOWN` / `GLOBAL_MOUSE_UP` events](#global_mouse_down--global_mouse_up-events)
   - [`AUCTION_MULTISELL_START` / `AUCTION_MULTISELL_UPDATE` / `AUCTION_MULTISELL_FAILURE` events](#c_auctionhousepostitemitemlocation-duration-quantity-numstacks-bid-buyout)
+  - [`GLOBAL_REGION_MOUSE_DOWN` / `GLOBAL_REGION_MOUSE_UP` events](#global_region_mouse_down--global_region_mouse_up-events)
   - [`ACTION_RANGE_CHECK_UPDATE` event](#action_range_check_update-event)
   - [`ACTION_USABLE_CHANGED` event](#action_usable_changed-event)
   - [`COMBAT_LOG_EVENT_UNFILTERED` / `COMBAT_LOG_EVENT` events](#combat_log_event_unfiltered--combat_log_event-events)
@@ -575,6 +579,10 @@ build instructions.
   - [`Button:SetNormalAtlas(atlas)` / `SetPushedAtlas` / `SetDisabledAtlas` / `SetHighlightAtlas(atlas [, blendMode])`](#buttonsetnormalatlasatlas--setpushedatlas--setdisabledatlas--sethighlightatlasatlas--blendmode)
   - [`button:RegisterForMouse(...)`](#buttonregisterformouse)
   - [`GetClickFrame(name)`](#getclickframename)
+  - [`region:FocusEnter([fromMouseMotion])` / `region:FocusExit([fromMouseMotion])`](#regionfocusenterfrommousemotion--regionfocusexitfrommousemotion)
+  - [`region:MouseDown([button])` / `region:MouseUp([button])`](#regionmousedownbutton--regionmouseupbutton)
+  - [`frame:SetHighlightLocked(locked)` / `frame:IsHighlightLocked()` / `frame:LockHighlight()` / `frame:UnlockHighlight()`](#framesethighlightlockedlocked--frameishighlightlocked--framelockhighlight--frameunlockhighlight)
+  - [`region:SetIgnoreParentAlpha(ignore)` / `region:IsIgnoringParentAlpha()`](#regionsetignoreparentalphaignore--regionisignoringparentalpha)
 
 - [FriendList](#friendlist)
   - [`C_FriendList.SendWhoQueryByName(name)`](#c_friendlistsendwhoquerybynamename)
@@ -607,6 +615,7 @@ build instructions.
   - [Gamepad binding text](#gamepad-binding-text)
   - [Gamepad sticks](#gamepad-sticks)
   - [Gamepad movement and camera](#gamepad-movement-and-camera)
+  - [`C_GamePad.SetAllowHoverEventsWithFreeLook(enable)` / `C_GamePad.GetAllowHoverEventsWithFreeLook()`](#c_gamepadsetallowhovereventswithfreelookenable--c_gamepadgetallowhovereventswithfreelook)
   - [Gamepad frame methods](#gamepad-frame-methods)
   - [`C_GamePad.IsEnabled()`](#c_gamepadisenabled)
   - [`C_GamePad.GetActiveDeviceID()`](#c_gamepadgetactivedeviceid)
@@ -703,6 +712,9 @@ build instructions.
   - [`GetMouseButtonName(button)`](#getmousebuttonnamebutton)
   - [`GetMouseButtonClicked()`](#getmousebuttonclicked)
   - [`GetCursorDelta()`](#getcursordelta)
+  - [`IsKeyDown(keyOrMouseName [, excludeBindingState])`](#iskeydownkeyormousename--excludebindingstate)
+  - [`ToggleSit()`](#togglesit)
+  - [`JumpOrAscendStart()` / `AscendStop()` / `SitStandOrDescendStart()` / `DescendStop()`](#jumporascendstart--ascendstop--sitstandordescendstart--descendstop)
 
 - [Instance](#instance)
   - [`GetInstanceInfo()`](#getinstanceinfo)
@@ -1142,6 +1154,8 @@ build instructions.
   - [Unit events and tokens](#unit-events-and-tokens)
   - [Unit tokens (`nameplateN`)](#unit-tokens-nameplaten)
   - [Unit tokens (`markN`)](#unit-tokens-markn)
+  - [`GetNextAvailableRaidTargetMarkerIndex(startIndex [, reverseSearch [, wrapSearch [, treatDeadNonFriendlyAsAvailable]]])`](#getnextavailableraidtargetmarkerindexstartindex--reversesearch--wrapsearch--treatdeadnonfriendlyasavailable)
+  - [`Constants.RaidMarkerConsts`](#constantsraidmarkerconsts)
   - [Unit tokens (`totemN`)](#unit-tokens-totemn)
   - [Unit tokens (`bossN`)](#unit-tokens-bossn)
   - [Unit tokens (GUID literals)](#unit-tokens-guid-literals)
@@ -1161,10 +1175,12 @@ build instructions.
   - [`InviteUnit(targetName)`](#inviteunittargetname)
   - [`UninviteUnit(name)`](#uninviteunitname)
   - [`PromoteToLeader(name [, exactNameMatch])`](#promotetoleadername--exactnamematch)
+  - [`UnitInAnyGroup([unit [, partyIndex]])`](#unitinanygroupunit--partyindex)
 
 - [Pet](#pet)
   - [`IsPetAttackAction(index)`](#ispetattackactionindex)
   - [`IsAtStableMaster()`](#isatstablemaster)
+  - [`C_StableInfo.GetStablePetInfo(index)`](#c_stableinfogetstablepetinfoindex)
 
 - [PlayerInfo](#playerinfo)
   - [`C_PlayerInfo.CanUseItem(itemID)`](#c_playerinfocanuseitemitemid)
@@ -1191,6 +1207,7 @@ build instructions.
   - [`SetPVP(enable)` / `C_PvP.SetPVP(enable)`](#setpvpenable--c_pvpsetpvpenable)
   - [`GetPVPDesired()`](#getpvpdesired)
   - [`IsPVPTimerRunning()` / `GetPVPTimer()`](#ispvptimerrunning--getpvptimer)
+  - [`C_PvP.TogglePVP()`](#c_pvptogglepvp)
 
 - [Quest](#quest)
   - [`C_QuestLog.GetInfo(questLogIndex)`](#c_questloggetinfoquestlogindex)
@@ -1388,6 +1405,9 @@ build instructions.
   - [`InteractUnit(unit [, exactMatch])`](#interactunitunit--exactmatch)
   - [`C_PlayerInteractionManager.InteractUnit(unit [, exactMatch [, looseTargeting]])`](#c_playerinteractionmanagerinteractunitunit--exactmatch--loosetargeting)
   - [Soft interact (`softinteract` / `anyinteract`)](#soft-interact-softinteract--anyinteract)
+  - [`UnitIsInteractable([unit])` / `UnitIsInInteractRange(unit)`](#unitisinteractableunit--unitisininteractrangeunit)
+  - [`UnitIsGameObject([unit])`](#unitisgameobjectunit)
+  - [`UnitHasLootInteraction(unit)`](#unithaslootinteractionunit)
   - [Soft enemy and soft friend (`softenemy` / `softfriend` / `anyenemy` / `anyfriend`)](#soft-enemy-and-soft-friend-softenemy--softfriend--anyenemy--anyfriend)
   - [`IsTargetLoose()`](#istargetloose)
 
@@ -4016,6 +4036,31 @@ f:SetScript("OnEvent", function(self, event, chatType, colorNameByClass)
 end)
 ```
 
+### `C_ChatInfo.SendChatMessage(message [, chatType [, languageID [, target]]])`
+
+Sends a chat message. The arguments are the same as for
+`SendChatMessage`, but the language is an ID from `Languages.dbc`, for
+example `7` for Common and `1` for Orcish. If `languageID` is nil, you
+speak the language of your race. If no language has the ID, the message is
+not sent.
+
+```lua
+C_ChatInfo.SendChatMessage("Hello", "SAY")
+C_ChatInfo.SendChatMessage("Hello", "SAY", 7)
+C_ChatInfo.SendChatMessage("Need help?", "WHISPER", nil, "Thrall")
+```
+
+### `C_ChatInfo.PerformEmote(emoteName [, targetName [, suppressMoveError]])`
+
+Does the emote, the same as `DoEmote(emoteName, targetName)`. It always
+returns `false`, because no emote is restricted. `suppressMoveError` has
+no effect, because movement does not stop an emote.
+
+```lua
+C_ChatInfo.PerformEmote("WAVE")
+C_ChatInfo.PerformEmote("BOW", "target")
+```
+
 ## ChatBubbles
 
 ### `C_ChatBubbles.GetAllChatBubbles([includeForbidden])`
@@ -6306,6 +6351,19 @@ show the same images as the cursor. For a quest, they show no image.
 
 *ClassicAPI extension.*
 
+### `C_Cursor.GetCursorItem()`
+
+Returns an `ItemLocation` for the item on the cursor, when you picked the
+item up from your bags or your equipment. For anything else on the cursor,
+for example an item from a merchant or a spell, it returns nothing.
+
+```lua
+local location = C_Cursor.GetCursorItem()
+if location and location:IsBagAndSlot() then
+    print("From bag and slot", location:GetBagAndSlot())
+end
+```
+
 ## CurveUtil
 
 `C_CurveUtil` makes curves. A curve has a list of points and gives a value
@@ -7830,6 +7888,38 @@ Behavior notes:
   `GLOBAL_MOUSE_UP` fires for each held button.
 - Clicks during a loading screen or a screen fade do not fire the
   events. Clicks that the open console takes also do not fire them.
+
+### `GLOBAL_REGION_MOUSE_DOWN` / `GLOBAL_REGION_MOUSE_UP` events
+
+```
+GLOBAL_REGION_MOUSE_DOWN: region, button
+GLOBAL_REGION_MOUSE_UP: region, button
+```
+
+`GLOBAL_REGION_MOUSE_DOWN` fires when you press a mouse button, and
+`GLOBAL_REGION_MOUSE_UP` fires when you release one. `region` is the
+frame, texture or font string that gets the press or the release. When the
+click goes to the world, or to nothing, `region` is nil. `button` is the
+name of the button, the same as for `GLOBAL_MOUSE_DOWN`.
+
+```lua
+local f = CreateFrame("Frame")
+f:RegisterEvent("GLOBAL_REGION_MOUSE_DOWN")
+f:SetScript("OnEvent", function(self, event, region, button)
+    if region then
+        print(region:GetName(), button)
+    else
+        print("world", button)
+    end
+end)
+```
+
+Behavior notes:
+
+- The events fire before `region` gets its `OnMouseDown` or `OnMouseUp`.
+- When you press a second button while you hold the first, the second
+  press goes to the same `region`.
+- A press that moves or sizes a frame does not fire the events.
 
 ### `ACTION_RANGE_CHECK_UPDATE` event
 
@@ -13613,6 +13703,99 @@ frame.
 GetClickFrame("MyButton")     -- the frame named "MyButton", or nil
 ```
 
+### `region:FocusEnter([fromMouseMotion])` / `region:FocusExit([fromMouseMotion])`
+
+Do what the cursor does when it enters or leaves the object. The methods
+work on frames, textures and font strings.
+
+- For a frame, `FocusEnter` runs `OnEnter`. A button also shows its
+  highlight and its highlight font.
+- For a frame, `FocusExit` runs `OnLeave`. A button also hides its
+  highlight, unless the highlight is locked.
+- A disabled button does nothing, unless you set
+  `button:SetMotionScriptsWhileDisabled(true)`.
+- For a texture or a font string, the methods run its `OnEnter` or
+  `OnLeave` script.
+
+`fromMouseMotion` is the `motion` argument that `OnEnter` and `OnLeave`
+get. The default is `true`. The methods do not change `GetMouseFoci()`.
+
+```lua
+button:SetHighlightLocked(true)
+button:FocusEnter()   -- OnEnter shows the tooltip
+-- later
+button:SetHighlightLocked(false)
+button:FocusExit()
+```
+
+### `region:MouseDown([button])` / `region:MouseUp([button])`
+
+Press or release a mouse button on the object, as a click at its center
+does. The methods work on frames, textures and font strings. `button` is a
+mouse button name, for example `"RightButton"`. The default is
+`"LeftButton"`.
+
+- A frame runs `OnMouseDown(self, button)` or `OnMouseUp(self, button)`.
+  A button that gets `MouseDown` and then `MouseUp` also clicks, for the
+  clicks that `RegisterForClicks` allows.
+- A texture or a font string runs `OnMouseDown(self, button)`, or
+  `OnMouseUp(self, button, true)`.
+- The methods do not change which frame holds a mouse press.
+  `GLOBAL_MOUSE_DOWN` and `GLOBAL_REGION_MOUSE_DOWN` do not fire.
+
+```lua
+-- A tab that opens from OnMouseDown
+tab:MouseDown()
+tab:MouseUp()
+```
+
+### `frame:SetHighlightLocked(locked)` / `frame:IsHighlightLocked()` / `frame:LockHighlight()` / `frame:UnlockHighlight()`
+
+A locked highlight keeps the `HIGHLIGHT` layer of the frame shown, also
+when the cursor is not over the frame. The methods work on all frames. On a
+button, the lock also shows the highlight font.
+
+- `SetHighlightLocked(locked)` locks (`true`) or unlocks (`false`) the
+  highlight. The argument is necessary.
+- `LockHighlight()` and `UnlockHighlight()` are the same as
+  `SetHighlightLocked(true)` and `SetHighlightLocked(false)`.
+- `IsHighlightLocked()` returns `true` or `false`.
+- After an unlock, the highlight stays shown while the cursor is over the
+  frame.
+- `frame:SetToDefaults()` unlocks the highlight.
+
+```lua
+local f = CreateFrame("Frame", nil, UIParent)
+local glow = f:CreateTexture(nil, "HIGHLIGHT")
+glow:SetAllPoints()
+glow:SetTexture(1, 1, 1, 0.3)
+f:SetHighlightLocked(true)
+print(f:IsHighlightLocked())   -- true
+```
+
+### `region:SetIgnoreParentAlpha(ignore)` / `region:IsIgnoringParentAlpha()`
+
+When `ignore` is `true`, the object shows at its own alpha. Its own alpha
+is not multiplied by the alpha of its parent frame. The methods work on
+frames, textures and font strings.
+
+- The child frames of an ignoring frame multiply their alpha by the alpha
+  of the ignoring frame, as usual.
+- `IsIgnoringParentAlpha()` returns `true` or `false`.
+- The XML attribute `ignoreParentAlpha="true"` does the same on a frame, a
+  texture or a font string.
+- `SetToDefaults()` sets the value back to `false`.
+- Default nameplates, and the frames under them, do not use the value.
+
+```lua
+PlayerFrame:SetAlpha(0.3)
+PlayerName:SetIgnoreParentAlpha(true)   -- the name stays opaque
+```
+
+```xml
+<FontString name="$parentLabel" inherits="GameFontNormal" ignoreParentAlpha="true"/>
+```
+
 ## FriendList
 
 ### `C_FriendList.SendWhoQueryByName(name)`
@@ -14101,6 +14284,7 @@ right half is a press of `PAD6`.
 | `GAME_PAD_DISCONNECTED` | none | A gamepad disconnects. |
 | `GAME_PAD_CONFIGS_CHANGED` | none | Gamepad support starts, you log out, or `GamePadStickAxisButtons` changes. The game reads all config sources again at these times. |
 | `GAME_PAD_POWER_CHANGED` | `powerLevel` | The battery level of the active device changes. |
+| `GAME_PAD_ALLOW_HOVER_EVENTS_WITH_FREE_LOOK_CHANGED` | `enabled` | `C_GamePad.SetAllowHoverEventsWithFreeLook` changes the value. |
 
 `UPDATE_BINDINGS` also fires when the active device connects or
 disconnects. In the world, a chat line shows each gamepad that connects or
@@ -14320,6 +14504,25 @@ cursor mode. A tap with two fingers is a right click.
 | `IsGamePadCursorControlEnabled()` | `true` while cursor mode is on. |
 | `CanAutoSetGamePadCursorControl(enable)` | `true` when the interface can turn cursor mode on (`enable` is `true`) or off (`false`). On: `GamePadCursorAutoEnable` is `1`, gamepad freelook is on and cursor mode is off. Off: `GamePadCursorAutoEnable` is `1` and cursor mode is on. |
 | `CanGamePadControlCursor()` | `true` when the active device is connected. |
+
+### `C_GamePad.SetAllowHoverEventsWithFreeLook(enable)` / `C_GamePad.GetAllowHoverEventsWithFreeLook()`
+
+While gamepad freelook hides the cursor, the center point of the screen
+is the mouseover. `SetAllowHoverEventsWithFreeLook(false)` stops this. Then
+no unit is the mouseover, no unit tooltip shows, and `GetMouseFocus()`
+returns nil. `SetAllowHoverEventsWithFreeLook(true)` turns the center
+point on again. A gamepad interface turns it off while a menu has the
+focus.
+
+- The argument is necessary.
+- The default is `true`. A reload sets the value back to `true`.
+- `GetAllowHoverEventsWithFreeLook()` returns the value.
+- When the value changes,
+  `GAME_PAD_ALLOW_HOVER_EVENTS_WITH_FREE_LOOK_CHANGED(enabled)` fires.
+
+```lua
+C_GamePad.SetAllowHoverEventsWithFreeLook(not menuHasFocus)
+```
 
 ### Gamepad frame methods
 
@@ -16156,6 +16359,69 @@ f:SetScript("OnUpdate", function(self)
     local dx = GetCursorDelta()
     self.yaw = self.yaw + dx / self:GetEffectiveScale() * 0.01
 end)
+```
+
+### `IsKeyDown(keyOrMouseName [, excludeBindingState])`
+
+Returns `true` while the key or button is held, and `false` while it is
+not. If the name is not a key or a button, it returns nil.
+
+| Name | Key |
+|------|-----|
+| One character, for example `"A"`, `"1"` or `";"` | That key. Letters are upper case, so `"a"` is never held. |
+| `"SPACE"`, `"ESCAPE"`, `"ENTER"`, `"BACKSPACE"`, `"TAB"`, `"LEFT"`, `"UP"`, `"RIGHT"`, `"DOWN"`, `"INSERT"`, `"DELETE"`, `"HOME"`, `"END"`, `"PAGEUP"`, `"PAGEDOWN"`, `"CAPSLOCK"`, `"NUMLOCK"`, `"PRINTSCREEN"` | That key. |
+| `"NUMPAD0"` to `"NUMPAD9"`, `"NUMPADPLUS"`, `"NUMPADMINUS"`, `"NUMPADMULTIPLY"`, `"NUMPADDIVIDE"`, `"NUMPADDECIMAL"`, `"NUMPADEQUALS"` | The numpad key. |
+| `"F1"` to `"F19"` | The function key. |
+| `"LSHIFT"`, `"RSHIFT"`, `"LCTRL"`, `"RCTRL"`, `"LALT"`, `"RALT"` | One side of a modifier key. |
+| `"LMETA"`, `"RMETA"`, `"OEMCOMMA"`, `"OEMPERIOD"`, `"OEM1"` to `"OEM8"` | Always `false`. |
+| `"LeftButton"`, `"RightButton"`, `"MiddleButton"`, `"Button4"`, `"Button5"` | The mouse button. |
+| `"PAD1"`, `"PADLSHOULDER"` and the other gamepad button keys | The button on the active gamepad. |
+
+- The names ignore case, but not a one-character name or the `F` of a
+  function key.
+- `"SHIFT"`, `"CTRL"` and `"ALT"` return nil. Use the names with a side.
+- A key with modifiers, for example `"SHIFT-A"`, returns nil.
+- While a key binding runs, the modifiers that the binding was pressed
+  with read as up (see
+  [Modifier keys during a binding](#modifier-keys-during-a-binding)). With
+  `excludeBindingState` `true`, they read as held.
+- An argument that is not a string gives the error
+  `Usage: IsKeyDown(keyOrMouseName [, excludeCurrentBindingState])`.
+
+```lua
+if IsKeyDown("PADLSHOULDER") then
+    flyout:Show()
+end
+print(IsKeyDown("LSHIFT"), IsKeyDown("LeftButton"))
+```
+
+### `ToggleSit()`
+
+Sits down or stands up, the same as `SitOrStand()`.
+
+### `JumpOrAscendStart()` / `AscendStop()` / `SitStandOrDescendStart()` / `DescendStop()`
+
+Swim up or down while a key is held.
+
+- `JumpOrAscendStart()` jumps. Under water, it swims up until
+  `AscendStop()`. At the surface, you jump out of the water.
+- `SitStandOrDescendStart()` sits down or stands up. Under water, it swims
+  down until `DescendStop()`.
+- If you hold both, you do not move up or down.
+- With no movement key, you move straight up or down. With the forward
+  key, you move forward and up or down at 45 degrees. With the backward
+  key, you move back and up or down at 45 degrees.
+- When you release the key, or leave the water, your swimming pitch comes
+  back.
+
+The movement key bindings `JUMPORASCEND` and `SITSTANDORDESCEND` call the
+functions. The binding calls the start function when the key goes down,
+and the stop function when the key goes up. The `JUMP` and `SITORSTAND`
+bindings do not change.
+
+```lua
+-- Bind a gamepad button to swim up
+SetBinding("PAD1", "JUMPORASCEND")
 ```
 
 ## Instance
@@ -25859,6 +26125,36 @@ A unit that you mark while it is out of range fires its events when it
 comes into range. A marker on something that is not a unit fires no
 events.
 
+### `GetNextAvailableRaidTargetMarkerIndex(startIndex [, reverseSearch [, wrapSearch [, treatDeadNonFriendlyAsAvailable]]])`
+
+Returns the first raid target marker, from `startIndex` on, that no unit
+has. The markers are `1` (star) to `8` (skull). If no marker is available,
+it returns `0`.
+
+- `reverseSearch` `true` searches down, to `1`. Otherwise it searches up,
+  to `8`.
+- `wrapSearch` `true` continues at the other end, one time around all
+  eight markers.
+- `treatDeadNonFriendlyAsAvailable` `true` also counts a marker as
+  available when its unit is dead and not friendly.
+- A marker on a unit that is not loaded is not available.
+
+```lua
+local mark = GetNextAvailableRaidTargetMarkerIndex(1, false, true)
+if mark > 0 then
+    SetRaidTarget("target", mark)
+end
+```
+
+### `Constants.RaidMarkerConsts`
+
+| Field | Value |
+|---|---|
+| `MAX_RAID_TARGETS_USER` | 8 |
+| `MAX_RAID_TARGETS_RESTRICTED` | 8 |
+| `MAX_VALID_RAID_TARGETS` | 0 |
+| `MAX_RAID_MARKERS` | 8 |
+
 ### Unit tokens (`totemN`)
 
 `"totem1"` … `"totem4"` are unit tokens for every `UnitX` function. Each
@@ -26181,6 +26477,22 @@ PromoteToLeader("Allianceman", true)  -- Promote only "Allianceman"
 If `name` is not a string, the function raises the error
 `Usage: PromoteToLeader(name)`.
 
+### `UnitInAnyGroup([unit [, partyIndex]])`
+
+Returns `true` if the unit is in your party or your raid. You are in the
+group while you are in a party or a raid. If `unit` is nil, it returns
+`false`.
+
+- `partyIndex` `1` is your home group. `2` is the instance group. There is
+  no instance group, so `2` always returns `false`.
+- Without `partyIndex`, it tests both groups.
+
+```lua
+if UnitInAnyGroup("target") then
+    print(UnitName("target"), "is in your group")
+end
+```
+
 ## Pet
 
 ### `IsPetAttackAction(index)`
@@ -26206,6 +26518,31 @@ Returns true while the stable window is open. Otherwise it returns false.
 ```lua
 if IsAtStableMaster() then
     print("Stable slots:", GetNumStableSlots())
+end
+```
+
+### `C_StableInfo.GetStablePetInfo(index)`
+
+Returns a `PetInfo` table for a stable slot. `index` `0` is your summoned
+pet, and `1` and up are your stabled pets. For an empty slot, or a pet
+whose data is not loaded yet, it returns nil.
+
+| Field | Value |
+|-------|-------|
+| `icon`, `name`, `level`, `familyName`, `loyaltyName` | The values of `GetStablePetInfo(index)`. |
+| `slotID` | `index`. |
+| `specialization`, `type` | `""`. |
+| `petAbilities`, `specAbilities` | `{}`. |
+| `isFavorite`, `isExotic` | `false`. |
+| `uiModelSceneID` | `718`. |
+| `displayID`, `petNumber`, `creatureID`, `specID`, `loyaltyLevel`, `happinessLevel`, `experience`, `experienceNeeded` | `0`. |
+
+```lua
+for i = 1, GetNumStableSlots() do
+    local info = C_StableInfo.GetStablePetInfo(i)
+    if info then
+        print(i, info.name, info.level, info.familyName)
+    end
 end
 ```
 
@@ -26598,6 +26935,10 @@ player turns the preference on, or at logout.
 
 When the timer starts or stops, the game sends
 [`PVP_TIMER_UPDATE`](#pvp_timer_update-event).
+
+### `C_PvP.TogglePVP()`
+
+Turns your PvP flag on or off, the same as `TogglePVP()`.
 
 ## Quest
 
@@ -30865,6 +31206,36 @@ fires.
 ```
 /dump UnitGUID("softinteract"), UnitGUID("anyinteract")
 ```
+
+### `UnitIsInteractable([unit])` / `UnitIsInInteractRange(unit)`
+
+`UnitIsInteractable` returns `true` if the unit or object is a soft
+interact candidate, at any range. `UnitIsInInteractRange` returns `true` if
+it is a candidate and you are close enough to interact with it. Both return
+`false` otherwise.
+
+- The candidates are the units and objects that soft interact can select
+  (see [Soft interact](#soft-interact-softinteract--anyinteract)). The
+  answer comes from the last update of the candidates.
+- The token can name a game object, for example `"softinteract"` on a
+  chest.
+- If `unit` is nil, `UnitIsInteractable` returns `false`.
+
+```lua
+if UnitIsInInteractRange("softinteract") then
+    print("Press interact to use", UnitName("softinteract"))
+end
+```
+
+### `UnitIsGameObject([unit])`
+
+Returns `true` if the token names a game object that is loaded, for example
+`"softinteract"` on a herb or a chest. Otherwise it returns `false`.
+
+### `UnitHasLootInteraction(unit)`
+
+Returns `true` if the unit is dead and you can loot it now. Otherwise it
+returns `false`.
 
 ### Soft enemy and soft friend (`softenemy` / `softfriend` / `anyenemy` / `anyfriend`)
 
