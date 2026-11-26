@@ -94,6 +94,10 @@ build instructions.
   - [`Enum.AutoCompletePriority`](#enumautocompletepriority)
   - [Name completion settings](#name-completion-settings)
 
+- [AutoLoot](#autoloot)
+  - [`autoLootDefault`](#autolootdefault)
+  - [`C_AutoLoot.SetUseAutoLootToggle(useAutoLootToggle)`](#c_autolootsetuseautoloottoggleuseautoloottoggle)
+
 - [Bindings](#bindings)
   - [Direct-action bindings](#direct-action-bindings)
   - [Modifier keys during a binding](#modifier-keys-during-a-binding)
@@ -3312,6 +3316,49 @@ Social page of the ClassicAPI options.
 
 ```
 /console autoCompleteUseContext 0
+```
+
+## AutoLoot
+
+Auto-loot takes the money and all items when the loot window opens. The
+`autoLootDefault` setting and the `AUTOLOOTTOGGLE` modified click (Shift by
+default) control it. When the modifier is held, you get the opposite of the
+setting.
+
+These actions use auto-loot:
+
+- A right-click on a corpse, an object, or a gathering node.
+- `InteractUnit` and `C_PlayerInteractionManager.InteractUnit`.
+- An item that you open from a bag.
+
+### `autoLootDefault`
+
+A setting. At `1`, the loot is taken automatically, and the modifier opens
+the loot window. At `0`, the loot window opens, and the modifier takes the
+loot automatically. The default is the behavior of your client before you
+change the setting: `1` on a client that loots automatically without
+Shift, else `0`.
+
+```
+/console autoLootDefault 1
+```
+
+### `C_AutoLoot.SetUseAutoLootToggle(useAutoLootToggle)`
+
+Sets whether the actions above take the loot automatically. This value
+replaces `autoLootDefault` until the next call. `true` takes the loot
+automatically. `false` opens the loot window. The `AUTOLOOTTOGGLE` modifier
+still gives the opposite. A reload removes the value, and `autoLootDefault`
+decides again.
+
+```lua
+-- A tap follows autoLootDefault. A hold does the opposite.
+local function InteractTapOrHold(unit, isHold)
+    local onTap = GetCVar("autoLootDefault") == "1"
+    C_AutoLoot.SetUseAutoLootToggle(onTap ~= isHold)
+    C_PlayerInteractionManager.InteractUnit(unit)
+    C_AutoLoot.SetUseAutoLootToggle(onTap)
+end
 ```
 
 ## Bindings

@@ -2355,6 +2355,28 @@ enum Offsets {
     // an aura-334 gate and skips the target for creatures with type flag
     // 0x20000000; 1.12 has neither. nampower detours it (its offsets.hpp).
     FUN_ON_SPRITE_RIGHT_CLICK = 0x00492820,
+    // 1.12's two auto-loot decisions, both `xor ecx,ecx; call
+    // FUN_GAMEUI_IS_KEY_DOWN` (Shift held, 0/1): the right-click's argument
+    // to the object's interact (E8 at 0x00492879, `push eax` after it) and
+    // OpenItem's (0x005EDC80) argument to CGPlayer_C::SetAutoLoot (E8 at
+    // 0x005EDCA7, the result tested `== 1`). Every other SetAutoLoot caller
+    // (unit/corpse/gameobject interact, the gathering cast) passes on the
+    // right-click's value. 3.80.2 asks one function at its decision sites
+    // (0x14169F330: autoLootDefault XOR IsModifiedClick("AUTOLOOTTOGGLE")).
+    CALL_SPRITE_RIGHT_CLICK_AUTOLOOT_KEY = 0x00492879,
+    CALL_OPEN_ITEM_AUTOLOOT_KEY = 0x005EDCA7,
+    // The readers of that byte (CGPlayer_C +0x1D30) where a loot window
+    // opens and at its last item record: `test cl,cl; jz` past the sweep
+    // (0x004C1FA0), so a set byte sweeps. vanilla-tweaks' "quickloot
+    // reverse" (src/main.rs, file offsets 0xC1ECF / 0xC2B25) writes 0x75
+    // over both jz opcodes, and Turtle's own WoW.exe ships that way: a
+    // CLEAR byte sweeps. JCC_OPCODE_JNZ at the first one marks a flipped exe.
+    // SuperWoW (SuperWoWhook.dll) ORs its SetAutoloot flag into the byte in
+    // a detour of OpenLootWindow (0x0048F3A0, loot types 2 and 4), after
+    // the decision and before these reads.
+    SITE_LOOT_OPEN_AUTOLOOT_JCC = 0x004C1ECF,
+    SITE_LOOT_LAST_ITEM_AUTOLOOT_JCC = 0x004C2B25,
+    JCC_OPCODE_JNZ = 0x75,
     // Current target-selection GUID (lo/hi), written by
     // `FUN_SET_SELECTION_BY_GUID` — 4.3.4's CGGameUI::m_lockedTarget. The tab
     // cycle compares it with its cursor entry; TargetDirection starts from it.
