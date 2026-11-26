@@ -149,8 +149,9 @@ void RestoreEvent(void *L, int saved) {
 // a deeper stack (up to ~2*N slots live at once), so we CheckStack up front.
 //
 // `positional` false sets the globals but calls the handler with no
-// arguments — the vanilla shape, while the switch is off.
-void RunCore(void *L, int handlerRef, void *frame, int firstArgIdx, int n, bool positional) {
+// arguments — the vanilla shape, while the switch is off. A non-null
+// `returnedTrue` is set to whether the handler returned the boolean true.
+void RunCore(void *L, int handlerRef, void *frame, int firstArgIdx, int n, bool positional, bool *returnedTrue) {
     using namespace Game::Lua;
     // Headroom for the saved-old block plus the transient set/call pushes.
     if (CheckStack(L, 2 * n + 16) == 0)
@@ -203,8 +204,10 @@ void RunCore(void *L, int handlerRef, void *frame, int firstArgIdx, int n, bool 
             PushValue(L, firstArgIdx + k);
         nargs = 1 + (isOnEvent ? 1 : 0) + n;
     }
-    PCall(L, nargs, 0, errIdx);
-    SetTop(L, callBase); // drop the message handler + any leftover error object
+    const int status = PCall(L, nargs, returnedTrue != nullptr ? 1 : 0, errIdx);
+    if (returnedTrue != nullptr)
+        *returnedTrue = status == 0 && Type(L, -1) == TYPE_BOOLEAN && ToBoolean(L, -1) != 0;
+    SetTop(L, callBase); // drop the message handler, the result or the error object
 
     // --- restore globals from the saved block, then drop it -----------------
     for (int k = 0; k < n; ++k) {
@@ -485,17 +488,21 @@ const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};
 
 } // namespace
 
-void RunWithValues(void *L, int handlerRef, void *frame, int firstArgIdx, int nargs) {
+void RunWithValues(void *L, int handlerRef, void *frame, int firstArgIdx, int nargs, bool *returnedTrue) {
+    if (returnedTrue != nullptr)
+        *returnedTrue = false;
     if (handlerRef == 0 || frame == nullptr)
         return;
     Notify(true, handlerRef, frame);
     const int savedEvent = SaveEvent(L, handlerRef, frame);
-    RunCore(L, handlerRef, frame, firstArgIdx, nargs, /*positional*/ g_enabled);
+    RunCore(L, handlerRef, frame, firstArgIdx, nargs, /*positional*/ g_enabled, returnedTrue);
     RestoreEvent(L, savedEvent);
     Notify(false, handlerRef, frame);
 }
 
-void RunSlotWithValues(void *L, const uint32_t *slot, void *frame, int firstArgIdx, int nargs) {
+void RunSlotWithValues(void *L, const uint32_t *slot, void *frame, int firstArgIdx, int nargs, bool *returnedTrue) {
+    if (returnedTrue != nullptr)
+        *returnedTrue = false;
     if (slot == nullptr || slot[0] == 0)
         return;
     // 0x00702690: depth up, context from the slot, run, restore the context
@@ -505,7 +512,7 @@ void RunSlotWithValues(void *L, const uint32_t *slot, void *frame, int firstArgI
     const uint32_t saved = context;
     ++depth;
     context = slot[1];
-    RunWithValues(L, static_cast<int>(slot[0]), frame, firstArgIdx, nargs);
+    RunWithValues(L, static_cast<int>(slot[0]), frame, firstArgIdx, nargs, returnedTrue);
     if (depth != 0)
         context = saved;
     if (--depth <= 0)

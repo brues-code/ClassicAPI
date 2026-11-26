@@ -420,18 +420,25 @@ void SendStick(int s, const State::StickValue &v) {
     } else if (!Cursor::TouchMode() && s != Names::Cursor && SharesCursorAxis(State::ConfigOf(ActiveID()), s)) {
         return;
     }
+    // 0x1401E8B80 stops at the first frame's handler (0x1405A1190), which
+    // always answers "taken": that frame alone decides. It hands the stick on
+    // to movement when its script returned true or it propagates keyboard
+    // input (and is not protected, which 1.12 has no notion of).
     const std::vector<void *> list = Candidates(g_sticks, [](const void *f) { return HasScript(g_onStick, f); });
-    for (void *f : list) {
-        if (!g_sticks.Has(f) || !Visible(f))
-            continue;
-        Frame::ScriptArgs::RunSlot(g_onStick.Slot(f), f, [&](void *L) {
-            Game::Lua::PushString(L, Names::kStick[s]);
-            Game::Lua::PushNumber(L, static_cast<double>(v.x));
-            Game::Lua::PushNumber(L, static_cast<double>(v.y));
-            Game::Lua::PushNumber(L, static_cast<double>(v.len));
-            return 4;
-        });
-        if (!Propagates(f))
+    if (!list.empty()) {
+        void *f = list.front();
+        bool unhandled = false;
+        Frame::ScriptArgs::RunSlot(
+            g_onStick.Slot(f), f,
+            [&](void *L) {
+                Game::Lua::PushString(L, Names::kStick[s]);
+                Game::Lua::PushNumber(L, static_cast<double>(v.x));
+                Game::Lua::PushNumber(L, static_cast<double>(v.y));
+                Game::Lua::PushNumber(L, static_cast<double>(v.len));
+                return 4;
+            },
+            &unhandled);
+        if (!unhandled && !Propagates(f))
             return;
     }
     g_unclaimed[s] = true;
