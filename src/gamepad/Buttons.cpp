@@ -95,6 +95,23 @@ bool HasScript(const Frame::ExtraScripts::Script &script, const void *frame) {
     return slot != nullptr && slot[0] != 0;
 }
 
+// A pad script runs as an input event. 3.80.2 marks every input dispatch on
+// the frame manager's +0xFD8 for its length: 1 from the key and mouse
+// dispatchers, 3 from the pad button (0x140562D40) and stick (0x1401E8B80)
+// ones. 1.12's action gate FUN_CURSOR_EDIT_ALLOWED lets addon code cast
+// (TryCastSpell asks it with kind 2) only during an input event: a button
+// click (VAR_BUTTON_IN_CLICK), an edit box's Enter or a running key binding.
+// So the script runs under the click flag, the one input whose only reader is
+// that gate; the old value comes back, so a click inside the script cannot
+// clear it early.
+template <typename Fn> void AsInputEvent(Fn fn) {
+    auto &flag = Game::Ref<int>(Offsets::VAR_BUTTON_IN_CLICK);
+    const int saved = flag;
+    flag = 1;
+    fn();
+    flag = saved;
+}
+
 // --- enabled frames ---------------------------------------------------------
 
 // The frames in enable order, and the sets that answer IsGamePad*Enabled.
@@ -238,9 +255,11 @@ void ButtonDown(uint8_t b) {
     for (void *f : list) {
         if (!g_buttons.Has(f) || !Visible(f))
             continue; // an earlier script hid or disabled it
-        Frame::ScriptArgs::RunSlot(g_onButtonDown.Slot(f), f, [&](void *L) {
-            Game::Lua::PushString(L, name);
-            return 1;
+        AsInputEvent([&] {
+            Frame::ScriptArgs::RunSlot(g_onButtonDown.Slot(f), f, [&](void *L) {
+                Game::Lua::PushString(L, name);
+                return 1;
+            });
         });
         if (!Propagates(f)) {
             g_capture[b] = f;
@@ -259,9 +278,11 @@ void ButtonUp(uint8_t b) {
         g_latch[b][0] = '\0';
     } else if (owner != nullptr && g_buttons.Has(owner) && Visible(owner)) {
         const char *name = Names::kButtonBinding[b];
-        Frame::ScriptArgs::RunSlot(g_onButtonUp.Slot(owner), owner, [&](void *L) {
-            Game::Lua::PushString(L, name);
-            return 1;
+        AsInputEvent([&] {
+            Frame::ScriptArgs::RunSlot(g_onButtonUp.Slot(owner), owner, [&](void *L) {
+                Game::Lua::PushString(L, name);
+                return 1;
+            });
         });
     }
 }
@@ -428,16 +449,18 @@ void SendStick(int s, const State::StickValue &v) {
     if (!list.empty()) {
         void *f = list.front();
         bool unhandled = false;
-        Frame::ScriptArgs::RunSlot(
-            g_onStick.Slot(f), f,
-            [&](void *L) {
-                Game::Lua::PushString(L, Names::kStick[s]);
-                Game::Lua::PushNumber(L, static_cast<double>(v.x));
-                Game::Lua::PushNumber(L, static_cast<double>(v.y));
-                Game::Lua::PushNumber(L, static_cast<double>(v.len));
-                return 4;
-            },
-            &unhandled);
+        AsInputEvent([&] {
+            Frame::ScriptArgs::RunSlot(
+                g_onStick.Slot(f), f,
+                [&](void *L) {
+                    Game::Lua::PushString(L, Names::kStick[s]);
+                    Game::Lua::PushNumber(L, static_cast<double>(v.x));
+                    Game::Lua::PushNumber(L, static_cast<double>(v.y));
+                    Game::Lua::PushNumber(L, static_cast<double>(v.len));
+                    return 4;
+                },
+                &unhandled);
+        });
         if (!unhandled && !Propagates(f))
             return;
     }

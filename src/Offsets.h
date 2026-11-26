@@ -4738,6 +4738,10 @@ enum Offsets {
     VTBL_BUTTON_CLICK = 0x94,
     VTBL_BUTTON_DOUBLE_CLICK = 0x98,
     VTBL_BUTTON_SET_STATE = 0x9C,
+    // 1 while CSimpleButton::OnMouseDown / OnMouseUp click (0x00779275..,
+    // 0x00779352..). Read only by IsButtonClickRunning 0x00779890, one of
+    // the three input-event tests of FUN_CURSOR_EDIT_ALLOWED (with the edit
+    // box Enter flag 0x00CF4DC4 and OFF_BINDING_MANAGER_EXECUTING).
     VAR_BUTTON_IN_CLICK = 0x00CF4DA0,
     // The click vmethod's callers that know 3.3.5's `down`, each a 6-byte
     // `FF 92 94 00 00 00` (call [edx+VTBL_BUTTON_CLICK]) with ECX = the button
@@ -15576,7 +15580,15 @@ enum Offsets {
     FUN_ACTIONBAR_SHOW_GRID = 0x004E58C0,
     VAR_CURSOR_SHOWS_ACTION_GRID = 0x00B4DA24,
     // `int __fastcall(int kind)` — the protected-action gate FUN_ACTION_PLACE
-    // opens with (kind 9). Returns 0 to refuse.
+    // opens with (kind 9). Returns 0 to refuse. Kind table (0x00494B54):
+    // under a nonzero VAR_FRAMESCRIPT_EXEC_CONTEXT, kinds 0 and 11 refuse
+    // with the FORBIDDEN error, kinds 2, 4 and 10 (2 = TryCastSpell
+    // 0x006E4BC1, BindSpellTargetObject) pass only during an input event,
+    // and the rest pass. Under context 0, kinds 0 and 11 need an input event.
+    // An input event: VAR_BUTTON_IN_CLICK, the edit box Enter flag
+    // 0x00CF4DC4 (EditBox OnKeyDown) or the binding manager's
+    // OFF_BINDING_MANAGER_EXECUTING. A refused input-event kind returns 0
+    // with no error (disassembled).
     FUN_CURSOR_EDIT_ALLOWED = 0x00494A50,
     // The frame manager's world input hook (`+0x1128`) — `uint __thiscall
     // (event *)`, plain RET. A right press (event id `+0x08` 0x400500C8,
