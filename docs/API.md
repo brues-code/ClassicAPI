@@ -1478,7 +1478,8 @@ build instructions.
   - [`UnitGUID(unit)`](#unitguidunit)
   - [`UnitTokenFromGUID(guid)`](#unittokenfromguidguid)
   - [`UnitTokenFromName(name [, exactMatch])`](#unittokenfromnamename--exactmatch)
-  - [`SetUnitCursorTexture(texture, unit [, style [, includeLowPriority]])`](#setunitcursortexturetexture-unit--style--includelowpriority)
+  - [`SetUnitCursorTexture(texture, unit [, style [, includeLowPriority [, preferGamepadIcon]]])`](#setunitcursortexturetexture-unit--style--includelowpriority--prefergamepadicon)
+  - [`SetPreferredGamepadInteractTarget([unit])`](#setpreferredgamepadinteracttargetunit)
   - [`UnitFactionGroup("player")` while addons load](#unitfactiongroupplayer-while-addons-load)
   - [`UnitLevel("player")` while addons load](#unitlevelplayer-while-addons-load)
   - [`UnitSubName(unit)`](#unitsubnameunit)
@@ -6389,7 +6390,7 @@ When you cannot use the NPC or the object, the cursor shows the gray form of
 the image. For example, this occurs when you are too far away.
 
 The soft-interact icon and
-[`SetUnitCursorTexture`](#setunitcursortexturetexture-unit--style--includelowpriority)
+[`SetUnitCursorTexture`](#setunitcursortexturetexture-unit--style--includelowpriority--prefergamepadicon)
 show the same images as the cursor. For a quest, they show no image.
 
 ```
@@ -31200,8 +31201,11 @@ shows neither. For the details, see the circles and the names of
 **The icon.** When `SoftTargetIconInteract` is `1`, an icon shows over the
 picked object. The icon is the cursor image that the mouse shows over the
 object (see
-[`SetUnitCursorTexture`](#setunitcursortexturetexture-unit--style--includelowpriority)).
-When you are too far away, the icon is the grey "Unable" form. When the
+[`SetUnitCursorTexture`](#setunitcursortexturetexture-unit--style--includelowpriority--prefergamepadicon)).
+When you are too far away, the icon is the grey "Unable" form. For the
+unit that
+[`SetPreferredGamepadInteractTarget`](#setpreferredgamepadinteracttargetunit)
+set, the icon is the gamepad interact icon. When the
 unit has a nameplate, the icon is on the nameplate. In all other cases,
 the icon is above the name of the unit, or above the top of a game object.
 A raid target marker over the unit replaces the icon. The icon is hidden
@@ -32601,7 +32605,7 @@ as the group changes, so resolve it again rather than storing it.
 
 *ClassicAPI extension.*
 
-### `SetUnitCursorTexture(texture, unit [, style [, includeLowPriority]])`
+### `SetUnitCursorTexture(texture, unit [, style [, includeLowPriority [, preferGamepadIcon]]])`
 
 Sets `texture` to the cursor image that the mouse shows when it is over the
 unit. For example: the speak bubble for an NPC with gossip, the mail icon
@@ -32615,6 +32619,10 @@ the image is the grey "Unable" form.
 - When `includeLowPriority` is `true`, the normal pointer also counts as an
   image. When you do not give it, the `SoftTargetLowPriorityIcons` cvar
   sets it.
+- When `preferGamepadIcon` is `true` and the unit is the one that
+  [`SetPreferredGamepadInteractTarget`](#setpreferredgamepadinteracttargetunit)
+  set, the texture shows the gamepad interact icon in place of the cursor
+  image.
 
 Returns `true` when it sets the texture. When the unit has no image, it
 returns `false` and clears the texture.
@@ -32633,6 +32641,38 @@ if SetUnitCursorTexture(icon, "softinteract") then
 else
     icon:Hide()
 end
+```
+
+### `SetPreferredGamepadInteractTarget([unit])`
+
+Sets the unit that your gamepad interact button acts on. That unit shows
+the gamepad interact icon in place of its cursor image: the left face
+button (X on an Xbox controller, the square on a PlayStation controller,
+Y on a Nintendo controller), in the label style of the active controller.
+
+The icon shows in two places:
+
+- the soft-interact icon over the unit (see
+  [Soft interact](#soft-interact-softinteract--anyinteract)), when the unit is the soft-interact
+  unit;
+- [`SetUnitCursorTexture`](#setunitcursortexturetexture-unit--style--includelowpriority--prefergamepadicon)
+  when you give `preferGamepadIcon` as `true`.
+
+`unit` is a unit token. The function keeps the unit that the token names
+at the time of the call, so call it again when the unit changes. Give
+`nil` to clear it. A `/reload` also clears it.
+
+```lua
+-- Show the gamepad icon over the soft-interact unit while it is in range.
+local f = CreateFrame("Frame")
+f:RegisterEvent("PLAYER_SOFT_INTERACT_CHANGED")
+f:SetScript("OnEvent", function()
+    if UnitIsInInteractRange("softinteract") then
+        SetPreferredGamepadInteractTarget("softinteract")
+    else
+        SetPreferredGamepadInteractTarget(nil)
+    end
+end)
 ```
 
 ### `UnitFactionGroup("player")` while addons load

@@ -41,8 +41,11 @@
 // FarDist from the camera when NearScale is above 1, and it pops in from half
 // size (the same steps as 3.80.2, below). SoftTargetIconGameObject is
 // registered as 3.80.2 registers it; nothing in its engine reads it.
+// The unit SetPreferredGamepadInteractTarget names shows the gamepad interact
+// glyph in place of its cursor image (camelot 1.60.1, Target::GamepadInteract).
 // Off screen (the projection fails) an icon hides.
 
+#include "Common.h"
 #include "Game.h"
 #include "Offsets.h"
 #include "cursor/Hover.h"
@@ -50,6 +53,7 @@
 #include "frame/Layout.h"
 #include "frame/Region.h"
 #include "object/Resolve.h"
+#include "target/GamepadInteract.h"
 #include "target/SoftInteract.h"
 #include "target/SoftUnit.h"
 #include "texture/Load.h"
@@ -223,12 +227,16 @@ void Show(Icon &icon, uint64_t guid, void *worldFrame) {
     }
     void *object = guid != 0 ? Object::ByGuid(kTypeMask, guid) : nullptr;
     char path[Offsets::CURSOR_FILE_SIZE];
+    const char *glyph = GamepadInteract::GlyphFor(guid);
     if (object == nullptr ||
-        !Cursor::Hover::ImagePath(object, Cursor::Hover::Mode(object),
-                                  CVar::Factory::GetInt(g_lowPriority) != 0, path, sizeof path)) {
+        (glyph == nullptr &&
+         !Cursor::Hover::ImagePath(object, Cursor::Hover::Mode(object),
+                                   CVar::Factory::GetInt(g_lowPriority) != 0, path, sizeof path))) {
         Hide(icon);
         return;
     }
+    if (glyph != nullptr)
+        Common::BoundedCopy(path, glyph, sizeof path);
     const bool isUnit = Object::ByGuid(Offsets::TYPEMASK_UNIT, guid) != nullptr;
     float screen[2];
     float size;

@@ -11,7 +11,8 @@
 // You should have received a copy of the GNU General Public License along with
 // ClassicAPI. If not, see <https://www.gnu.org/licenses/>.
 
-// `SetUnitCursorTexture(texture, unit [, style [, includeLowPriority]])` ->
+// `SetUnitCursorTexture(texture, unit [, style [, includeLowPriority [,
+// preferGamepadIcon]]])` ->
 // hasCursor — the modern C global Blizzard_NamePlates uses for the soft-target
 // icon: sets `texture` to the cursor image the world cursor would show over
 // the unit (speak bubble, mail, pickup, attack, …). The image and the
@@ -24,6 +25,10 @@
 // defaults to SoftTargetLowPriorityIcons. No image returns false and clears
 // the texture, as `texture:SetTexture(nil)` does.
 //
+// `preferGamepadIcon` (camelot 1.60.1): the unit SetPreferredGamepadInteractTarget
+// named gets the gamepad interact glyph instead (Target::GamepadInteract), and
+// the call returns true.
+//
 // Retail 12.x probe, a party member as softfriend:
 //   - SoftTargetLowPriorityIcons 1, no flag: true, the pointer image;
 //   - SoftTargetLowPriorityIcons 0, no flag: false, GetTexture() nil;
@@ -34,6 +39,7 @@
 #include "cursor/Hover.h"
 #include "cvar/Factory.h"
 #include "object/Resolve.h"
+#include "target/GamepadInteract.h"
 #include "texture/Load.h"
 #include "unit/Identity.h"
 
@@ -61,10 +67,17 @@ int __fastcall Script_SetUnitCursorTexture(void *L) {
         return 0;
     if (!Game::Lua::IsString(L, 2)) {
         Game::Lua::Error(L, "Usage: SetUnitCursorTexture(texture, unit[, style[, "
-                            "includeLowPriority]])");
+                            "includeLowPriority[, preferGamepadIcon]]])");
         return 0;
     }
     const uint64_t guid = Unit::Identity::GuidForToken(Game::Lua::ToString(L, 2));
+    if (Game::Lua::ToBoolean(L, 5) != 0) {
+        if (const char *glyph = Target::GamepadInteract::GlyphFor(guid)) {
+            Texture::SetFile(texture, glyph);
+            Game::Lua::PushBool(L, true);
+            return 1;
+        }
+    }
     void *object = guid ? Object::ByGuid(kTypeMask, guid) : nullptr;
     const bool lowPriority = Game::Lua::Type(L, 4) <= Game::Lua::TYPE_NIL
                                  ? CVar::Factory::GetInt(LowPriorityIcons()) != 0
@@ -85,6 +98,9 @@ const Game::Doc::Field kArgs[] = {
     Game::Doc::Opt("style", "CursorStyle", nullptr, "Has no effect."),
     Game::Doc::Opt("includeLowPriority", "bool", nullptr,
                    "Also counts the normal pointer. Defaults to SoftTargetLowPriorityIcons."),
+    Game::Doc::Opt("preferGamepadIcon", "bool", nullptr,
+                   "Shows the gamepad interact icon for the unit SetPreferredGamepadInteractTarget "
+                   "named."),
 };
 const Game::Doc::Field kRets[] = {
     Game::Doc::Req("hasCursor", "bool", "True when the texture was set; false clears it."),
