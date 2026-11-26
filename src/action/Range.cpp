@@ -36,12 +36,20 @@
 //
 // The function's one caller, Script_IsActionInRange, is redirected rather than
 // the function hooked.
+//
+// C_ActionBar.IsActionInRange(actionID [, target]) answers through Answer with
+// the target's GUID, which 3.80.2's core takes first (a given unit, else the
+// macro's, else none). Action::Extended's slots 121..360 take the same path;
+// where 1.12's slot function would run for one of them (no unit at all), its
+// body is mirrored on their spell: the range check against the selection (GUID
+// 0), then the implicit-target test with a target selected.
 
 #include "action/Range.h"
 
 #include "Common.h"
 #include "Game.h"
 #include "Offsets.h"
+#include "action/Extended.h"
 #include "action/Slot.h"
 #include "macro/ShowTooltip.h"
 #include "object/Resolve.h"
@@ -56,7 +64,6 @@ namespace Action::Range {
 namespace {
 
 using SlotRange_t = int(__fastcall *)(int slot0, int *inRange);
-using SlotToSpell_t = int(__fastcall *)(int slot0, uint32_t *outPetFlag);
 using CheckRange_t = uint8_t(__fastcall *)(const void *caster, const uint8_t *record,
                                            uint32_t guidLo, uint32_t guidHi, uint32_t report);
 
@@ -79,20 +86,10 @@ uint64_t MacroUnit(int slot0) {
     return info.unit;
 }
 
-int __fastcall SlotRange_h(int slot0, int *inRange) {
-    const auto original = reinterpret_cast<SlotRange_t>(Offsets::FUN_ACTION_SLOT_RANGE);
-    if (slot0 < 0 || slot0 >= Offsets::ACTION_TABLE_MAX_SLOTS)
-        return original(slot0, inRange);
-    uint32_t pet = 0;
-    const int spellID =
-        reinterpret_cast<SlotToSpell_t>(Offsets::FUN_ACTION_SLOT_TO_SPELL)(slot0, &pet);
-    const uint8_t *record = ::Spell::Lookup::RecordForID(spellID);
-    uint64_t unit = MacroUnit(slot0);
-    if (unit == 0 && pet == 0)
-        unit = Target::SoftCast::DefaultTarget(record);
-    if (unit == 0)
-        return original(slot0, inRange);
-
+// FUN_ACTION_SLOT_RANGE's body after its slot read: the range check of
+// `record` against `unit` (0 = the selection), then the implicit-target test,
+// which with no unit needs a target selected and with one needs it to exist.
+int CheckRecord(const uint8_t *record, uint32_t pet, uint64_t unit, int *inRange) {
     const uint8_t *player = Unit::Identity::PlayerObject();
     if (player == nullptr || record == nullptr || pet != 0)
         return 0;
@@ -103,10 +100,40 @@ int __fastcall SlotRange_h(int slot0, int *inRange) {
     }
     const int32_t implicitTarget =
         Game::Read<int32_t>(record, Offsets::OFF_SPELL_RECORD_EFFECT_IMPLICIT_TARGET_A);
-    if (!TakesUnitTarget(implicitTarget) || Object::ByGuid(Offsets::TYPEMASK_UNIT, unit) == nullptr)
+    if (!TakesUnitTarget(implicitTarget))
+        return 0;
+    const bool present = unit != 0
+                             ? Object::ByGuid(Offsets::TYPEMASK_UNIT, unit) != nullptr
+                             : Game::Read<uint64_t>(Offsets::VAR_CURRENT_SELECTION_GUID_LO) != 0;
+    if (!present)
         return 0;
     *inRange = 1;
     return 1;
+}
+
+int Core(int slot0, uint64_t given, int *inRange) {
+    const bool engineSlot = slot0 >= 0 && slot0 < Offsets::ACTION_TABLE_MAX_SLOTS;
+    const auto original = reinterpret_cast<SlotRange_t>(Offsets::FUN_ACTION_SLOT_RANGE);
+    if (!engineSlot && !Action::Extended::Owns(slot0))
+        return 0;
+    uint32_t pet = 0;
+    const uint32_t spellID = Action::Slot::SpellFor(slot0, &pet);
+    const uint8_t *record = static_cast<int>(spellID) > 0
+                                ? ::Spell::Lookup::RecordForID(static_cast<int>(spellID))
+                                : nullptr;
+    uint64_t unit = given != 0 ? given : MacroUnit(slot0);
+    if (unit == 0 && pet == 0)
+        unit = Target::SoftCast::DefaultTarget(record);
+    if (unit == 0 && engineSlot)
+        return original(slot0, inRange);
+    return CheckRecord(record, pet, unit, inRange);
+}
+
+// The global IsActionInRange stays 1.12's: slots past 120 get its own nil.
+int __fastcall SlotRange_h(int slot0, int *inRange) {
+    if (slot0 < 0 || slot0 >= Offsets::ACTION_TABLE_MAX_SLOTS)
+        return reinterpret_cast<SlotRange_t>(Offsets::FUN_ACTION_SLOT_RANGE)(slot0, inRange);
+    return Core(slot0, 0, inRange);
 }
 
 void Register() {
@@ -119,6 +146,6 @@ const Game::ModuleAutoRegister _autoreg{&Register};
 
 } // namespace
 
-int Answer(int slot0, int *inRange) { return SlotRange_h(slot0, inRange); }
+int Answer(int slot0, uint64_t unit, int *inRange) { return Core(slot0, unit, inRange); }
 
 } // namespace Action::Range

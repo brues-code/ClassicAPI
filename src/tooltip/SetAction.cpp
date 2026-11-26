@@ -42,6 +42,9 @@
 //     equipped / in-bags counts move while the pointer rests.
 //   - Refresh: truthy when the builder wants another pass (a ticking cooldown)
 //     or the directive is conditional — see `PushRefresh`.
+//   - Slots 121..360 (Action::Extended): everything above applies, and where
+//     the engine function would run, its branches run on our word instead
+//     (`ShowOurs`), since the engine reads VAR_ACTION_TABLE unbounded.
 
 #include "Game.h"
 #include "Offsets.h"
@@ -52,8 +55,13 @@
 #include "item/Arg.h"
 #include "item/Location.h"
 #include "macro/ShowTooltip.h"
+#include "action/Extended.h"
+#include "action/ExtendedState.h"
+#include "item/Record.h"
+#include "object/Resolve.h"
 #include "spell/Lookup.h"
 #include "time/Clock.h"
+#include "unit/Identity.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -62,7 +70,7 @@ namespace Tooltip::SetAction {
 
 namespace {
 
-using SlotCooldown_t = void(__fastcall *)(uint32_t slot0, int *start, int *duration,
+using SlotCooldown_t = void(__fastcall *)(uint32_t slot0, uint32_t *start, uint32_t *duration,
                                           uint32_t *enable);
 using TooltipClear_t = void(__thiscall *)(void *tooltip);
 using BuildSpellTooltip_t = int(__thiscall *)(void *tooltip, int spellID, int brief,
@@ -79,24 +87,136 @@ int PushRefresh(void *L, bool refresh) {
     return 1;
 }
 
-int ShowSpell(void *L, void *tooltip, int slot0, int spellID, bool conditional) {
-    int start = 0, duration = 0;
-    uint32_t enable = 0;
-    reinterpret_cast<SlotCooldown_t>(Offsets::FUN_ACTION_SLOT_COOLDOWN)(
-        static_cast<uint32_t>(slot0), &start, &duration, &enable);
+// The slot's cooldown, as the engine's SetAction reads it first: 1..120
+// FUN_ACTION_SLOT_COOLDOWN, Action::Extended's slots its mirror. A macro
+// slot's is its cached primary spell's.
+struct SlotCooldown {
+    uint32_t startMs = 0;
+    uint32_t durationMs = 0;
+    bool enabled = false;
+    bool Running() const { return enabled && startMs != 0 && durationMs != 0; }
+    int RemainingMs() const {
+        return Running() ? static_cast<int>(Time::Clock::Remaining(Time::Clock::NowMs(),
+                                                                    startMs + durationMs))
+                         : 0;
+    }
+};
+
+SlotCooldown CooldownOf(int slot0) {
+    SlotCooldown cd;
+    if (slot0 >= 0 && slot0 < Offsets::ACTION_TABLE_MAX_SLOTS) {
+        uint32_t enable = 0;
+        reinterpret_cast<SlotCooldown_t>(Offsets::FUN_ACTION_SLOT_COOLDOWN)(
+            static_cast<uint32_t>(slot0), &cd.startMs, &cd.durationMs, &enable);
+        cd.enabled = enable != 0;
+    } else {
+        const Action::ExtendedState::Cooldown ours =
+            Action::ExtendedState::CooldownFor(Action::Extended::Get(slot0));
+        cd.startMs = ours.startMs;
+        cd.durationMs = ours.durationMs;
+        cd.enabled = ours.enabled;
+    }
+    return cd;
+}
+
+// The engine shows the brief form unless the UberTooltips cvar is on.
+int Brief() { return CVar::Factory::GetInt(CVar::Factory::Find("UberTooltips"), 0) != 0 ? 0 : 1; }
+
+// The spell branch (0x00532618..0x0053268B): with the cooldown running the
+// builder gets the ms left and its result decides the refresh; without one it
+// gets 0 and the answer is nil.
+int ShowSpell(void *L, void *tooltip, const SlotCooldown &cd, int spellID, bool conditional) {
+    reinterpret_cast<TooltipClear_t>(Offsets::FUN_GAMETOOLTIP_CLEAR)(tooltip);
+    const int built = reinterpret_cast<BuildSpellTooltip_t>(
+        Offsets::FUN_GAMETOOLTIP_BUILD_SPELL_TOOLTIP)(tooltip, spellID, Brief(), cd.RemainingMs(), 0,
+                                                       1, 0, 0);
+    return PushRefresh(L, (cd.Running() && built != 0) || conditional);
+}
+
+// Script_GameTooltip_SetAction (0x005322A0) for one of Action::Extended's
+// slots, branch for branch with its word (disassembled):
+//   cooldown, clear; attack: the ATTACK global string as the one line, nil;
+//   empty: nil; item carried (FUN_INVMGR_FIND_ITEM_BY_ID, flags 0): clear the
+//   item fields, cooldown ms left, the charge total for a charged template,
+//   FUN_GAMETOOLTIP_BUILD_ITEM(entry, &guid, &guid, 0, 0, 1, 0, 0, 0), refresh
+//   from its result; item not carried: BUILD_ITEM with no GUID, nil; macro:
+//   FUN_GAMETOOLTIP_SET_MACRO, nil; spell: ShowSpell.
+// The ATTACK line is set through SetText, the clear + one line + Show the
+// engine's attack branch runs.
+int ShowOurs(void *L, int slot0) {
+    using SetMacro_t = void(__thiscall *)(void *tooltip, uint32_t macroID);
+    using ClearItemFields_t = void(__thiscall *)(void *fields);
+    using FindItem_t = const uint8_t *(__thiscall *)(const void *invMgr, uint32_t itemID,
+                                                     uint32_t flags);
+    using CountCharges_t = int(__thiscall *)(const void *invMgr, uint32_t itemID, uint32_t flags);
+    using BuildItem_t = int(__thiscall *)(void *tooltip, uint32_t itemID, const void *guid,
+                                          const void *guid2, int a4, int a5, int a6, int headerFlag,
+                                          int a8, int a9);
+
+    void *tooltip = Game::Lua::ResolveTooltip(L);
+    if (tooltip == nullptr)
+        return 0;
+    const uint32_t word = Action::Extended::Get(slot0);
+    const SlotCooldown cd = CooldownOf(slot0);
     reinterpret_cast<TooltipClear_t>(Offsets::FUN_GAMETOOLTIP_CLEAR)(tooltip);
 
-    // The engine shows the brief form unless the UberTooltips cvar is on.
-    const int brief =
-        CVar::Factory::GetInt(CVar::Factory::Find("UberTooltips"), 0) != 0 ? 0 : 1;
-    int remaining = 0;
-    if (enable != 0 && start != 0 && duration != 0) {
-        remaining = static_cast<int>(Time::Clock::Remaining(
-            Time::Clock::NowMs(), static_cast<uint32_t>(start) + static_cast<uint32_t>(duration)));
+    if (Action::ExtendedState::IsAttack(word)) {
+        Game::Lua::SetTop(L, 1); // keep self at stack[1]
+        Game::Lua::PushString(L, Game::Lua::GlobalText("ATTACK"));
+        Game::Lua::CallScript(Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_TEXT, L);
+        return PushRefresh(L, false);
     }
-    const int built = reinterpret_cast<BuildSpellTooltip_t>(
-        Offsets::FUN_GAMETOOLTIP_BUILD_SPELL_TOOLTIP)(tooltip, spellID, brief, remaining, 0, 1, 0, 0);
-    return PushRefresh(L, built != 0 || conditional);
+    if (word == 0)
+        return PushRefresh(L, false);
+
+    const uint32_t tag = word & Offsets::ACTION_TYPE_MASK;
+    if (tag == Offsets::ACTION_TYPE_ITEM_BY_ID) {
+        const uint32_t itemID = word & Offsets::ACTION_PAYLOAD_MASK_ITEM_BY_ID;
+        const auto build = reinterpret_cast<BuildItem_t>(Offsets::FUN_GAMETOOLTIP_BUILD_ITEM);
+        const uint8_t *invMgr =
+            Unit::Identity::PlayerObject() != nullptr ? Unit::Identity::PlayerInventoryManager()
+                                                      : nullptr;
+        const uint8_t *item =
+            invMgr != nullptr
+                ? reinterpret_cast<FindItem_t>(Offsets::FUN_INVMGR_FIND_ITEM_BY_ID)(invMgr, itemID, 0)
+                : nullptr;
+        if (item == nullptr) {
+            const uint64_t none = 0;
+            build(tooltip, itemID, &none, &none, 0, 0, 0, 0, 0, 0);
+            return PushRefresh(L, false);
+        }
+        uint8_t *fields = static_cast<uint8_t *>(tooltip) + Offsets::OFF_GAMETOOLTIP_ITEM_FIELDS;
+        reinterpret_cast<ClearItemFields_t>(Offsets::FUN_GAMETOOLTIP_CLEAR_ITEM_FIELDS)(fields);
+        Game::Ref<uint32_t>(tooltip, Offsets::OFF_GAMETOOLTIP_ITEM_COOLDOWN_MS) =
+            static_cast<uint32_t>(cd.RemainingMs());
+        if (const uint8_t *record = Item::PeekRecord(itemID)) {
+            const int32_t charges = Game::Read<int32_t>(record, Offsets::OFF_ITEMSTATS_SPELL_CHARGES);
+            if (charges != -1 && charges != 0)
+                Game::Ref<int32_t>(tooltip, Offsets::OFF_GAMETOOLTIP_ITEM_CHARGES) =
+                    reinterpret_cast<CountCharges_t>(Offsets::FUN_INVMGR_COUNT_CHARGES_BY_ID)(
+                        invMgr, itemID, 0);
+        }
+        const uint64_t guid = ::Object::Guid(item);
+        const int built = build(tooltip, ::Object::Entry(item), &guid, &guid, 0, 0, 1, 0, 0, 0);
+        return PushRefresh(L, built != 0);
+    }
+    if (tag == Offsets::ACTION_TYPE_BAG_OR_MACRO) {
+        reinterpret_cast<SetMacro_t>(Offsets::FUN_GAMETOOLTIP_SET_MACRO)(
+            tooltip, word & Offsets::ACTION_PAYLOAD_MASK_BAG_OR_MACRO);
+        return PushRefresh(L, false);
+    }
+    if (tag != Offsets::ACTION_TYPE_SPELL)
+        return PushRefresh(L, false);
+    uint32_t book = 0;
+    return ShowSpell(L, tooltip, cd, static_cast<int>(Action::Extended::SpellFor(word, &book)),
+                     false);
+}
+
+// The engine's SetAction for its slots (and its own errors), ours for 121..360.
+int Default(void *L, int slot0) {
+    if (Action::Extended::Owns(slot0))
+        return ShowOurs(L, slot0);
+    return Game::Lua::CallScript(Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_ACTION, L);
 }
 
 // `#show` is icon-only: the tooltip stays the macro's own name. We build that
@@ -162,15 +282,15 @@ int __fastcall Script_SetAction(void *L) {
 
     Macro::ShowTooltip::Info info;
     if (!Macro::ShowTooltip::ForSlot(slot0, &info))
-        return Game::Lua::CallScript(Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_ACTION, L);
+        return Default(L, slot0);
 
     if (info.kind == Macro::ShowTooltip::Kind::Show) {
         if (const char *name = Macro::ShowTooltip::MacroNameForSlot(slot0))
             return ShowMacroName(L, name);
-        return Game::Lua::CallScript(Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_ACTION, L);
+        return Default(L, slot0);
     }
     if (info.kind != Macro::ShowTooltip::Kind::ShowTooltip)
-        return Game::Lua::CallScript(Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_ACTION, L);
+        return Default(L, slot0);
 
     if (info.target == Macro::ShowTooltip::Target::Spell) {
         // A spellID with no `Spell.dbc` row builds nothing at all, which would
@@ -180,12 +300,13 @@ int __fastcall Script_SetAction(void *L) {
         void *tooltip = Game::Lua::ResolveTooltip(L);
         if (tooltip == nullptr ||
             ::Spell::Lookup::RecordForID(static_cast<int>(info.spellID)) == nullptr)
-            return Game::Lua::CallScript(Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_ACTION, L);
-        return ShowSpell(L, tooltip, slot0, static_cast<int>(info.spellID), info.conditional);
+            return Default(L, slot0);
+        return ShowSpell(L, tooltip, CooldownOf(slot0), static_cast<int>(info.spellID),
+                         info.conditional);
     }
     if (info.target == Macro::ShowTooltip::Target::Item)
         return ShowItem(L, info.itemID, info.conditional);
-    return Game::Lua::CallScript(Offsets::FUN_SCRIPT_GAMETOOLTIP_SET_ACTION, L);
+    return Default(L, slot0);
 }
 
 const Game::Lua::FrameMethodEntry g_methods[] = {
@@ -194,7 +315,8 @@ const Game::Lua::FrameMethodEntry g_methods[] = {
 
 const Game::Doc::Field kSetActionArgs[] = {
     Game::Doc::Req("slot", "luaIndex",
-                   "For a macro with #showtooltip, the tooltip shows the spell or item it names."),
+                   "The action slot, 1 to 360. For a macro with #showtooltip, the tooltip shows "
+                   "the spell or item it names."),
 };
 const Game::Doc::Field kSetActionRets[] = {
     Game::Doc::Opt("refresh", "number", nullptr,

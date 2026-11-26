@@ -26,11 +26,13 @@
 // each button leaves. Retail's buttons never call IsActionInRange; they take
 // their first state from this event. So each enable makes the slot's next
 // check fire, changed or not. A new Lua state (`/reload`) starts with no slot
-// enabled.
+// enabled. Action::Extended's slots 121..360 are checked the same way.
 
 #include "Game.h"
 #include "Offsets.h"
+#include "action/Extended.h"
 #include "action/Range.h"
+#include "action/Slot.h"
 #include "event/Custom.h"
 #include "tick/WorldTick.h"
 
@@ -48,7 +50,7 @@ struct Slot {
     State last = State::NoCheck;
 };
 
-Slot g_slots[Offsets::ACTION_TABLE_MAX_SLOTS];
+Slot g_slots[Action::Extended::kEndSlot0];
 
 const Game::Doc::Field kPayload[] = {
     Game::Doc::Req("slot", "luaIndex"),
@@ -67,7 +69,7 @@ const Event::Custom::AutoReserve kEvent{"ACTION_RANGE_CHECK_UPDATE", &kDoc};
 
 State Evaluate(int slot0) {
     int inRange = 0;
-    if (Action::Range::Answer(slot0, &inRange) == 0)
+    if (Action::Range::Answer(slot0, 0, &inRange) == 0)
         return State::NoCheck;
     return inRange != 0 ? State::InRange : State::OutOfRange;
 }
@@ -80,7 +82,7 @@ void OnWorldTick() {
     if (L == nullptr)
         return;
     const int top = Game::Lua::GetTop(L);
-    for (int slot0 = 0; slot0 < Offsets::ACTION_TABLE_MAX_SLOTS; ++slot0) {
+    for (int slot0 = 0; slot0 < Action::Extended::kEndSlot0; ++slot0) {
         Slot &slot = g_slots[slot0];
         if (slot.refs == 0)
             continue;
@@ -107,7 +109,7 @@ int __fastcall Script_EnableActionRangeCheck(void *L) {
         return 0;
     }
     const int slot0 = static_cast<int>(Game::Lua::ToNumber(L, 1)) - 1;
-    if (slot0 < 0 || slot0 >= Offsets::ACTION_TABLE_MAX_SLOTS)
+    if (!Action::Slot::Valid(slot0))
         return 0;
     Slot &slot = g_slots[slot0];
     if (Game::Lua::ToBoolean(L, 2) != 0) {

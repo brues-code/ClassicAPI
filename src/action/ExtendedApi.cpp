@@ -27,13 +27,17 @@
 //     1..120 ask the engine (FUN_ACTION_SLOT_HAS_CONTENT, the test behind
 //     HasAction; FUN_ACTION_SLOT_TEXTURE, behind GetActionTexture, which
 //     EquipmentSet::Action's hook extends), 121..360 our store with the same
-//     rules. Retail answers a fileID; this answers the texture path.
+//     rules. Retail answers a fileID; this answers the texture path. A slot
+//     outside 1..360 returns nothing, as 3.80.2's slot reads do. The other
+//     reads are Action::BarReads.
 
 #include "Game.h"
 #include "Offsets.h"
 #include "action/Extended.h"
 #include "action/ExtendedDrag.h"
+#include "action/ExtendedState.h"
 #include "action/ExtendedUse.h"
+#include "equipmentset/Action.h"
 #include "item/Data.h"
 #include "spell/Lookup.h"
 
@@ -52,27 +56,24 @@ using MacroIconPath_t = void(__fastcall *)(uint32_t macroID, char *out, uint32_t
 
 char g_texture[0x104]; // the engine's own texture buffer size (0x004E6B5D)
 
-// GetActionSlotTexture (0x004E6A50) for a word of ours, in its branch order:
-// attack → ranged auto-repeat → item → spell → macro. The attack and ranged
-// tests (0x004E59B0 / 0x004E5A00) read the word's resolved spell, so a macro
-// whose spell is Attack shows the weapon too.
+// GetActionSlotTexture (0x004E6A50) for a word of ours, in its branch order
+// behind EquipmentSet::Action's co-hook: set → attack → ranged auto-repeat →
+// item → spell → macro. The attack and ranged tests (0x004E59B0 / 0x004E5A00)
+// read the word's resolved spell, so a macro whose spell is Attack shows the
+// weapon too.
 const char *Texture(uint32_t word) {
     if (word == 0)
         return nullptr;
+    if (const uint32_t setID = EquipmentSet::Action::WordSetID(word))
+        return EquipmentSet::Action::Texture(setID);
     uint32_t book = 0;
     const uint32_t spell = Extended::SpellFor(word, &book);
-    if (const uint8_t *record = ::Spell::Lookup::RecordForID(static_cast<int>(spell))) {
-        if (Game::Read<int32_t>(record, Offsets::OFF_SPELL_RECORD_EFFECT) ==
-            Offsets::SPELL_EFFECT_ATTACK)
-            return reinterpret_cast<WeaponIconPath_t>(Offsets::FUN_ATTACK_ICON_PATH)();
-        if ((Game::Read<uint32_t>(record, Offsets::OFF_SPELL_RECORD_ATTRIBUTES) &
-             Offsets::SPELL_ATTR_RANGED) != 0 &&
-            (Game::Read<uint32_t>(record, Offsets::OFF_SPELL_RECORD_ATTRIBUTES_EX2) &
-             Offsets::SPELL_ATTR_EX2_AUTOREPEAT_FLAG) != 0) {
-            const char *ranged = reinterpret_cast<WeaponIconPath_t>(Offsets::FUN_RANGED_ICON_PATH)();
-            if (ranged != nullptr && ranged[0] != '\0')
-                return ranged;
-        }
+    if (ExtendedState::IsAttack(word))
+        return reinterpret_cast<WeaponIconPath_t>(Offsets::FUN_ATTACK_ICON_PATH)();
+    if (ExtendedState::IsRangedRepeat(word)) {
+        const char *ranged = reinterpret_cast<WeaponIconPath_t>(Offsets::FUN_RANGED_ICON_PATH)();
+        if (ranged != nullptr && ranged[0] != '\0')
+            return ranged;
     }
 
     const uint32_t tag = word & Offsets::ACTION_TYPE_MASK;
@@ -139,15 +140,15 @@ int __fastcall Script_UseAction(void *L) {
 }
 
 // The 0-based slot of stack[1] for the C_ActionBar reads; false after the
-// usage error when it is not a number.
+// usage error when it is not a number, and false (nothing returned) for a
+// number naming no slot.
 bool ActionArg(void *L, const char *usage, int *slot0) {
     if (!Game::Lua::IsNumber(L, 1)) {
         Game::Lua::Error(L, usage);
         return false;
     }
-    if (!Extended::SlotArg(L, 1, slot0))
-        *slot0 = static_cast<int>(Game::Lua::ToNumber(L, 1)) - 1;
-    return true;
+    *slot0 = static_cast<int>(Game::Lua::ToNumber(L, 1)) - 1;
+    return (*slot0 >= 0 && *slot0 < Offsets::ACTION_TABLE_MAX_SLOTS) || Extended::Owns(*slot0);
 }
 
 int __fastcall Script_HasAction(void *L) {
@@ -155,10 +156,10 @@ int __fastcall Script_HasAction(void *L) {
     if (!ActionArg(L, "Usage: C_ActionBar.HasAction(actionID)", &slot0))
         return 0;
     bool has = false;
-    if (slot0 >= 0 && slot0 < Offsets::ACTION_TABLE_MAX_SLOTS)
+    if (slot0 < Offsets::ACTION_TABLE_MAX_SLOTS)
         has = reinterpret_cast<HasContent_t>(Offsets::FUN_ACTION_SLOT_HAS_CONTENT)(
             static_cast<uint32_t>(slot0));
-    else if (Extended::Owns(slot0))
+    else
         has = HasContent(Extended::Get(slot0));
     Game::Lua::PushBool(L, has);
     return 1;
@@ -169,10 +170,10 @@ int __fastcall Script_GetActionTexture(void *L) {
     if (!ActionArg(L, "Usage: C_ActionBar.GetActionTexture(actionID)", &slot0))
         return 0;
     const char *path = nullptr;
-    if (slot0 >= 0 && slot0 < Offsets::ACTION_TABLE_MAX_SLOTS)
+    if (slot0 < Offsets::ACTION_TABLE_MAX_SLOTS)
         path = reinterpret_cast<SlotTexture_t>(Offsets::FUN_ACTION_SLOT_TEXTURE)(
             static_cast<uint32_t>(slot0));
-    else if (Extended::Owns(slot0))
+    else
         path = Texture(Extended::Get(slot0));
     if (path != nullptr)
         Game::Lua::PushString(L, path);
@@ -209,14 +210,15 @@ const Game::Doc::Field kActionIDArgs[] = {
     Game::Doc::Req("actionID", "luaIndex"),
 };
 const Game::Doc::Field kHasActionRets[] = {
-    Game::Doc::Req("hasAction", "bool"),
+    Game::Doc::Opt("hasAction", "bool", nullptr, "Nothing for a slot outside 1 to 360."),
 };
 const Game::Doc::Function kHasAction{"Returns whether an action slot holds an action.",
                                      kActionIDArgs, kHasActionRets};
 
 const Game::Doc::Field kGetActionTextureRets[] = {
     Game::Doc::Opt("textureFileID", "string", nullptr,
-                   "The icon's texture path; nil for an empty slot."),
+                   "The icon's texture path; nil for an empty slot, nothing for a slot outside "
+                   "1 to 360."),
 };
 const Game::Doc::Function kGetActionTexture{"Returns the icon of the action in a slot.",
                                             kActionIDArgs, kGetActionTextureRets};

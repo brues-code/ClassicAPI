@@ -34,4 +34,16 @@ bool Query(int spellID, uint32_t *startMs, uint32_t *durationMs,
 bool Query(int spellID, bool pet, uint32_t *startMs, uint32_t *durationMs,
            bool *enabled);
 
+// Whether a reported cooldown came from the history's global leg (the
+// SpellCooldownInfo `isOnGCD` field): a live global leg of the spell's
+// StartRecoveryCategory carrying exactly that start and duration.
+bool ReportsGlobalCooldown(int spellID, bool pet, uint32_t startMs, uint32_t durationMs);
+
+// Pushes a SpellCooldownInfo table: startTime / duration in GetTime()
+// seconds, isEnabled, isActive (enabled with a start and a duration, as
+// 3.80.2's builder FUN_1417fb4a0 sets it), modRate 1, and isOnGCD when
+// `isOnGCD` is not null (3.80.2 leaves it nil when no category decided the
+// duration). activeCategory / timeUntilEndOfStartRecovery stay nil.
+void PushInfo(void *L, uint32_t startMs, uint32_t durationMs, bool enabled, const bool *isOnGCD);
+
 } // namespace Spell::Cooldown

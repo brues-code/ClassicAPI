@@ -14,11 +14,14 @@
 
 #pragma once
 
+#include <cstdint>
+
 namespace Action::Range {
 
-// IsActionInRange's answer for a slot (0-based, 0..119): 0 when it has none
-// (IsActionInRange's nil), else 1 with `*inRange` 0 or 1. A macro aimed at a
-// unit is checked against that unit.
-int Answer(int slot0, int *inRange);
+// IsActionInRange's answer for a slot (0-based, the engine's 0..119 and
+// Action::Extended's 120..359): 0 when it has none (nil), else 1 with
+// `*inRange` 0 or 1. `unit` is the GUID to check against; 0 takes the
+// macro's unit, then the soft default target, then the selection.
+int Answer(int slot0, uint64_t unit, int *inRange);
 
 } // namespace Action::Range

@@ -13,7 +13,15 @@
 
 #pragma once
 
+#include <cstdint>
+
 namespace Item::Cooldown {
+
+// The engine's item cooldown query (FUN_ITEM_QUERY_COOLDOWN): start tick and
+// duration in engine ms (GetTime() epoch, unsigned — see Time::Clock), and
+// the enable flag (0 while the cooldown waits to start). All 0 for
+// `itemID <= 0`.
+void Query(int itemID, uint32_t *startMs, uint32_t *durationMs, uint32_t *enable);
 
 // Pushes `(startTime, duration, enable)` onto `L` as three numbers —
 // matching the shape of vanilla's existing `GetContainerItemCooldown` /

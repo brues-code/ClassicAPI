@@ -44,6 +44,7 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "action/Slot.h"
 #include "duration/Object.h"
 #include "spell/Arg.h"
 #include "spell/Cooldown.h"
@@ -126,22 +127,18 @@ void PushDuration(void *L, int spellID) {
 }
 
 // The spell of an action slot (FUN_ACTION_SLOT_TO_SPELL, every action
-// reader's resolver), 0 for a pet spell, as 3.80.2 answers 0 for one; false
-// for a slot outside 1..120.
-using SlotToSpell_t = uint32_t(__fastcall *)(uint32_t slot0, uint32_t *outPetFlag);
-
+// reader's resolver; Action::Extended's for slots 121..360), 0 for a pet
+// spell, as 3.80.2 answers 0 for one; false for a slot outside 1..360.
 bool ActionSpell(void *L, const char *usage, int &spellID) {
     if (!Game::Lua::IsNumber(L, 1)) {
         Game::Lua::ArgError(L, 1, usage);
         return false;
     }
     const int slot0 = static_cast<int>(Game::Lua::ToNumber(L, 1)) - 1;
-    if (slot0 < 0 || slot0 >= Offsets::ACTION_TABLE_MAX_SLOTS)
+    if (!Action::Slot::Valid(slot0))
         return false;
     uint32_t pet = 0;
-    const uint32_t id = reinterpret_cast<SlotToSpell_t>(
-        static_cast<uintptr_t>(Offsets::FUN_ACTION_SLOT_TO_SPELL))(static_cast<uint32_t>(slot0),
-                                                                   &pet);
+    const uint32_t id = Action::Slot::SpellFor(slot0, &pet);
     spellID = pet != 0 ? 0 : static_cast<int>(id);
     return true;
 }
@@ -302,18 +299,18 @@ const Game::Doc::Function kGetSpellLossOfControlCooldownDuration{
     kSpellDurationRets};
 
 const Game::Doc::Field kActionArgs[] = {
-    Game::Doc::Req("actionID", "luaIndex", "The action slot, 1 to 120."),
+    Game::Doc::Req("actionID", "luaIndex", "The action slot, 1 to 360."),
 };
 const Game::Doc::Field kActionInfoRets[] = {
     Game::Doc::Opt("lossOfControlInfo", "SpellLossOfControlInfo", nullptr,
-                   "Nothing for a slot outside 1 to 120."),
+                   "Nothing for a slot outside 1 to 360."),
 };
 const Game::Doc::Function kGetActionLossOfControlCooldownInfo{
     "Returns the loss-of-control effect that blocks an action's spell, as a cooldown.",
     kActionArgs, kActionInfoRets};
 const Game::Doc::Field kActionDurationRets[] = {
     Game::Doc::Opt("duration", "LuaDurationObject", nullptr,
-                   "Nothing for a slot outside 1 to 120."),
+                   "Nothing for a slot outside 1 to 360."),
 };
 const Game::Doc::Function kGetActionLossOfControlCooldownDuration{
     "Returns the loss-of-control effect that blocks an action's spell as a duration object.",

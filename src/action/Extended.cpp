@@ -17,7 +17,9 @@
 // (Settings::Paths::CharacterFile), one `<slot> 0x<word>` line per filled
 // slot, rewritten whole through Os::File::Write (temp file + replace) on every
 // change. A line whose slot is outside 121..360, or whose word is empty or not
-// a spell / macro / item word, is dropped on load.
+// a spell / macro / item / equipment-set word, is dropped on load, and so is a
+// set word whose set no longer exists — EquipmentSet drops a deleted set's
+// buttons the same way (Data keeps the placement with the set).
 //
 // Loading. The path is resolved on the first read once the account, realm and
 // character are known, and on world entry (Event::EnteringWorld). Lua can ask
@@ -26,14 +28,17 @@
 // handlers), which is why every read resolves it too. The glue pass forgets
 // it: the DLL is not reloaded across logout, and a character switch always
 // passes through the glue screen, so the next character resolves its own file.
+// After a load every slot gets its count and usable pair, as the engine's
+// enter-world loop stores each server word quietly (ExtendedState::Reload).
 
 #include "action/Extended.h"
 
 #include "Game.h"
 #include "Offsets.h"
+#include "action/ExtendedState.h"
 #include "action/Slot.h"
 #include "aura/Data.h"
-#include "event/Custom.h"
+#include "equipmentset/Data.h"
 #include "event/EnteringWorld.h"
 #include "item/Data.h"
 #include "object/Resolve.h"
@@ -60,6 +65,9 @@ uint32_t g_slots[kCount];
 
 bool StorableWord(uint32_t word) {
     const uint32_t tag = word & Offsets::ACTION_TYPE_MASK;
+    if (tag == Offsets::ACTION_TYPE_EQUIPMENT_SET)
+        return EquipmentSet::Data::FindByID(word & ~static_cast<uint32_t>(
+                                                       Offsets::ACTION_TYPE_EQUIPMENT_SET)) != nullptr;
     return word != 0 && (tag == Offsets::ACTION_TYPE_SPELL ||
                          tag == Offsets::ACTION_TYPE_BAG_OR_MACRO ||
                          tag == Offsets::ACTION_TYPE_ITEM_BY_ID);
@@ -100,8 +108,10 @@ void Resolve() {
     if (!g_path.empty())
         return;
     g_path = Settings::Paths::CharacterFile(kLeaf);
-    if (!g_path.empty())
-        Load();
+    if (g_path.empty())
+        return;
+    Load();
+    ExtendedState::Reload();
 }
 
 void Forget() {
@@ -129,6 +139,8 @@ bool Ready() {
     return !g_path.empty();
 }
 
+bool Loaded() { return !g_path.empty(); }
+
 uint32_t Get(int slot0) {
     if (!Owns(slot0) || !Ready())
         return 0;
@@ -140,11 +152,7 @@ void Set(int slot0, uint32_t word) {
         return;
     g_slots[slot0 - kFirstSlot0] = word;
     Save();
-    // FUN_ACTION_SLOT_CHANGED_NOTIFY's `quiet == 0` tail:
-    // FUN_FIRE_EVENT(0xD5, "%d", slot0 + 1) (0x004E5998). Its usable / noMana
-    // recompute and the CMSG_SET_ACTION_BUTTON branch are for its own 120
-    // slots.
-    Event::Custom::Fire(Offsets::EVENT_ACTIONBAR_SLOT_CHANGED, "%d", slot0 + 1);
+    ExtendedState::Stored(slot0);
 }
 
 uint32_t LiveMacroID(uint32_t word) {

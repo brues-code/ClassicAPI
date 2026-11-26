@@ -14,9 +14,34 @@
 #include "action/Slot.h"
 
 #include "Offsets.h"
+#include "action/Extended.h"
 #include "macro/Slot.h"
 
 namespace Action::Slot {
+
+namespace {
+
+using SlotToSpell_t = uint32_t(__fastcall *)(uint32_t slot0, uint32_t *outBook);
+
+} // namespace
+
+bool Valid(int slot0) {
+    return (slot0 >= 0 && slot0 < Offsets::ACTION_TABLE_MAX_SLOTS) || Extended::Owns(slot0);
+}
+
+uint32_t Word(int slot0) {
+    if (slot0 >= 0 && slot0 < Offsets::ACTION_TABLE_MAX_SLOTS)
+        return reinterpret_cast<const uint32_t *>(
+            static_cast<uintptr_t>(Offsets::VAR_ACTION_TABLE))[slot0];
+    return Extended::Get(slot0);
+}
+
+uint32_t SpellFor(int slot0, uint32_t *book) {
+    if (slot0 >= 0 && slot0 < Offsets::ACTION_TABLE_MAX_SLOTS)
+        return reinterpret_cast<SlotToSpell_t>(Offsets::FUN_ACTION_SLOT_TO_SPELL)(
+            static_cast<uint32_t>(slot0), book);
+    return Extended::SpellFor(Extended::Get(slot0), book);
+}
 
 int MacroSlotForID(uint32_t macroID) {
     if (macroID == 0)
@@ -27,11 +52,7 @@ int MacroSlotForID(uint32_t macroID) {
 }
 
 uint32_t MacroIDForSlot(int slot0) {
-    if (slot0 < 0 || slot0 >= Offsets::ACTION_TABLE_MAX_SLOTS)
-        return 0;
-    auto *table = reinterpret_cast<const uint32_t *>(
-        static_cast<uintptr_t>(Offsets::VAR_ACTION_TABLE));
-    const uint32_t entry = table[slot0];
+    const uint32_t entry = Word(slot0);
     if (entry == 0 || (entry & Offsets::ACTION_TYPE_MASK) != Offsets::ACTION_TYPE_BAG_OR_MACRO)
         return 0;
     const uint32_t key = entry & Offsets::ACTION_PAYLOAD_MASK_BAG_OR_MACRO;

@@ -21,9 +21,14 @@
 //                                answers 1/nil, the C_ActionBar form a bool.
 //   GetItemActionOnEquipSpellID  the item's first on-equip spell (trigger 1),
 //                                nil when it has none.
+//
+// The C_ActionBar forms answer Action::Extended's slots 121..360 too; the
+// IsStackableAction global stays 1.12's 1..120.
 
 #include "Game.h"
 #include "Offsets.h"
+#include "action/SlotItem.h"
+#include "action/Slot.h"
 #include "item/Record.h"
 #include "macro/ShowTooltip.h"
 
@@ -31,14 +36,9 @@
 
 namespace Action::SlotItem {
 
-namespace {
-
 uint32_t ItemForSlot(int slot0) {
-    if (slot0 < 0 || slot0 >= Offsets::ACTION_TABLE_MAX_SLOTS)
-        return 0;
-    const uint32_t entry = reinterpret_cast<const uint32_t *>(
-        static_cast<uintptr_t>(Offsets::VAR_ACTION_TABLE))[slot0];
-    if ((entry & Offsets::ACTION_TYPE_MASK) == Offsets::ACTION_TYPE_ITEM_BY_ID)
+    const uint32_t entry = Action::Slot::Word(slot0);
+    if (entry != 0 && (entry & Offsets::ACTION_TYPE_MASK) == Offsets::ACTION_TYPE_ITEM_BY_ID)
         return entry & Offsets::ACTION_PAYLOAD_MASK_ITEM_BY_ID;
     Macro::ShowTooltip::Info info;
     if (Macro::ShowTooltip::ForSlot(slot0, &info) &&
@@ -46,6 +46,13 @@ uint32_t ItemForSlot(int slot0) {
         return static_cast<uint32_t>(info.itemID);
     return 0;
 }
+
+bool IsStackable(int slot0) {
+    const uint8_t *record = ::Item::PeekRecord(ItemForSlot(slot0));
+    return record != nullptr && Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_STACKABLE) > 1;
+}
+
+namespace {
 
 // Reads the 1-based slot at stack[1]; false (after the usage error) when it
 // is not a number.
@@ -58,16 +65,12 @@ bool SlotArg(void *L, const char *usage, int *slot0) {
     return true;
 }
 
-bool IsStackable(int slot0) {
-    const uint8_t *record = ::Item::PeekRecord(ItemForSlot(slot0));
-    return record != nullptr && Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_STACKABLE) > 1;
-}
-
 int __fastcall Script_IsStackableAction(void *L) {
     int slot0;
     if (!SlotArg(L, "Usage: IsStackableAction(slot)", &slot0))
         return 0;
-    Game::Lua::PushFlag(L, IsStackable(slot0));
+    Game::Lua::PushFlag(L, slot0 >= 0 && slot0 < Offsets::ACTION_TABLE_MAX_SLOTS &&
+                               IsStackable(slot0));
     return 1;
 }
 
@@ -75,6 +78,8 @@ int __fastcall Script_C_IsStackableAction(void *L) {
     int slot0;
     if (!SlotArg(L, "Usage: C_ActionBar.IsStackableAction(actionID)", &slot0))
         return 0;
+    if (!Action::Slot::Valid(slot0))
+        return 0; // 3.80.2: nothing outside the slots
     Game::Lua::PushBool(L, IsStackable(slot0));
     return 1;
 }

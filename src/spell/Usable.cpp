@@ -43,6 +43,7 @@
 #include "spell/Arg.h"
 #include "spell/Known.h"
 #include "spell/Lookup.h"
+#include "spell/Usable.h"
 
 #include <cstdint>
 
@@ -212,6 +213,12 @@ const Game::Doc::Function kIsSpellUsable{
     kModernArgs, kModernRets};
 
 } // namespace
+
+bool PetSpell(int spellID, bool *noMana) {
+    const Usability r = ComputePet(spellID);
+    *noMana = r.noMana;
+    return r.usable;
+}
 
 static void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("IsUsableSpell", &Script_IsUsableSpell, &kIsUsableSpell);

@@ -147,19 +147,23 @@ void FireItem(void *self, uint64_t itemGuid) {
 // Builders whose callers use the return value (spell, unit) are declared to
 // return it so the co-hook forwards it.
 
-// Item — FUN_GAMETOOLTIP_BUILD_ITEM, 9 stack args, return unused. `guid2`
-// (stack +0x10) is the item instance GUID the builder stores at +0x380.
-using BuildItem_t = void(__fastcall *)(void *self, void *edx, uint32_t itemID,
-                                       const void *guid, const void *guid2, int a4,
-                                       int a5, int a6, int headerFlag, int a8, int a9);
+// Item — FUN_GAMETOOLTIP_BUILD_ITEM, 9 stack args, returns an int:
+// SetAction's carried-item branch tests it (`0x00532597 test eax, eax`) for
+// its refresh answer. `guid2` (stack +0x10) is the item instance GUID the
+// builder stores at +0x380.
+using BuildItem_t = int(__fastcall *)(void *self, void *edx, uint32_t itemID,
+                                      const void *guid, const void *guid2, int a4,
+                                      int a5, int a6, int headerFlag, int a8, int a9);
 BuildItem_t g_buildItemOriginal = nullptr;
 
-void __fastcall BuildItem_h(void *self, void *edx, uint32_t itemID, const void *guid,
-                            const void *guid2, int a4, int a5, int a6, int headerFlag,
-                            int a8, int a9) {
-    g_buildItemOriginal(self, edx, itemID, guid, guid2, a4, a5, a6, headerFlag, a8, a9);
+int __fastcall BuildItem_h(void *self, void *edx, uint32_t itemID, const void *guid,
+                           const void *guid2, int a4, int a5, int a6, int headerFlag,
+                           int a8, int a9) {
+    const int ret =
+        g_buildItemOriginal(self, edx, itemID, guid, guid2, a4, a5, a6, headerFlag, a8, a9);
     EquipmentSet::Tooltip::AfterItemBuild(self, guid2);
     FireItem(self, guid2 != nullptr ? *static_cast<const uint64_t *>(guid2) : 0);
+    return ret;
 }
 
 // Spell — FUN_GAMETOOLTIP_BUILD_SPELL_TOOLTIP, 7 stack args, returns an int.

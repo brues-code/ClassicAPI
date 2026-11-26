@@ -71,6 +71,8 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "action/Extended.h"
+#include "action/ExtendedState.h"
 #include "action/Slot.h"
 #include "input/Modifier.h"
 #include "item/Arg.h"
@@ -734,6 +736,14 @@ void Repaint(void *L, uint32_t macroID) {
     for (int slot0 = 0; slot0 < Offsets::ACTION_TABLE_MAX_SLOTS; ++slot0) {
         if (Action::Slot::MacroIDForSlot(slot0) == macroID)
             notify(static_cast<uint32_t>(slot0), 0, 0);
+    }
+    // Action::Extended's slots get the same notifier, mirrored.
+    if (Action::Extended::Loaded()) {
+        for (int slot0 = Action::Extended::kFirstSlot0; slot0 < Action::Extended::kEndSlot0;
+             ++slot0) {
+            if (Action::Slot::MacroIDForSlot(slot0) == macroID)
+                Action::ExtendedState::Notify(slot0);
+        }
     }
     Game::Lua::SetTop(L, top);
 }

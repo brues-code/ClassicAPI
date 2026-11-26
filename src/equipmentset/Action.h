@@ -26,8 +26,21 @@ namespace EquipmentSet::Action {
 // The set on the cursor, or 0 when the cursor holds anything else.
 uint32_t CursorSetID();
 
-// The set on 0-based action slot `slot0`, or 0 when it holds anything else.
+// The set on 0-based action slot `slot0` (the engine's 0..119 or
+// Action::Extended's 120..359), or 0 when it holds anything else.
 uint32_t SlotSetID(uint32_t slot0);
+
+// The set of an action word, or 0 when the word is not an equipment set.
+uint32_t WordSetID(uint32_t word);
+
+// What a button holding `setID` answers, as the readers' set branches do for
+// a slot: usable (4.3.4 `UpdateUsableAction`'s set branch), icon path and name
+// (null once the set is gone), and use (WEAR_EQUIPMENT_SET while the set
+// exists). Action::Extended's slots read these for their set words.
+bool Usable(uint32_t setID);
+const char *Texture(uint32_t setID);
+const char *Name(uint32_t setID);
+void Use(uint32_t setID);
 
 // Puts `setID` on the cursor, the way the engine picks up a macro. False
 // when there is no such set.
@@ -36,10 +49,10 @@ bool Pickup(uint32_t setID);
 // "Interface\Icons\<icon>" for `set`. False when it doesn't fit `out`.
 bool IconPath(const Set &set, char *out, size_t outSize);
 
-// Name / icon changed — repaint every button holding `setID`.
+// Name / icon changed — repaint every button holding `setID`, in both ranges.
 void Repaint(uint32_t setID);
 
-// Set gone — clear every button holding `setID`.
+// Set gone — clear every button holding `setID`, in both ranges.
 void ClearButtons(uint32_t setID);
 
 } // namespace EquipmentSet::Action

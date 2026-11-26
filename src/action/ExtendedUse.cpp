@@ -14,8 +14,11 @@
 // UseActionSlot (0x004E5EE0) for Action::Extended's slots, in the engine's
 // order (disassembled; benilla-re ui/actionuse#using-an-action):
 //
-//   - checkCursor and a payload Place would take → place it.
+//   - checkCursor and a payload Place would take, or an equipment set on the
+//     cursor (EquipmentSet::Action's UseAction co-hook) → place it.
 //   - Empty → nothing.
+//   - Equipment set → EquipmentSet::Action::Use (WEAR_EQUIPMENT_SET while the
+//     set exists), as the co-hook answers a set slot ahead of the engine.
 //   - Item (0x004E5F73..0x004E607B), active player required: a template with
 //     an inventory type and no copy in the equipment slots
 //     (FUN_INVMGR_FIND_ITEM_BY_ID, flags INVMGR_SEARCH_EQUIPMENT) is found in
@@ -41,6 +44,7 @@
 #include "Offsets.h"
 #include "action/Extended.h"
 #include "action/ExtendedDrag.h"
+#include "equipmentset/Action.h"
 #include "gamepad/Cursor.h"
 #include "item/Record.h"
 #include "item/Use.h"
@@ -125,11 +129,14 @@ void UseSpell(uint32_t word, bool onSelf) {
 void Use(int slot0, bool checkCursor, bool onSelf) {
     if (!Extended::Owns(slot0))
         return;
-    if (checkCursor && ExtendedDrag::CursorWouldPlace())
+    if (checkCursor &&
+        (EquipmentSet::Action::CursorSetID() != 0 || ExtendedDrag::CursorWouldPlace()))
         return ExtendedDrag::Place(slot0);
     const uint32_t word = Extended::Get(slot0);
     if (word == 0)
         return;
+    if (const uint32_t setID = EquipmentSet::Action::WordSetID(word))
+        return EquipmentSet::Action::Use(setID);
     const uint32_t tag = word & Offsets::ACTION_TYPE_MASK;
     if (tag == Offsets::ACTION_TYPE_ITEM_BY_ID)
         return UseItem(word & Offsets::ACTION_PAYLOAD_MASK_ITEM_BY_ID);

@@ -55,15 +55,21 @@ using QueryItemCooldown_t = bool(__fastcall *)(uint32_t itemID,
 
 } // namespace
 
+void Query(int itemID, uint32_t *startMs, uint32_t *durationMs, uint32_t *enable) {
+    *startMs = 0;
+    *durationMs = 0;
+    *enable = 0;
+    if (itemID > 0)
+        reinterpret_cast<QueryItemCooldown_t>(
+            static_cast<uintptr_t>(Offsets::FUN_ITEM_QUERY_COOLDOWN))(
+            static_cast<uint32_t>(itemID), durationMs, startMs, enable);
+}
+
 void PushCooldown(void *L, int itemID) {
     uint32_t durationMs = 0;
     uint32_t startMs = 0;
     uint32_t enable = 0;
-    if (itemID > 0) {
-        auto fn = reinterpret_cast<QueryItemCooldown_t>(
-            static_cast<uintptr_t>(Offsets::FUN_ITEM_QUERY_COOLDOWN));
-        fn(static_cast<uint32_t>(itemID), &durationMs, &startMs, &enable);
-    }
+    Query(itemID, &startMs, &durationMs, &enable);
     // ms → seconds, matching GetTime()'s scale. Same conversion the
     // engine's own `Script_GetContainerItemCooldown` does at the
     // Lua boundary.

@@ -27,8 +27,9 @@
 // bounds are Blizzard's.
 //
 // A slot holds the engine's own action word (VAR_ACTION_TABLE's packing):
-// a spell id (tag 0), `macroID | 0x40000000`, `itemID | 0x80000000`; 0 is
-// empty. Equipment-set words (0x20000000) are never stored here.
+// a spell id (tag 0), `macroID | 0x40000000`, `itemID | 0x80000000`, or
+// EquipmentSet's `setID | 0x20000000`; 0 is empty. The server never sees
+// these slots, so a set word is kept here like any other.
 namespace Action::Extended {
 
 // 0-based bounds: slot0 120 is Lua slot 121, slot0 359 is Lua slot 360.
@@ -48,12 +49,16 @@ bool SlotArg(void *L, int idx, int *slot0);
 // and nothing can be stored.
 bool Ready();
 
+// Whether the current character's file is already loaded — Ready without
+// resolving it, for engine callbacks that must not read a file.
+bool Loaded();
+
 // The word in `slot0` (one of ours), 0 when empty or not Ready.
 uint32_t Get(int slot0);
 
-// Stores `word` in `slot0`, writes the file, and signals
-// ACTIONBAR_SLOT_CHANGED(slot0 + 1) as FUN_ACTION_SLOT_CHANGED_NOTIFY does
-// for a slot of its own. Never sends anything to the server.
+// Stores `word` in `slot0`, writes the file, and runs FUN_ACTION_SLOT_SET's
+// tail through Action::ExtendedState::Stored (item recount, usable recompute,
+// ACTIONBAR_SLOT_CHANGED(slot0 + 1)). Never sends anything to the server.
 void Set(int slot0, uint32_t word);
 
 // FUN_ACTION_SLOT_TO_SPELL (GetActionSlotSpell, 0x004E5A50) for a word of

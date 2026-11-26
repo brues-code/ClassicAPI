@@ -29,8 +29,23 @@ namespace Action::Slot {
 // no macro has that id (0 is never a macroID).
 int MacroSlotForID(uint32_t macroID);
 
-// The macroID in action slot `slot0` (0-based, `< ACTION_TABLE_MAX_SLOTS`),
-// or 0 when the slot is empty, isn't `0x40000000`-tagged, or its macro is gone.
+// Whether `slot0` names an action slot: the engine's 0..119 or one of
+// Action::Extended's 120..359.
+bool Valid(int slot0);
+
+// The action word in `slot0` for both ranges: VAR_ACTION_TABLE for the
+// engine's slots, Action::Extended's store for ours; 0 for an empty or
+// invalid slot.
+uint32_t Word(int slot0);
+
+// FUN_ACTION_SLOT_TO_SPELL for both ranges: the engine resolver for its slots,
+// Action::Extended::SpellFor for ours. `*book` is written only when the
+// resolver writes it (0 for a spell or an item, the macro's book for a live
+// macro), so callers start it at the value they want for "no spell".
+uint32_t SpellFor(int slot0, uint32_t *book);
+
+// The macroID in action slot `slot0` (0-based, both ranges), or 0 when the
+// slot is empty, isn't `0x40000000`-tagged, or its macro is gone.
 uint32_t MacroIDForSlot(int slot0);
 
 } // namespace Action::Slot

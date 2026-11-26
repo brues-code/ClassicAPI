@@ -27,10 +27,13 @@
 // (GetPetActionInfo's types 1-5) while a pet bar is up.
 //
 // `set` is Enum.ActionBarSet, a mask whose Mkb bit is the one set of slots
-// this client has; Gamepad alone finds no slot.
+// this client has; Gamepad alone finds no slot. The slots searched are the
+// engine's 1..120 and Action::Extended's 121..360.
 
 #include "Game.h"
 #include "Offsets.h"
+#include "action/Extended.h"
+#include "action/Slot.h"
 #include "spell/Arg.h"
 
 #include <cstdint>
@@ -53,14 +56,13 @@ int Args(void *L, bool *searchSlots) {
 }
 
 bool SlotHolds(int slot0, int spellID) {
-    const uint32_t entry = reinterpret_cast<const uint32_t *>(
-        static_cast<uintptr_t>(Offsets::VAR_ACTION_TABLE))[slot0];
+    const uint32_t entry = Action::Slot::Word(slot0);
     return (entry & Offsets::ACTION_TYPE_MASK) == Offsets::ACTION_TYPE_SPELL &&
            entry == static_cast<uint32_t>(spellID);
 }
 
 bool AnySlotHolds(int spellID) {
-    for (int slot0 = 0; slot0 < Offsets::ACTION_TABLE_MAX_SLOTS; ++slot0) {
+    for (int slot0 = 0; slot0 < Action::Extended::kEndSlot0; ++slot0) {
         if (SlotHolds(slot0, spellID))
             return true;
     }
@@ -101,7 +103,7 @@ int __fastcall Script_FindSpellActionButtons(void *L) {
         return 0;
     Game::Lua::NewTable(L);
     int index = 0;
-    for (int slot0 = 0; slot0 < Offsets::ACTION_TABLE_MAX_SLOTS; ++slot0) {
+    for (int slot0 = 0; slot0 < Action::Extended::kEndSlot0; ++slot0) {
         if (!SlotHolds(slot0, spellID))
             continue;
         Game::Lua::PushNumber(L, static_cast<double>(++index));

@@ -45,31 +45,6 @@ using QueryCooldown_t = void(__fastcall *)(int spellID, int pet,
                                             uint32_t *outStart,
                                             uint32_t *outEnable);
 
-// Whether the engine's reported cooldown came from the history's global leg:
-// the reader keeps the latest-ending leg, and only a global leg pairs a
-// record's `+0x10` start with its GCD time, so a live global leg carrying
-// exactly the reported start and duration is the one it kept. The match mirrors
-// the leg's own test (category equal, including 0; GCD time nonzero).
-bool ReportsGlobalCooldown(int spellID, bool pet, uint32_t startMs,
-                           uint32_t durationMs) {
-    if (durationMs == 0)
-        return false;
-    const auto *spellRec = Spell::Lookup::RecordForID(spellID);
-    const uint32_t category = Game::Read<uint32_t>(
-        spellRec, Offsets::OFF_SPELL_RECORD_START_RECOVERY_CATEGORY);
-    const uintptr_t list = Offsets::VAR_SPELL_HISTORY +
-                           (pet ? Offsets::SPELL_HISTORY_STRIDE : 0);
-    for (uintptr_t rec = Game::Read<uintptr_t>(list + Offsets::OFF_SPELL_HISTORY_HEAD);
-         Storm::IsNode(rec);
-         rec = Game::Read<uintptr_t>(rec + Offsets::OFF_SPELL_HISTORY_RECORD_NEXT)) {
-        if (Game::Read<uint32_t>(rec + Offsets::OFF_SPELL_HISTORY_RECORD_GCD_CATEGORY) == category &&
-            Game::Read<uint32_t>(rec + Offsets::OFF_SPELL_HISTORY_RECORD_GCD_TIME) == durationMs &&
-            Game::Read<uint32_t>(rec + Offsets::OFF_SPELL_HISTORY_RECORD_START) == startMs)
-            return true;
-    }
-    return false;
-}
-
 int __fastcall Script_C_Spell_GetSpellCooldown(void *L) {
     const int spellID = Spell::Arg::ResolveSpellID(L, 1);
     int petBook = 0;
@@ -80,22 +55,8 @@ int __fastcall Script_C_Spell_GetSpellCooldown(void *L) {
     if (!Query(spellID, pet, &startMs, &durationMs, &enabled))
         return 0;
 
-    Game::Lua::NewTable(L);
-    // Engine returns ms with the same epoch as `GetTime()` — multiply
-    // by 0.001 to match modern's seconds-from-`GetTime` shape, same
-    // conversion `Script_GetSpellCooldown` does at the Lua boundary.
-    Game::Lua::SetFieldNumber(L, "startTime",
-                              static_cast<double>(startMs) * 0.001);
-    Game::Lua::SetFieldNumber(L, "duration",
-                              static_cast<double>(durationMs) * 0.001);
-    Game::Lua::SetFieldBool(L, "isEnabled", enabled);
-    // Vanilla has no haste-on-cooldown mechanic. Hard-code 1.0 so
-    // modern code that divides remaining-time by `modRate` works.
-    Game::Lua::SetFieldNumber(L, "modRate", 1.0);
-    Game::Lua::SetFieldBool(L, "isOnGCD",
-                            ReportsGlobalCooldown(spellID, pet, startMs, durationMs));
-    // `activeCategory` / `timeUntilEndOfStartRecovery` are left unset so
-    // they read as nil.
+    const bool onGCD = ReportsGlobalCooldown(spellID, pet, startMs, durationMs);
+    PushInfo(L, startMs, durationMs, enabled, &onGCD);
     return 1;
 }
 
@@ -106,9 +67,11 @@ const Game::Doc::Field kSpellCooldownInfoFields[] = {
                    "When the cooldown began, in seconds on the GetTime clock; 0 when none runs."),
     Game::Doc::Req("duration", "number", "Cooldown length in seconds; 0 when none runs."),
     Game::Doc::Req("isEnabled", "bool", "False while the cooldown is on hold."),
+    Game::Doc::Req("isActive", "bool",
+                   "True while the cooldown is enabled and has a start time and a duration."),
     Game::Doc::Req("modRate", "number", "Always 1."),
-    Game::Doc::Req("isOnGCD", "bool",
-                   "True when the reported cooldown is the global cooldown."),
+    Game::Doc::Opt("isOnGCD", "bool", nullptr,
+                   "True when the reported cooldown is the global cooldown; nil for an item."),
 };
 const Game::Doc::Structure kSpellCooldownInfo{
     "SpellCooldownInfo", "Spell", kSpellCooldownInfoFields,
@@ -126,6 +89,49 @@ const Game::Doc::Function kGetSpellCooldown{
     kGetSpellCooldownArgs, kGetSpellCooldownRets};
 
 } // namespace
+
+// Whether the engine's reported cooldown came from the history's global leg:
+// the reader keeps the latest-ending leg, and only a global leg pairs a
+// record's `+0x10` start with its GCD time, so a live global leg carrying
+// exactly the reported start and duration is the one it kept. The match mirrors
+// the leg's own test (category equal, including 0; GCD time nonzero).
+bool ReportsGlobalCooldown(int spellID, bool pet, uint32_t startMs,
+                           uint32_t durationMs) {
+    if (durationMs == 0)
+        return false;
+    const auto *spellRec = Spell::Lookup::RecordForID(spellID);
+    if (spellRec == nullptr)
+        return false;
+    const uint32_t category = Game::Read<uint32_t>(
+        spellRec, Offsets::OFF_SPELL_RECORD_START_RECOVERY_CATEGORY);
+    const uintptr_t list = Offsets::VAR_SPELL_HISTORY +
+                           (pet ? Offsets::SPELL_HISTORY_STRIDE : 0);
+    for (uintptr_t rec = Game::Read<uintptr_t>(list + Offsets::OFF_SPELL_HISTORY_HEAD);
+         Storm::IsNode(rec);
+         rec = Game::Read<uintptr_t>(rec + Offsets::OFF_SPELL_HISTORY_RECORD_NEXT)) {
+        if (Game::Read<uint32_t>(rec + Offsets::OFF_SPELL_HISTORY_RECORD_GCD_CATEGORY) == category &&
+            Game::Read<uint32_t>(rec + Offsets::OFF_SPELL_HISTORY_RECORD_GCD_TIME) == durationMs &&
+            Game::Read<uint32_t>(rec + Offsets::OFF_SPELL_HISTORY_RECORD_START) == startMs)
+            return true;
+    }
+    return false;
+}
+
+void PushInfo(void *L, uint32_t startMs, uint32_t durationMs, bool enabled, const bool *isOnGCD) {
+    Game::Lua::NewTable(L);
+    // Engine returns ms with the same epoch as `GetTime()` — multiply
+    // by 0.001 to match modern's seconds-from-`GetTime` shape, same
+    // conversion `Script_GetSpellCooldown` does at the Lua boundary.
+    Game::Lua::SetFieldNumber(L, "startTime", static_cast<double>(startMs) * 0.001);
+    Game::Lua::SetFieldNumber(L, "duration", static_cast<double>(durationMs) * 0.001);
+    Game::Lua::SetFieldBool(L, "isEnabled", enabled);
+    Game::Lua::SetFieldBool(L, "isActive", enabled && startMs != 0 && durationMs != 0);
+    // Vanilla has no haste-on-cooldown mechanic. Hard-code 1.0 so
+    // modern code that divides remaining-time by `modRate` works.
+    Game::Lua::SetFieldNumber(L, "modRate", 1.0);
+    if (isOnGCD != nullptr)
+        Game::Lua::SetFieldBool(L, "isOnGCD", *isOnGCD);
+}
 
 bool Query(int spellID, uint32_t *startMs, uint32_t *durationMs,
            bool *enabled) {

@@ -25,10 +25,21 @@
 //
 // The per-slot refresh in FUN_ACTION_SLOT_CHANGED_NOTIFY stores its pair
 // without this event; it signals ACTIONBAR_SLOT_CHANGED for the slot instead.
+//
+// Action::Extended's slots 121..360 are refreshed in the same pass: when the
+// loop asks for its last slot (119), ours are recomputed
+// (ExtendedState::RefreshUsable) and their changes join the list. A change in
+// ours counts as a change for ACTIONBAR_UPDATE_USABLE, which the engine
+// signals once at the end when any slot changed: when one of its own did, its
+// signal carries both; when only ours did, the engine will not signal, so
+// both events are sent from that last call, after which the engine stores
+// slot 119's unchanged pair and returns.
 
 #include "Common.h"
 #include "Game.h"
 #include "Offsets.h"
+#include "action/Extended.h"
+#include "action/ExtendedState.h"
 #include "event/Custom.h"
 
 #include <cstdint>
@@ -47,9 +58,10 @@ struct Change {
     bool noMana;
 };
 
-// This refresh's changes. The loop runs slots 0..119 in order, so slot 0
-// starts a new list.
-Change g_changes[Offsets::ACTION_TABLE_MAX_SLOTS];
+// This refresh's changes, the engine's slots then ours. The loop runs slots
+// 0..119 in order, so slot 0 starts a new list.
+constexpr int kMaxChanges = Action::Extended::kEndSlot0;
+Change g_changes[kMaxChanges];
 int g_count = 0;
 
 const Game::Doc::Field kStateFields[] = {
@@ -67,6 +79,13 @@ const Game::Doc::Event kDoc{
     kPayload};
 const Event::Custom::AutoReserve kEvent{"ACTION_USABLE_CHANGED", &kDoc};
 
+void AddExtended(int slot0, bool usable, bool noMana) {
+    if (g_count < kMaxChanges)
+        g_changes[g_count++] = {static_cast<uint32_t>(slot0), usable, noMana};
+}
+
+void Fire(int eventID);
+
 uint32_t __fastcall SlotUsable_h(uint32_t slot0, uint32_t *outNoMana) {
     const uint32_t usable =
         reinterpret_cast<SlotUsable_t>(Offsets::FUN_ACTION_SLOT_USABLE)(slot0, outNoMana);
@@ -80,12 +99,17 @@ uint32_t __fastcall SlotUsable_h(uint32_t slot0, uint32_t *outNoMana) {
         g_count < Offsets::ACTION_TABLE_MAX_SLOTS &&
         (usable != usableCache[slot0] || *outNoMana != noManaCache[slot0]))
         g_changes[g_count++] = {slot0, usable != 0, *outNoMana != 0};
+    if (slot0 + 1 == static_cast<uint32_t>(Offsets::ACTION_TABLE_MAX_SLOTS)) {
+        const bool engineChanged = g_count != 0;
+        if (Action::ExtendedState::RefreshUsable(&AddExtended) != 0 && !engineChanged)
+            Fire(Offsets::EVENT_ACTIONBAR_UPDATE_USABLE);
+    }
     return usable;
 }
 
-void __fastcall FireUsable_h(int eventID) {
+void Fire(int eventID) {
     // Copied first: the handlers below can run another refresh.
-    Change changes[Offsets::ACTION_TABLE_MAX_SLOTS];
+    Change changes[kMaxChanges];
     const int count = g_count;
     std::memcpy(changes, g_changes, sizeof(Change) * count);
     g_count = 0;
@@ -110,6 +134,8 @@ void __fastcall FireUsable_h(int eventID) {
     Event::Custom::FireValues(event, L, top + 1, 1);
     Game::Lua::SetTop(L, top);
 }
+
+void __fastcall FireUsable_h(int eventID) { Fire(eventID); }
 
 void Register() {
     Common::RedirectCall(Offsets::CALL_UPDATE_USABLE_SLOT_USABLE, Offsets::FUN_ACTION_SLOT_USABLE,

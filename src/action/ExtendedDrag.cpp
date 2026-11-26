@@ -47,12 +47,25 @@
 // Pickup (0x004E6130): a cursor Place would take → Place. An empty slot →
 // nothing. Else the word goes to the cursor as above — a macro that is gone
 // goes nowhere — and the slot is cleared.
+//
+// Equipment sets, as EquipmentSet::Action's co-hooks give them to the
+// engine's slots (3.3.5's set arms):
+//   - A set on the cursor (Place, Pickup, and UseAction with checkCursor) is
+//     dropped by PlaceSet: edit gate, then a gone set or the slot's own set
+//     only clears the cursor; otherwise the cursor is cleared, the old word
+//     goes to the cursor, and the set word is stored.
+//   - A set word goes to the cursor through EquipmentSet::Action::Pickup
+//     (nothing when the set is gone), where the engine, which has no set
+//     cursor, clears the cursor and the co-hook then picks the set up.
 
 #include "action/ExtendedDrag.h"
 
 #include "Game.h"
 #include "Offsets.h"
 #include "action/Extended.h"
+#include "cursor/Info.h"
+#include "equipmentset/Action.h"
+#include "equipmentset/Data.h"
 #include "item/Record.h"
 #include "object/Resolve.h"
 #include "spell/Lookup.h"
@@ -134,7 +147,22 @@ bool ToCursor(int slot0, uint32_t word) {
         reinterpret_cast<PickupMacro_t>(Offsets::FUN_MACRO_PICKUP)(macroID);
         return true;
     }
+    if (const uint32_t setID = EquipmentSet::Action::WordSetID(word))
+        return EquipmentSet::Action::Pickup(setID);
     return false;
+}
+
+// EquipmentSet::Action's PlaceSet for one of our slots.
+void PlaceSet(int slot0, uint32_t setID) {
+    if (reinterpret_cast<EditAllowed_t>(Offsets::FUN_CURSOR_EDIT_ALLOWED)(9) == 0)
+        return;
+    const uint32_t word = Offsets::ACTION_TYPE_EQUIPMENT_SET | setID;
+    const uint32_t old = Extended::Get(slot0);
+    ::Cursor::Info::Clear();
+    if (EquipmentSet::Data::FindByID(setID) == nullptr || old == word)
+        return;
+    ToCursor(slot0, old);
+    Extended::Set(slot0, word);
 }
 
 // The item filter at 0x004E6571..0x004E6598.
@@ -158,6 +186,8 @@ bool CursorWouldPlace() {
 void Place(int slot0) {
     if (!Extended::Owns(slot0) || !Extended::Ready())
         return;
+    if (const uint32_t setID = EquipmentSet::Action::CursorSetID())
+        return PlaceSet(slot0, setID);
     if (reinterpret_cast<EditAllowed_t>(Offsets::FUN_CURSOR_EDIT_ALLOWED)(9) == 0)
         return;
 
@@ -215,7 +245,7 @@ void Place(int slot0) {
 void Pickup(int slot0) {
     if (!Extended::Owns(slot0) || !Extended::Ready())
         return;
-    if (CursorWouldPlace())
+    if (CursorWouldPlace() || EquipmentSet::Action::CursorSetID() != 0)
         return Place(slot0);
     const uint32_t word = Extended::Get(slot0);
     if (word == 0)

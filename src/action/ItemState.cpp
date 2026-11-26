@@ -32,8 +32,8 @@
 
 #include "Game.h"
 #include "Offsets.h"
+#include "action/ExtendedState.h"
 #include "item/Cooldown.h"
-#include "item/Record.h"
 #include "macro/ShowTooltip.h"
 
 #include <cstdint>
@@ -49,12 +49,15 @@ int Engine(uintptr_t fn, void *L) {
     return reinterpret_cast<ScriptFn_t>(fn)(L);
 }
 
-// True (and fills `info`) when stack[1] is a slot whose macro resolved to an item.
+// True (and fills `info`) when stack[1] is one of the engine's slots whose
+// macro resolved to an item. These globals answer 1..120 only; slots past 120
+// are C_ActionBar's.
 bool ItemTarget(void *L, Macro::ShowTooltip::Info *info) {
     if (!Game::Lua::IsNumber(L, 1))
         return false;
     const int slot0 = static_cast<int>(Game::Lua::ToNumber(L, 1)) - 1;
-    return Macro::ShowTooltip::ForSlot(slot0, info) &&
+    return slot0 >= 0 && slot0 < Offsets::ACTION_TABLE_MAX_SLOTS &&
+           Macro::ShowTooltip::ForSlot(slot0, info) &&
            info->target == Macro::ShowTooltip::Target::Item;
 }
 
@@ -76,28 +79,12 @@ int __fastcall Script_GetActionCount(void *L) {
     return 1;
 }
 
-bool IsConsumable(int itemID) {
-    const uint8_t *record = Item::PeekRecord(static_cast<uint32_t>(itemID));
-    if (record == nullptr)
-        return false;
-    const uint32_t invType = Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_INVENTORY_TYPE);
-    if (invType == Offsets::INVTYPE_AMMO || invType == Offsets::INVTYPE_THROWN)
-        return true;
-    for (int i = 0; i < Offsets::ITEMSTATS_SPELL_SLOT_COUNT; ++i) {
-        const uint32_t spellID = Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_SPELL_ID + i * 4);
-        const uint32_t trigger = Game::Read<uint32_t>(record, Offsets::OFF_ITEMSTATS_SPELL_TRIGGER + i * 4);
-        const int32_t charges = Game::Read<int32_t>(record, Offsets::OFF_ITEMSTATS_SPELL_CHARGES + i * 4);
-        if (spellID != 0 && trigger == Offsets::ITEM_SPELLTRIGGER_ON_USE && charges < 0)
-            return true;
-    }
-    return false;
-}
-
 int __fastcall Script_IsConsumableAction(void *L) {
     Macro::ShowTooltip::Info info;
     if (!ItemTarget(L, &info))
         return Engine(Offsets::FUN_SCRIPT_IS_CONSUMABLE_ACTION, L);
-    Game::Lua::PushFlag(L, IsConsumable(info.itemID));
+    Game::Lua::PushFlag(
+        L, Action::ExtendedState::IsConsumableItem(static_cast<uint32_t>(info.itemID)));
     return 1;
 }
 

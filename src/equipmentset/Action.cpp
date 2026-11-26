@@ -61,6 +61,9 @@
 #include "Locations.h"
 #include "Offsets.h"
 #include "Pending.h"
+#include "action/Extended.h"
+#include "action/ExtendedState.h"
+#include "action/Slot.h"
 #include "cursor/Info.h"
 #include "event/Custom.h"
 
@@ -208,11 +211,7 @@ int __fastcall UseAction_h(void *L) {
     const uint32_t setID = SetIDAt(slot0);
     if (setID == 0)
         return g_origUseAction(L);
-    if (Data::FindByID(setID) != nullptr) {
-        const int evt = kEvtWear.Slot();
-        if (evt >= 0)
-            Event::Custom::Fire(evt, "%d", static_cast<int>(setID));
-    }
+    Use(setID);
     return 0;
 }
 
@@ -220,10 +219,7 @@ const char *__fastcall Texture_h(uint32_t slot0) {
     const uint32_t setID = SetIDAt(slot0);
     if (setID == 0)
         return g_origTexture(slot0);
-    const Set *s = Data::FindByID(setID);
-    if (s == nullptr || !IconPath(*s, g_texture, sizeof(g_texture)))
-        return nullptr;
-    return g_texture;
+    return Texture(setID);
 }
 
 int __fastcall GetActionText_h(void *L) {
@@ -233,29 +229,19 @@ int __fastcall GetActionText_h(void *L) {
     const uint32_t setID = slot >= 0 ? SetIDAt(static_cast<uint32_t>(slot)) : 0;
     if (setID == 0)
         return g_origGetActionText(L);
-    const Set *s = Data::FindByID(setID);
-    if (s != nullptr)
-        Game::Lua::PushString(L, s->name.c_str());
+    if (const char *name = Name(setID))
+        Game::Lua::PushString(L, name);
     else
         Game::Lua::PushNil(L);
     return 1;
 }
 
-// 4.3.4 `CGActionBar::UpdateUsableAction`'s set branch: unusable while a
-// swap is in flight, the set is gone, one of its items is mid-transaction,
-// or an item it would replace is.
 uint32_t __fastcall Usable_h(uint32_t slot0, int *outNoMana) {
     const uint32_t setID = SetIDAt(slot0);
     if (setID == 0)
         return g_origUsable(slot0, outNoMana);
     *outNoMana = 0;
-    if (!Pending::CanUse())
-        return 0;
-    const Set *s = Data::FindByID(setID);
-    return (s != nullptr && !Locations::ContainsLockedItems(*s) &&
-            !Locations::UsesLockedSlots(*s))
-               ? 1
-               : 0;
+    return Usable(setID) ? 1 : 0;
 }
 
 void __fastcall Notify_h(uint32_t slot0, int sendToServer, int quiet) {
@@ -380,7 +366,41 @@ uint32_t CursorSetID() {
 }
 
 uint32_t SlotSetID(uint32_t slot0) {
-    return SetIDAt(slot0);
+    return SetIDOf(::Action::Slot::Word(static_cast<int>(slot0)));
+}
+
+uint32_t WordSetID(uint32_t word) {
+    return SetIDOf(word);
+}
+
+// 4.3.4 `CGActionBar::UpdateUsableAction`'s set branch: unusable while a
+// swap is in flight, the set is gone, one of its items is mid-transaction,
+// or an item it would replace is.
+bool Usable(uint32_t setID) {
+    if (!Pending::CanUse())
+        return false;
+    const Set *s = Data::FindByID(setID);
+    return s != nullptr && !Locations::ContainsLockedItems(*s) && !Locations::UsesLockedSlots(*s);
+}
+
+const char *Texture(uint32_t setID) {
+    const Set *s = Data::FindByID(setID);
+    if (s == nullptr || !IconPath(*s, g_texture, sizeof(g_texture)))
+        return nullptr;
+    return g_texture;
+}
+
+const char *Name(uint32_t setID) {
+    const Set *s = Data::FindByID(setID);
+    return s != nullptr ? s->name.c_str() : nullptr;
+}
+
+void Use(uint32_t setID) {
+    if (Data::FindByID(setID) == nullptr)
+        return;
+    const int evt = kEvtWear.Slot();
+    if (evt >= 0)
+        Event::Custom::Fire(evt, "%d", static_cast<int>(setID));
 }
 
 bool Pickup(uint32_t setID) {
@@ -417,12 +437,24 @@ void Repaint(uint32_t setID) {
         if (SetIDAt(slot0) == setID)
             NotifySlot(slot0, 0);
     }
+    for (int slot0 = ::Action::Extended::kFirstSlot0; slot0 < ::Action::Extended::kEndSlot0;
+         ++slot0) {
+        if (SetIDOf(::Action::Extended::Get(slot0)) == setID)
+            ::Action::ExtendedState::Notify(slot0);
+    }
 }
 
 void ClearButtons(uint32_t setID) {
     for (uint32_t slot0 = 0; slot0 < kSlots; ++slot0) {
         if (SetIDAt(slot0) == setID)
             reinterpret_cast<SlotFn_t>(Offsets::FUN_ACTION_SLOT_CLEAR)(slot0);
+    }
+    // Ours keep the set in Action::Extended's file, not in the set's
+    // actionSlots, so they are cleared there.
+    for (int slot0 = ::Action::Extended::kFirstSlot0; slot0 < ::Action::Extended::kEndSlot0;
+         ++slot0) {
+        if (SetIDOf(::Action::Extended::Get(slot0)) == setID)
+            ::Action::Extended::Set(slot0, 0);
     }
 }
 

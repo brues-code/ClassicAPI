@@ -39,6 +39,9 @@
 // by-itemID (0x80), and an earlier reading of the 0x40 "miss" as a bag item
 // was wrong.
 //
+// Slots 121..360 are Action::Extended's: their word comes from its store and
+// their spell from its resolver mirror, with the same branches.
+//
 // `C_ActionBar.GetSpell(slot)` — the spell the slot stands for, 0 for none.
 // It is the engine's own resolver (FUN_ACTION_SLOT_TO_SPELL), which every
 // action reader (cooldown, usable, range, current) goes through: a spell
@@ -63,14 +66,6 @@ namespace Action::Info {
 
 namespace {
 
-using SlotToSpell_t = uint32_t(__fastcall *)(uint32_t slot0, uint32_t *outPetFlag);
-
-uint32_t ReadEntry(int slot0) {
-    auto *base = reinterpret_cast<const uint32_t *>(
-        static_cast<uintptr_t>(Offsets::VAR_ACTION_TABLE));
-    return base[slot0];
-}
-
 int __fastcall Script_GetActionInfo(void *L) {
     if (!Game::Lua::IsNumber(L, 1)) {
         Game::Lua::Error(L, "Usage: GetActionInfo(slot)");
@@ -78,10 +73,10 @@ int __fastcall Script_GetActionInfo(void *L) {
     }
 
     const int slot0 = static_cast<int>(Game::Lua::ToNumber(L, 1)) - 1;
-    if (slot0 < 0 || slot0 >= Offsets::ACTION_TABLE_MAX_SLOTS)
+    if (!Action::Slot::Valid(slot0))
         return 0;
 
-    const uint32_t entry = ReadEntry(slot0);
+    const uint32_t entry = Action::Slot::Word(slot0);
     if (entry == 0)
         return 0;
 
@@ -92,10 +87,8 @@ int __fastcall Script_GetActionInfo(void *L) {
         // spellID; we still call through it so the petFlag behavior
         // stays in sync with what other action readers see (the helper
         // also handles the case where the slot is somehow invalid).
-        auto fn = reinterpret_cast<SlotToSpell_t>(
-            static_cast<uintptr_t>(Offsets::FUN_ACTION_SLOT_TO_SPELL));
         uint32_t petFlag = 0;
-        const uint32_t spellID = fn(static_cast<uint32_t>(slot0), &petFlag);
+        const uint32_t spellID = Action::Slot::SpellFor(slot0, &petFlag);
         if (spellID == 0)
             return 0;
         (void)petFlag; // hardcoded 0 in the engine helper for this table
@@ -144,12 +137,10 @@ int __fastcall Script_GetSpell(void *L) {
         Game::Lua::Error(L, "Usage: C_ActionBar.GetSpell(actionID)");
         return 0;
     }
-    // The resolver bounds-checks the slot itself and answers 0 outside it.
+    // Both resolvers answer 0 outside their slots.
     const int slot0 = static_cast<int>(Game::Lua::ToNumber(L, 1)) - 1;
     uint32_t petFlag = 0;
-    const uint32_t spellID = reinterpret_cast<SlotToSpell_t>(
-        static_cast<uintptr_t>(Offsets::FUN_ACTION_SLOT_TO_SPELL))(
-        static_cast<uint32_t>(slot0), &petFlag);
+    const uint32_t spellID = Action::Slot::SpellFor(slot0, &petFlag);
     Game::Lua::PushNumber(L, static_cast<double>(spellID));
     return 1;
 }
@@ -184,7 +175,7 @@ const Game::Doc::Function kIsMacroActionWithShowTooltipDoc{
     kGetSpellArgs, kIsMacroActionWithShowTooltipRets};
 
 const Game::Doc::Field kGetActionInfoArgs[] = {
-    Game::Doc::Req("slot", "luaIndex", "The action slot, 1 to 120."),
+    Game::Doc::Req("slot", "luaIndex", "The action slot, 1 to 360."),
 };
 const Game::Doc::Field kGetActionInfoRets[] = {
     Game::Doc::Opt("actionType", "string", nullptr,

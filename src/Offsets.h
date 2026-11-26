@@ -505,6 +505,17 @@ enum Offsets {
     // Macro-slot tooltip: `__thiscall(tooltip, uint macroID)` — clear +
     // SetText(entry+OFF_MACRO_NAME) + Show. Internal, not a script entry.
     FUN_GAMETOOLTIP_SET_MACRO = 0x0052B040,
+    // The item fields SetAction's carried-item branch sets before
+    // FUN_GAMETOOLTIP_BUILD_ITEM (disassembled 0x005324A0..0x00532558):
+    // `__thiscall(fields)` clears the block at tooltip + OFF_GAMETOOLTIP_ITEM_
+    // FIELDS, then the block's +0x38 gets the cooldown ms left (0 unless the
+    // slot cooldown is enabled with a start and a duration) and, for a template
+    // whose charges are neither 0 nor -1, its +0x58 the
+    // FUN_INVMGR_COUNT_CHARGES_BY_ID total.
+    FUN_GAMETOOLTIP_CLEAR_ITEM_FIELDS = 0x005326E0,
+    OFF_GAMETOOLTIP_ITEM_FIELDS = 0x3D0,
+    OFF_GAMETOOLTIP_ITEM_COOLDOWN_MS = 0x408, // ITEM_FIELDS + 0x38, uint32
+    OFF_GAMETOOLTIP_ITEM_CHARGES = 0x428,     // ITEM_FIELDS + 0x58, int32
     // `Script_GameTooltip_SetUnit` (slot 31): self typecheck, lua_isstring(2),
     // FUN_TOKEN_TO_GUID (raises on an unknown token), then — only for a
     // non-zero GUID — FUN_GAMETOOLTIP_BUILD_UNIT. Always pushes nil (the
@@ -9487,6 +9498,41 @@ enum Offsets {
     // passes `ftol(arg 1) - 1` unchecked (disassembled 0x004E70D0..0x004E711E),
     // so callers bound the slot to ACTION_TABLE_MAX_SLOTS first.
     FUN_ACTION_SLOT_HAS_CONTENT = 0x004E6DD0,
+    // The per-slot tests behind IsCurrentAction / IsAutoRepeatAction /
+    // IsAttackAction / IsConsumableAction / IsEquippedAction / ActionHasRange —
+    // each `bool __fastcall(uint slot0)`, false outside 0..0x77 (decompiled;
+    // benilla-re ui/actionbar#checked-state, #repeat-and-attack-tests,
+    // #cooldown-and-flags, #range):
+    //   IS_CURRENT     item: the in-flight cast item's entry (VAR_CAST_ITEM_GUID);
+    //                  attack: OFF_UNIT_ATTACK_TARGET set; else a book-0 spell
+    //                  that is VAR_CURRENT_CAST_SPELL or FUN_TARGETING_SPELL_ID,
+    //                  a trade-skill spell (Effect[0] 47) whose window is open,
+    //                  or the first SPELL_AURA_MOD_SHAPESHIFT effect whose misc
+    //                  value is the form byte (descriptor +0x212).
+    //   IS_AUTO_REPEAT the slot's book-0 spell is VAR_ACTIVE_AUTO_REPEAT_SPELL.
+    //   IS_ATTACK      the slot's spell has Effect[0] == SPELL_EFFECT_ATTACK.
+    //   IS_CONSUMABLE  an item word whose template is INVTYPE_AMMO / _THROWN or
+    //                  has an on-use spell with negative charges (passive
+    //                  GetRecord: an uncached item is not consumable).
+    //   IS_EQUIPPED    an item word FUN_INVMGR_FIND_ITEM_BY_ID finds with
+    //                  INVMGR_SEARCH_EQUIPMENT.
+    //   HAS_RANGE      a book-0 spell whose FUN_GET_MIN_MAX_RANGE min or max is
+    //                  at least 2^-22 in magnitude.
+    FUN_ACTION_SLOT_IS_CURRENT = 0x004E53A0,
+    FUN_ACTION_SLOT_IS_AUTO_REPEAT = 0x004E55B0,
+    FUN_ACTION_SLOT_IS_ATTACK = 0x004E59B0,
+    FUN_ACTION_SLOT_IS_CONSUMABLE = 0x004E5250,
+    FUN_ACTION_SLOT_IS_EQUIPPED = 0x004E5310,
+    FUN_ACTION_SLOT_HAS_RANGE = 0x004E5810,
+    // RecountItemActionSlots — `void __fastcall(uint itemID)`: FUN_ACTION_ITEM_COUNT
+    // for the item, stored into VAR_ACTION_ITEM_COUNTS for every item word of
+    // that entry, each then FUN_ACTION_SLOT_CHANGED_NOTIFY(slot0, 0, 0)
+    // (decompiled). Sixteen direct callers (benilla-re ui/actionbar#item-
+    // records-arriving): the item-record callback 0x004E5B80 that
+    // FUN_ACTION_ITEM_COUNT hands GetRecord, the container slot handlers,
+    // CGItem_C::ApplyRecord / Deactivate and the active player's item field
+    // watchers. `Action::ExtendedState` co-hooks it for slots 121..360.
+    FUN_ACTION_RECOUNT_ITEM_SLOTS = 0x004E5C70,
     // SMSG_ACTION_BUTTONS leaf — `__stdcall(?, CDataStore *)`, RET 8 (stack
     // args at [ebp+8] / [ebp+0xC]; ECX/EDX unused). Reads 120 u32 into
     // `VAR_ACTION_BUTTONS_PENDING`; the local-player enter-world init
@@ -9568,6 +9614,10 @@ enum Offsets {
     FUN_SCRIPT_GET_ACTION_COUNT = 0x004E6E70,
     FUN_SCRIPT_IS_CONSUMABLE_ACTION = 0x004E7470,
     EVENT_ACTIONBAR_SLOT_CHANGED = 0xD5, // fmt "%d", 1-based slot
+    // ACTIONBAR_UPDATE_USABLE, no arguments: FUN_ACTION_UPDATE_USABLE's
+    // `mov ecx, 0xD7` before CALL_UPDATE_USABLE_FIRE (benilla-re ui/actionbar
+    // event table, 215).
+    EVENT_ACTIONBAR_UPDATE_USABLE = 0xD7,
 
     // Per-character macro-slot map (uint[36]). Entry N holds the macroID
     // of the macro in slot N (0 = empty slot). The same memory is used
