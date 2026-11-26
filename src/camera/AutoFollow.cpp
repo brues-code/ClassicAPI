@@ -47,8 +47,22 @@
 // the camera yaw is relative to the character (no absolute frame, so not
 // under mouselook or gamepad freelook) and the character can turn, part of
 // the turn goes to the character, and past CameraFollowSnapCharacterAngle a
-// moving character snaps to the camera. On a transport the step rests;
-// 3.80.2 works in the transport's frame, which is not worked out for 1.12.
+// moving character snaps to the camera.
+//
+// On a boat or zeppelin the step works in the transport's frame, as 3.80.2
+// does (FUN_141b65290): the move is the target's displacement relative to
+// the transport's position, and the yaw delta subtracts the transport's
+// facing, so the transport carrying the character turns nothing. 1.12 keeps
+// the same pair: the camera holds the transport GUID (+0x98) and the engine's
+// ride frame is the transport's position and yaw (vtable +0x14 / +0x18,
+// benilla collision/ride "Ride frame"). The eye (+0x08), the last pivot
+// (+0x174) and the target position are world; the mover's facing, the
+// relative yaw and the basis +0x14 are transport-local, so the facing half
+// needs no conversion. One deviation: 3.80.2 records the transport only at
+// the end of a camera update, so the frame that boards or leaves one
+// compares against a record from another frame and reads the transport's
+// whole world offset as movement. Here a changed transport counts last
+// frame's as this frame's, which leaves that frame's plain world movement.
 
 #include "camera/AutoFollow.h"
 
@@ -91,6 +105,17 @@ struct State {
     uint32_t seen = 0;          // last stamp this step saw
     float pending = 0.0f;       // yaw to give back after a character snap
     uint64_t lockGuid = 0;      // the locked target followed last
+    uint64_t lastTransport = 0; // the record's transport GUID
+    float lastTransportPos[3] = {};
+    float lastTransportFacing = 0.0f;
+};
+
+// FUN_141b65290: the camera's transport as a world position and facing,
+// zeros without one or when the object is not known.
+struct Transport {
+    uint64_t guid = 0;
+    float pos[3] = {};
+    float facing = 0.0f;
 };
 
 State g_state;
@@ -125,6 +150,20 @@ float Approach(float cur, float goal, float rate, float dt) {
 }
 
 float Clamp(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
+
+Transport TransportOf(const void *camera) {
+    Transport t;
+    t.guid = Game::Read<uint64_t>(camera, Offsets::OFF_CAMERA_TRANSPORT_GUID);
+    if (t.guid == 0)
+        return t;
+    void *object = Object::ByGuid(Offsets::TYPEMASK_GAMEOBJECT, t.guid);
+    if (object == nullptr || !Unit::Position::Read(object, t.pos)) {
+        t.pos[0] = t.pos[1] = t.pos[2] = 0.0f;
+        return t;
+    }
+    t.facing = Unit::Position::Facing(object);
+    return t;
+}
 
 float Dot3(const float a[3], const float b[3]) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
 
@@ -221,9 +260,7 @@ bool Gated(const void *camera, const State &s, bool onStick, bool follow) {
         return true;
     if (std::fabs(View::TargetDistance(camera)) < kEps)
         return true;
-    if (!s.hasRecord)
-        return true;
-    return Game::Read<uint64_t>(camera, Offsets::OFF_CAMERA_TRANSPORT_GUID) != 0;
+    return !s.hasRecord;
 }
 
 // What FollowYaw needs about this frame beyond the move.
@@ -232,6 +269,8 @@ struct Frame {
     void *player;      // the active player, or null
     const void *unit;  // the camera target as a unit, or null
     bool pendingRan;   // §3.2 gave back a snap this frame
+    float facing;      // the transport's facing now, 0 without one
+    float lastFacing;  // and at the record
     uint32_t now;
     float dt;
 };
@@ -253,7 +292,8 @@ void FollowYaw(void *camera, State &s, const Frame &f, const float move[3], cons
     k = Clamp(k * yawSpeed, 0.0f, 100.0f);
     const float p[3] = {toPivot[0] + move[0] * k, toPivot[1] + move[1] * k, toPivot[2] + move[2] * k};
     const float steep = std::fmin(std::fabs(View::PitchAngle(p[0], p[1], p[2])) * kInvPitchLimit, 1.0f);
-    float delta = WrapPi(Norm2Pi(std::atan2(p[1], p[0])) - Norm2Pi(std::atan2(toPivot[1], toPivot[0])));
+    float delta = WrapPi((Norm2Pi(std::atan2(p[1], p[0])) - f.facing) -
+                         (Norm2Pi(std::atan2(toPivot[1], toPivot[0])) - f.lastFacing));
     delta *= (1.0f - steep) * s.ease;
     if (s.resuming && std::fabs(s.ease - 1.0f) < kEps && std::fabs(delta) < kEps)
         s.resuming = false;
@@ -383,6 +423,12 @@ void Update(void *camera, void *target, uint32_t now, float dt) {
     float position[3];
     if (!Unit::Position::Read(target, position))
         return;
+    // The transport now and at the record; a changed one stands in for the
+    // record's (see the header).
+    const Transport transport = TransportOf(camera);
+    const bool sameTransport = s.lastTransport == transport.guid;
+    const float *lastTransportPos = sameTransport ? s.lastTransportPos : transport.pos;
+    const float lastTransportFacing = sameTransport ? s.lastTransportFacing : transport.facing;
     // §3.4. The last pivot is the driver's +0x174; its offset from the
     // feet stands for 3.80.2's pivot offset.
     const float *pivot = &Game::Ref<float>(camera, Offsets::OFF_CAMERA_LAST_PIVOT);
@@ -391,10 +437,11 @@ void Update(void *camera, void *target, uint32_t now, float dt) {
     if (lock == nullptr) {
         s.lockGuid = 0;
         if (onStick) {
-            // This frame's move, scaled down closer than 4 yards.
+            // This frame's move in the transport's frame, scaled down closer
+            // than 4 yards.
             const float w = std::fmin(View::TargetDistance(camera) * 0.25f, 1.0f);
             for (int i = 0; i < 3; ++i)
-                move[i] = (position[i] - last[i]) * w;
+                move[i] = ((position[i] - transport.pos[i]) - (last[i] - lastTransportPos[i])) * w;
         }
     } else {
         // Toward the locked target at pivot height: a unit direction from 2
@@ -450,7 +497,7 @@ void Update(void *camera, void *target, uint32_t now, float dt) {
     // Camera to pivot, last frame.
     const float *eye = &Game::Ref<float>(camera, Offsets::OFF_CAMERA_POSITION);
     const float toPivot[3] = {pivot[0] - eye[0], pivot[1] - eye[1], pivot[2] - eye[2]};
-    const Frame f{lock, player, View::Unit(target), pendingRan, now, dt};
+    const Frame f{lock, player, View::Unit(target), pendingRan, transport.facing, lastTransportFacing, now, dt};
     FollowYaw(camera, s, f, move, toPivot);
     FollowPitch(camera, target, s, toPivot, dt);
 }
@@ -460,6 +507,12 @@ void Record(void *camera, const float feet[3]) {
     s.lastFeet[0] = feet[0];
     s.lastFeet[1] = feet[1];
     s.lastFeet[2] = feet[2];
+    const Transport transport = TransportOf(camera);
+    s.lastTransport = transport.guid;
+    s.lastTransportPos[0] = transport.pos[0];
+    s.lastTransportPos[1] = transport.pos[1];
+    s.lastTransportPos[2] = transport.pos[2];
+    s.lastTransportFacing = transport.facing;
     s.hasRecord = true;
 }
 

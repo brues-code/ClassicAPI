@@ -24,8 +24,9 @@ namespace Camera::AutoFollow {
 void Update(void *camera, void *target, uint32_t now, float dt);
 
 // The end of a driver frame that built the view: keeps the target position
-// the solver started from, which the next frame's step reads (3.80.2's
-// last-frame record, FUN_141b5ab50; the last pivot is the driver's +0x174).
+// the solver started from and the camera's transport, which the next frame's
+// step reads (3.80.2's last-frame record, FUN_141b5ab50; the last pivot is
+// the driver's +0x174).
 void Record(void *camera, const float feet[3]);
 
 } // namespace Camera::AutoFollow
