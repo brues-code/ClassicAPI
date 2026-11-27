@@ -25,7 +25,9 @@
 // PHASE TWO places items. It plans the whole layout up front and then
 // tracks each item's live position as swaps fire, rather than re-reading
 // a layout it is in the middle of mutating, so the whole batch goes out
-// in one frame.
+// in one frame. Two stacks of one item never swap (the server fills one
+// from the other instead), so where an item's partial stack lands is
+// settled by moving counts, not items (SettlePartial).
 //
 // Both phases wait on the ENGINE'S ITEM LOCK, the bit its own move
 // senders set: every item a phase relocates is locked once the batch is
@@ -36,6 +38,8 @@
 // locked; a deadline that restarts on every answer releases the stragglers
 // if the server goes quiet. The locks also grey the icons and stop the
 // player picking an item up mid-sort, exactly as a hand-dragged move does.
+// A split moves no item, so nothing clears a lock on its two stacks;
+// those are waited on until the server's update shows their new counts.
 //
 // Neither phase may touch the Lua stack: everything after the initial call
 // runs from the world tick, outside any Lua call, where the engine may
@@ -205,6 +209,7 @@ struct Entry {
     uint32_t itemID;
     uint32_t family; // the item's own bag family (0 = fits anywhere)
     uint32_t itemClass, subClass, quality, count;
+    uint32_t maxStack;
     const char *name;
     uint8_t category;
     uint8_t slotRank; // SlotRank(m_inventoryType)
@@ -268,26 +273,42 @@ const uint8_t *ItemAt(const BagView &v, int slotIndex0, uint64_t *guidOut) {
     return ItemByGuid(guid);
 }
 
-// An item gone from the object manager is settled too: a whole-stack
-// merge destroys its source.
-bool StillLocked(uint64_t guid) {
-    const uint8_t *item = ItemByGuid(guid);
-    return Item::IsLocked(item);
-}
-
-// Items the running phase relocated and locked; the phase is over once
-// none of them is still locked.
-std::vector<uint64_t> g_waiting;
-
-void Lock(uint64_t guid) {
-    Item::SetLocked(guid, true);
-    g_waiting.push_back(guid);
-}
-
 // A stack the descriptor has not filled counts as one item.
 uint32_t StackCount(const uint8_t *item) {
     const uint32_t n = Item::StackCount(item);
     return n == 0 ? 1 : n;
+}
+
+// One answer the running phase waits for. `count == 0` waits for the
+// engine to clear the item's lock (a relocation or a whole-stack merge).
+// Otherwise it waits for the item's stack count to reach `count`: a split
+// changes no slot GUID, so nothing would clear a lock on it, but the
+// server's update of the count field is just as sure an answer.
+struct Wait {
+    uint64_t guid;
+    uint32_t count;
+};
+
+// Answers the running phase still waits for; the phase is over once
+// none is pending.
+std::vector<Wait> g_waiting;
+
+void Lock(uint64_t guid) {
+    Item::SetLocked(guid, true);
+    g_waiting.push_back({guid, 0});
+}
+
+void ExpectCount(uint64_t guid, uint32_t count) {
+    g_waiting.push_back({guid, count});
+}
+
+// An item gone from the object manager is settled too: a whole-stack
+// merge destroys its source.
+bool Pending(const Wait &w) {
+    const uint8_t *item = ItemByGuid(w.guid);
+    if (w.count == 0)
+        return Item::IsLocked(item);
+    return item != nullptr && StackCount(item) != w.count;
 }
 
 // --- phase one: consolidate stacks ------------------------------------------
@@ -371,7 +392,10 @@ std::vector<Group> GatherGroups(const int *bags, int bagCount) {
 //
 // Two rolling pointers per item: stacks fullest-first, then poured from
 // the back into the front until they meet. Each source a transfer empties
-// is locked once the batch is out, so phase two can wait for it.
+// is locked once the batch is out, and each stack left holding a new
+// count is waited on until the server's count arrives, so phase two reads
+// the counts the merges produced. It needs them: which stack is the
+// partial one decides where the counts go (see SettlePartial).
 void Consolidate(const int *bags, int bagCount) {
     std::vector<Group> groups = GatherGroups(bags, bagCount);
     std::vector<uint64_t> emptied;
@@ -390,6 +414,9 @@ void Consolidate(const int *bags, int bagCount) {
         // `hi` and nothing is sent.
         std::sort(group.stacks.begin(), group.stacks.end(),
                   [](const Stack &a, const Stack &b) { return a.count > b.count; });
+        std::vector<uint32_t> before;
+        for (const auto &s : group.stacks)
+            before.push_back(s.count);
         size_t lo = 0, hi = group.stacks.size() - 1;
         while (lo < hi) {
             const uint32_t space = group.maxStack > group.stacks[lo].count
@@ -422,10 +449,10 @@ void Consolidate(const int *bags, int bagCount) {
                           group.stacks[lo].slot, static_cast<int>(moved));
             if (sent) {
                 ++g_mergePackets;
-                // Only a whole-stack transfer changes which slots are
-                // occupied, which is all phase two's plan depends on. A
-                // partial split changes no slot GUID, so nothing would
-                // ever clear a lock on it.
+                // Only an emptied source can be waited on by its lock. A
+                // stack that keeps a count changes no slot GUID, so
+                // nothing would ever clear a lock on it; it is waited on
+                // by its count below.
                 if (wholeStack)
                     emptied.push_back(group.stacks[hi].guid);
             }
@@ -435,6 +462,12 @@ void Consolidate(const int *bags, int bagCount) {
                 --hi; // that stack is gone
             else
                 ++lo; // this one is full
+        }
+
+        for (size_t k = 0; k < group.stacks.size(); ++k) {
+            const Stack &s = group.stacks[k];
+            if (s.count != 0 && s.count != before[k])
+                ExpectCount(s.guid, s.count);
         }
     }
 
@@ -463,12 +496,58 @@ struct Stats {
     int generalCells;   // destination cells in general-purpose containers
     int specialtyCells; // cells confined to one bag family
     int familyItems;    // items that want a specialty bag
-    int mergesPending;  // phase-one sources unanswered when placement ran
-    int locksReleased;  // phase-two items unanswered at the deadline
+    int mergesPending;  // phase-one answers missing when placement ran
+    int locksReleased;  // phase-two answers missing at the deadline
+    int partialsSettled; // partial stacks moved into place by a split
 };
 Stats g_lastRun{};
 
-// Returns true when it relocated anything, i.e. there are locks to wait on.
+// A same-item run in the sorted list, [first, last), and the cell its
+// partial stack belongs in.
+struct Run {
+    size_t first, last;
+    Cell partialCell;
+};
+
+// Puts a run's partial stack in its cell by moving counts, not items.
+// Moving the item would be a swap between two stacks of one item, which
+// the server turns into a fill instead (see the note in Place). A split
+// from the full stack holding that cell into the partial one is a fill
+// on purpose: the partial's slot ends full and the cell ends holding
+// the partial's count, which is the layout a swap would have given.
+//
+// Only a packed run qualifies — every stack full but one — which phase
+// one leaves behind. Anything else (an item phase one could not merge)
+// is left as it is.
+bool SettlePartial(const std::vector<Entry> &items, const Run &run) {
+    const Entry *partial = nullptr;
+    const Entry *holder = nullptr;
+    for (size_t k = run.first; k < run.last; ++k) {
+        const Entry &e = items[k];
+        if (e.destSlot < 0)
+            return false; // an unplaced member: its slot is not part of the run
+        if (e.count < e.maxStack) {
+            if (partial != nullptr)
+                return false; // not packed
+            partial = &e;
+        }
+        if (e.curBag == run.partialCell.bag && e.curSlot == run.partialCell.slot)
+            holder = &e;
+    }
+    if (partial == nullptr || holder == nullptr || holder == partial)
+        return false;
+
+    const uint32_t fill = partial->maxStack - partial->count;
+    if (!Item::Swap::MoveCountFrom(holder->item, holder->curBag, holder->curSlot,
+                                   partial->curBag, partial->curSlot,
+                                   static_cast<int>(fill)))
+        return false;
+    ExpectCount(holder->guid, partial->count);
+    ExpectCount(partial->guid, partial->maxStack);
+    return true;
+}
+
+// Returns true when it sent anything, i.e. there are answers to wait on.
 bool Place(const int *bags, int bagCount, int mergesPending) {
     Stats stats{};
     stats.mergesPending = mergesPending;
@@ -541,6 +620,7 @@ bool Place(const int *bags, int bagCount, int mergesPending) {
             e.slotRank = SlotRank(
                 Game::Read<uint32_t>(rec, Offsets::OFF_ITEMSTATS_INVENTORY_TYPE));
             e.count = StackCount(item);
+            e.maxStack = Game::Read<uint32_t>(rec, Offsets::OFF_ITEMSTATS_STACKABLE);
             e.name = *reinterpret_cast<const char *const *>(
                 rec + Offsets::OFF_ITEMSTATS_NAME);
             e.category = CategoryFor(e.itemID, e.itemClass, e.quality);
@@ -622,10 +702,18 @@ bool Place(const int *bags, int bagCount, int mergesPending) {
     // nothing: within each same-item run, hand each destination cell to
     // whichever member already occupies it. The run is contiguous because
     // identical items agree on every key ahead of count.
+    //
+    // The trade ignores counts, so it can leave the partial stack ahead
+    // of a full one. Each run remembers the cell its emptiest member was
+    // planned into — the last of the run, since fuller stacks sort first
+    // — and SettlePartial moves the counts there after the swaps.
+    std::vector<Run> runs;
     for (size_t i = 0; i < items.size();) {
         size_t j = i;
         while (j < items.size() && items[j].itemID == items[i].itemID)
             ++j;
+        if (j - i > 1 && items[j - 1].destSlot >= 0)
+            runs.push_back({i, j, {items[j - 1].destBag, items[j - 1].destSlot}});
         for (size_t m = i; m < j; ++m) {
             for (size_t n = i; n < j; ++n) {
                 if (n == m)
@@ -678,19 +766,21 @@ bool Place(const int *bags, int bagCount, int mergesPending) {
         }
     }
 
+    // After the swaps, so the server applies it to the slots they left.
+    for (const Run &run : runs)
+        if (SettlePartial(items, run))
+            ++stats.partialsSettled;
+
     // Lock what ended up somewhere else. Its final slot held a different
     // GUID before, so the slot watcher's answer is guaranteed to change it
     // and clear the lock. An item that moved and came back is left
     // unlocked: its slot never changes, and nothing would clear it.
-    bool moved = false;
     for (const auto &e : items) {
-        if (e.curBag != e.startBag || e.curSlot != e.startSlot) {
+        if (e.curBag != e.startBag || e.curSlot != e.startSlot)
             Lock(e.guid);
-            moved = true;
-        }
     }
     g_lastRun = stats;
-    return moved;
+    return !g_waiting.empty();
 }
 
 // --- sequencing -------------------------------------------------------------
@@ -724,7 +814,7 @@ void RunPlacement(int mergesPending) {
         g_phase = kIdle;
 }
 
-// Ends the running phase once none of its items is still locked, or when
+// Ends the running phase once none of its answers is pending, or when
 // the server has gone quiet past the deadline — then the stragglers are
 // released through the engine's own clearer, so nothing stays greyed out
 // and unusable on a lost reply.
@@ -733,8 +823,8 @@ void OnTick() {
         return;
 
     size_t pending = 0;
-    for (const uint64_t guid : g_waiting)
-        if (StillLocked(guid))
+    for (const Wait &w : g_waiting)
+        if (Pending(w))
             ++pending;
 
     if (pending != 0) {
@@ -746,9 +836,9 @@ void OnTick() {
         }
         if (!Time::Clock::Reached(now, g_deadline))
             return;
-        for (const uint64_t guid : g_waiting)
-            if (StillLocked(guid))
-                Item::SetLocked(guid, false);
+        for (const Wait &w : g_waiting)
+            if (w.count == 0 && Pending(w))
+                Item::SetLocked(w.guid, false);
     }
     g_waiting.clear();
 
@@ -830,7 +920,8 @@ int __fastcall Script_C_Container_SortBankBags(void * /*L*/) {
 
 // `_classicapi_SortBagsStats()` -> entries, cells, pinned, planned,
 // unplanned, swapsSent, swapsFailed, sameItemAvoided, generalCells,
-// specialtyCells, familyItems, mergePackets, mergesPending, locksReleased —
+// specialtyCells, familyItems, mergePackets, mergesPending, locksReleased,
+// partialsSettled —
 // from the last sort. Diagnostic only; not part of the API surface.
 int __fastcall Script_SortBagsStats(void *L) {
     Game::Lua::PushNumber(L, g_lastRun.entries);
@@ -847,7 +938,8 @@ int __fastcall Script_SortBagsStats(void *L) {
     Game::Lua::PushNumber(L, g_mergePackets);
     Game::Lua::PushNumber(L, g_lastRun.mergesPending);
     Game::Lua::PushNumber(L, g_lastRun.locksReleased);
-    return 14;
+    Game::Lua::PushNumber(L, g_lastRun.partialsSettled);
+    return 15;
 }
 
 // `_classicapi_SortBagsBags(which)` -> bagID, slotCount, family for each
