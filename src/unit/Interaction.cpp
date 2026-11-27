@@ -25,10 +25,6 @@
 //   - UnitIsInInteractRange(unit) — retail only; 3.80.2's 0x1405E0EE0 is the
 //     same "usable now" test: an interact candidate within the interact
 //     reach, 1.12's own hover-cursor reach (Target::SoftInteract::InReach).
-//   - SetPreferredGamepadInteractTarget([unit]) — retail only. Retail draws
-//     its gamepad interact cursor glyph for that unit (SetUnitCursorTexture's
-//     preferGamepadIcon); 1.12 has no such glyph, so the argument is read
-//     and nothing is kept.
 
 #include "Game.h"
 #include "Offsets.h"
@@ -85,12 +81,6 @@ int __fastcall Script_UnitIsInInteractRange(void *L) {
     return PushBool(L, object != nullptr && Target::SoftInteract::InReach(object));
 }
 
-int __fastcall Script_SetPreferredGamepadInteractTarget(void *L) {
-    uint64_t guid;
-    Arg::UnitToken(L, 1, "Usage: SetPreferredGamepadInteractTarget([unit])", guid, true);
-    return 0;
-}
-
 const Game::Doc::Field kUnitArg[] = {Game::Doc::Opt("unit", "UnitToken")};
 const Game::Doc::Field kRequiredUnitArg[] = {Game::Doc::Req("unit", "UnitToken")};
 const Game::Doc::Field kResult[] = {Game::Doc::Req("result", "bool")};
@@ -105,9 +95,6 @@ const Game::Doc::Function kUnitHasLootInteraction{"Returns true if the unit is d
 const Game::Doc::Function kUnitIsInInteractRange{
     "Returns true if the unit is a soft target candidate you can interact with and it is in reach.",
     kRequiredUnitArg, kResult, "Unit"};
-const Game::Doc::Function kSetPreferredGamepadInteractTarget{
-    "Names the unit a gamepad interact acts on. This client has no gamepad interact cursor to show for it.",
-    kUnitArg, {}, "Target"};
 
 void RegisterLuaFunctions() {
     Game::Lua::RegisterGlobalFunction("UnitIsInteractable", &Script_UnitIsInteractable, &kUnitIsInteractable);
@@ -116,8 +103,6 @@ void RegisterLuaFunctions() {
                                       &kUnitHasLootInteraction);
     Game::Lua::RegisterGlobalFunction("UnitIsInInteractRange", &Script_UnitIsInInteractRange,
                                       &kUnitIsInInteractRange);
-    Game::Lua::RegisterGlobalFunction("SetPreferredGamepadInteractTarget", &Script_SetPreferredGamepadInteractTarget,
-                                      &kSetPreferredGamepadInteractTarget);
 }
 
 const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

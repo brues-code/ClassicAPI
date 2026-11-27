@@ -44,7 +44,7 @@
 #include "gamepad/GamePad.h"
 #include "gamepad/Names.h"
 #include "gamepad/State.h"
-#include "unit/Identity.h"
+#include "lua/Arg.h"
 
 #include <cstdint>
 
@@ -54,16 +54,15 @@ namespace {
 
 uint64_t g_preferred = 0;
 
+// The generated UnitToken reader: nil clears, a string resolves to its GUID
+// (an unknown token is 0), a number names no unit, anything else is the
+// usage error.
 int __fastcall Script_SetPreferredGamepadInteractTarget(void *L) {
-    if (Game::Lua::Type(L, 1) <= Game::Lua::TYPE_NIL) {
-        g_preferred = 0;
+    uint64_t guid = 0;
+    if (!Game::Lua::Arg::UnitToken(L, 1, "Usage: SetPreferredGamepadInteractTarget([unit])", guid,
+                                   true))
         return 0;
-    }
-    if (!Game::Lua::IsString(L, 1)) {
-        Game::Lua::Error(L, "Usage: SetPreferredGamepadInteractTarget([unit])");
-        return 0;
-    }
-    g_preferred = Unit::Identity::GuidForToken(Game::Lua::ToString(L, 1));
+    g_preferred = guid;
     return 0;
 }
 
