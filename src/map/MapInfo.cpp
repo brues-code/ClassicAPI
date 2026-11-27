@@ -20,30 +20,29 @@
 //
 // ## The tree
 //
-// Three levels, all read from `WorldMapArea.dbc` + `Map.dbc`:
+// Three levels, read from `WorldMapArea.dbc` + `Map.dbc`:
 //
-//   World (the "World" row)
+//   World (Map::Area::kWorldUiMapID — the engine's "continent -1" view)
 //     +- Continent (Kalimdor, Eastern Kingdoms)
 //          +- Zone (Durotar, Elwynn Forest, ...)
 //
-// A zone is named by its positive `AreaTable.dbc` area id. The World and
-// continent levels carry no AreaTable id (their `WorldMapArea` rows have
-// areaID 0), so they use the negative `-(WorldMapArea row)` half of the
-// uiMapID space — see the uiMapID section in `Map::Area`. Instance maps
-// (dungeons, raids, battlegrounds) are the same shape as continents: an
-// areaID-0 row, addressed negatively.
+// A zone is named by its positive `AreaTable.dbc` area id. The continent
+// level carries no AreaTable id (its `WorldMapArea` rows have areaID 0), so
+// it uses the negative `-(WorldMapArea row)` half of the uiMapID space — see
+// the uiMapID section in `Map::Area`. Instance maps (dungeons, raids,
+// battlegrounds) are the same shape as continents: an areaID-0 row,
+// addressed negatively. The world has no row on stock data, so it has its
+// own id and no geometry — the coordinate functions report nothing for it.
 //
 // A zone's parent is the continent-spanning row of the `Map.dbc` map it sits
-// on. Each continent's parent is the World row. The World row's own rect is
-// all zeroes, so it names the map but carries no geometry — the coordinate
-// functions correctly report nothing for it.
+// on. Each continent's parent is the world map.
 //
 // ## mapType
 //
 // `Enum.UIMapType`: Cosmic 0, World 1, Continent 2, Zone 3, Dungeon 4. A
-// positive id is always a Zone. A negative id takes its type from the
-// `Map.dbc` instance type of the map it names (0 = world map → Continent,
-// anything else → Dungeon), except the World row itself.
+// positive id is a Zone, except the world map. A negative id takes its type
+// from the `Map.dbc` instance type of the map it names (0 = world map →
+// Continent, anything else → Dungeon).
 
 #include "Game.h"
 #include "Offsets.h"
@@ -55,7 +54,6 @@
 
 #include <cstdint>
 #include <cstdio>
-#include <cstring>
 
 namespace Map::MapInfo {
 
@@ -88,40 +86,39 @@ const char *RowName(int row) {
     return Game::Read<const char *>(rec, Offsets::OFF_WMA_NAME);
 }
 
-bool IsWorldRow(int row) {
-    const char *name = RowName(row);
-    return name != nullptr && std::strcmp(name, "World") == 0;
+// The world view's map directory, `Interface\WorldMap\World\World1..12` —
+// the tiles the engine draws for it (benilla-re loadingscreen/route: the
+// route map at 0x00406F20 draws the same 12). Also the world map's name.
+constexpr const char *kWorldMapDir = "World";
+
+// The map directory of `uiMapID` ("Kalimdor", "World", ""), or null.
+const char *MapDir(int uiMapID) {
+    if (uiMapID == Map::Area::kWorldUiMapID)
+        return kWorldMapDir;
+    return RowName(Map::Area::RowForUiMapID(uiMapID));
 }
 
-// The WorldMapArea row the client uses for the whole-world map: the areaID-0
-// row named "World". -1 when the client has none.
-int WorldRow() {
-    const int count = Game::Read<int>(Offsets::VAR_WORLDMAP_AREA_COUNT);
-    for (int id = 1; id <= count; ++id) {
-        const uint8_t *rec = DBC::Record(Offsets::VAR_WORLDMAP_AREA_RECORDS,
-                                         Offsets::VAR_WORLDMAP_AREA_COUNT,
-                                         static_cast<uint32_t>(id));
-        if (rec == nullptr ||
-            Game::Read<int>(rec, Offsets::OFF_WMA_AREA_ID) != 0)
-            continue;
-        if (IsWorldRow(id))
-            return id;
-    }
-    return -1;
+// True for an areaID-0 row of a world map that is not that map's continent
+// row — a zero-rect duplicate such as Turtle's "World" row. It names no map.
+bool IsStrayRow(int row, int mapID) {
+    return Map::Instance::Type(mapID) == 0 && Map::Area::ContinentRowForMapID(mapID) != row;
 }
 
 // Builds the UiMapDetails table for `uiMapID` and leaves it on the stack top.
 // Returns false (pushing nothing) when the id names no map.
 bool PushMapInfo(void *L, int uiMapID) {
-    const int row = Map::Area::RowForUiMapID(uiMapID);
-    if (row <= 0)
-        return false;
-
     const char *name = nullptr;
     int mapType = kMapTypeZone;
     int parentMapID = 0;
 
-    if (uiMapID > 0) {
+    const int row = Map::Area::RowForUiMapID(uiMapID);
+    if (uiMapID == Map::Area::kWorldUiMapID) {
+        // The whole-world map: no row, no parent.
+        name = kWorldMapDir;
+        mapType = kMapTypeWorld;
+    } else if (row <= 0) {
+        return false;
+    } else if (uiMapID > 0) {
         // A zone: AreaTable name, parented to its continent.
         name = DBC::AreaName(static_cast<uint32_t>(uiMapID),
                              /*resolveToParent=*/false);
@@ -132,25 +129,20 @@ bool PushMapInfo(void *L, int uiMapID) {
             if (contRow > 0)
                 parentMapID = -contRow;
         }
-    } else if (IsWorldRow(row)) {
-        // The whole-world map: named by the row itself, no parent.
-        name = RowName(row);
-        mapType = kMapTypeWorld;
-        parentMapID = 0;
     } else {
         // A continent or instance map: Map.dbc supplies the display name and
         // the type; continents hang off the world map.
         int mapID = 0;
         Map::Area::RowRect(row, nullptr, &mapID);
+        if (IsStrayRow(row, mapID))
+            return false;
+        const int instanceType = Map::Instance::Type(mapID);
         name = MapName(mapID);
         if (name == nullptr)
             name = RowName(row); // custom map with no Map.dbc row
-        const int instanceType = Map::Instance::Type(mapID);
         if (instanceType == 0) {
             mapType = kMapTypeContinent;
-            const int worldRow = WorldRow();
-            if (worldRow > 0)
-                parentMapID = -worldRow;
+            parentMapID = Map::Area::kWorldUiMapID;
         } else {
             mapType = kMapTypeDungeon;
         }
@@ -184,10 +176,11 @@ int __fastcall Script_GetMapChildrenInfo(void *L) {
     const int row = ok ? Map::Area::RowForUiMapID(uiMapID) : -1;
 
     // A zone (positive id) has no children; anything else enumerates below.
-    const bool wantContinents = (row > 0) && IsWorldRow(row);
+    const bool wantContinents = ok && uiMapID == Map::Area::kWorldUiMapID;
     int parentMapDbcID = 0;
-    const bool wantZones = (row > 0) && uiMapID < 0 && !wantContinents &&
-                           Map::Area::RowRect(row, nullptr, &parentMapDbcID);
+    const bool wantZones = (row > 0) && uiMapID < 0 &&
+                           Map::Area::RowRect(row, nullptr, &parentMapDbcID) &&
+                           !IsStrayRow(row, parentMapDbcID);
 
     Game::Lua::SetTop(L, 0);
     Game::Lua::NewTable(L);
@@ -207,11 +200,11 @@ int __fastcall Script_GetMapChildrenInfo(void *L) {
 
         int childID = 0;
         if (wantContinents) {
-            // Continent-spanning rows of real world maps, minus the World row.
-            if (areaID != 0 || id == row || Map::Instance::Type(mapID) != 0)
+            // The continent-spanning row of each world map.
+            if (areaID != 0 || Map::Instance::Type(mapID) != 0)
                 continue;
             if (Map::Area::ContinentRowForMapID(mapID) != id)
-                continue; // skip the stray zero-rect duplicate
+                continue; // a stray zero-rect duplicate (Turtle's "World" row)
             childID = -id;
         } else {
             // Zone rows of this map.
@@ -298,9 +291,8 @@ bool DirHasArt(const char *dir) {
 int __fastcall Script_MapHasArt(void *L) {
     const bool ok = Game::Lua::IsNumber(L, 1);
     const int uiMapID = ok ? static_cast<int>(Game::Lua::ToNumber(L, 1)) : 0;
-    const int row = ok ? Map::Area::RowForUiMapID(uiMapID) : -1;
 
-    const bool hasArt = DirHasArt(RowName(row));
+    const bool hasArt = ok && DirHasArt(MapDir(uiMapID));
 
     Game::Lua::SetTop(L, 0);
     Game::Lua::PushBool(L, hasArt);
@@ -319,8 +311,7 @@ int __fastcall Script_MapHasArt(void *L) {
 int __fastcall Script_GetMapArtLayers(void *L) {
     const bool ok = Game::Lua::IsNumber(L, 1);
     const int uiMapID = ok ? static_cast<int>(Game::Lua::ToNumber(L, 1)) : 0;
-    const int row = ok ? Map::Area::RowForUiMapID(uiMapID) : -1;
-    const bool hasArt = DirHasArt(RowName(row));
+    const bool hasArt = ok && DirHasArt(MapDir(uiMapID));
 
     Game::Lua::SetTop(L, 0);
     Game::Lua::NewTable(L);
@@ -359,8 +350,7 @@ int __fastcall Script_GetMapArtLayerTextures(void *L) {
     const bool ok = Game::Lua::IsNumber(L, 1) && Game::Lua::IsNumber(L, 2);
     const int uiMapID = ok ? static_cast<int>(Game::Lua::ToNumber(L, 1)) : 0;
     const int layerIndex = ok ? static_cast<int>(Game::Lua::ToNumber(L, 2)) : 0;
-    const int row = ok ? Map::Area::RowForUiMapID(uiMapID) : -1;
-    const char *dir = (layerIndex == 1) ? RowName(row) : nullptr;
+    const char *dir = (ok && layerIndex == 1) ? MapDir(uiMapID) : nullptr;
 
     Game::Lua::SetTop(L, 0);
     Game::Lua::NewTable(L);
@@ -386,9 +376,8 @@ int __fastcall Script_GetMapArtLayerTextures(void *L) {
 // `C_Map.GetFallbackWorldMapID()` — the uiMapID of the whole-world map, the
 // safe default when no better map is known.
 int __fastcall Script_GetFallbackWorldMapID(void *L) {
-    const int row = WorldRow();
     Game::Lua::SetTop(L, 0);
-    Game::Lua::PushNumber(L, (row > 0) ? static_cast<double>(-row) : 0.0);
+    Game::Lua::PushNumber(L, static_cast<double>(Map::Area::kWorldUiMapID));
     return 1;
 }
 
@@ -446,7 +435,7 @@ const Game::Doc::Function kGetMapInfoAtPosition{
     kMapInfoAtPositionRets};
 
 const Game::Doc::Field kFallbackWorldMapIDRets[] = {
-    Game::Doc::Req("uiMapID", "number", "0 when the client has no world map."),
+    Game::Doc::Req("uiMapID", "number"),
 };
 const Game::Doc::Function kGetFallbackWorldMapID{
     "Returns the ID of the whole-world map, the default map to show.", {},

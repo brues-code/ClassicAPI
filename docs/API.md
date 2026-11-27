@@ -20848,11 +20848,11 @@ World
 
 A **zone** is named by its positive `AreaTable.dbc` area id — the same
 identity [`C_Map.GetBestMapForUnit`](#c_mapgetbestmapforunitunittoken)
-returns. The **world and continent** levels have no area id, so they use
-**negative** ids: Kalimdor is `-13`, Eastern Kingdoms is `-14`, and the world
-map is `-694`. Instance maps (dungeons, raids, battlegrounds) are addressed
-the same negative way. The two ranges never overlap, so every function in
-this section accepts either kind.
+returns. The **continent** level has no area id, so it uses **negative**
+ids: Kalimdor is `-13`, and Eastern Kingdoms is `-14`. Instance maps
+(dungeons, raids, battlegrounds) use negative ids in the same way. The
+**world** map is `947`, the same id as on retail. No zone has this id. The
+ranges never overlap, so every function in this section accepts each kind.
 
 Read the ids from `GetMapChildrenInfo`, `GetFallbackWorldMapID`, or
 `GetBestMapForUnit` rather than writing them in by hand.
@@ -20861,7 +20861,7 @@ Read the ids from `GetMapChildrenInfo`, `GetFallbackWorldMapID`, or
 /dump C_Map.GetMapInfo(14)
 -- mapID=14, name="Durotar", mapType=3, parentMapID=-13
 /dump C_Map.GetMapInfo(-13)
--- mapID=-13, name="Kalimdor", mapType=2, parentMapID=-694
+-- mapID=-13, name="Kalimdor", mapType=2, parentMapID=947
 ```
 
 The world map names the whole world but carries no coordinate rect, so the
@@ -20902,10 +20902,10 @@ continent map" — the hit test behind clicking a continent.
 ### `C_Map.GetFallbackWorldMapID()`
 
 Returns the uiMapID of the whole-world map — the safe default to show when
-no specific map is known. Returns `0` if the client has no world map.
+no specific map is known. This is always `947`.
 
 ```lua
-local worldID = C_Map.GetFallbackWorldMapID()   -- -694
+local worldID = C_Map.GetFallbackWorldMapID()   -- 947
 ```
 
 ### `C_Map.MapHasArt(uiMapID)`
@@ -21142,7 +21142,7 @@ the whole-world map does not.
 
 ```lua
 C_Map.CanSetUserWaypointOnMap(14)    -- true  (Durotar)
-C_Map.CanSetUserWaypointOnMap(-694)  -- false (the world map)
+C_Map.CanSetUserWaypointOnMap(947)   -- false (the world map)
 ```
 
 ### `C_Map.GetAreaTriggerInfo(triggerID)` / `C_Map.GetAreaTriggers([mapID])`

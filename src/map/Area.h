@@ -107,14 +107,25 @@ bool ContinentPercent(int mapID, float x, float y, double *outPx, double *outPy)
 // A ClassicAPI `uiMapID` names either a zone or a whole map:
 //   positive  = an `AreaTable.dbc` area id (a zone) — what
 //               `C_Map.GetBestMapForUnit` returns.
-//   negative  = -(WorldMapArea row) — continent / world / instance maps,
-//               which carry no AreaTable id (their rows have areaID 0).
+//   negative  = -(WorldMapArea row) — continent / instance maps, which carry
+//               no AreaTable id (their rows have areaID 0).
+//   kWorldUiMapID = the whole-world map.
 // The negative half mirrors the engine's own two-namespaces-in-one-int idiom
 // (a quest's `zoneOrSort`: positive = AreaTable zone, negative = -QuestSort
 // row), so the two id spaces can never collide.
+//
+// 1.12 has no UiMap table, and its world view has neither an area nor a row:
+// the engine's world map is the selection "continent -1" (`SetMapZoom(0)`,
+// benilla-re ui/worldmap "The selection"), drawn from
+// `Interface\WorldMap\World\`. Stock 1.12.1's WorldMapArea.dbc (51 rows) has
+// no world row; Turtle's adds one (694, "World", zero rect), so deriving the
+// id from a row worked on Turtle only (issue #157). The id is therefore
+// retail's own world uiMapID, 947 — an AreaTable id in neither the stock
+// (max 3486) nor the Turtle (max 5735) table, so it cannot name a zone.
+constexpr int kWorldUiMapID = 947;
 
 // WorldMapArea row for a `uiMapID` in either namespace. Returns -1 when the
-// id resolves to no row.
+// id resolves to no row, which includes `kWorldUiMapID`.
 int RowForUiMapID(int uiMapID);
 
 // The `uiMapID` that names WorldMapArea row `row` — its areaID when it has
@@ -123,7 +134,8 @@ int UiMapIDForRow(int row);
 
 // The continent-level WorldMapArea row for a `Map.dbc` map: the areaID == 0
 // row with a non-degenerate rect (the same selection `ContinentPercent`
-// makes, so the stray zero-rect "World" row never wins). -1 when none.
+// makes, so a stray zero-rect row, such as Turtle's "World" row, never
+// wins). -1 when none.
 int ContinentRowForMapID(int mapID);
 
 // A WorldMapArea row's world rect. The map's horizontal runs along world Y
@@ -131,7 +143,7 @@ int ContinentRowForMapID(int mapID);
 // larger X) -- the WoW/pfQuest convention.
 struct Rect {
     double left = 0.0, right = 0.0, top = 0.0, bottom = 0.0;
-    // A real rect: the world map's own row and stray continent rows are zero.
+    // A real rect: stray continent rows (Turtle's "World" row) are zero.
     bool Valid() const { return left - right > 0.0 && top - bottom > 0.0; }
     bool Contains(double x, double y) const {
         return x >= bottom && x <= top && y >= right && y <= left;

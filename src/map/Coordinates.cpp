@@ -25,7 +25,7 @@
 // `uiMapID` is a vanilla `AreaTable.dbc` area id for a zone — the same
 // identity `C_Map.GetBestMapForUnit` returns and `GetMapWorldSize` /
 // `GetMapOverlays` accept — or a NEGATIVE `-(WorldMapArea row)` for a
-// continent / world / instance map (see `Map::Area`'s uiMapID section), so a
+// continent / instance map (see `Map::Area`'s uiMapID section), so a
 // continent map works anywhere a zone does. `continentID` is a `Map.dbc` map
 // id (0 = Eastern Kingdoms, 1 = Kalimdor, or an instance map). World
 // coordinates are continent-space
