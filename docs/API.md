@@ -910,6 +910,9 @@ build instructions.
   - [`C_MerchantFrame.IsMerchantItemRefundable(slot)`](#c_merchantframeismerchantitemrefundableslot)
   - [`C_MerchantFrame.IsSellAllJunkEnabled()`](#c_merchantframeissellalljunkenabled)
 
+- [Minimap](#minimap)
+  - [`C_Minimap.GetViewRadius()`](#c_minimapgetviewradius)
+
 - [Model](#model)
   - [`model:SetDisplayInfo(displayID)`](#modelsetdisplayinfodisplayid)
   - [`model:SetCreature(creatureID [, displayID])`](#modelsetcreaturecreatureid--displayid)
@@ -21410,6 +21413,33 @@ Always returns `true`. There is no client setting to disable the
 sell-all-junk button, so the feature is always on. The function exists
 so addons that gate `SellAllJunkItems` on this don't no-op silently.
 
+## Minimap
+
+### `C_Minimap.GetViewRadius()`
+
+Returns the distance in yards from the center of the minimap to its edge at
+the current zoom level. When the minimap shows its indoor view, the value
+comes from the indoor zoom (`minimapInsideZoom`). At other times, it comes
+from the outdoor zoom (`minimapZoom`).
+
+| Zoom | Outdoors | Indoors |
+|---|---|---|
+| 0 | 233.3 | 150 |
+| 1 | 200 | 120 |
+| 2 | 166.7 | 90 |
+| 3 | 133.3 | 60 |
+| 4 | 100 | 40 |
+| 5 | 66.7 | 25 |
+
+The minimap sends `MINIMAP_UPDATE_ZOOM` when it changes between its indoor
+and outdoor views. The indoor view does not always agree with
+[`IsIndoors()`](#isindoors), so use this function for the minimap.
+
+```lua
+-- pixels per yard on the minimap, to put a pin at the correct distance
+local pixelsPerYard = (Minimap:GetWidth() / 2) / C_Minimap.GetViewRadius()
+```
+
 ## Model
 
 These methods are on `PlayerModel` frames unless the heading says
@@ -28845,15 +28875,21 @@ end
 
 ### `IsIndoors()`
 
-Returns `1` if the local player is under a WMO roof — inside a building,
-cave, or instance interior — and `nil` otherwise. `nil` before the player
-object exists (pre-world).
+Returns `1` if you are inside a building, a cave, or an instance interior,
+and `nil` at other times. It also returns `nil` before you enter the world.
 
-Recomputed live, so it flips as you
-cross an interior threshold rather than tracking the current zone/area —
-you can be indoors and outdoors within the same subzone. Returns `1`/`nil`
-(not `true`/`false`) to match the historical contract and
-SuperWoW 2.2, so both `if IsIndoors()` and `IsIndoors() == 1` work.
+The value changes when you go through the entrance of an interior. It does
+not follow the zone or subzone, so you can be indoors and outdoors in the
+same subzone. It uses the same test as spells that you can cast only indoors
+or only outdoors, for example mounts.
+
+`IsIndoors()` does not tell you which view the minimap shows. In some
+places, for example Orgrimmar, the minimap shows its indoor view while
+`IsIndoors()` returns `nil`. To get the area that the minimap shows, use
+[`C_Minimap.GetViewRadius()`](#c_minimapgetviewradius).
+
+The return value is `1` or `nil`, not `true` or `false`. As a result, both
+`if IsIndoors()` and `IsIndoors() == 1` work.
 
 ```lua
 if IsIndoors() then
@@ -28863,10 +28899,9 @@ end
 
 ### `IsOutdoors()`
 
-Returns `1` if the local player is outdoors (open sky, or simply not
-inside a WMO interior) and `nil` otherwise. Exact complement of
-[`IsIndoors()`](#isindoors) for a resolvable player; both return `nil`
-pre-world.
+Returns `1` if you are outdoors, and `nil` at other times. When you are in
+the world, it is the opposite of [`IsIndoors()`](#isindoors). Both return
+`nil` before you enter the world.
 
 ```lua
 if IsOutdoors() then

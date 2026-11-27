@@ -13203,22 +13203,33 @@ enum Offsets {
     // `castGameObject != 0`).
     OFF_CGPLAYER_CAST_GAMEOBJECT_PTR = 0xB4,
 
-    // Indoor/outdoor query for a unit — backs `IsIndoors()` / `IsOutdoors()`
-    // (`unit/State.cpp`). `__fastcall(unit) -> uint` where **nonzero =
-    // outdoors**, 0 = indoors. A 2-instruction thunk: reads the unit's
-    // world/collision-context pointer at `unit + 0xE0` and tail-jumps to the
-    // WMO query `FUN_006706f0`. That query is fully null-safe — null context
-    // or a unit not inside a WMO group returns 1 (outdoors); otherwise it
-    // resolves the current WMO group via `FUN_0069d4f0` and returns bit 15
-    // (`0x8000`) of the group's runtime flags word (the OUTDOOR bit).
+    // CGUnit_C::TestNodeOutdoors — backs `IsIndoors()` / `IsOutdoors()`
+    // (`unit/State.cpp`). `__fastcall(unit) -> uint`, **nonzero = outdoors**.
+    // A 2-instruction thunk: `mov ecx,[ecx+0xE0]; jmp 0x006706F0`
+    // (CWorld::IsEntityOutdoors). That answers 1 for a null node or one whose
+    // `+0x90` indoors bit is clear (open terrain, or a WMO group with the
+    // MOGP exterior flag 0x8); with the bit set, bit 15 (0x8000) of the
+    // group's flags; 0 when no loaded group (benilla-re terrain/world
+    // "Entity outdoors test"). It is the cast gate's indoors/outdoors rung
+    // (spell attributes 0x4000/0x8000, benilla-re spell/castgates).
     //
-    // Derived from SuperWoW 2.2's `IsIndoors` handler (which does exactly
-    // `unit = ObjMgr(0x10, PlayerGUID()); push (query(unit)==0)`), then
-    // confirmed against the vanilla binary. Vanilla ships no Lua binding for
-    // this; the 3.3.5 client's `IsIndoors` (`0x00612300`) uses the identical
-    // shape (`unit + 0xB8` → WMO group flag test), so the semantics are
-    // cross-checked across both clients.
+    // That pairing is the port: 4.3.4's `Script_IsIndoors` (0x00456A50) is
+    // `!CGUnit_C::IsOutdoors()` (0x005B4390), the SAME function its
+    // ONLY_INDOORS / ONLY_OUTDOORS cast gate calls. Do NOT swap in the
+    // minimap's indoor test (0x00670540, `+0x90` bit 0 alone): it ignores
+    // 0x8000, which 1.12's data sets on interior groups that count as
+    // outside — all of Orgrimmar reads indoors through it (tried for issue
+    // #158 and reverted). The minimap's view differs from IsIndoors by
+    // design in 4.3.4 too; `C_Minimap.GetViewRadius` answers the view.
     FUN_UNIT_IS_OUTDOORS = 0x00612cc0,
+
+    // GetZoomRadius — the minimap's view radius in yards for the active zoom
+    // index and indoor state: indoors `{150,120,90,60,40,25}[minimapInsideZoom]`
+    // (0x008116E8), outdoors `{14,12,10,8,6,4}[minimapZoom] * 0.5 * 33.333332`
+    // (0x008116D0). `float __cdecl()`, plain RET, result in st0 (disassembly
+    // of 0x006DA9B0; benilla-re ui/minimap "The zoom radius"). 4.3.4's
+    // `MinimapGetViewRadius` (0x004E8620) is the same function.
+    FUN_MINIMAP_GET_ZOOM_RADIUS = 0x006DA9B0,
 
     // No `MOVEFLAG_FLYING` constant intentionally. Vanilla 1.12
     // doesn't flip a flying bit during taxi flights (verified
