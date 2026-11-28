@@ -133,7 +133,14 @@ struct Packer {
             return;
         }
         Lua::SetTop(L, top);
-        if (void *object = Lua::ResolveObject(L, -1)) {
+        // A script object's table holds it at [0] as a lightuserdata. Any
+        // table can hold a full userdata there (`{[0] = newproxy()}`), which
+        // ResolveObject would also return and the vtable calls below would
+        // jump through.
+        Lua::RawGetI(L, top, 0);
+        const bool isObject = Lua::Type(L, -1) == Lua::TYPE_LIGHTUSERDATA;
+        Lua::SetTop(L, top);
+        if (void *object = isObject ? Lua::ResolveObject(L, -1) : nullptr) {
             const char *name = Lua::ObjectName(object);
             Put(name != nullptr ? name : Lua::FrameObjectType(object));
             // 3.80.2's " <file:line>": the base name of where it was created.
