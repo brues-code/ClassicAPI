@@ -7350,7 +7350,8 @@ f:UnregisterEvent("MINIMAP_PING")   -- removes the callback
 ### `C_FunctionContainers.CreateCallback(func)`
 
 Returns a container for the Lua function `func`. You can register a
-container with the event-callback functions, and remove it later. `func`
+container with the event-callback functions, and remove it later. You
+can also give it to the `C_Timer` functions as the callback. `func`
 must be a Lua function. Another value causes the error
 `Usage: C_FunctionContainers.CreateCallback(func)`.
 
@@ -22209,7 +22210,8 @@ These functions are the same as
 [`C_Timer.NewTimer`](#c_timernewtimerseconds-callback) and
 [`C_Timer.NewTicker`](#c_timernewtickerseconds-callback-iterations), but
 they use the clock of the scene. Time does not pass for these timers while
-the scene is hidden. `scene:SetPaused` does not stop them.
+the scene is hidden. `scene:SetPaused` does not stop them. The duration
+errors use the names `scene:After` and `scene:NewTicker`.
 
 The scene runs its timers when its clock moves, before the actors update.
 A ticker runs one time in each frame at most. A `/reload` cancels all the
@@ -30751,66 +30753,83 @@ local elapsed = GetTickTime()
 
 ### `C_Timer.After(seconds, callback)`
 
-Schedules `callback` to fire once after `seconds`. Returns nothing.
+Calls `callback` one time after `seconds`. Returns nothing. `callback`
+gets no arguments.
 
 ```lua
 C_Timer.After(0.5, function() print("half a second later") end)
 C_Timer.After(0, function() print("next frame") end)
 ```
 
-Errors in the callback are caught and silently swallowed. One broken timer doesn't
-poison other timers on the same tick.
-
 ### `C_Timer.NewTimer(seconds, callback)`
 
-Like `After`, but returns a cancel-handle table:
+Calls `callback` one time after `seconds`, and returns its container
+(`cbObject`). `callback` gets the container as its one argument.
 
 ```lua
-local handle = C_Timer.NewTimer(10, function() print("never if I cancel") end)
-handle:Cancel()           -- prevents the callback from firing
-print(handle:IsCancelled()) -- true
+local timer = C_Timer.NewTimer(10, function() print("never if I cancel") end)
+timer:Cancel()              -- the callback does not run
+print(timer:IsCancelled())  -- true
 ```
-
-`Cancel()` is idempotent; calling it on a timer that already fired
-or was previously cancelled is a no-op. `IsCancelled()` returns
-`true` after `Cancel()`, after natural expiry, or for an unknown
-timer ID. Both methods take no arguments other than `self`.
-
-`callback` receives the handle as its one argument.
 
 ### `C_Timer.NewTicker(seconds, callback, [iterations])`
 
-Recurring variant. `callback` fires every `seconds` until cancelled
-or until `iterations` fires have happened. `iterations` is optional;
-omitted or non-numeric means forever. `callback` receives the handle
-as its one argument, so a ticker can cancel itself:
+Calls `callback` every `seconds`, and returns its container
+(`cbObject`). `callback` gets the container as its one argument, so a
+ticker can stop itself:
 
 ```lua
 C_Timer.NewTicker(1, function(ticker)
   if done() then ticker:Cancel() end
 end)
+
+C_Timer.NewTicker(0.25, function() print("tick") end, 8)  -- 8 calls, 250ms apart
 ```
 
-```lua
-local h = C_Timer.NewTicker(1, function() print("each second") end)
--- ...later
-h:Cancel()
+`iterations` is the number of calls. Without it, the ticker runs until
+you cancel it. A value of 0 also runs until you cancel it.
 
--- bounded:
-C_Timer.NewTicker(0.25, function() ... end, 8)  -- fires 8 times, every 250ms
-```
+The next call comes `seconds` after the last call. A long frame does
+not cause extra calls to make up the lost time. A `seconds` of 0 calls
+`callback` one time in each frame.
 
-Minimum period is clamped to `0.0001` to prevent tight loops.
-Returns the same kind of cancel handle as `NewTimer`. The handle
-auto-cancels itself when the iteration count exhausts.
+#### Rules for the three functions
 
-Notes (apply to all three functions):
+- `callback` is a Lua function, or a container from
+  [`C_FunctionContainers.CreateCallback`](#c_functioncontainerscreatecallbackfunc).
+  Another value causes the usage error at argument 2.
+- `iterations` must be a number from 0 to 4294967295.
+- A negative `seconds` does not make a timer. It causes the error
+  `After(): C_Timer.After requires a non-negative duration`. NewTimer
+  and NewTicker give the same error with their names, and both use the
+  text `C_Timer.NewTicker`.
+- A `seconds` of more than 4294967.295 does not make a timer. It causes
+  the error `After(): C_Timer.After duration is too large`. NewTimer and
+  NewTicker give this error with the same names as above.
+- Timers count in whole milliseconds. A timer for 0.0005 seconds is the
+  same as a timer for 0. A timer for 0 runs on a later frame, never in
+  the frame that made it.
+- An error in `callback` goes to the error handler. The other timers
+  still run.
+- After a reload, no timer from before the reload runs.
 
-- Resolution is one frame (~16ms at 60fps). A timer scheduled for
-  `0.001` seconds will fire on the next tick, same as one
-  scheduled for `0`.
-- Timers use a monotonic clock, so they don't drift if the system
-  clock changes mid-session.
+#### The returned container
+
+The container is the one that holds `callback`. If `callback` is a
+container, NewTimer and NewTicker return that same container. Thus
+`C_Timer.NewTimer(1, cb) == cb` is `true`. If `callback` is a function,
+the container is new.
+
+- `Cancel()` stops the timer. It also stops each event callback that
+  holds the same container.
+- `IsCancelled()` is `true` only after `Cancel()` or a reload. It stays
+  `false` after the timer makes its last call.
+- `Invoke(...)` calls the function at once, with the arguments.
+
+The container that `callback` gets is equal to the returned container
+with `==`. It is a different value, so `rawequal` gives `false`. See
+[`C_FunctionContainers.CreateCallback`](#c_functioncontainerscreatecallbackfunc)
+for the other functions of a container.
 
 ### `C_DateAndTime` overview
 

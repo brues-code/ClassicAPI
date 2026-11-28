@@ -84,7 +84,7 @@
 // the DDC height 1/sqrt(aspect^2 + 1) is 0.389.
 //
 // ClassicAPI extensions on that clock: GetSceneTime, and After / NewTimer /
-// NewTicker, C_Timer's queue and handles with deadlines in scene seconds,
+// NewTicker, C_Timer's queue and handles with deadlines in scene milliseconds,
 // fired from the update right after the clock moves. A hidden scene's clock
 // stands still, and so do its timers.
 //
@@ -214,9 +214,9 @@ struct Fields {
     bool playWorldModelSounds; // SetPlayWorldModelSounds
     float timeOfDay; // SetWorldTimeOfDay, in [0, 1), or -1 for the world's
     Actor *listener; // SetSoundListenerActor, or null; the frame owns its actors
-    // GetSceneTime: the seconds the M2 scene's clock has advanced since the
-    // frame was made, summed from each update's change so it never wraps.
-    double clock;
+    // GetSceneTime: the milliseconds the M2 scene's clock has advanced since
+    // the frame was made, summed from each update's change so it never wraps.
+    uint64_t clockMs;
     // SetMoveMarker: the auto-move marker's point, while shown.
     bool moveMarkerShown;
     float moveMarker[3];
@@ -1254,8 +1254,8 @@ void __fastcall OnFrameUpdate(void *self, void *, float elapsedSec) {
     // The scene's timers, movement and casts run on its clock, once it has
     // moved this frame.
     const uint32_t advancedMs = ClockMs(self) - before;
-    F(self).clock += advancedMs / 1000.0;
-    Time::Timer::Fire(self, F(self).clock);
+    F(self).clockMs += advancedMs;
+    Time::Timer::Fire(self, F(self).clockMs);
     // By index: an actor's script may create another.
     std::vector<Actor *> &actors = *F(self).actors;
     for (size_t i = 0; i < actors.size(); ++i)
@@ -1378,7 +1378,7 @@ void *__fastcall CreateModelScene(void *parent) {
     f.playWorldModelSounds = false;
     f.timeOfDay = -1.0f;
     f.listener = nullptr;
-    f.clock = 0.0;
+    f.clockMs = 0;
     f.moveMarkerShown = false;
     InitLight(frame);
     InitFog(frame);
@@ -1660,7 +1660,7 @@ int __fastcall Script_GetSceneTime(void *L) {
     void *frame = Self(L);
     if (frame == nullptr)
         return 0;
-    Game::Lua::PushNumber(L, F(frame).clock);
+    Game::Lua::PushNumber(L, static_cast<double>(F(frame).clockMs) / 1000.0);
     return 1;
 }
 
@@ -1671,10 +1671,13 @@ int __fastcall Script_Timer(void *L) {
         "Usage: local cbObject = scene:NewTimer(seconds, callback)",
         "Usage: local cbObject = scene:NewTicker(seconds, callback [, iterations])",
     };
+    // The name in a duration error: NewTimer's says NewTicker, as C_Timer's does.
+    static constexpr const char *kApi[] = {"scene:After", "scene:NewTicker", "scene:NewTicker"};
     void *frame = Self(L);
     if (frame == nullptr)
         return 0;
-    return Time::Timer::Script(L, 2, frame, F(frame).clock, kind, kUsage[static_cast<int>(kind)]);
+    const int k = static_cast<int>(kind);
+    return Time::Timer::Script(L, 2, frame, F(frame).clockMs, kind, kUsage[k], kApi[k]);
 }
 
 int __fastcall Script_Project3DPointTo2D(void *L) {
@@ -2451,13 +2454,16 @@ const Game::Doc::Function kGetSceneTime{
     "Returns the seconds that the clock of the scene has run since the scene was made. The clock "
     "stops while the scene is hidden. The actors animate and move by this clock.",
     {}, kSceneTimeRet, nullptr, true};
-const Game::Doc::Field kTimerArgs[] = {Req("seconds", "number", "On the clock of the scene."),
-                                       Req("callback", "function")};
-const Game::Doc::Field kTickerArgs[] = {Req("seconds", "number", "On the clock of the scene."),
-                                        Req("callback", "function"),
-                                        Opt("iterations", "number", nullptr, "Without it, the ticker runs until it is cancelled.")};
+const Game::Doc::Field kTimerArgs[] = {
+    Req("seconds", "number", "On the clock of the scene."),
+    Req("callback", "function", "A function, or a container from C_FunctionContainers.CreateCallback.")};
+const Game::Doc::Field kTickerArgs[] = {
+    Req("seconds", "number", "On the clock of the scene."),
+    Req("callback", "function", "A function, or a container from C_FunctionContainers.CreateCallback."),
+    Opt("iterations", "number", nullptr, "Without it, the ticker runs until it is cancelled.")};
 const Game::Doc::Field kTimerRet[] = {
-    Req("cbObject", "table", "Cancel() stops the timer. IsCancelled() returns true when the timer has stopped.")};
+    Req("cbObject", "LuaFunctionContainer",
+        "The container of the callback, as C_Timer.NewTimer returns it. Cancel() stops the timer.")};
 const Game::Doc::Function kAfter{
     "Calls the callback once, after the clock of the scene has run for the seconds. As C_Timer.After, "
     "on the clock of the scene.",

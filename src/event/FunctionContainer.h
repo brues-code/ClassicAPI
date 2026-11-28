@@ -32,6 +32,10 @@ namespace Event::FunctionContainer {
 
 struct Container;
 
+// True for a value FromCallbackArg takes: a Lua function or a container
+// userdata. Makes nothing.
+bool IsCallbackArg(void *L, int idx);
+
 // The container for the callback value at `idx`, with one reference the
 // caller owns (Release it). A Lua function gets a new container; a container
 // userdata gives its own. nullptr for any other value, a C function included.
@@ -39,6 +43,14 @@ Container *FromCallbackArg(void *L, int idx);
 
 void Retain(Container *c);
 void Release(Container *c);
+
+// Pushes a new container userdata for `c`, holding a reference of its own.
+// Each push is a new userdata, equal to the others by __eq only, as 3.80.2's
+// pusher (FUN_140e2ddd0) boxes one per call.
+void Push(void *L, Container *c);
+
+// True once Cancel() was called, or for a container from an earlier Lua state.
+bool IsCancelled(const Container *c);
 
 // Pushes the container's function and gives true, or pushes nothing and gives
 // false for a cancelled or stale container or a ref that holds no function.

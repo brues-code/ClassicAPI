@@ -216,18 +216,7 @@ const char *NameArg(void *L, int idx) {
     return Game::Lua::IsString(L, idx) ? Game::Lua::ToString(L, idx) : nullptr;
 }
 
-bool IsCallbackValue(void *L, int idx) {
-    const int type = Game::Lua::Type(L, idx);
-    if (type == Game::Lua::TYPE_FUNCTION)
-        return !Game::Lua::IsCFunction(L, idx);
-    if (type != Game::Lua::TYPE_USERDATA)
-        return false;
-    Container *c = Event::FunctionContainer::FromCallbackArg(L, idx);
-    if (c == nullptr)
-        return false;
-    Event::FunctionContainer::Release(c);
-    return true;
-}
+bool IsCallbackValue(void *L, int idx) { return Event::FunctionContainer::IsCallbackArg(L, idx); }
 
 // Copies the table's name for the unit at `idx` into `out`; false for a value
 // that is not a unit token.

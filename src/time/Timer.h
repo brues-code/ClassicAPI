@@ -13,26 +13,30 @@
 
 #pragma once
 
+#include <cstdint>
+
 namespace Time::Timer {
 
 // The C_Timer queue, shared with other clocks. Each timer has an owner:
-// null for C_Timer (its own clock, fired from the WorldTick), or an object
-// with a clock of its own, which fires its timers itself with Fire(owner,
-// now) and drops them with CancelOwned(owner). Deadlines are in the owner's
-// seconds. Handles and callbacks are C_Timer's.
+// null for C_Timer (the engine's ms tick, fired from the WorldTick), or an
+// object with a clock of its own, which fires its timers itself with
+// Fire(owner, nowMs) and drops them with CancelOwned(owner). Clocks are
+// milliseconds that never wrap. Handles and callbacks are C_Timer's.
 
 enum class Kind { After, NewTimer, NewTicker };
 
 // The body of C_Timer.After / NewTimer / NewTicker with the seconds at stack
 // index `first` (the callback, then the ticker's iterations, after it), on
-// `owner`'s clock at `now`. Raises `usage` on bad arguments. Returns the
-// count of Lua results.
-int Script(void *L, int first, const void *owner, double now, Kind kind, const char *usage);
+// `owner`'s clock at `nowMs`. `usage` is the "Usage: ..." text of argument
+// errors, `api` the name in a duration error ("C_Timer.NewTicker"). Returns
+// the count of Lua results.
+int Script(void *L, int first, const void *owner, uint64_t nowMs, Kind kind, const char *usage,
+           const char *api);
 
-// Runs `owner`'s timers that are due at `now`, in the order they were made.
-void Fire(const void *owner, double now);
+// Runs `owner`'s timers that are due at `nowMs`.
+void Fire(const void *owner, uint64_t nowMs);
 
-// Drops `owner`'s timers; their handles answer IsCancelled true.
+// Drops `owner`'s timers. Their handles keep the answer IsCancelled gave.
 void CancelOwned(const void *owner);
 
 } // namespace Time::Timer

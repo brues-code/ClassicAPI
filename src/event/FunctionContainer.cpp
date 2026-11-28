@@ -274,6 +274,8 @@ const Game::ReloadAutoRegister _reload{&PrepareForReload};
 
 } // namespace
 
+bool IsCallbackArg(void *L, int idx) { return IsLuaFunction(L, idx) || Self(L, idx) != nullptr; }
+
 Container *FromCallbackArg(void *L, int idx) {
     if (IsLuaFunction(L, idx))
         return Create(L, idx);
@@ -292,6 +294,13 @@ void Release(Container *c) {
     FreeFields(c);
     delete c;
 }
+
+void Push(void *L, Container *c) {
+    Retain(c);
+    Game::Lua::Boxed::Push(L, kKey, c);
+}
+
+bool IsCancelled(const Container *c) { return !Live(c); }
 
 Profile::AddOnProfiler::Record *Owner(const Container *c) { return c->owner; }
 
