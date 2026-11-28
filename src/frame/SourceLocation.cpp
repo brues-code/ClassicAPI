@@ -319,6 +319,11 @@ const char *Get(void *object) {
             return it->second.c_str();
         if (Game::Lua::IsA(o, Offsets::VAR_FRAME_LUA_TYPE_ID))
             return nullptr; // a frame answers only for itself
+        // Only a region's +0x9C is a parent pointer. A debuglocals() dump can
+        // hand any table's [0] object here (a font, say), where the field is
+        // something else entirely; walking from it reads a wild vtable.
+        if (!Game::Lua::IsA(o, Offsets::VAR_REGION_LUA_TYPE_ID))
+            return nullptr;
         o = Game::Read<void *>(o, Offsets::OFF_REGION_PARENT);
     }
     return nullptr;
