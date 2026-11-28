@@ -17525,6 +17525,43 @@ enum Offsets {
     // body 0x0079F3B0 pushes it as its second value (`mov eax,[esi+0x48]`),
     // and the shared SetFont 0x0079F210 stores it at 0x0079F329.
     OFF_SIMPLEFONT_HEIGHT = 0x48,
+    // The rest of the font a Font object holds, as the shared readers read it.
+    // Flags (OUTLINE 1 / MONOCHROME 2 / THICKOUTLINE 4): GetFont 0x0079F3B0
+    // formats `[font+0x4C]`. Colours are packed b | g << 8 | r << 16 | a << 24:
+    // text at +0x58 (FontMethods GetTextColor 0x0079F680), shadow at +0x5C
+    // (GetShadowColor 0x0079F910). The shadow offset is two internal-unit
+    // floats, x at +0x60 and y at +0x64 (GetShadowOffset 0x0079FAD0).
+    OFF_SIMPLEFONT_FLAGS = 0x4C,
+    OFF_SIMPLEFONT_TEXT_COLOR = 0x58,
+    OFF_SIMPLEFONT_SHADOW_COLOR = 0x5C,
+    OFF_SIMPLEFONT_SHADOW_OFFSET_X = 0x60,
+    OFF_SIMPLEFONT_SHADOW_OFFSET_Y = 0x64,
+    // FontMethods::GetShadowOffset - `int __fastcall(int unused, CSimpleFont
+    // *font, lua_State *L)`, `ret 4`: pushes x and y through GetFont's unit
+    // conversion and returns 2. Every class's GetShadowOffset reaches it.
+    FUN_FONT_PUSH_SHADOW_OFFSET = 0x0079FAD0,
+    // The font-flags formatter GetFont calls - `const char *__fastcall(uint32_t
+    // flags)`: the names of the set bits from the table at 0x00811B10, joined
+    // with ", " (0x0084480C), in a static 64-byte buffer (0x00CEEA60) that the
+    // next call overwrites.
+    FUN_FONT_FLAGS_TO_STRING = 0x006F1AD0,
+    // The named-font table: a Storm TSHashTable<FontRecord, HASHKEY_STRI>, the
+    // one table XML <Font name> and Lua CreateFont both fill. Built by
+    // 0x00783620: vtable at +0, then a TSList of every record (link offset
+    // 0xC at +0x4, first record at +0xC, a null or odd pointer ends it), then
+    // the buckets at +0x1C and the mask at +0x24 (OFF_HASHTABLE_*). A new
+    // record is linked at the tail (0x00783966: Relink 0x00784750 with
+    // placement 2 before the list's own terminator), so the list is in creation
+    // order. A record is the hash at +0, its name at +0x14
+    // (OFF_HASHTABLE_NODE_NAME), and its CSimpleFont at +0x18.
+    VAR_FONT_TABLE = 0x00CF4E80,
+    OFF_HASHTABLE_LIST_LINK = 0x04,
+    OFF_HASHTABLE_LIST_HEAD = 0x0C,
+    OFF_FONT_RECORD_FONT = 0x18,
+    // FindOrCreateFontObject - `CSimpleFont *__fastcall(const char *name, int
+    // create)`: the font of a name, compared ignoring case; with create 0 it
+    // returns null for an unknown name and changes nothing.
+    FUN_FONT_FIND_OR_CREATE = 0x00783870,
     // The engine's own GetFont / SetFont Lua methods of FontString (table
     // 0x0087C1D8) and Font (table 0x0087C7C8), `int __fastcall(L)`. Each
     // resolves its own self; SetFont reads (file, height[, flags]) from stack

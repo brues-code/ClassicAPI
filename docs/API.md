@@ -413,6 +413,10 @@ build instructions.
   - [Unit token (`focus` / `focustarget`)](#unit-token-focus--focustarget)
   - [Bindings (`FOCUSTARGET` / `TARGETFOCUS`)](#predefined-focus-bindings-focustarget--targetfocus)
 
+- [Font](#font)
+  - [`GetFonts()`](#getfonts)
+  - [`GetFontInfo(font or name)`](#getfontinfofont-or-name)
+
 - [Frame](#frame)
   - [`region:SetPoint("point")` (one-argument form)](#regionsetpointpoint-one-argument-form)
   - [`region:SetSize(width, height)` / `region:GetSize([ignoreRect])`](#regionsetsizewidth-height--regiongetsizeignorerect)
@@ -9976,6 +9980,43 @@ its target, the events follow the new target within one frame. Refer to
 after `"target"`, so a focused unit's GUID
 reverse-resolves to `"focus"` only if it isn't already addressable
 as `"player"` / `"party*"` / `"raid*"` / `"nameplate*"` / `"target"`.
+
+## Font
+
+### `GetFonts()`
+
+Returns an array with the names of all named font objects, in the order of
+their creation. The array includes the fonts from XML `<Font name="...">`
+and the fonts from `CreateFont(name)`. If no named font exists, the result
+is `nil`.
+
+```lua
+local names = GetFonts()
+print(table.getn(names), names[1])
+```
+
+### `GetFontInfo(font or name)`
+
+Returns a table that describes a font object. The argument is a Font object
+or the name of one. The name is not case-sensitive. If no font has that
+name, the result is `nil`. Any other argument type raises an error.
+
+The table has these fields:
+
+- `height`: the font height in the units of `GetFont`, cut down to an
+  integer.
+- `outline`: the font flags (`OUTLINE`, `THICKOUTLINE`, `MONOCHROME`),
+  divided by `", "`. If the font has no flags, the value is `""`.
+- `color`: the text color, as a plain table `{r, g, b, a}`.
+- `shadow`: a table `{x, y, color}` with the shadow offset and the shadow
+  color. If the two offset values are both `0`, the field is `nil`. A shadow
+  color without an offset gives no `shadow` field.
+
+```lua
+local info = GetFontInfo("GameFontNormal")
+print(info.height, info.outline, info.color.r)
+local same = GetFontInfo(GameFontNormal)  -- the Font object gives the same table
+```
 
 ## Frame
 

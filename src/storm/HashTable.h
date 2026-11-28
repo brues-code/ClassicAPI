@@ -44,6 +44,18 @@ template <class Fn> void ForEach(uintptr_t slotsField, Fn &&fn) {
     }
 }
 
+// Calls `fn(node)` for every node in the order of the table's own list of all
+// its nodes, until it returns false. `table` is the table's base address
+// (OFF_HASHTABLE_LIST_*); an empty table's head is its odd terminator.
+template <class Fn> void ForEachListed(uintptr_t table, Fn &&fn) {
+    const int link = *reinterpret_cast<const int *>(table + Offsets::OFF_HASHTABLE_LIST_LINK);
+    for (auto *node = *reinterpret_cast<const uint8_t *const *>(table + Offsets::OFF_HASHTABLE_LIST_HEAD);
+         Storm::IsNode(node);
+         node = *reinterpret_cast<const uint8_t *const *>(node + link + 4))
+        if (!fn(node))
+            return;
+}
+
 // The node named `name` in a HASHKEY_STRI table (hash first, then SStrCmpI,
 // as the engine compares), or nullptr.
 const uint8_t *FindStri(uintptr_t slotsField, const char *name);
