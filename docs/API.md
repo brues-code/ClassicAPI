@@ -1327,6 +1327,7 @@ build instructions.
 
 - [System](#system)
   - [`GetPhysicalScreenSize()`](#getphysicalscreensize)
+  - [`GetMonitorCount()` / `GetMonitorName(index)` / `GetMonitorAspectRatio([index])`](#getmonitorcount--getmonitornameindex--getmonitoraspectratioindex)
   - [`CopyToClipboard(text [, removeMarkup])`](#copytoclipboardtext--removemarkup)
   - [`FlashClientIcon([briefly])`](#flashclienticonbriefly)
   - [Frame rate limits (`useMaxFPS`, `maxFPS`, `useMaxFPSBk`, `maxFPSBk`, `maxFPSLoading`)](#frame-rate-limits-usemaxfps-maxfps-usemaxfpsbk-maxfpsbk-maxfpsloading)
@@ -29419,6 +29420,32 @@ local w, h = GetPhysicalScreenSize()   -- for example 1920, 1080
 
 The ClassicAPI addon supplies the `PixelUtil` table (`PixelUtil.SetPoint`,
 `SetSize`, `SetStatusBarValue`, and more), which uses this function.
+
+### `GetMonitorCount()` / `GetMonitorName(index)` / `GetMonitorAspectRatio([index])`
+
+These functions give information about the monitors of the computer. Index
+1 is always the primary monitor. Index 2 and up are the monitors, in the
+order that Windows gives them. Thus the primary monitor also has a second
+index.
+
+- `GetMonitorCount()` returns the number of indexes: the number of
+  monitors, plus 1.
+- `GetMonitorName(index)` returns `name, isPrimary`. `name` is `nil` for
+  index 1 and for a monitor that has the name "Generic PnP Monitor". When
+  two monitors have the same name, the names get the suffixes ` [1]`,
+  ` [2]`, and more. Without a number argument, the function returns no
+  values.
+- `GetMonitorAspectRatio([index])` returns the width of the monitor
+  divided by its height. The size is the size of the monitor on the
+  desktop. Without `index`, the function uses index 1. For an index that
+  is not in the list, it returns `1`.
+
+```lua
+print(GetMonitorAspectRatio())   -- for example 1.7777777910233 (16:9)
+for i = 2, GetMonitorCount() do
+  print(i, GetMonitorName(i))    -- for example 2 DELL U2723QE true
+end
+```
 
 ### `CopyToClipboard(text [, removeMarkup])`
 
