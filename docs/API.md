@@ -1448,6 +1448,7 @@ build instructions.
   - [`UnitStandState(unit)`](#unitstandstateunit)
   - [`UnitInRange(unit)`](#unitinrangeunit)
   - [`UnitDistanceSquared(unit)`](#unitdistancesquaredunit)
+  - [`UnitInBattleground([unit [, partyIndex]])`](#unitinbattlegroundunit--partyindex)
   - [`UnitCombatReach(unit)`](#unitcombatreachunit)
   - [`UnitPosition(unit)`](#unitpositionunit)
   - [`UnitFacing(unit)`](#unitfacingunit)
@@ -31952,6 +31953,30 @@ different map, the distance is not known.
 Spell range uses height and subtracts the combat reach of both units, so
 this distance is not the one that spell range measures. See
 [`UnitCombatReach`](#unitcombatreachunit).
+
+### `UnitInBattleground([unit [, partyIndex]])`
+
+Returns `position`: the raid slot of `unit` while you are on a
+battleground or arena map. `position` is the `N` of the `raidN` token
+for that unit, so `GetRaidRosterInfo(position)` gives that member.
+
+```lua
+local position = UnitInBattleground("player")
+if position then
+    local name, rank, subgroup = GetRaidRosterInfo(position)
+end
+```
+
+| Argument | Meaning |
+|----------|---------|
+| `unit` | A unit token, or the name of you, a group member, or one of your pets. |
+| `partyIndex` | `1` for your own group. This is the default. `2` is an instance group, which does not exist here, so the result is always `nil`. |
+
+The result is `nil` in these conditions:
+
+- You are not on a battleground or arena map.
+- The unit is not in your raid. A party is not a raid, so all party members give `nil`.
+- You do not give a unit.
 
 ### `UnitCombatReach(unit)`
 
