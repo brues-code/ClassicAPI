@@ -91,6 +91,7 @@
 #include "unit/Identity.h"
 #include "unit/IncomingResurrection.h"
 #include "spell/CastPacket.h"
+#include "dbc/Names.h"
 
 #include <cstdint>
 
@@ -1184,27 +1185,94 @@ static uint64_t TargetGuidForCaster(uint64_t caster) {
     return (rc != nullptr && !Ended(rc->endMs)) ? rc->targetGuid : 0;
 }
 
-// `UnitSpellTargetName(unit)` — name of the unit that `unit` is currently
-// casting / channeling a spell at, or nil when `unit` isn't casting, the spell
-// has no unit target (self / ground / item), or the target's name can't be
-// resolved (an off-screen stranger). ClassicAPI extension; the cast's target
-// comes from the SMSG_SPELL_START target block, captured for the player and
-// any remote unit whose cast we've observed.
-static int __fastcall Script_UnitSpellTargetName(void *L) {
+// UNIT_FLAG_PLAYER_CONTROLLED on a unit in the object table (the bit 1.12's
+// own UnitPlayerControlled tests); false for one out of range.
+static bool IsPlayerControlled(uint64_t guid) {
+    const uint8_t *fields = Object::Fields(Object::ByGuid(Offsets::TYPEMASK_UNIT, guid));
+    return fields != nullptr && (Game::Read<uint32_t>(fields, Offsets::OFF_UNIT_FIELD_FLAGS) &
+                                 Offsets::UNIT_FLAG_PLAYER_CONTROLLED) != 0;
+}
+
+// The cast target whose name a cast bar shows, or 0. 3.80.2's reader
+// (FUN_141bb20a0, shared by the four spell-target functions) returns the
+// cast's target only when the target (a unit it holds) or the caster is
+// player-controlled (UNIT_FIELD_FLAGS 0x8, unit+0x12650), so an NPC casting
+// at another NPC shows nothing. Its third case, a creature whose cache record
+// has TypeFlags2 bit 20 (record+0x15C), cannot occur here: 1.12's creature
+// record has one type-flag word. 3.80.2 keeps the last cast's target after
+// the cast ends; here TargetGuidForCaster answers only during the cast, as
+// retail documents these functions.
+static uint64_t ShownTargetGuid(uint64_t caster) {
+    const uint64_t target = TargetGuidForCaster(caster);
+    if (target == 0)
+        return 0;
+    return (IsPlayerControlled(target) || IsPlayerControlled(caster)) ? target : 0;
+}
+
+// The shown cast target of the unit named by arg 1; raises `usage` for a
+// missing or non-string argument.
+static uint64_t ShownTargetForArg(void *L, const char *usage) {
     if (!Game::Lua::IsString(L, 1)) {
-        Game::Lua::Error(L, "Usage: UnitSpellTargetName(\"unit\")");
+        Game::Lua::Error(L, usage);
         return 0;
     }
     const char *token = Game::Lua::ToString(L, 1);
-    const uint64_t caster =
-        (token != nullptr) ? Unit::Identity::GuidForToken(token) : 0;
-    const uint64_t targetGuid = TargetGuidForCaster(caster);
+    return ShownTargetGuid(token != nullptr ? Unit::Identity::GuidForToken(token) : 0);
+}
+
+// `UnitShouldDisplaySpellTargetName(unit)` — whether `unit` is casting at a
+// target whose name the cast bar shows.
+static int __fastcall Script_UnitShouldDisplaySpellTargetName(void *L) {
+    const uint64_t target =
+        ShownTargetForArg(L, "Usage: local result = UnitShouldDisplaySpellTargetName(unit)");
+    Game::Lua::PushBool(L, target != 0);
+    return 1;
+}
+
+// `UnitSpellTargetName(unit)` — the shown target's name, or nil when there is
+// none or its name can't be resolved (an off-screen stranger).
+static int __fastcall Script_UnitSpellTargetName(void *L) {
+    const uint64_t target =
+        ShownTargetForArg(L, "Usage: local targetName = UnitSpellTargetName(unit)");
     char name[64];
-    if (targetGuid == 0 || !Player::Info::NameFromGuid(targetGuid, name, sizeof name)) {
+    if (target == 0 || !Player::Info::NameFromGuid(target, name, sizeof name)) {
         Game::Lua::PushNil(L);
         return 1;
     }
     Game::Lua::PushString(L, name);
+    return 1;
+}
+
+// `UnitSpellTargetClass(unit)` — the shown target's class filename, or nil.
+// 3.80.2 (FUN_141baf1e0) reads a held unit's class, NPCs included, then the
+// name cache for a player it doesn't hold: the same sources UnitClassBase
+// reads here.
+static int __fastcall Script_UnitSpellTargetClass(void *L) {
+    const uint64_t target =
+        ShownTargetForArg(L, "Usage: local classFilename = UnitSpellTargetClass(unit)");
+    uint8_t classByte = 0;
+    if (target != 0) {
+        if (const uint8_t *fields =
+                Object::Fields(Object::ByGuid(Offsets::TYPEMASK_UNIT, target))) {
+            classByte = Unit::Identity::Class(fields);
+        } else if (const uint8_t *rec = Unit::Identity::PlayerInfoRecord(target)) {
+            classByte = static_cast<uint8_t>(
+                Game::Read<uint32_t>(rec, Offsets::OFF_PLAYER_INFO_CLASS));
+        }
+    }
+    const char *classFile = classByte != 0 ? DBC::ClassToken(classByte) : nullptr;
+    if (classFile == nullptr) {
+        Game::Lua::PushNil(L);
+        return 1;
+    }
+    Game::Lua::PushString(L, classFile);
+    return 1;
+}
+
+// `PlayerIsSpellTarget(unit)` — whether the player is the shown target.
+static int __fastcall Script_PlayerIsSpellTarget(void *L) {
+    const uint64_t target = ShownTargetForArg(L, "Usage: local result = PlayerIsSpellTarget(unit)");
+    Game::Lua::PushBool(L, target != 0 && target == Unit::Identity::PlayerGuid());
     return 1;
 }
 
@@ -1283,12 +1351,38 @@ static const Game::Doc::Function kUnitChannelDuration{
 
 static const Game::Doc::Field kTargetNameRets[] = {
     Game::Doc::Opt("targetName", "string", nullptr,
-                   "Nil when the unit is not casting, the spell has no unit target, "
-                   "or the name cannot be resolved."),
+                   "Nil when UnitShouldDisplaySpellTargetName is false, or the name cannot be "
+                   "resolved."),
 };
 static const Game::Doc::Function kUnitSpellTargetName{
     "Returns the name of the unit that a unit is casting or channeling a spell at.",
     kUnitArgs, kTargetNameRets, "UnitGlobals"};
+
+static const Game::Doc::Field kTargetClassRets[] = {
+    Game::Doc::Opt("classFilename", "cstring", nullptr,
+                   "For example \"MAGE\"; nil when UnitShouldDisplaySpellTargetName is false, "
+                   "or the class is unknown."),
+};
+static const Game::Doc::Function kUnitSpellTargetClass{
+    "Returns the class of the unit that a unit is casting or channeling a spell at.",
+    kUnitArgs, kTargetClassRets, "UnitGlobals"};
+
+static const Game::Doc::Field kShouldDisplayRets[] = {
+    Game::Doc::Req("result", "bool",
+                   "True while the unit casts or channels a spell at a unit, and the caster or "
+                   "that target is controlled by a player."),
+};
+static const Game::Doc::Function kUnitShouldDisplaySpellTargetName{
+    "Returns whether a cast bar shows the target of the spell a unit is casting or channeling.",
+    kUnitArgs, kShouldDisplayRets, "UnitGlobals"};
+
+static const Game::Doc::Field kPlayerIsSpellTargetRets[] = {
+    Game::Doc::Req("result", "bool",
+                   "False also when UnitShouldDisplaySpellTargetName is false."),
+};
+static const Game::Doc::Function kPlayerIsSpellTarget{
+    "Returns whether the player is the target of the spell a unit is casting or channeling.",
+    kUnitArgs, kPlayerIsSpellTargetRets, "UnitGlobals"};
 
 static void RegisterLuaFunctions() {
     // Registered under C_Spell rather than as globals to avoid clobbering
@@ -1312,10 +1406,16 @@ static void RegisterLuaFunctions() {
                                       &kUnitCastingDuration);
     Game::Lua::RegisterGlobalFunction("UnitChannelDuration", &Script_UnitChannelDuration,
                                       &kUnitChannelDuration);
-    // A novel ClassicAPI name (no addon ships its own), so it's safe as a
-    // global — and it matches the `UnitSpellTargetName(unit)` call shape.
+    // Retail's spell-target globals; no 1.12 addon ships its own.
     Game::Lua::RegisterGlobalFunction("UnitSpellTargetName", &Script_UnitSpellTargetName,
                                       &kUnitSpellTargetName);
+    Game::Lua::RegisterGlobalFunction("UnitSpellTargetClass", &Script_UnitSpellTargetClass,
+                                      &kUnitSpellTargetClass);
+    Game::Lua::RegisterGlobalFunction("UnitShouldDisplaySpellTargetName",
+                                      &Script_UnitShouldDisplaySpellTargetName,
+                                      &kUnitShouldDisplaySpellTargetName);
+    Game::Lua::RegisterGlobalFunction("PlayerIsSpellTarget", &Script_PlayerIsSpellTarget,
+                                      &kPlayerIsSpellTarget);
 }
 
 static const Game::ModuleAutoRegister _autoreg{&RegisterLuaFunctions};

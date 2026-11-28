@@ -1462,7 +1462,7 @@ build instructions.
   - [`UnitPowerType(unit)`](#unitpowertypeunit)
   - [`GetComboPoints(unit, target)`](#getcombopointsunit-target)
   - [`UnitSpellHaste(unit)`](#unitspellhasteunit)
-  - [`UnitSpellTargetName(unit)`](#unitspelltargetnameunit)
+  - [`UnitSpellTargetName(unit)` / `UnitSpellTargetClass(unit)` / `UnitShouldDisplaySpellTargetName(unit)` / `PlayerIsSpellTarget(unit)`](#unitspelltargetnameunit--unitspelltargetclassunit--unitshoulddisplayspelltargetnameunit--playerisspelltargetunit)
   - [`UnitHasIncomingResurrection(unit)`](#unithasincomingresurrectionunit)
   - [`CanBeRaidTarget(unit)`](#canberaidtargetunit)
 
@@ -32331,26 +32331,46 @@ Consumers that need the raw multiplier back can recover it as
 `1 / (1 + UnitSpellHaste(unit) / 100)`. Returns `0` for invalid units.
 [`UNIT_SPELL_HASTE`](#unit_spell_haste-event) fires when the value changes.
 
-### `UnitSpellTargetName(unit)`
+### `UnitSpellTargetName(unit)` / `UnitSpellTargetClass(unit)` / `UnitShouldDisplaySpellTargetName(unit)` / `PlayerIsSpellTarget(unit)`
 
-Returns the name of the unit that `unit` is casting or channeling a spell
-**at**, or `nil`.
+These four functions tell you about the unit that `unit` casts or channels
+a spell **at**. A cast bar uses them to show the name of that target.
 
 ```
 targetName = UnitSpellTargetName(unit)
+classFilename = UnitSpellTargetClass(unit)
+result = UnitShouldDisplaySpellTargetName(unit)
+result = PlayerIsSpellTarget(unit)
 ```
 
 ```lua
-UnitSpellTargetName("target")   -- "Playername" while the mob casts at you
-UnitSpellTargetName("player")   -- your current cast's target, or nil
+UnitSpellTargetName("target")    -- "Playername" while the mob casts at you
+UnitSpellTargetClass("target")   -- "MAGE" for that player
+PlayerIsSpellTarget("target")    -- true while the mob casts at you
+UnitShouldDisplaySpellTargetName("player")   -- true while you cast at a unit
 ```
 
-Returns `nil` when:
+- `UnitShouldDisplaySpellTargetName` returns true when `unit` casts or
+  channels a spell at a unit, and the caster or the target is controlled by
+  a player. Players, their pets, and mind-controlled units are controlled by
+  a player.
+- `UnitSpellTargetName` returns the name of that target.
+- `UnitSpellTargetClass` returns the class filename of that target, for
+  example `"WARRIOR"`. Creatures have a class too.
+- `PlayerIsSpellTarget` returns true when that target is you.
 
-- `unit` is not casting or channeling.
+When `UnitShouldDisplaySpellTargetName` returns false, the other functions
+return `nil`, `nil`, and `false`. This occurs when:
+
+- `unit` does not cast or channel a spell.
 - The spell has no unit target. This covers a self-cast, a ground-target
   spell (Blizzard, Rain of Fire), and an item or lock cast.
-- The target's name can't be resolved (an off-screen stranger).
+- A creature casts at another creature, and no player controls one of them.
+  A cast bar does not show these targets.
+
+`UnitSpellTargetName` also returns `nil` when the target's name is unknown
+(an off-screen stranger). `UnitSpellTargetClass` also returns `nil` when the
+class is unknown.
 
 ClassicAPI knows the target for the player and for any remote unit whose
 cast you saw from its start. So the same limit as
@@ -32361,8 +32381,8 @@ visible players and creatures, then the friends list, then the saved name
 cache.
 
 The player's target arrives when the server confirms the cast, about one round-trip
-after the cast starts. So `UnitSpellTargetName("player")` can read `nil` for
-the first part of your own cast, then return the name.
+after the cast starts. So for your own cast, these functions can return no
+target for the first part of the cast. Then they return the target.
 
 ### `UnitHasIncomingResurrection(unit)`
 
