@@ -169,7 +169,7 @@ void __fastcall ChatDispatch_h(
 
     // The sender for the CHAT_MSG_* event the original fires synchronously;
     // restored when this scope ends (after the original returns).
-    Chat::EventArgs::SenderScope sender(senderGuid, flags, true);
+    Chat::EventArgs::SenderScope sender(senderGuid, flags);
 
     g_original(msg, chatType, senderName, languageID, channel, targetName, flags,
                speakerGuidLo, speakerGuidHi, rank, guidLo, guidHi);

@@ -25,18 +25,16 @@ namespace Chat::EventArgs {
 //
 // `flags` is the message's chat tag ("AFK"/"DND"/"GM", or null). A sender
 // counts only when it is a player and the message is not GM-tagged, as in
-// 4.3.4. `takesLineID` is false only for text emotes, which 4.3.4 fires with
-// lineID 0.
+// 4.3.4.
 class SenderScope {
 public:
-    SenderScope(uint64_t senderGuid, const char *flags, bool takesLineID);
+    SenderScope(uint64_t senderGuid, const char *flags);
     ~SenderScope();
     SenderScope(const SenderScope &) = delete;
     SenderScope &operator=(const SenderScope &) = delete;
 
 private:
     uint64_t prevGuid_;
-    bool prevTakesLineID_;
 };
 
 } // namespace Chat::EventArgs

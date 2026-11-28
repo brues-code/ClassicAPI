@@ -21,9 +21,12 @@
 // the first ten from one place, FUN_CHAT_EVENT_FIRE, so its FUN_FIRE_EVENT
 // call is redirected here and the two are appended:
 //
-//   arg11 lineID  — ++counter for each message, before its event fires
-//                   (4.3.4: `uint32_t lineID = ++s_chatLineID`). Text emotes
-//                   get 0, as 4.3.4's AddTextEmoteMessage passes.
+//   arg11 lineID  — ++counter for each message, before its event fires, as
+//                   3.80.2's AddChatMessage (FUN_1416b0510) does:
+//                   `lineID = ++DAT_14472ed64`, a uint32 never reset. Text
+//                   emotes take one too (3.80.2 sends them through the same
+//                   function; 4.3.4's AddTextEmoteMessage passed 0). 3.80.2's
+//                   only 0 is COMMUNITIES_CHANNEL, which 1.12 has no type for.
 //   arg12 guid    — the sender's GUID string, only for a PLAYER GUID and not
 //                   for a GM-tagged message; "" otherwise, never nil (4.3.4
 //                   leaves its guidString buffer empty).
@@ -45,7 +48,7 @@
 // chat-message dispatch with the GUID it picks for that chat type; the text
 // emote builder is co-hooked below because it fires without passing its GUID
 // on. A message fired outside any scope (FUN_0049B1B0, client-made notices)
-// has no sender and still takes a lineID, as every 4.3.4 AddChatMessage does.
+// has no sender and still takes a lineID, as every 3.80.2 AddChatMessage does.
 //
 // The call site is redirected rather than FUN_FIRE_EVENT hooked: every event
 // goes through FUN_FIRE_EVENT, chat goes through this one call. It also works
@@ -70,7 +73,6 @@ namespace Chat::EventArgs {
 namespace {
 
 uint64_t g_sender = 0; // 0 unless a player sender, already filtered
-bool g_takesLineID = true;
 uint32_t g_lineID = 0;
 
 using TextEmote_t = void(__fastcall *)(const uint64_t *senderGuid, int emote, const char *target,
@@ -130,7 +132,7 @@ void __cdecl FireSite(int eventId, const char *fmt, const char *text, const char
                             zoneChannelID, channelNumber, channelName, channelUnk);
         return;
     }
-    const uint32_t lineID = g_takesLineID ? ++g_lineID : 0;
+    const uint32_t lineID = ++g_lineID;
     char guid[Guid::STRING_SIZE] = "";
     if (g_sender != 0)
         Guid::FormatAsString(g_sender, guid, sizeof guid);
@@ -145,7 +147,7 @@ void __cdecl FireSite(int eventId, const char *fmt, const char *text, const char
 
 void __fastcall TextEmote_h(const uint64_t *senderGuid, int emote, const char *target,
                             int emoteNum) {
-    SenderScope scope(*senderGuid, nullptr, false); // the engine dereferences it unchecked too
+    SenderScope scope(*senderGuid, nullptr); // the engine dereferences it unchecked too
     g_textEmoteOriginal(senderGuid, emote, target, emoteNum);
 }
 
@@ -241,15 +243,10 @@ const Game::HookAutoRegister _textEmoteHook{Offsets::FUN_CHAT_TEXT_EMOTE,
 
 } // namespace
 
-SenderScope::SenderScope(uint64_t senderGuid, const char *flags, bool takesLineID)
-    : prevGuid_(g_sender), prevTakesLineID_(g_takesLineID) {
+SenderScope::SenderScope(uint64_t senderGuid, const char *flags) : prevGuid_(g_sender) {
     g_sender = (Guid::IsPlayer(senderGuid) && !IsStaffFlag(flags)) ? senderGuid : 0;
-    g_takesLineID = takesLineID;
 }
 
-SenderScope::~SenderScope() {
-    g_sender = prevGuid_;
-    g_takesLineID = prevTakesLineID_;
-}
+SenderScope::~SenderScope() { g_sender = prevGuid_; }
 
 } // namespace Chat::EventArgs

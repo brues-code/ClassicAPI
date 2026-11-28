@@ -7421,7 +7421,7 @@ Every `CHAT_MSG_*` event has two more arguments after the usual ten:
 
 - `arg11` — `lineID`. A number that identifies the message. Each message
   gets the next number, and all frames that get the message see the same
-  number. Text emotes (`CHAT_MSG_TEXT_EMOTE`) always have `0`.
+  number.
 - `arg12` — `guid`. The sender's GUID, in the same format as `UnitGUID`
   (`"0xHHHHHHHHLLLLLLLL"`). It is an empty string `""` when the sender is
   not a player: monster chat, system messages and channel notices. It is
