@@ -13623,6 +13623,11 @@ enum Offsets {
     INPUT_FLAG_MOVE_BACKWARD = 0x20,
     INPUT_FLAG_STRAFE_LEFT = 0x40,
     INPUT_FLAG_STRAFE_RIGHT = 0x80,
+    // TurnLeftStart / TurnRightStart (benilla-re systems/spell/interrupts.md;
+    // 3.3.5 INPUT_TURN_PLAYER_LEFT/RIGHT_KEY). While INPUT_FLAG_MOUSELOOK is
+    // held these keys strafe instead of turning.
+    INPUT_FLAG_TURN_LEFT = 0x100,
+    INPUT_FLAG_TURN_RIGHT = 0x200,
     INPUT_FLAG_AUTORUN = 0x1000,
     INPUT_FLAGS_MOVING_ANY =
         INPUT_FLAG_MOVE_FORWARD | INPUT_FLAG_MOVE_BACKWARD |

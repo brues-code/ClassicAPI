@@ -7609,7 +7609,7 @@ of player input starts and stops.
 
 | Event | Fires on |
 |-------|----------|
-| `PLAYER_STARTED_MOVING` / `PLAYER_STOPPED_MOVING` | The movement keys, autorun, or holding both mouse buttons to run |
+| `PLAYER_STARTED_MOVING` / `PLAYER_STOPPED_MOVING` | The movement keys, autorun, holding both mouse buttons to run, or holding the right mouse button and a turn key to strafe |
 | `PLAYER_STARTED_TURNING` / `PLAYER_STOPPED_TURNING` | Turning the character while holding the right mouse button |
 | `PLAYER_STARTED_LOOKING` / `PLAYER_STOPPED_LOOKING` | Moving the camera while holding the left mouse button |
 

@@ -13,7 +13,8 @@
 // state once, edge-detects each pair, fires whichever transitioned.
 //
 //   PLAYER_STARTED_MOVING / STOPPED_MOVING
-//     Source: UI-input controller flag bits (WASD / autorun).
+//     Source: UI-input controller flag bits (WASD / autorun, both mouse
+//     buttons, RMB + a turn key), the 3.80.2 client's test.
 //     Key-state based — STOPPED fires the instant the movement keys
 //     release, even mid-air. Matches retail.
 //
@@ -45,7 +46,9 @@ namespace Player::InputEvents {
 namespace {
 
 const Game::Doc::Event kStartedMovingDoc{
-    "Unit", "Fires when the player starts to move with the movement keys, autorun, or both mouse buttons.",
+    "Unit",
+    "Fires when the player starts to move with the movement keys, autorun, both mouse buttons, or the "
+    "right mouse button and a turn key.",
     {}};
 const Game::Doc::Event kStoppedMovingDoc{
     "Unit", "Fires when the player releases all movement input, even while still in the air.", {}};
@@ -127,15 +130,21 @@ void OnWorldTick() {
     const bool freeLookHeld  = (flags & Offsets::INPUT_FLAG_FREE_LOOK) != 0;
     const bool mouselookHeld = (flags & Offsets::INPUT_FLAG_MOUSELOOK) != 0;
 
-    // MOVING — translational input. The WASD / autorun keys set the
-    // INPUT_FLAGS_MOVING_ANY bits directly. The "hold both mouse
-    // buttons to run forward" gesture does NOT: the engine drives that
-    // forward move at the movement layer (FUN_005103e0 from the button
-    // handler) and actually *clears* the autorun bit on the both-button
-    // press, so no MOVING_ANY bit is ever set. Detect it from the
-    // bit combo instead — both mouselook (RMB) and free-look (LMB)
-    // held means the engine is mouse-steering the character forward.
-    const bool mouseSteerMoving = mouselookHeld && freeLookHeld;
+    // MOVING — translational input, the 3.80.2 client's test (its set /
+    // release / engine-clear functions 0x14125F420 / 0x14125FFA0 /
+    // 0x141260FA0 all fire on it changing):
+    //   (flags & 0x1DE010F0) || ((flags & 0x1) && (flags & 0x302))
+    // The first term is the WASD / autorun keys (INPUT_FLAGS_MOVING_ANY;
+    // its other bits are gamepad and move-and-steer, which 1.12 lacks).
+    // The second is mouselook (RMB) held with free-look (LMB) — the "hold
+    // both mouse buttons to run forward" gesture, which sets no MOVING_ANY
+    // bit (the engine drives it from the button handler via FUN_005103e0
+    // and clears the autorun bit on the both-button press) — or with a
+    // turn key, which strafes while mouselook is held.
+    const bool mouseSteerMoving =
+        mouselookHeld &&
+        (flags & (Offsets::INPUT_FLAG_FREE_LOOK | Offsets::INPUT_FLAG_TURN_LEFT |
+                  Offsets::INPUT_FLAG_TURN_RIGHT)) != 0;
     const bool moving =
         (flags & Offsets::INPUT_FLAGS_MOVING_ANY) != 0 || mouseSteerMoving;
 
